@@ -361,6 +361,17 @@ public class ClaudeCliRunnerTests {
     }
 
     [Test]
+    public async Task TryReadTranscriptFallback_PlainTextStdout_ReturnsNullWithoutLogging() {
+        var logs = new List<string>();
+
+        var result = ClaudeCliRunner.TryReadTranscriptFallback(
+            "Failed to authenticate: OAuth session expired and could not be refreshed", logs.Add, TestHarnesses.Under(Home));
+
+        await Assert.That(result).IsNull();
+        await Assert.That(logs).IsEmpty();
+    }
+
+    [Test]
     public async Task ParseResponse_extracts_num_turns_from_json() {
         const string json = """
                             {

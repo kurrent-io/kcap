@@ -29,6 +29,15 @@ public class DaemonPidLivenessTests {
     }
 
     [Test]
+    public async Task The_live_pid_is_the_one_the_file_names_and_none_without_a_live_process() {
+        await Assert.That(DaemonPidLiveness.LivePid(Daemons.Store, Name)).IsNull();
+
+        WritePid($"{Environment.ProcessId}\n{ProcessStartToken.ForCurrent()}\n");
+
+        await Assert.That(DaemonPidLiveness.LivePid(Daemons.Store, Name)).IsEqualTo(Environment.ProcessId);
+    }
+
+    [Test]
     public async Task Live_daemons_lists_only_the_live_pids() {
         Daemons.CreateFile(Path.GetFileName(Daemons.Store.PidPath("live")), $"{Environment.ProcessId}\n{ProcessStartToken.ForCurrent()}\n");
         Daemons.CreateFile(Path.GetFileName(Daemons.Store.PidPath("stale")), "not a pid\n");

@@ -800,11 +800,13 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         new[] {
             AcpVendorDescriptors.Cursor, AcpVendorDescriptors.Copilot, AcpVendorDescriptors.Kiro,
             AcpVendorDescriptors.OpenCode, AcpVendorDescriptors.Grok, AcpVendorDescriptors.Gemini,
+            AcpVendorDescriptors.MistralVibe,
         }.ToDictionary(d => d.Vendor);
 
     public static IEnumerable<Func<(string Vendor, bool IsReviewFlow)>> EveryAcpLaunch() =>
         from vendor in EveryAcpDescriptor.Keys
         from isReviewFlow in new[] { false, true }
+        where !isReviewFlow || EveryAcpDescriptor[vendor].SupportsUnattended
         select (Func<(string, bool)>)(() => (vendor, isReviewFlow));
 
     /// <summary>kcap's MCP servers inside an ACP child find their session by asking the named daemon
@@ -824,7 +826,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         using var codex  = EnvScope.Exclusive("CODEX_THREAD_ID", "inherited");
         using var grok   = EnvScope.Exclusive("GROK_SESSION_ID", "grok-own");
 
-        var config = new DaemonConfig { Name = "daemon-a", Store = NewPaths(), DaemonEpoch = "epoch-1" };
+        var config = new DaemonConfig { Name = "daemon-a", Store = NewPaths(), DaemonEpoch = "epoch-1", Home = new UserHome("/home/kcap-test") };
         AcpHostedAgentRuntimeFactory.VersionStoreFor(config, descriptor.Vendor).Affirm("99.0.0");
         var ctx = (isReviewFlow ? ReviewContext() : MakeContext("agent-1")) with { Vendor = vendor, DaemonName = "daemon-a" };
 
@@ -1449,6 +1451,21 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         await Assert.That(psi.FileName).IsEqualTo("/opt/homebrew/bin/copilot");
         await Assert.That(psi.ArgumentList.SequenceEqual(["--acp", "--stdio"])).IsTrue();
+        await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
+    }
+
+    /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the
+    /// <c>vibe</c> TUI would never answer <c>initialize</c>.</summary>
+    [Test]
+    public async Task BuildProcessStartInfo_MistralVibe_SpawnsVibeAcpWithNoArguments() {
+        var config = new DaemonConfig { MistralVibePath = "/opt/vibe/bin/vibe-acp" };
+        var ctx    = MakeContext("agent-1");
+
+        var psi = AcpHostedAgentRuntimeFactory.BuildProcessStartInfo(AcpVendorDescriptors.MistralVibe, config, ctx);
+
+        await Assert.That(new DaemonConfig().MistralVibePath).IsEqualTo("vibe-acp");
+        await Assert.That(psi.FileName).IsEqualTo("/opt/vibe/bin/vibe-acp");
+        await Assert.That(psi.ArgumentList).IsEmpty();
         await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
     }
 
@@ -2529,13 +2546,21 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(support.WithheldReason).IsNull();
     }
 
-    /// <summary>
-    /// One call, one version probe.
-    ///
-    /// <para>The flag and the reason come from a single method precisely so startup does not spawn the
-    /// vendor binary once to decide and again to explain. `--version` on a cold Node start is not free, and
-    /// the resolver is bounded at 10s per attempt — a duplicated probe is a duplicated stall on every boot.</para>
-    /// </summary>
+    [Test]
+    [Arguments(true, null, true)]
+    [Arguments(false, null, false)]
+    [Arguments(true, "0.52.0", false)]
+    [Arguments(true, "0.54.0", false)]
+    public async Task Only_an_unresolved_enabled_version_probe_is_retryable(bool enabled, string? installed, bool retryable) {
+        var config = GeminiEnabledConfig(affirmed: "0.53.0");
+        config.GeminiUnattendedReviewerEnabled = enabled;
+        IHostedAgentRuntimeFactory factory = new AcpHostedAgentRuntimeFactory(
+            AcpVendorDescriptors.Gemini, config, NullLoggerFactory.Instance,
+            new CaptureServerConnection(), TimeProvider.System, resolveVendorVersion: _ => installed);
+
+        await Assert.That(factory.DescribeUnattendedSupport().ProbeFailed).IsEqualTo(retryable);
+    }
+
     [Test]
     public async Task DescribeUnattendedSupport_ProbesTheVendorBinaryExactlyOnce() {
         var probes = 0;
@@ -2698,7 +2723,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var config = new DaemonConfig {
             OpenCodeUnattendedReviewerEnabled = true,
             Store = NewPaths(),
-            Name  = "test-daemon"
+            Name  = "test-daemon",
+            Home  = new UserHome("/home/kcap-test")
         };
 
         if (launchTimeoutSeconds is { } seconds)

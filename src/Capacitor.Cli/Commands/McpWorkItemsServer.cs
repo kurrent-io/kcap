@@ -10,7 +10,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.WorkItems;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 
@@ -59,7 +59,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, repository.GetHashAsync);
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, () => repository.GetHashAsync(client, baseUrl));
             } catch (Exception ex) {
                 // Unexpected: log the detail to stderr (not to the client, which could leak local
                 // paths from IO errors) and return a generic tool error, keeping the loop alive.
@@ -293,8 +293,8 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             var sessionId    = McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve(Environment.GetEnvironmentVariable, Directory.Exists).SessionId);
 
             using var deadline     = new CancellationTokenSource(NextWorkRequestDeadline, time);
-            using var httpResponse = await client.GetAsync(
-                BuildNextWorkUrl(baseUrl, arguments, repoHash, sessionId), HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            using var httpResponse = await SendNextWorkAsync(
+                client, BuildNextWorkUrl(baseUrl, arguments, repoHash, sessionId), presenting: sessionId is not null, deadline.Token);
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
                 return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
@@ -311,6 +311,22 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         } catch (HttpRequestException ex) {
             return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
         }
+    }
+
+    /// <summary>Feed answered to this session's agent is POSTed, which is what records it as presented: the server's
+    /// GET only reads, because a browser sends one from any site. A server older than the POST answers 405 and records
+    /// the presentation on the GET it then gets.</summary>
+    internal static async Task<HttpResponseMessage> SendNextWorkAsync(HttpClient client, string url, bool presenting, CancellationToken ct) {
+        if (presenting) {
+            using var post     = new HttpRequestMessage(HttpMethod.Post, url);
+            var       response = await client.SendAsync(post, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if (response.StatusCode != HttpStatusCode.MethodNotAllowed) return response;
+
+            response.Dispose();
+        }
+
+        return await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
     }
 
     internal static string BuildNextWorkUrl(string baseUrl, JsonObject? args, string? repoHash, string? sessionId) {

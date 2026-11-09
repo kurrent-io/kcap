@@ -5,7 +5,7 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kurrent-io/kcap-cli.git"
+    "url": "git+https://github.com/kurrent-io/kcap.git"
   },
   "os": ["win32"],
   "cpu": ["x64"],

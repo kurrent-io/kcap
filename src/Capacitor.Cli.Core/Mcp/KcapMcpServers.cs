@@ -1,14 +1,15 @@
 namespace Capacitor.Cli.Core.Mcp;
 
 /// <summary>One kcap MCP server, described semantically (no harness field names).
-/// <paramref name="AutoApprove"/> marks a server safe to run without a per-call prompt where the
-/// harness has a per-server trust knob (see <see cref="McpConfigShape.Trust"/>): every tool either
-/// reads, or writes only to the session's own kcap record, the destination the hooks already
-/// post to unprompted. kcap-flows launches a paid hosted agent; kcap-memory, kcap-pages
-/// and kcap-knowledge can change shared content or its audience, so they rely on each tool's
-/// annotations instead: a harness that reads them still runs the reads and additive writes
-/// unprompted and gates the destructive
-/// ones. <paramref name="ToolTimeout"/> is how long one of
+/// <paramref name="AutoApprove"/> marks a server safe to run without a per-call prompt, through the
+/// harness's per-server trust knob where it has one (see <see cref="McpConfigShape.Trust"/>) and
+/// through the PreToolUse hook in Claude's auto mode: every tool either reads, or writes kcap's own
+/// record of the work (sessions, plans, work items), the destination the hooks already post to
+/// unprompted. That record is shared, so a write like merging two work items reaches past this
+/// session and rests on the server's own refusals. kcap-flows launches a paid hosted agent;
+/// kcap-memory, kcap-pages and kcap-knowledge can change shared content or its audience, so they
+/// rely on each tool's annotations instead: a harness that reads them still runs the reads and
+/// additive writes unprompted and gates the destructive ones. <paramref name="ToolTimeout"/> is how long one of
 /// the server's tool calls may block; a harness with a per-server tool timeout has it written into
 /// the registration, so the harness never aborts a call the server itself bounds.</summary>
 public sealed record KcapMcpServer(string Name, string[] Args, bool NeedsProjectCwd, string? Description, bool AutoApprove = false, TimeSpan? ToolTimeout = null);
@@ -48,6 +49,10 @@ public static class KcapMcpServers {
             "Query the org's AI coding-agent analytics (sessions, tools, tokens, cost, commits, PRs, evals) with read-only SQL. Repo-aware: defaults to the current repo; pass scope 'global' for org-wide.", AutoApprove: true),
         new("kcap-knowledge", ["mcp", "knowledge"], NeedsProjectCwd: true,
             "Read retained facts and curated skills, and fine-tune skills by editing drafts, changing lifecycle or membership, and curating facts. Repo-aware: defaults to the current repo."),
+        // A pass that needs sharing holds its call open while the human answers the harness's prompt.
+        new("kcap-pass", ["mcp", "pass"], NeedsProjectCwd: false,
+            "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message, and catch up on passes colleagues sent. Offers no tools where the server does not offer passes.",
+            ToolTimeout: TimeSpan.FromMinutes(10)),
     ];
 
     /// <summary>Server names an existing harness config may still carry. Registration and uninstall remove

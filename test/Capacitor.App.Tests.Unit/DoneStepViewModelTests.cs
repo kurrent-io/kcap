@@ -335,9 +335,9 @@ public class DoneStepViewModelTests {
         });
 
         await Assert.That(remote).IsEqualTo("Agents already open will start storing sessions the next time you launch them");
-        // A terminal open before setup changed PATH still cannot run the hooks.
+        // A terminal open before setup changed PATH still cannot run the hooks; VS Code is not launched from one.
         await Assert.That(pathAdded).IsEqualTo(
-            "Agents already open will start storing sessions once you launch them again from a new terminal");
+            "Agents already open will start storing sessions once you launch them again, from a new terminal if they run in one");
         await Assert.That(local).IsEqualTo(remote);
         await Assert.That(nothing).IsNull();
         await Assert.That(blocked).IsNull();

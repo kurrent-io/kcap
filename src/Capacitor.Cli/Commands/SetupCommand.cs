@@ -44,7 +44,8 @@ using Profile = Capacitor.Cli.Core.Config.Profile;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 
@@ -495,11 +496,15 @@ sealed class SetupImportLane(
     }
 
     /// <summary>The child re-imports every chosen level, so while it runs it is the retry; only a child
-    /// that is not running leaves re-running setup as the remedy.</summary>
-    internal static string RetryLine(BackgroundImportLaunch launch) =>
-        launch.Status is BackgroundImportStatus.Running
-            ? $"  [dim]The background import retries what did not import · log: {Markup.Escape(launch.LogPath ?? "")}[/]"
-            : "  Run [cyan]kcap setup[/] again and choose the same repositories and levels to retry what did not import.";
+    /// that is not running leaves re-running setup as the remedy, and one that never confirmed may be either.</summary>
+    internal static string RetryLine(BackgroundImportLaunch launch) => launch.Status switch {
+        BackgroundImportStatus.Running =>
+            $"  [dim]The background import retries what did not import · log: {Markup.Escape(launch.LogPath ?? "")}[/]",
+        BackgroundImportStatus.Unconfirmed =>
+            $"  [dim]The background import retries what did not import if it is running · log: {Markup.Escape(launch.LogPath ?? "")}. "
+          + "If the log shows it stopped, run kcap setup again and choose the same repositories and levels.[/]",
+        _ => "  Run [cyan]kcap setup[/] again and choose the same repositories and levels to retry what did not import.",
+    };
 
     BackgroundImportLaunch Spawn(string runId, FirstRunImportAnswer answer, DateOnly? since) {
         var plan = new ImportPlan(serverUrl, [
@@ -1047,7 +1052,8 @@ sealed class SetupCommand(
             Vibe:        harnesses.Detected(HarnessId.MistralVibe),
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
-            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable));
+            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });
@@ -1135,10 +1141,11 @@ sealed class SetupCommand(
                 : [serverUrl]);
 
         var stepInstallers = new CodingAgentsStep.Installers(
-            InstallClaudePlugin:    InstallPlugin,
+            InstallClaudePlugin:    (settings, plugin) => InstallPlugin(settings, plugin, legacyProjectScope ? null : Path.GetDirectoryName(settings)),
             InstallCodexHooks:      PluginCommand.InstallCodexHooks,
             InstallCursorHooks:     PluginCommand.InstallCursorHooks,
-            InstallCopilotHooks:    PluginCommand.InstallCopilotHooks,
+            InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
+            CopilotHooksNeedPath:   () => PluginCommand.CopilotHooksNeedPath(),
             InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
             CapacitorOnPath:        () => binaries.Finds("kcap"),
             InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,
@@ -1991,6 +1998,13 @@ sealed class SetupCommand(
             case BackgroundImportStatus.ExitedZero:
                 AnsiConsole.MarkupLine($"  Background import exited immediately (exit 0) — details in {log}");
                 break;
+            case BackgroundImportStatus.Unconfirmed:
+                AnsiConsole.MarkupLine(
+                    $"  [yellow]![/] Background import started but has not confirmed it is importing · log: {log}. "
+                  + (browser
+                        ? "If the log shows it stopped, run [cyan]kcap setup[/] again and choose the same repositories and levels."
+                        : $"If the log shows it stopped, run [cyan]{Markup.Escape(retry)}[/]."));
+                break;
             case BackgroundImportStatus.Failed:
                 var code = launch.ExitCode is { } c ? $" (exit {c})" : "";
                 AnsiConsole.MarkupLine(
@@ -2737,8 +2751,11 @@ sealed class SetupCommand(
             var subject = $"{repos} repositor{(repos == 1 ? "y" : "ies")} as chosen in the browser "
                         + $"[dim]({Markup.Escape(FirstRunImportWindows.Label(answer.Window))})[/]";
 
-            var running = background is { Status: BackgroundImportStatus.Running };
-            var rest    = running ? $" [dim]· the rest is importing in the background · log: {Markup.Escape(background!.LogPath ?? "")}[/]" : "";
+            var running = background is { Status: BackgroundImportStatus.Running or BackgroundImportStatus.Unconfirmed };
+            var rest    = !running ? ""
+                : background!.Status is BackgroundImportStatus.Running
+                    ? $" [dim]· the rest is importing in the background · log: {Markup.Escape(background.LogPath ?? "")}[/]"
+                    : $" [dim]· the background import for the rest has not confirmed it started · log: {Markup.Escape(background.LogPath ?? "")}[/]";
 
             lines.Add((failed || background is { Status: BackgroundImportStatus.Failed }, running) switch {
                 (true, true)  => $"  [yellow]![/] Partly imported {subject}{rest}",
@@ -3296,12 +3313,15 @@ sealed class SetupCommand(
     }
 
     /// <summary>
-    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Null when
-    /// this run installed no Codex hooks.
+    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Codex offers
+    /// no command that trusts them: only its interactive prompt, <c>/hooks</c>, or the desktop app's settings,
+    /// and a per-run bypass flag. Null when this run installed no Codex hooks.
     /// </summary>
     internal static string? CodexTrustReminder(CodingAgentsStep.Result result) => result.CodexHooksInstalled
-        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks: accept the prompt on the next "
-        + "[cyan]codex[/] launch, or in the Codex desktop app use Settings → Hooks."
+        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
+        + "the trust prompt. Run [cyan]codex[/] once and accept it (or trust them in /hooks), or in the Codex desktop app "
+        + "use Settings → Hooks. A script that only runs [cyan]codex exec[/] can pass "
+        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead."
         : null;
 
     /// <summary>
@@ -3391,7 +3411,7 @@ sealed class SetupCommand(
     /// Registers the kcap plugin in a Claude Code settings.json file by merging
     /// the marketplace source and enabling the plugin. Preserves all existing settings.
     /// </summary>
-    internal static bool InstallPlugin(string settingsPath, string marketplacePath) =>
-        ClaudePluginWriter.Install(settingsPath, marketplacePath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
+    internal static bool InstallPlugin(string settingsPath, string marketplacePath, string? claudeHome = null) =>
+        ClaudePluginWriter.Install(settingsPath, claudeHome, marketplacePath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
 
 }

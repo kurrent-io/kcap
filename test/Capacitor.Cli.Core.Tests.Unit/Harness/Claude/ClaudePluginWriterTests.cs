@@ -11,7 +11,7 @@ public class ClaudePluginWriterTests {
     public async Task Install_enables_the_plugin_and_registers_the_marketplace() {
         var settings = Tmp.PathTo("settings.json");
 
-        var result = ClaudePluginWriter.Install(settings, "/opt/kcap/plugin");
+        var result = ClaudePluginWriter.Install(settings, null, "/opt/kcap/plugin");
 
         await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
         var root = JsonNode.Parse(File.ReadAllText(settings))!;
@@ -27,7 +27,7 @@ public class ClaudePluginWriterTests {
               "extraKnownMarketplaces": { "kurrent": {} } }
             """);
 
-        ClaudePluginWriter.Install(settings, "/p");
+        ClaudePluginWriter.Install(settings, null, "/p");
 
         var root = JsonNode.Parse(File.ReadAllText(settings))!;
         await Assert.That(root["model"]!.GetValue<string>()).IsEqualTo("opus");
@@ -40,14 +40,14 @@ public class ClaudePluginWriterTests {
     public async Task Install_refuses_a_malformed_settings_file() {
         var settings = Tmp.CreateFile("settings.json", "{ broken");
 
-        await Assert.That(ClaudePluginWriter.Install(settings, "/p")).IsEqualTo(SettingsEdit.Malformed);
+        await Assert.That(ClaudePluginWriter.Install(settings, null, "/p")).IsEqualTo(SettingsEdit.Malformed);
         await Assert.That(File.ReadAllText(settings)).IsEqualTo("{ broken");
     }
 
     [Test]
     public async Task Remove_drops_only_kcap_entries() {
         var settings = Tmp.PathTo("settings.json");
-        ClaudePluginWriter.Install(settings, "/p");
+        ClaudePluginWriter.Install(settings, null, "/p");
         var root = JsonNode.Parse(File.ReadAllText(settings))!.AsObject();
         root["enabledPlugins"]!["other@x"] = true;
         File.WriteAllText(settings, root.ToJsonString());
@@ -70,7 +70,7 @@ public class ClaudePluginWriterTests {
     public async Task Install_repairs_a_non_bool_plugin_flag() {
         var settings = Tmp.CreateFile("settings.json", """{"enabledPlugins":{"kcap@kcap":"yes"}}""");
 
-        var result = ClaudePluginWriter.Install(settings, "/p");
+        var result = ClaudePluginWriter.Install(settings, null, "/p");
 
         await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
         await Assert.That(JsonNode.Parse(File.ReadAllText(settings))!["enabledPlugins"]!["kcap@kcap"]!.GetValue<bool>()).IsTrue();
@@ -80,7 +80,7 @@ public class ClaudePluginWriterTests {
     public async Task Install_repairs_a_malformed_marketplace_entry() {
         var settings = Tmp.CreateFile("settings.json", """{"extraKnownMarketplaces":{"kcap":{"source":"x"}}}""");
 
-        var result = ClaudePluginWriter.Install(settings, "/p");
+        var result = ClaudePluginWriter.Install(settings, null, "/p");
 
         await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
         var path = JsonNode.Parse(File.ReadAllText(settings))!["extraKnownMarketplaces"]!["kcap"]!["source"]!["path"]!.GetValue<string>();
@@ -90,12 +90,30 @@ public class ClaudePluginWriterTests {
     [Test]
     public async Task Repeated_install_is_unchanged_and_still_writes_the_marker() {
         var settings = Tmp.PathTo("settings.json");
-        ClaudePluginWriter.Install(settings, "/p");
+        ClaudePluginWriter.Install(settings, null, "/p");
         ClaudePluginInstaller.DeleteMarker(settings);
 
-        var result = ClaudePluginWriter.Install(settings, "/p");
+        var result = ClaudePluginWriter.Install(settings, null, "/p");
 
         await Assert.That(result).IsEqualTo(SettingsEdit.Unchanged);
         await Assert.That(ClaudePluginInstaller.ReadMarker(settings)).IsNotNull();
+    }
+
+    [Test]
+    public async Task Install_repoints_the_plugin_records_of_the_claude_home() {
+        Tmp.CreateFile("plugins/known_marketplaces.json", """{"kcap":{"source":{"source":"directory","path":"/old"},"installLocation":"/old"}}""");
+
+        var result = ClaudePluginWriter.Install(Tmp.PathTo("settings.json"), Tmp.Path, "/new");
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
+        var path = JsonNode.Parse(File.ReadAllText(Tmp.PathTo("plugins", "known_marketplaces.json")))!["kcap"]!["installLocation"]!.GetValue<string>();
+        await Assert.That(path).IsEqualTo("/new");
+    }
+
+    [Test]
+    public async Task Install_fails_when_the_plugin_records_cannot_be_repointed() {
+        Tmp.CreateFile("plugins/known_marketplaces.json", "{ broken");
+
+        await Assert.That(ClaudePluginWriter.Install(Tmp.PathTo("settings.json"), Tmp.Path, "/new")).IsEqualTo(SettingsEdit.Failed);
     }
 }

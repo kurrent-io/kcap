@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -73,7 +74,7 @@ public class ApplicationReferencesTests {
         var mover = new ApplicationsMover(runner, ApplicationsMover.PromoteExclusive, Path.GetDirectoryName(paths.Target)!,
             ApplicationsMover.SwapAtomic,
             userApplicationsDir: Path.GetDirectoryName(paths.Old), retirement: retirement,
-            migrateReferences: () => new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+            migrateReferences: () => new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
                 (_, _) => Task.FromResult(true), (_, _) => Task.FromResult(true), "gui/123", [Path.GetDirectoryName(paths.Link)!]),
             activate: (root, _) => {
                 activated = root == paths.Target && ctl.Loaded && Directory.Exists(paths.Old)
@@ -99,7 +100,7 @@ public class ApplicationReferencesTests {
         var paths = Setup();
         var runner = new Launchctl { Loaded = loaded };
         var kept = 0;
-        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
             (_, _) => { kept++; return Task.FromResult(true); }, (_, _) => Task.FromResult(true),
             "gui/123", [Path.GetDirectoryName(paths.Link)!]);
         await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None);
@@ -113,12 +114,28 @@ public class ApplicationReferencesTests {
     }
 
     [Test]
+    public async Task A_bundle_move_repoints_an_adopted_link_outside_the_fixed_folders() {
+        if (OperatingSystem.IsWindows()) return;
+        var paths = Setup();
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var adopted = Path.Combine(Tmp.CreateDir("npm-prefix/bin"), "kcap");
+        File.CreateSymbolicLink(adopted, paths.Old + "/Contents/MacOS/kcap");
+        new AdoptedLinkInventory(config).Add(adopted);
+        await using var refs = new ApplicationReferences(new Launchctl { Loaded = false }, paths.Home, paths.Store, TimeProvider.System, config);
+
+        await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None);
+        await refs.ApplyAsync(CancellationToken.None);
+
+        await Assert.That(new FileInfo(adopted).LinkTarget).IsEqualTo(paths.Target + "/Contents/MacOS/kcap");
+    }
+
+    [Test]
     public async Task Refused_agent_preservation_leaves_the_running_service_and_links_intact() {
         if (OperatingSystem.IsWindows()) return;
         var paths = Setup();
         var original = File.ReadAllText(paths.Unit);
         var runner = new Launchctl();
-        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
             (_, _) => Task.FromResult(false), (_, _) => Task.FromResult(true), "gui/123", [Path.GetDirectoryName(paths.Link)!]);
         await Assert.That(async () => await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None)).Throws<IOException>();
         await refs.RollbackAsync(() => { });
@@ -134,7 +151,7 @@ public class ApplicationReferencesTests {
         var paths = Setup();
         var original = File.ReadAllText(paths.Unit);
         var runner = new Launchctl { FailNextStart = true };
-        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
             (_, _) => Task.FromResult(true), (_, _) => Task.FromResult(new FileInfo(paths.Link).LinkTarget == paths.Old + "/Contents/MacOS/kcap"), "gui/123", [Path.GetDirectoryName(paths.Link)!]);
         await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None);
         await Assert.That(async () => await refs.ApplyAsync(CancellationToken.None)).Throws<IOException>();
@@ -153,7 +170,7 @@ public class ApplicationReferencesTests {
         var paths = Setup();
         var runner = new Launchctl();
         var kept = 0;
-        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
             (_, _) => { kept++; return Task.FromResult(true); }, (_, _) => Task.FromResult(true), "gui/123", [Path.GetDirectoryName(paths.Link)!]);
         await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None);
         await refs.ApplyAsync(CancellationToken.None);
@@ -181,7 +198,7 @@ public class ApplicationReferencesTests {
         File.CreateSymbolicLink(paths.Link, Tmp.CreateFile("npm/kcap"));
         var original = new FileInfo(paths.Link).LinkTarget;
         var runner = new Launchctl { Loaded = false };
-        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System,
+        await using var refs = new ApplicationReferences(runner, paths.Home, paths.Store, TimeProvider.System, new ConfigRoot(Tmp.PathTo("config")),
             domainOverride: "gui/123", shimFolders: [Path.GetDirectoryName(paths.Link)!]);
         await refs.PrepareAsync([paths.Old], paths.Target, CancellationToken.None);
         await refs.ApplyAsync(CancellationToken.None);

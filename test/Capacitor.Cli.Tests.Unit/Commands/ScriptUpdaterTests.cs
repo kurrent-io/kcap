@@ -1,3 +1,5 @@
+using TUnit.Core.Enums;
+using System.Runtime.Versioning;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Install;
 
@@ -227,13 +229,173 @@ public class ScriptUpdaterTests {
         var layout = new ScriptInstallLayout(tmp.Path);
         foreach (var name in new[] { "1.0.0", "1.1.0", "1.2.0", "1.3.0-beta.1", ".replaced-1.2.0-abc", ".update-12-def", ".staging-34", "notes" })
             tmp.CreateFile($"versions/{name}/bin/kcap");
+        var unrelated = tmp.CreateFile("elsewhere/bin/kcap");
+        DirectoryLink.Create(layout.VersionDir("0.9.0"), tmp.PathTo("elsewhere"));
         var updater = new ScriptUpdater(null!) { InUse = dir => Path.GetFileName(dir) == "1.1.0" };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(2);
         await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
-            .IsEquivalentTo(["1.1.0", "1.2.0", "1.3.0-beta.1", ".update-12-def", ".staging-34", "notes"]);
+            .IsEquivalentTo(["0.9.0", "1.1.0", "1.2.0", "1.3.0-beta.1", ".update-12-def", ".staging-34", "notes"]);
+        await Assert.That(File.Exists(unrelated)).IsTrue();
+    }
+
+    /// <summary>A <c>versions</c> that is a link reaches a directory kcap does not own, so nothing behind it is
+    /// pruned, even entries that carry a kcap binary. On Windows the link is a junction.</summary>
+    [Test]
+    public async Task Pruning_through_a_linked_versions_directory_deletes_nothing() {
+        using var tmp = new TempDir();
+        var layout = new ScriptInstallLayout(tmp.CreateDir("root"));
+        var unrelated = new[] { "0.9.0", "1.0.0", ".replaced-1.0.0-abc", ".pruning-1.0.0-abc" }.Select(name => tmp.CreateFile($"shared/{name}/bin/kcap")).ToArray();
+        DirectoryLink.Create(layout.Versions, tmp.PathTo("shared"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        foreach (var file in unrelated) await Assert.That(File.Exists(file)).IsTrue();
+    }
+
+    /// <summary>An install root reached through a link is still kcap's, but only a version directory holding
+    /// kcap's binary is provably an installed version: a version-like name alone is not.</summary>
+    [Test]
+    public async Task Pruning_through_a_linked_install_root_deletes_only_installed_versions() {
+        using var tmp = new TempDir();
+        var unrelated = new[] { "0.9.0", "1.0.0", ".replaced-1.0.0-abc" }.Select(name => tmp.CreateFile($"elsewhere/versions/{name}/data")).ToArray();
+        tmp.CreateFile("elsewhere/versions/0.8.0/bin/kcap");
+        DirectoryLink.Create(tmp.PathTo("root"), tmp.PathTo("elsewhere"));
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(1);
+        await Assert.That(Directory.Exists(tmp.PathTo("elsewhere/versions/0.8.0"))).IsFalse();
+        foreach (var file in unrelated) await Assert.That(File.Exists(file)).IsTrue();
+    }
+
+    /// <summary>A path checked once is not bound to the delete: whichever component is swapped for a link between
+    /// the listing and the delete, what the link reaches is left alone, even when it carries a kcap binary.</summary>
+    [Test]
+    [Arguments("root")]
+    [Arguments("root/versions")]
+    [Arguments("root/versions/0.9.0")]
+    public async Task A_component_swapped_for_a_link_before_the_delete_keeps_what_it_reaches(string swapped) {
+        using var tmp = new TempDir();
+        tmp.CreateFile("root/versions/0.9.0/bin/kcap");
+        tmp.CreateFile("root/versions/1.0.0/bin/kcap");
+        var foreign = tmp.CreateFile("foreign/root/versions/0.9.0/bin/kcap");
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) {
+            InUse = _ => {
+                Directory.Move(tmp.PathTo(swapped), tmp.PathTo("aside"));
+                DirectoryLink.Create(tmp.PathTo(swapped), tmp.PathTo("foreign", swapped));
+                return false;
+            },
+        };
+
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0")], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        await Assert.That(File.Exists(foreign)).IsTrue();
+    }
+
+    /// <summary>A link inside a version directory goes before the directory does, so the delete neither follows it
+    /// nor, on Windows where it is a junction, stops partway at it.</summary>
+    [Test]
+    public async Task A_version_holding_a_link_is_pruned_without_following_it() {
+        using var tmp = new TempDir();
+        tmp.CreateFile("root/versions/0.9.0/bin/kcap");
+        var outside = tmp.CreateFile("outside/keep");
+        DirectoryLink.Create(tmp.PathTo("root/versions/0.9.0/share"), tmp.PathTo("outside"));
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(1);
+        await Assert.That(Directory.Exists(layout.VersionDir("0.9.0"))).IsFalse();
+        await Assert.That(File.Exists(outside)).IsTrue();
+    }
+
+    /// <summary>A version whose directory refuses the delete partway (here, once its binary is gone) is still
+    /// recognised as kcap's by the next prune, which finishes it; the failure is reported, naming the version.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_version_that_fails_to_delete_partway_is_reported_and_removed_by_the_next_run() {
+        using var tmp = new TempDir();
+        tmp.CreateFile("root/versions/0.9.0/bin/kcap");
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+        var stderr  = new StringWriter();
+
+        int first;
+        try {
+            File.SetUnixFileMode(layout.VersionDir("0.9.0"), UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            first = updater.PruneVersions(layout, keep: [], stderr);
+        } finally {
+            foreach (var dir in Directory.EnumerateDirectories(layout.Versions))
+                File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        await Assert.That(first).IsEqualTo(0);
+        await Assert.That(stderr.ToString()).Contains("0.9.0").And.Contains("next update");
+
+        var second = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(second).IsEqualTo(1);
+        await Assert.That(Directory.EnumerateFileSystemEntries(layout.Versions).ToArray()).IsEmpty();
+    }
+
+    /// <summary>A <c>.pruning-</c> directory is a version kcap began deleting; only kcap makes one, so it needs no
+    /// binary to be removed.</summary>
+    [Test]
+    public async Task A_leftover_pruning_directory_is_removed() {
+        using var tmp = new TempDir();
+        tmp.CreateFile($"root/versions/.pruning-0.9.0-{Guid.NewGuid():N}/lib/file");
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(1);
+        await Assert.That(Directory.EnumerateFileSystemEntries(layout.Versions).ToArray()).IsEmpty();
+    }
+
+    /// <summary>Only the exact name the updater gives a version it is deleting marks a tombstone; a directory that
+    /// merely starts with <c>.pruning-</c> is someone else's.</summary>
+    [Test]
+    public async Task A_directory_named_like_a_tombstone_but_not_made_by_kcap_is_kept() {
+        using var tmp = new TempDir();
+        string[] names = [".pruning-backups", ".pruning-0.9.0-abc", $".pruning-notes-{Guid.NewGuid():N}", $".pruning-0.9.0-{Guid.NewGuid().ToString("N").ToUpperInvariant()}"];
+        var files   = names.Select(name => tmp.CreateFile($"root/versions/{name}/data")).ToArray();
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        foreach (var file in files) await Assert.That(File.Exists(file)).IsTrue();
+    }
+
+    /// <summary>A <c>.pruning-</c> name proves nothing about where a link goes, so a linked one is left as it is.
+    /// On Windows the link is a junction.</summary>
+    [Test]
+    public async Task A_linked_pruning_entry_is_left_alone() {
+        using var tmp = new TempDir();
+        tmp.CreateDir("root/versions");
+        var outside = tmp.CreateFile("outside/lib/file");
+        var link    = tmp.PathTo($"root/versions/.pruning-0.9.0-{Guid.NewGuid():N}");
+        DirectoryLink.Create(link, tmp.PathTo("outside"));
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        await Assert.That(new DirectoryInfo(link).LinkTarget).IsNotNull();
+        await Assert.That(File.Exists(outside)).IsTrue();
     }
 
     /// <summary>Only the new version and the one it replaced are kept, so a rollback deletes an unused
@@ -246,7 +408,7 @@ public class ScriptUpdaterTests {
             tmp.CreateFile($"versions/{name}/bin/kcap");
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0"), layout.VersionDir("1.1.0")]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0"), layout.VersionDir("1.1.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(1);
         await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())

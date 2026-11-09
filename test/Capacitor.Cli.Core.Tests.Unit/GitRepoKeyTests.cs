@@ -100,4 +100,48 @@ public class GitRepoKeyTests {
     public async Task A_path_that_names_nothing_has_no_key(string? path) {
         await Assert.That(GitRepoKey.ForCheckout(path)).IsNull();
     }
+
+    // A daemon deciding a launch and a hook deciding the session it starts must read one key.
+    [Test]
+    public async Task For_a_server_that_stores_local_repositories_one_with_no_remote_keys_by_its_local_identity() {
+        using var config = new TempConfigRoot("key");
+        using var repo   = GitRepo.Create();
+        var local  = LocalRepository.Of(config.Root, repo.Path)!.Value;
+        var server = Supporting(config);
+
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root, server)).IsEqualTo($"{local.Owner}/{local.Name}");
+    }
+
+    // The hooks send that server no owner for it, so a list cannot place it either.
+    [Test]
+    public async Task For_a_server_not_known_to_store_them_a_repository_with_no_remote_stays_unplaced() {
+        using var config = new TempConfigRoot("key");
+        using var repo   = GitRepo.Create();
+
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root, "https://never-seen.example")).IsNull();
+    }
+
+    [Test]
+    public async Task For_any_server_a_remote_still_names_the_repository() {
+        using var config = new TempConfigRoot("key");
+        using var repo   = GitRepo.Create();
+        repo.AddRemote("git@github.com:acme/widgets.git");
+
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root, Supporting(config))).IsEqualTo("acme/widgets");
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root, "https://never-seen.example")).IsEqualTo("acme/widgets");
+    }
+
+    [Test]
+    public async Task For_any_server_a_folder_outside_any_repository_stays_unplaced() {
+        using var config = new TempConfigRoot("key");
+
+        await Assert.That(GitRepoKey.ForCheckout(config.CreateDir("plain").Path, config.Root, Supporting(config))).IsNull();
+    }
+
+    static string Supporting(TempConfigRoot config) {
+        const string server = "https://kcap.example";
+        ServerVersionStore.Set(server, LocalRepositorySupport.MinimumServerVersion, config.Root, TimeProvider.System);
+
+        return server;
+    }
 }

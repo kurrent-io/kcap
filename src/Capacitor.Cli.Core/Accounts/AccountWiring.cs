@@ -126,7 +126,7 @@ public static class AccountWiring {
     static WiringStep WireClaude(ClaudePaths paths, WiringOptions options) =>
         options.PluginDir is null
             ? new WiringStep("plugin", false, "kcap plugin directory not found; reinstall kcap via npm")
-            : Step("plugin", ClaudePluginWriter.Install(paths.UserSettings, options.PluginDir));
+            : Step("plugin", ClaudePluginWriter.Install(paths.UserSettings, paths.Home, options.PluginDir));
 
     static IReadOnlyList<WiringStep> WireCodex(CodexPaths paths, WiringOptions options) {
         var steps = new List<WiringStep> { Step("hooks", CodexHooksWriter.Install(paths.UserHooksJson)) };

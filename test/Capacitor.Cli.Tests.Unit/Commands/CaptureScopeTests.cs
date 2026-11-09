@@ -4,7 +4,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -54,6 +54,24 @@ public class CaptureScopeTests {
 
         await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo(["acme/secret"]);
         await Assert.That(result[0].OutsideAllowlist).IsFalse();
+    }
+
+    /// <summary>An import places a session under the repository its harness recorded, so scope judges that one even
+    /// when its folder now resolves elsewhere.</summary>
+    [Test]
+    public async Task A_recorded_repository_is_judged_for_exclusion_and_the_allow_list() {
+        var recorded = Session("s1", "/tmp/anywhere") with {
+            SourceMeta = new Dictionary<string, object?> { [ImportCommand.RecordedRepositoryKey] = "acme/secret" }
+        };
+
+        var excluded = await Scope(excludedRepos: ["acme/secret"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(excluded[0].ExcludedRepoKeys).IsEquivalentTo(["acme/secret"]);
+
+        var admitted = await Scope(allowedRepos: ["acme/secret"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(admitted[0].OutsideAllowlist).IsFalse();
+
+        var outside = await Scope(allowedRepos: ["other/checkout"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(outside[0].OutsideAllowlist).IsTrue();
     }
 
     [Test]

@@ -152,6 +152,24 @@ public class AgentHookPosterTests : IDisposable {
         await Assert.That(spool.HasBacklog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).IsTrue();
     }
 
+    /// <summary>A start posted live for a session whose spooled end was delivered leaves a note in the spool, so
+    /// the run's later spooled hooks are not taken for the ended run's stragglers.</summary>
+    [Test]
+    public async Task PostOrSpool_notes_a_start_posted_for_an_ended_session() {
+        _server.Given(Request.Create().WithPath("/hooks/session-start/kiro").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        using var tmp = new TempDir();
+        var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
+        const string sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        spool.MarkEnded(sid);
+
+        var outcome = await Poster.PostOrSpoolAsync(Factory(AuthStatus.Ok), "session-start/kiro", """{"session_id":"x"}""",
+            "kiro-hook", spool, sessionId: sid, route: "session-start/kiro");
+
+        await Assert.That(outcome).IsEqualTo(HookPostOutcome.Posted);
+        await Assert.That(spool.HasBacklog(sid)).IsTrue();
+    }
+
     /// <summary>The no-spool path is bounded the same way: past the cap it reports the lapse outcome
     /// its callers already exit cleanly on, instead of holding the hook until its host kills it.</summary>
     [Test]
@@ -284,6 +302,33 @@ public class AgentHookPosterTests : IDisposable {
             _ => Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired)));
 
         await Assert.That(lifecycle.HasBacklog(session)).IsTrue();
+    }
+
+    /// <summary>A drain still in flight when its hook process is killed must not keep the next one from running:
+    /// the throttle counts only a drain that returned.</summary>
+    [Test]
+    public async Task A_lifecycle_drain_still_in_flight_does_not_suppress_the_next() {
+        var lifecycle  = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        var transcript = new TranscriptSpool(Config.Root, TimeProvider.System, server: null);
+        lifecycle.Append("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session-start/codex", "{}");
+        var hold = new TaskCompletionSource<AuthAttempt>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlight = false;
+        var entered  = false;
+
+        var first = Poster.DrainSpoolsCoreAsync(lifecycle, transcript, null, _ => {
+            inFlight = true;
+            return hold.Task;
+        });
+        await Assert.That(inFlight).IsTrue();
+
+        await Poster.DrainSpoolsCoreAsync(lifecycle, transcript, null, _ => {
+            entered = true;
+            return Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired));
+        });
+
+        await Assert.That(entered).IsTrue();
+        hold.SetResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired));
+        await first;
     }
 
     /// <summary>The counterpart that keeps the test above honest: a spooled entry still gets a client.</summary>

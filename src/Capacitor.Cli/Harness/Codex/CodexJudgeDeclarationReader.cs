@@ -1,7 +1,9 @@
+using Capacitor.Cli.Recording;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Policy;
+using Capacitor.Models.Transcripts.Harness.Codex;
 
 namespace Capacitor.Cli.Harness.Codex;
 

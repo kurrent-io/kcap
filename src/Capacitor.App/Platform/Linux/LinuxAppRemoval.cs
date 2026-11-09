@@ -12,25 +12,30 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
     readonly IProcessRunner        _runner;
     readonly string                _image;
     readonly string                _stagedRoot;
-    readonly IReadOnlyList<string> _linkFolders;
+    readonly KcapLinkRemover       _links;
     readonly string                _trash;
     readonly TimeProvider          _time;
     readonly Func<string, string, int> _move;
     readonly Func<string, Stream>      _createInfo;
 
-    public LinuxAppRemoval(IProcessRunner runner, UserHome home, AppImageInstall install, Func<string, string?> getEnv, TimeProvider time)
-        : this(runner, install.Image, AppImageInstall.StagedRoot(getEnv, home), KcapLinkFolders.For(home),
-               Path.Combine(AppImageInstall.DataHome(getEnv, home), "Trash"), time) { }
+    public LinuxAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, AppImageInstall install, Func<string, string?> getEnv, TimeProvider time)
+        : this(runner, install.Image, AppImageInstall.StagedRoot(getEnv, home), binary => KcapLinkRemover.For(home, config, binary),
+               Path.Combine(AppImageInstall.DataHome(getEnv, home), "Trash"), time, null, null) { }
 
     internal LinuxAppRemoval(IProcessRunner runner, string image, string stagedRoot, IReadOnlyList<string> linkFolders, string trash,
-            TimeProvider time, Func<string, string, int>? move = null, Func<string, Stream>? createInfo = null) {
+            TimeProvider time, Func<string, string, int>? move = null, Func<string, Stream>? createInfo = null)
+        : this(runner, image, stagedRoot, binary => new KcapLinkRemover(linkFolders, binary), trash, time, move, createInfo) { }
+
+    LinuxAppRemoval(IProcessRunner runner, string image, string stagedRoot, Func<string, KcapLinkRemover> linkRemover, string trash,
+            TimeProvider time, Func<string, string, int>? move, Func<string, Stream>? createInfo) {
         // libc is a Linux name; anywhere else the image stays put rather than the call failing to bind.
         _move        = move ?? (OperatingSystem.IsLinux() ? MoveWithoutReplacing : static (_, _) => NotSupported);
         _createInfo  = createInfo ?? (static path => new FileStream(path, FileMode.CreateNew, FileAccess.Write));
         _runner      = runner;
         _image       = image;
         _stagedRoot  = stagedRoot;
-        _linkFolders = linkFolders;
+        // Read now: the CLI's uninstall deletes the inventory that names the adopted links' folders before they go.
+        _links       = linkRemover(Path.Combine(AppImageInstall.StagedCliDirectory(stagedRoot), "kcap"));
         _trash       = trash;
         _time        = time;
     }
@@ -42,10 +47,9 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
     /// A link in a folder only root can write stays: the CLI's own uninstall has already printed the command
     /// that removes it.
     public Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
-        var remover = new KcapLinkRemover(_linkFolders, Path.Combine(AppImageInstall.StagedCliDirectory(_stagedRoot), "kcap"));
-        foreach (var failure in remover.Remove()) Console.Error.WriteLine($"kcap: could not remove {failure.Path}: {failure.Reason}");
+        foreach (var failure in _links.Remove()) Console.Error.WriteLine($"kcap: could not remove {failure.Path}: {failure.Reason}");
 
-        return Task.FromResult(remover.Find());
+        return Task.FromResult(_links.Find());
     }
 
     public bool DeleteSupportFiles() {

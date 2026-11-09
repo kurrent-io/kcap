@@ -1,5 +1,7 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
@@ -127,9 +129,9 @@ public class SessionRailViewModelTests {
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time);
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/repo", created: time.GetUtcNow().UtcDateTime), new RepoIdentity("path:/repo", "repo")));
             var session = rail.Groups.Single().Sessions.Single();
-            await Assert.That(session.Meta).IsEqualTo("<1m");
+            await Assert.That(session.Meta).IsEqualTo("<1m ago");
             time.Advance(TimeSpan.FromMinutes(2));
-            await Assert.That(session.Meta).IsEqualTo("2m");
+            await Assert.That(session.Meta).IsEqualTo("2m ago");
         });
     }
 
@@ -155,6 +157,45 @@ public class SessionRailViewModelTests {
             rail.Groups.Single(r => r.IsExpanded).ToggleCommand.Execute().Subscribe();
             rail.NotifySessionOpened("missing", AgentOrigin.Local);
             await Assert.That(rail.Groups.Any(r => r.IsExpanded)).IsFalse();
+        });
+    }
+
+    /// Stepping follows the drawn order across groups, skips a folded group's rows, starts from an
+    /// end when nothing is selected and stops at either end.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Stepping_opens_the_adjacent_shown_session_in_rail_order() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var opened = new List<string>();
+            using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System);
+            var now = DateTime.UtcNow;
+            void Add(string id, string repo, int minutesAgo) =>
+                directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto(id, $"/{repo}", created: now.AddMinutes(-minutesAgo)), new RepoIdentity($"path:/{repo}", repo)));
+            Add("a-new", "a", 1);
+            Add("a-old", "a", 5);
+            Add("b-only", "b", 2);
+            Add("c-only", "c", 3);
+            await rail.Groups.Single(g => g.Label == "b").ToggleCommand.Execute();
+
+            await Assert.That(rail.OpenAdjacent(1)).IsTrue();
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            await Assert.That(opened).IsEquivalentTo(["a-new", "c-only"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            rail.SelectedSessionKey = "local:a-old";
+            await rail.OpenNextSessionCommand.Execute();
+            rail.SelectedSessionKey = "local:c-only";
+            await rail.OpenPreviousSessionCommand.Execute();
+            await Assert.That(opened).IsEquivalentTo(["c-only", "a-old"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            await Assert.That(rail.OpenAdjacent(1)).IsFalse();
+            rail.SelectedSessionKey = "local:b-only";
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            rail.SelectedSessionKey = "local:a-new";
+            await Assert.That(rail.OpenAdjacent(-1)).IsFalse();
+            await Assert.That(opened).IsEquivalentTo(["a-old"], CollectionOrdering.Matching);
         });
     }
 
@@ -698,6 +739,30 @@ public class SessionRailViewModelTests {
                 directory.Rows.RemoveKey("local:failed");
                 await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you", "Running", "Ended"], CollectionOrdering.Matching);
             }
+        });
+    }
+
+    /// The chip reads Working for a subagent the daemon has lost to a pause, so the group must say
+    /// Running too, and the row goes back once the subagent ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Status_grouping_follows_work_only_the_transcript_sees() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var sessions = new FakeServerSessionsService();
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
+                new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
+                agentsRunningWork: work, openServerSession: _ => { }, sessions: sessions);
+            directory.Rows.AddOrUpdate(Local("paused", awaiting: true));
+            rail.Grouping = RailGrouping.Status;
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you"], CollectionOrdering.Matching);
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["local:paused"] = new(0, 1) });
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Running"], CollectionOrdering.Matching);
+
+            work.OnNext(FrozenDictionary<string, RunningWork>.Empty);
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you"], CollectionOrdering.Matching);
         });
     }
 

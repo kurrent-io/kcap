@@ -6,9 +6,10 @@ namespace Capacitor.Cli.Harness.Claude;
 
 /// <summary>
 /// Hands the Claude <c>SessionEnd</c> event to a detached re-invocation of this hook so the hook
-/// itself returns at once: Claude Code caps a plugin's SessionEnd hook at 1.5 s regardless of
-/// the <c>hooks.json</c> timeout, and the session-end path cannot fit. The continuation runs that
-/// path unchanged under its 15 s budget.
+/// itself returns at once: Claude Code cancels a synchronous plugin SessionEnd hook after 1.5 s
+/// regardless of the <c>hooks.json</c> timeout, and the session-end path cannot fit. The manifest
+/// marks the hook async, which Claude leaves running past its exit; this covers a host that waits
+/// anyway. The continuation runs that path unchanged under its 15 s budget.
 /// </summary>
 static class ClaudeSessionEndHandoff {
     public const string DetachedFlag = "--detached";

@@ -26,6 +26,8 @@ public sealed class AntigravityHarness : IHarness<AntigravityHarness> {
     /// override a second time.</summary>
     public AntigravityPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.GlobalHooksJson, Paths.McpConfigJson];
+
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary) || probe.Finds(IdeBinary),
         UserDataSignal = Paths.HasUserData,

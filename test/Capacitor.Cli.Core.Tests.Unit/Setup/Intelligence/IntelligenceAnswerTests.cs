@@ -7,6 +7,8 @@ public class IntelligenceAnswerTests {
     [Test]
     [Arguments("claude", "local_agent", "claude", null)]
     [Arguments("Codex", "local_agent", "codex", null)]
+    [Arguments("pi", "local_agent", "pi", null)]
+    [Arguments("OpenCode", "local_agent", "opencode", null)]
     [Arguments("anthropic", "provider", null, "anthropic")]
     [Arguments("openai", "provider", null, "openai")]
     [Arguments("openrouter", "provider", null, "openrouter")]

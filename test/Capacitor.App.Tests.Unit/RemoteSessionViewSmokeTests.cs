@@ -274,7 +274,9 @@ public class RemoteSessionViewSmokeTests {
     [Test]
     public Task A_refusal_and_the_reprobes_reason_both_show() => WithHandoffAsync(async (host, fixture, view) => {
         fixture.Launch.Next = new LaunchOutcome(false, null, "handoff_start_changed: feature/x moved");
-        fixture.Ops.Next = new HandoffProbeReplyDto(null, "Authentication failed", null, null, null);
+        fixture.Ops.Answer = request => request.LocalOnly
+            ? new HandoffProbeReplyDto(HandoffRefusals.InvalidTarget, null, null, null, null)
+            : FakeHandoffProbeOps.Reply(FakeHandoffProbeOps.AttachedStart);
 
         Click(host, Named<Button>(view, "StartHandoffButton"));
         await host.SettleUntilAsync(() => host.Vm.Chat.Handoff!.DisabledReason is not null, "the re-probe");
@@ -283,8 +285,26 @@ public class RemoteSessionViewSmokeTests {
         await Assert.That(error.Text).IsEqualTo(HandoffFailureText.StartChanged);
         await Assert.That(error.IsEffectivelyVisible).IsTrue();
         var notice = Named<TextBlock>(view, "HandoffNotice");
-        await Assert.That(notice.Text).IsEqualTo(HandoffComposerViewModel.OriginUnreachable("Authentication failed"));
+        await Assert.That(notice.Text).IsEqualTo(HandoffComposerViewModel.InvalidTarget);
         await Assert.That(notice.IsEffectivelyVisible).IsTrue();
+    });
+
+    [Test]
+    public Task An_unreadable_origin_shows_one_line_in_the_banner() => WithHandoffAsync(async (host, fixture, view) => {
+        fixture.Ops.Answer = request => request.LocalOnly
+            ? FakeHandoffProbeOps.Reply(FakeHandoffProbeOps.AttachedStart)
+            : new HandoffProbeReplyDto(null,
+                "fatal: Cannot prompt because user interactivity has been disabled.\n"
+              + "fatal: could not read Username for 'https://github.com': terminal prompts disabled", null, null, null);
+
+        Click(host, Named<Button>(view, "StartHandoffButton"));
+        await host.SettleUntilAsync(() => host.Vm.Chat.Handoff!.Error is not null, "the read of origin");
+
+        var error = Named<TextBlock>(view, "HandoffErrorText");
+        await Assert.That(error.Text).IsEqualTo(HandoffComposerViewModel.OriginSignInNeeded);
+        await Assert.That(error.IsEffectivelyVisible).IsTrue();
+        await Assert.That(Named<Button>(view, "StartHandoffButton").IsEffectivelyVisible).IsTrue();
+        await Assert.That(fixture.Launch.Requests).IsEmpty();
     });
 
     [Test]

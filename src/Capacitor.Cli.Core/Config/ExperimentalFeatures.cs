@@ -16,7 +16,15 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages];
+    public static ExperimentalFeature LauncherNextWork { get; } = new(
+        "launcher-next-work",
+        "What to do next in the launcher",
+        "Show the server's next-work suggestions under the desktop launcher, as the web dashboard does, and start a session from one. Needs a server with next work turned on.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

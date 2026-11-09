@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Harness.MistralVibe;
 using Capacitor.Cli.Harness.Muse;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;

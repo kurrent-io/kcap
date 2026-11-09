@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Mcp;
 
 namespace Capacitor.Cli.Core.Harness.Copilot;
 
@@ -26,6 +27,20 @@ public static class CopilotHooksParser {
         "notification"
     ];
 
+    const string HookArguments = "hook --copilot";
+
+    /// <summary>
+    /// The <c>command</c> of one hook entry. VS Code and Copilot run it in PowerShell on Windows, where a quoted
+    /// path does not parse without the call operator, and in a POSIX shell elsewhere.
+    /// </summary>
+    public static string HookCommandLine(string eventName, string binary, bool windows) {
+        var invocation = binary == KcapMcpServers.Command ? binary
+            : windows ? $"& '{binary.Replace("'", "''")}'"
+            :           $"'{binary.Replace("'", @"'\''")}'";
+
+        return $"{invocation} {HookArguments} --event {eventName}";
+    }
+
     /// <summary>
     /// True if <paramref name="entry"/> is a command entry referencing the
     /// kcap Copilot hook dispatcher, in any of the three command fields.
@@ -38,7 +53,19 @@ public static class CopilotHooksParser {
         static bool FieldContains(JsonNode? entry, string field) =>
             entry?[field] is JsonValue jv
          && jv.TryGetValue<string>(out var cmd)
-         && cmd.Contains("kcap hook --copilot", StringComparison.Ordinal);
+         && cmd.IndexOf($" {HookArguments}", StringComparison.Ordinal) is > 0 and var at
+         && KcapBinaryCommand.IsKcap(Unquote(cmd[..at]));
+
+        // The executable as HookCommandLine writes it, or double-quoted in a hand-edited file; escapes only change the path.
+        static string Unquote(string executable) {
+            var bare = executable.StartsWith("& ", StringComparison.Ordinal) ? executable[2..] : executable;
+
+            return bare switch {
+                ['\'', .., '\''] => bare[1..^1].Replace(@"'\''", "'").Replace("''", "'"),
+                ['"', .., '"']   => bare[1..^1],
+                _                => bare,
+            };
+        }
     }
 
     /// <summary>

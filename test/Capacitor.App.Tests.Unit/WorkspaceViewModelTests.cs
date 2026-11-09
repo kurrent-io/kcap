@@ -28,7 +28,7 @@ public class WorkspaceViewModelTests {
             FakeDaemonClientService daemon, AgentActionService actions, FakeTerminalAttachClientFactory factory,
             FakeTimeProvider time, string agentId = "a1", IPermissionService? permissions = null,
             SessionAccessService? access = null, IPlanArtifactSource? planArtifacts = null, IUrlOpener? opener = null, IPlanSource? plans = null,
-            BackgroundCommandActivity? commands = null, IPageContentSource? pageContent = null, bool? webView = null,
+            SessionRunActivity? commands = null, IPageContentSource? pageContent = null, bool? webView = null,
             bool inAppPages = true) =>
         new(agentId, daemon, actions, factory.Factory, () => new FakeTerminalSurface(), time, opener ?? new RecordingOpener(),
             permissions ?? new FakePermissionService(), new FakeWorkContextSource(), new ScriptedLocalControlOps(),
@@ -437,12 +437,12 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.IsStarting).IsTrue();
             await Assert.That(vm.Title).IsEqualTo("Fix the flaky test");
             await Assert.That(vm.RepoLabelText).IsEqualTo("myproj");
-            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude · Process started");
+            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude Code · Process started");
 
             directory.Rows.AddOrUpdate(AgentRow.FromPending(
                 new PendingLaunchDto("a1", "claude", "/repo/myproj", "Fix the flaky test", DateTime.UtcNow, "session_created"),
                 new RepoIdentity("path:/repo/myproj", "myproj")));
-            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude · Session created");
+            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude Code · Session created");
 
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj"));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
@@ -910,16 +910,16 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
-            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine]);
+            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
 
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
 
-            await Assert.That(vm.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(vm.WorkContext.HasRuns).IsTrue();
-            await Assert.That(vm.WorkContext.RunsHeader).IsEqualTo("1 running");
-            await Assert.That(vm.WorkContext.Runs.Single().Name).IsEqualTo("Explore");
+            await Assert.That(vm.WorkContext.HasSubagents).IsTrue();
+            await Assert.That(vm.WorkContext.SubagentsHeader).IsEqualTo("1 running");
+            await Assert.That(vm.WorkContext.Subagents.Single().Name).IsEqualTo("Explore");
+            await Assert.That(vm.Chat.Tasks.Rows.Single()).IsSameReferenceAs(vm.WorkContext.Subagents.Single());
             await vm.TeardownAsync();
         });
     }
@@ -941,7 +941,7 @@ public class WorkspaceViewModelTests {
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
-            var row = vm.WorkContext.Runs.Single();
+            var row = vm.WorkContext.Subagents.Single();
             await Assert.That(row.AgentId).IsEqualTo("s1");
 
             vm.WorkContext.OpenRunCommand.Execute(row).Subscribe();
@@ -953,6 +953,37 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.ShowsChat).IsFalse();
             await Assert.That(pane.Chat.Items.OfType<AssistantTextItem>().Single().Text).IsEqualTo("Found the chat surfaces");
             await Assert.That(vm.Chat.Items.OfType<AssistantTextItem>()).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    const string AgentLaunchLine = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"s1"}}""";
+
+    /// The background-tasks band opens a subagent's transcript the way the sidebar does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_background_subagent_opens_its_own_transcript_from_the_composer_band() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var time = new FakeTimeProvider();
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time);
+            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
+            Tmp.CreateFile(["t", "subagents", "agent-s1.jsonl"],
+                """{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"Found the chat surfaces"}]}}""" + "\n");
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
+            var row = vm.Chat.Tasks.Rows.Single();
+            await Assert.That(row.CanOpen).IsTrue();
+
+            vm.Chat.Tasks.OpenRunCommand.Execute(row).Subscribe();
+            var pane = vm.Subagent!;
+            time.Advance(ChatTabViewModel.PollInterval);
+            await (pane.Chat.PendingReadForTesting ?? Task.CompletedTask);
+
+            await Assert.That(vm.ShowsSubagent).IsTrue();
+            await Assert.That(pane.Chat.Items.OfType<AssistantTextItem>().Single().Text).IsEqualTo("Found the chat surfaces");
             await vm.TeardownAsync();
         });
     }
@@ -976,11 +1007,11 @@ public class WorkspaceViewModelTests {
             var time = new FakeTimeProvider();
             var lane = new FakeServerLane();
             using var access = new SessionAccessService(lane, time);
-            BackgroundCommandMonitor? monitor = null;
-            using var commands = new BackgroundCommandActivity((key, report, ended, handoff) =>
-                monitor = new BackgroundCommandMonitor(key, report, ended, daemon, directory, access,
+            SessionRunMonitor? monitor = null;
+            using var commands = new SessionRunActivity((key, report, ended, handoff) =>
+                monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
                     (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: commands);
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, ShellCallLine, ShellLaunchLine]);
@@ -988,12 +1019,12 @@ public class WorkspaceViewModelTests {
             using var selected = new BehaviorSubject<string?>("a1");
             using var railRow = new RailSessionViewModel(AgentRow.FromLocal(dto, new RepoIdentity("repo", "repo")),
                 selected, Observable.Return<IReadOnlySet<string>>(new HashSet<string>()), Observable.Return(false),
-                _ => { }, _ => { }, time, agentsRunningCommands: commands.Running);
+                _ => { }, _ => { }, time, agentsRunningWork: commands.Running);
             daemon.Agents.AddOrUpdate(dto);
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
 
-            await Assert.That(latest.GetValueOrDefault("local:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("local:a1").Commands).IsEqualTo(1);
             await Assert.That(vm.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(vm.Chat.AgentStatus.Tip).Contains("1 command running");
             selected.OnNext("another-agent");
@@ -1002,17 +1033,101 @@ public class WorkspaceViewModelTests {
             File.WriteAllText(path, new string(' ', (int)new FileInfo(path).Length - 1) + "\n");
             await vm.TeardownAsync();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("local:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("local:a1").Commands).IsEqualTo(1);
             await Assert.That(railRow.Status.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(railRow.Status.Pulses).IsTrue();
 
             if (finish == "session") daemon.Agents.AddOrUpdate(daemon.Agents.Lookup("a1").Value with { Status = "Completed" });
             else if (finish == "removed") daemon.Agents.RemoveKey("a1");
-            else File.AppendAllText(path, """{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>toolu_S</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}}""" + "\n");
+            else File.AppendAllText(path, Notification("b1", "toolu_S", "done") + Notification("s1", "toolu_A", "done"));
             time.Advance(ChatTabViewModel.PollInterval);
             await WaitUntilAsync(() => !latest.ContainsKey("local:a1"), what: "background command completion");
             await Assert.That(latest.ContainsKey("local:a1")).IsFalse();
             await Assert.That(railRow.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+        });
+    }
+
+    static string Notification(string taskId, string? callId, string summary) {
+        var call = callId is null ? "" : $$"""<tool-use-id>{{callId}}</tool-use-id>\n""";
+        return $$$"""{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>{{{taskId}}}</task-id>\n{{{call}}}<status>completed</status>\n<summary>{{{summary}}}</summary>\n</task-notification>"}}""" + "\n";
+    }
+
+    sealed record TrackedRail(WorkspaceViewModel Vm, RailSessionViewModel Row, FakeTimeProvider Time, string Path,
+        Func<IReadOnlyDictionary<string, RunningWork>> Latest, Func<SessionRunMonitor> Monitor);
+
+    /// A session at rest whose daemon count is zero, as it reads while its subagents are paused,
+    /// with a workspace reporting into a rail row.
+    async Task OnTrackedRail(string[] transcript, Func<TrackedRail, Task> body) {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            using var directory = new FakeAgentDirectory();
+            var time = new FakeTimeProvider();
+            var lane = new FakeServerLane();
+            using var access = new SessionAccessService(lane, time);
+            SessionRunMonitor? monitor = null;
+            using var runs = new SessionRunActivity((key, report, ended, handoff) =>
+                monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
+                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = runs.Running.Subscribe(running => latest = running);
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: runs);
+            var path = Tmp.CreateFile("t.jsonl", transcript);
+            var dto = Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, AwaitingInput = true, LiveSubagents = 0 };
+            using var railRow = new RailSessionViewModel(AgentRow.FromLocal(dto, new RepoIdentity("repo", "repo")),
+                new BehaviorSubject<string?>("a1"), Observable.Return<IReadOnlySet<string>>(new HashSet<string>()), Observable.Return(false),
+                _ => { }, _ => { }, time, agentsRunningWork: runs.Running);
+            daemon.Agents.AddOrUpdate(dto);
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
+            await body(new(vm, railRow, time, path, () => latest, () => monitor!));
+        });
+    }
+
+    /// The composer's rows, the chat's status and the rail agree, and go on agreeing once the
+    /// workspace closes, until the subagent ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_paused_subagent_keeps_the_chat_and_the_rail_working_after_navigation() {
+        string[] transcript = [AgentCallLine, AgentLaunchLine,
+            Notification("s1", "toolu_A", "Agent is waiting on its own background work").TrimEnd()];
+        await OnTrackedRail(transcript, async rail => {
+            await Assert.That(rail.Latest().GetValueOrDefault("local:a1")).IsEqualTo(new RunningWork(0, 1));
+            await Assert.That(rail.Vm.Chat!.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Working);
+            await Assert.That(rail.Vm.Chat.AgentStatus.Tip).Contains("1 subagent running");
+            await Assert.That(rail.Row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
+            await Assert.That(rail.Row.Meta).EndsWith(" · 1 subagent");
+
+            await rail.Vm.TeardownAsync();
+            await (rail.Monitor().PendingReadForTesting ?? Task.CompletedTask);
+            await Assert.That(rail.Row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
+            await Assert.That(rail.Row.Meta).EndsWith(" · 1 subagent");
+
+            File.AppendAllText(rail.Path, Notification("s1", "toolu_A", "done"));
+            rail.Time.Advance(ChatTabViewModel.PollInterval);
+            await WaitUntilAsync(() => !rail.Latest().ContainsKey("local:a1"), what: "subagent completion");
+            await Assert.That(rail.Row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(rail.Row.Meta).DoesNotContain("subagent");
+        });
+    }
+
+    /// Only the meta file names a foreground subagent, so a monitor that dropped the feed's own
+    /// signals would never match a report carrying the agent id alone, and the row would run on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_closed_workspace_ends_a_subagent_only_its_meta_file_named() {
+        await OnTrackedRail([AgentCallLine], async rail => {
+            await rail.Vm.TeardownAsync();
+            await (rail.Monitor().PendingReadForTesting ?? Task.CompletedTask);
+            await Assert.That(rail.Latest().GetValueOrDefault("local:a1")).IsEqualTo(new RunningWork(0, 1));
+
+            Tmp.CreateFile(["t", "subagents", "agent-s1.meta.json"], """{"toolUseId":"toolu_A"}""");
+            var before = rail.Monitor().PendingReadForTesting;
+            rail.Time.Advance(ChatTabViewModel.PollInterval);
+            await WaitUntilAsync(() => rail.Monitor().PendingReadForTesting is { IsCompleted: true } read && read != before, what: "the meta file's read");
+
+            File.AppendAllText(rail.Path, Notification("s1", null, "done"));
+            rail.Time.Advance(ChatTabViewModel.PollInterval);
+            await WaitUntilAsync(() => !rail.Latest().ContainsKey("local:a1"), what: "subagent completion");
         });
     }
 

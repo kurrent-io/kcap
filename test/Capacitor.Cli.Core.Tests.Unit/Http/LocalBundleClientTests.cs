@@ -22,9 +22,37 @@ public class LocalBundleClientTests {
     }
 
     [Test]
-    public async Task A_missing_manifest_names_the_overrides() {
+    public async Task A_missing_manifest_names_the_overrides_off_windows() {
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.NotFound)).FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: false).FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+
+        await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
+        await Assert.That(e.Message).Contains("KCAP_LOCAL_BUNDLE_VERSION");
+        await Assert.That(e.Message).Contains("KCAP_LOCAL_BUNDLE_BASE_URL");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_missing_manifest_on_windows_names_no_override_when_none_is_set() {
+        using var noBase    = EnvScope.Exclusive(LocalBundleClient.BaseUrlEnvVar, null);
+        using var noVersion = EnvScope.Exclusive(LocalBundleClient.VersionEnvVar, null);
+
+        var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", CancellationToken.None));
+
+        await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
+        await Assert.That(e.Message).IsEqualTo("No local edition is published for kcap 1.3.0 on Windows yet.");
+    }
+
+    [Test, NotInParallel]
+    [Arguments(LocalBundleClient.BaseUrlEnvVar, "https://mirror.test/x")]
+    [Arguments(LocalBundleClient.VersionEnvVar, "1.3.0")]
+    public async Task A_missing_manifest_on_windows_names_the_overrides_while_one_is_set(string variable, string value) {
+        var other = variable == LocalBundleClient.BaseUrlEnvVar ? LocalBundleClient.VersionEnvVar : LocalBundleClient.BaseUrlEnvVar;
+        using var unset = EnvScope.Exclusive(other, null);
+        using var set   = EnvScope.Exclusive(variable, value);
+
+        var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
         await Assert.That(e.Message).Contains("KCAP_LOCAL_BUNDLE_VERSION");
@@ -219,8 +247,8 @@ public class LocalBundleClientTests {
         new("1.3.0", "osx-arm64", "kcap-local-1.3.0-osx-arm64.tar.gz",
             Convert.ToHexStringLower(SHA256.HashData(body)), body.Length, new string('c', 64));
 
-    static LocalBundleClient Client(Func<HttpRequestMessage, HttpResponseMessage> respond) =>
-        new(new(new Handler(respond)), TimeProvider.System);
+    static LocalBundleClient Client(Func<HttpRequestMessage, HttpResponseMessage> respond, bool? windows = null) =>
+        new(new(new Handler(respond)), TimeProvider.System) { Windows = windows ?? OperatingSystem.IsWindows() };
 
     static HttpResponseMessage Reply(HttpStatusCode status, byte[]? body = null) =>
         new(status) { Content = new ByteArrayContent(body ?? []) };

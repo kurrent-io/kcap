@@ -8,7 +8,38 @@ public class AppImageInstallTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     string TakeCliOutOfMount(string image = "/apps/Kcap.AppImage", string build = "1.4.0") =>
-        new AppImageInstall(image).TakeCliOutOfMount(_ => null, new UserHome(Tmp.PathTo("home")), Tmp.PathTo("mount"), build);
+        new AppImageInstall(image).TakeCliOutOfMount(_ => null, new UserHome(Tmp.PathTo("home")), Tmp.PathTo("mount"), out _, build);
+
+    /// A daemon already on the copy stays on it, so the failure names that copy for the report on such a daemon.
+    [Test]
+    public async Task A_cli_that_cannot_be_copied_out_runs_from_the_mount_and_the_failure_names_the_copy() {
+        Tmp.CreateFile("mount/bin/kcap-daemon", "daemon v2");
+        Tmp.CreateFile("home/.local/share/kcap/desktop/bin", "a file where the copy's directory goes");
+
+        var cli = new AppImageInstall("/apps/Kcap.AppImage")
+            .TakeCliOutOfMount(_ => null, new UserHome(Tmp.PathTo("home")), Tmp.PathTo("mount"), out var failure, "1.4.0");
+
+        await Assert.That(cli).IsEqualTo(Tmp.PathTo("mount", "bin"));
+        await Assert.That(failure!.Directory).IsEqualTo(Tmp.PathTo("home", ".local", "share", "kcap", "desktop", "bin"));
+        await Assert.That(failure.Reason).IsNotEmpty();
+        await Assert.That(failure.DaemonCopied).IsFalse();
+    }
+
+    /// A daemon binary replaced before a later file failed restarts into the new version, so the failure says it was copied.
+    [Test]
+    public async Task A_failure_after_the_daemon_binary_was_copied_says_so() {
+        Tmp.CreateFile("mount/bin/kcap", "cli v2");
+        Tmp.CreateFile("mount/bin/kcap-daemon", "daemon v2");
+        Tmp.CreateFile("mount/bin/libpty_shim.so", "shim v2");
+        Tmp.CreateFile("home/.local/share/kcap/desktop/bin/kcap-daemon", "daemon v1");
+        Tmp.CreateDir("home/.local/share/kcap/desktop/bin/libpty_shim.so");
+
+        new AppImageInstall("/apps/Kcap.AppImage")
+            .TakeCliOutOfMount(_ => null, new UserHome(Tmp.PathTo("home")), Tmp.PathTo("mount"), out var failure, "1.4.0");
+
+        await Assert.That(File.ReadAllText(Tmp.PathTo("home", ".local", "share", "kcap", "desktop", "bin", "kcap-daemon"))).IsEqualTo("daemon v2");
+        await Assert.That(failure!.DaemonCopied).IsTrue();
+    }
 
     [Test]
     public async Task The_cli_runs_from_bin_when_the_bundle_has_one_and_beside_the_app_otherwise() {

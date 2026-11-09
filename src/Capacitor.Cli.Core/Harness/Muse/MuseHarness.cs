@@ -23,6 +23,8 @@ public sealed class MuseHarness : IHarness<MuseHarness> {
 
     public MusePaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.SettingsJson];
+
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),
         UserDataSignal = Paths.HasUserData,

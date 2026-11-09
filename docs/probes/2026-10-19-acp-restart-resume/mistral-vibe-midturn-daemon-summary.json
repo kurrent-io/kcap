@@ -1,0 +1,52 @@
+{
+  "vendor": "mistral-vibe",
+  "stop": "midturn",
+  "kill": "daemon",
+  "version": "vibe-acp 3.0.1",
+  "argv": [
+    "vibe-acp"
+  ],
+  "started": "2026-11-04T17:57:08.309074+00:00",
+  "codeword": "PELICAN-12EF7B",
+  "load_session_advertised": true,
+  "session_id": "fec5cff6-f670-af8c-b62a-22f187f20962",
+  "turn_a_stop": "end_turn",
+  "turn_c_stop": "end_turn",
+  "stopped_mid_turn": true,
+  "stop1": {
+    "cancel_sent": true,
+    "ended_by": "eof",
+    "exit_code": 0,
+    "elapsed_s": 3.24,
+    "group_outlived_leader": true
+  },
+  "load_session_advertised_after": true,
+  "load": {
+    "ok": true,
+    "error": null,
+    "replayed_updates": 11,
+    "replayed_kinds": [
+      "agent_message_chunk",
+      "agent_thought_chunk",
+      "session_info_update",
+      "tool_call",
+      "usage_update",
+      "user_message_chunk"
+    ],
+    "conversation_updates_after_response": 0,
+    "trailer_kinds": [
+      "available_commands_update"
+    ]
+  },
+  "recall_stop": "end_turn",
+  "recall_answer": "PELICAN-12EF7B",
+  "codeword_recalled": true,
+  "stop2": {
+    "cancel_sent": false,
+    "ended_by": "eof",
+    "exit_code": 0,
+    "elapsed_s": 1.22,
+    "group_outlived_leader": false
+  },
+  "ended": "2026-11-04T17:58:20.424469+00:00"
+}

@@ -118,7 +118,7 @@ internal static class VendorModelCatalogs {
         var byVendor = factories.ToDictionary(f => f.Vendor, StringComparer.Ordinal);
         var result = vendors.ToDictionary(
             v => v,
-            v => byVendor.TryGetValue(v, out var f) ? f.CatalogFingerprintPaths.Select(CatalogPathStat.Of).ToArray() : [],
+            v => byVendor.TryGetValue(v, out var f) ? f.CatalogFingerprintPaths.Select(path => CatalogPathStat.Of(path)).ToArray() : [],
             StringComparer.Ordinal);
         return accountFactory is null ? result : WithAccountBaselines(result, accountFactory, accounts ?? []);
     }
@@ -133,7 +133,7 @@ internal static class VendorModelCatalogs {
         foreach (var (key, stats) in baselines ?? FrozenDictionary<string, CatalogPathStat[]>.Empty)
             if (!key.StartsWith(AccountKeyPrefix, StringComparison.Ordinal)) result[key] = stats;
         foreach (var (id, directory) in accounts)
-            result[AccountKey(id)] = [.. accountFactory.CatalogFingerprintPathsFor(directory).Select(CatalogPathStat.Of)];
+            result[AccountKey(id)] = [.. accountFactory.CatalogFingerprintPathsFor(directory).Select(path => CatalogPathStat.Of(path))];
         return result;
     }
 }

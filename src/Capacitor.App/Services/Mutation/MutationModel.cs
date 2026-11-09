@@ -4,7 +4,13 @@ namespace Capacitor.App.Services.Mutation;
 
 public enum MutationVerb {
     Install, Replace, StartVerified, DetachedStart, Reload, AccountAdd, AccountRemove, AccountRename, AccountRewire, AccountRefresh,
-    InstallWindowsService
+    InstallWindowsService,
+    /// Windows: the daemon stops at a turn boundary before the updater replaces its install. Runs only through
+    /// <see cref="DaemonMutationLane.RunExclusiveAsync"/>.
+    StopForUpdate,
+    /// macOS: every launchd unit whose daemon lies inside <see cref="MutationRequest.RepointFrom"/> moves onto the daemon
+    /// beside the lane's kcap. Its outcome reaches only its caller.
+    Repoint
 }
 
 public static class MutationVerbExtensions {
@@ -15,7 +21,7 @@ public static class MutationVerbExtensions {
 
 public sealed record MutationRequest(
     MutationVerb Verb, string Profile, string CanonicalServer, string DaemonName, string? RetireServiceId = null,
-    AccountArgs? Account = null, string? RequestId = null);
+    AccountArgs? Account = null, string? RepointFrom = null, string? RequestId = null);
 
 /// The mutation lane maps every raw outcome onto exactly one case.
 public abstract record MutationOutcome {

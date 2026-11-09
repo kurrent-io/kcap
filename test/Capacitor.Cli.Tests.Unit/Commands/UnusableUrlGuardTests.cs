@@ -2,7 +2,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -143,7 +143,16 @@ public class UnusableUrlGuardTests : IDisposable {
         // guard merely lets Process.Start throw or return null, leaving every effect identical.
         var starter = FakeProcessStarter.Refusing();
 
-        GuardedManager(starter).SpawnCopilotFinalizeDrain(Sid, Path.Combine(_dir, "t.jsonl"));
+        GuardedManager(starter).SpawnCopilotFinalizeDrain(Sid, Path.Combine(_dir, "t.jsonl"), "{}");
+
+        await Assert.That(starter.Starts).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task SpawnTitleGenerator_never_starts_a_process() {
+        var starter = FakeProcessStarter.Refusing();
+
+        GuardedManager(starter).SpawnTitleGenerator(Sid, "pi", Path.Combine(_dir, "t.jsonl"), TextWriter.Null);
 
         await Assert.That(starter.Starts).IsEqualTo(0);
     }

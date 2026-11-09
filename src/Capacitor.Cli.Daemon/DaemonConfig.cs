@@ -180,6 +180,8 @@ public class DaemonConfig {
     /// </summary>
     public string[]? UnattendedVendors { get; set; }
 
+    internal bool StartupUnattendedClassificationPending { get; set; }
+
     /// <summary>Setting this keeps the Codex resolution already paired with the capabilities; a caller
     /// that computed them from a resolution publishes both through <see cref="Advertise"/>.</summary>
     public IReadOnlyList<UnattendedVendorCapability>? UnattendedVendorCapabilities {
@@ -253,7 +255,7 @@ public class DaemonConfig {
     /// <summary>The config directory each account-bearing vendor uses when no account is chosen.</summary>
     public IReadOnlyDictionary<HarnessId, string> DefaultDirectories { get; set; } = FrozenDictionary<HarnessId, string>.Empty;
 
-    /// <summary>The PATH probe resolved at boot, the one the <c>HarnessRegistry</c> is built over. A
+    /// <summary>The shared PATH probe (live on macOS), the one the <c>HarnessRegistry</c> is built over. A
     /// configured vendor path is not a harness question, so its resolvers take this.</summary>
     public BinaryProbe Binaries {
         get => field ?? throw new InvalidOperationException($"DaemonConfig.Binaries was never set; pass a {nameof(BinaryProbe)} in from the entry point.");
@@ -537,10 +539,10 @@ public class DaemonConfig {
     /// whichever binary this names. Overridable via <c>KCAP_GEMINI_PATH</c>.</summary>
     public string GeminiPath { get; set; } = Core.Harness.Gemini.GeminiHarness.CliBinary;
 
-    /// <summary>Path or bare command for the Mistral Vibe CLI. Overridable via <c>KCAP_MISTRAL_VIBE_PATH</c>.
-    /// Vibe is a recording-only harness — the daemon never launches it — so this exists only to give
-    /// <c>kcap config</c> a slot for the binary path; it is not read by any launcher.</summary>
-    public string MistralVibePath { get; set; } = Core.Harness.MistralVibe.MistralVibeHarness.CliBinary;
+    /// <summary>Path or bare command for Mistral Vibe's ACP entry point, spawned with no arguments by
+    /// <c>AcpHostedAgentRuntimeFactory</c>. It is <c>vibe-acp</c>, not the <c>vibe</c> TUI. Overridable
+    /// via <c>KCAP_MISTRAL_VIBE_PATH</c>.</summary>
+    public string MistralVibePath { get; set; } = Core.Harness.MistralVibe.MistralVibeHarness.AcpBinary;
 
     /// <summary>Path or bare command for Grok Build. Overridable via <c>KCAP_GROK_PATH</c>.</summary>
     public string GrokPath { get; set; } = Core.Harness.Grok.GrokHarness.CliBinary;
@@ -636,26 +638,6 @@ public class DaemonConfig {
         return errors;
     }
 
-    public bool IsRepoAllowed(string repoPath) {
-        if (AllowedRepoPaths.Length == 0) {
-            return true;
-        }
-
-        // Compare with forward slashes so an operator's "/*" wildcard and prefix matching work
-        // regardless of the host's native separator (Windows canonical paths use '\'). No-op on POSIX.
-        var path = repoPath.Replace('\\', '/');
-
-        return AllowedRepoPaths.Any(raw => {
-                var pattern = raw.Replace('\\', '/');
-
-                if (pattern.EndsWith("/*")) {
-                    var prefix = pattern[..^1]; // keep trailing slash: "/allowed/"
-
-                    return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || string.Equals(path, pattern[..^2], StringComparison.OrdinalIgnoreCase);
-                }
-
-                return string.Equals(path, pattern, StringComparison.OrdinalIgnoreCase);
-            }
-        );
-    }
+    public bool IsRepoAllowed(string repoPath) =>
+        AllowedRepoPaths.Length == 0 || AllowedRepoPaths.Any(pattern => RepoPathPattern.Matches(pattern, repoPath));
 }

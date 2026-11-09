@@ -309,6 +309,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     readonly Func<AcpNotification, IReadOnlyList<AcpEventEnvelope>>? _turnUsageReader;
     readonly Func<AcpNotification, AcpSubagentSignal?>? _subagentReader;
     readonly AcpQuestionProtocol? _questionProtocol;
+    readonly AcpAnnouncedToolCalls? _announcedToolCalls;
 
     // A subagent's ACP sessionId → the agent id its events carry. Entries stay after it finishes, so a
     // straggling update is still not mistaken for the hosted agent's own.
@@ -530,12 +531,14 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             Func<JsonElement, IReadOnlySet<string>, bool>?                                  admissionMatcher = null,
             Func<AcpNotification, IReadOnlyList<AcpEventEnvelope>>?                         turnUsageReader = null,
             Func<AcpNotification, AcpSubagentSignal?>?                                      subagentReader = null,
+            bool                                                                            completesPermissionToolCall = false,
             AcpQuestionProtocol?                                                            questionProtocol = null
         ) {
         _sessionNewMeta = sessionNewMeta;
         _turnUsageReader = turnUsageReader;
         _subagentReader  = subagentReader;
         _questionProtocol = questionProtocol;
+        _announcedToolCalls = completesPermissionToolCall ? new AcpAnnouncedToolCalls() : null;
         _journal = journal;
         _admittedToolIds = admittedToolIds;
         _policySnapshot  = policySnapshot;
@@ -697,6 +700,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     string DiagnosticBinary =>
         _vendor == AcpVendorDescriptors.Cursor.Vendor ? "cursor-agent"
             : _vendor == AcpVendorDescriptors.Kiro.Vendor ? "kiro-cli"
+            : _vendor == AcpVendorDescriptors.MistralVibe.Vendor ? "vibe-acp"
             : _vendor;
 
     // Kiro deliberately gets a hint that names NO command. Cursor and Copilot name a verified login
@@ -714,7 +718,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     ? "verify Kiro CLI is signed in and your subscription/entitlement is active"
                     : _vendor == AcpVendorDescriptors.Gemini.Vendor
                         ? GeminiAuthHint
-                        : $"authenticate `{_vendor}` and verify your subscription/entitlement";
+                        : _vendor == AcpVendorDescriptors.MistralVibe.Vendor
+                            ? "run `vibe-acp --setup` to store a Mistral API key"
+                            : $"authenticate `{_vendor}` and verify your subscription/entitlement";
 
     /// <summary>
     /// Gemini's hint, worded as a POSSIBILITY rather than a diagnosis — and that is a requirement, not
@@ -1223,6 +1229,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// whose <c>stopReason</c> never arrives cannot pin <see cref="DisposeAsync"/>.
     /// </summary>
     async Task RunTurnWorkerAsync(CancellationToken ct) {
+        PendingTurn? current = null;
+
         try {
             while (true) {
                 PendingTurn turn;
@@ -1240,6 +1248,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     if (!_pendingTurns.Reader.TryRead(out turn!))
                         continue;
                 }
+
+                current = turn;
 
                 if (Volatile.Read(ref _turnsHeld) is { } turnsHeld) {
                     try {
@@ -1288,6 +1298,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // normal shutdown — see this method's remarks.
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP: prompt-turn worker ended unexpectedly.");
+        } finally {
+            // Nothing sends a turn once the worker is gone; one already written ignores this.
+            var undelivered = new InvalidOperationException("ACP session ended while this input was pending delivery.");
+            current?.Written?.TrySetException(undelivered);
+            _heldTurn?.Written?.TrySetException(undelivered);
         }
     }
 
@@ -1352,6 +1367,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // drop — whose reconnect sweep answers the pending permission with a cancelled decline —
             // never renders as a user-facing "not permitted" note.
             var completedNormally = false;
+            string? promptError = null;
 
             try {
                 await SendPromptAsync(connection, turn, ct).ConfigureAwait(false);
@@ -1363,11 +1379,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 // reconnect spec §5.3).
                 turn.Written?.TrySetException(ex);
                 _logger.LogDebug(ex, "ACP: session/prompt turn faulted; flushing this turn's partial buffer.");
+
+                if (ex is AcpRpcException rpc) promptError = rpc.Message;
             } finally {
                 // C4 inverted (reconnect spec §5.4): the flush is KEPT on the crash path — under
                 // skip-whole-replay nothing is ever re-emitted from replay, so the flushed partial
                 // run cannot be duplicated; it is the only copy of what the agent said before dying.
                 FlushOpenRun();
+
+                // The agent answered the prompt with an error, such as a model its provider no longer
+                // serves: without a note the turn just ends, looking idle rather than failed.
+                if (promptError is not null)
+                    EmitPromptErrorNote(promptError);
 
                 // A permission refused mid-turn with nothing else said leaves the chat looking idle
                 // rather than refused — say so, but only for a turn that ran to its stopReason, so a
@@ -1495,9 +1518,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return EnqueueTurn(text, acknowledgeWrite: true);
     }
 
-    public Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) {
+    public Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
         RequireSessionId();
-        return EnqueueTurn(text, acknowledgeWrite: waitForWrite, dispatchId);
+        return InputAdmission.Of(EnqueueTurn(text, acknowledgeWrite: true, dispatchId));
     }
 
     public async Task WaitForTurnIdleAsync(CancellationToken ct) {
@@ -1674,6 +1697,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _logger.LogDebug("ACP: dropped a session/update for an unannounced session.");
             return;
         }
+
+        _announcedToolCalls?.Observe(updateElement);
 
         var reduced = Reduce(updateElement.Clone());
 
@@ -1902,6 +1927,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         resolvedModel: _resolvedModel);
                     if (metaEnvelope is { } m)
                         EmitEnvelope(m);
+                    break;
+
+                // A usage reading with nothing to show (Vibe sends used: 0 between thought chunks) is
+                // still metadata, so it is dropped without ending the open run.
+                case AcpUpdateKind.Unknown when update.Raw is { } raw && raw.Str("sessionUpdate") == "usage_update":
                     break;
 
                 // Calls held before it stay held: parallel calls each wait for their own input. The call is the agent's
@@ -2786,6 +2816,13 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// cancelled (see <see cref="NotePermissionOutcome"/>) and the agent never said anything
     /// afterward — e.g. a vendor whose tool reports a rejection to itself but never turns that
     /// into assistant text.</summary>
+    void EmitPromptErrorNote(string message) =>
+        EmitEnvelope(new AcpEventEnvelope(
+            Seq: 0,
+            Kind: AcpEventKind.SystemNote,
+            Text: $"{_vendor} could not finish the turn: {(message.Length > 500 ? message[..500] + "…" : message)}",
+            TimestampIso: NowIso()));
+
     void EmitSilentPermissionRefusalNote() =>
         EmitEnvelope(new AcpEventEnvelope(
             Seq: 0,
@@ -2995,7 +3032,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // bridge call (and with it the server-side card) — disposing here would sever that
             // propagation path. Disposal rides the bridge task's own settlement instead.
             var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, entry.Cts.Token);
-            var bridgeTask = _interactionBridge!.HandleAsync(request, linked.Token);
+            var bridgeTask = _interactionBridge!.HandleAsync(_announcedToolCalls?.Complete(request) ?? request, linked.Token);
             _ = bridgeTask.ContinueWith(
                 t => { _ = t.Exception; linked.Dispose(); },
                 CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);

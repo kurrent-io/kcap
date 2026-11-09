@@ -1,5 +1,6 @@
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.LocalIpc;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.App.Tests.Unit;
@@ -19,11 +20,16 @@ public class ExpectedDaemonRestartTests {
         public readonly List<(bool Expected, TimeSpan Lasted)> Outages = [];
         public readonly ExpectedDaemonRestart Restart;
         public AttachStatus? Shown;
+        /// What the pid file names as alive, read only by a harness built to probe it.
+        public int? LivePid;
+        public bool Starting;
 
-        public Harness() {
+        public Harness(bool probesPid = false) {
             Restart = new ExpectedDaemonRestart(Raw, Marker, () => JustUpdated,
-                () => { Reattaches++; return Task.CompletedTask; }, Clock, (e, t) => Outages.Add((e, t)));
+                () => { Reattaches++; return Task.CompletedTask; }, Clock, (e, t) => Outages.Add((e, t)),
+                probesPid ? () => LivePid : null);
             Restart.Status.Subscribe(s => Shown = s);
+            Restart.Starting.Subscribe(s => Starting = s);
         }
 
         public void Dispose() => Restart.Dispose();
@@ -58,6 +64,22 @@ public class ExpectedDaemonRestartTests {
         h.Raw.OnNext(Down);
 
         await Assert.That(h.Shown!.Reason).IsEqualTo(ExpectedDaemonRestart.Reason);
+    }
+
+    /// <summary>An update that stopped the daemon itself leaves nothing to bring it back but this launch, so the ensure
+    /// must not wait the outage out, while the outage still reads as the update's restart.</summary>
+    [Test]
+    public async Task A_daemon_the_update_stopped_reads_as_restarting_but_is_not_waited_for() {
+        var raw = new BehaviorSubject<AttachStatus>(Connected);
+        AttachStatus? shown = null;
+        using var restart = new ExpectedDaemonRestart(raw, new BehaviorSubject<bool>(false), () => true, () => Task.CompletedTask,
+            new FakeTimeProvider(), appStartsDaemon: () => true);
+        using var subscription = restart.Status.Subscribe(s => shown = s);
+
+        raw.OnNext(Down);
+
+        await Assert.That(shown!.Reason).IsEqualTo(ExpectedDaemonRestart.Reason);
+        await Assert.That(restart.Expected).IsFalse();
     }
 
     [Test]
@@ -133,5 +155,102 @@ public class ExpectedDaemonRestartTests {
 
         await Assert.That(afterFirst).IsEqualTo(1);
         await Assert.That(h.Reattaches).IsEqualTo(1);
+    }
+
+    static AttachStatus ConnectedTo(int pid) =>
+        new(AttachState.Connected, null, [], Identity: new ConnectedIdentity(pid, "instance", "default", "1.0.0"));
+
+    /// The evidence `kcap daemon status` reads as "starting — not yet serving": a live process the
+    /// pid file names while the socket does not answer. It is not "not running", and it offers no
+    /// Start, which would race the daemon already coming up.
+    [Test]
+    public async Task A_live_daemon_process_that_does_not_serve_yet_reads_as_starting() {
+        using var h = new Harness(probesPid: true);
+        h.Raw.OnNext(ConnectedTo(100));
+        h.LivePid = 200;
+
+        h.Raw.OnNext(Down);
+
+        await Assert.That(h.Shown!.State).IsEqualTo(AttachState.Unreachable);
+        await Assert.That(h.Shown.Reason).IsEqualTo(ExpectedDaemonRestart.StartingReason);
+        await Assert.That(h.Starting).IsTrue();
+        await Assert.That(h.Restart.Expected).IsTrue();
+    }
+
+    /// The daemon the app was attached to can outlive its socket while it shuts down: that is
+    /// stopping, and must not read as a daemon on its way up.
+    [Test]
+    public async Task The_process_the_app_was_attached_to_is_stopping_not_starting() {
+        using var h = new Harness(probesPid: true);
+        h.Raw.OnNext(ConnectedTo(100));
+        h.LivePid = 100;
+
+        h.Raw.OnNext(Down);
+
+        await Assert.That(h.Shown).IsEqualTo(Down);
+        await Assert.That(h.Starting).IsFalse();
+        await Assert.That(h.Restart.Expected).IsFalse();
+    }
+
+    /// The attach reports Unreachable once per outage, so a process that comes up later is found by
+    /// the poll, and the attach is retried at once rather than on the connect backoff.
+    [Test]
+    public async Task A_process_that_comes_up_during_the_outage_is_found_and_reattached() {
+        using var h = new Harness(probesPid: true);
+        h.Raw.OnNext(ConnectedTo(100));
+        h.Raw.OnNext(Down);
+        await Assert.That(h.Shown).IsEqualTo(Down);
+
+        h.LivePid = 200;
+        h.Clock.Advance(ExpectedDaemonRestart.RetryInterval);
+
+        await Assert.That(h.Shown!.Reason).IsEqualTo(ExpectedDaemonRestart.StartingReason);
+        h.Clock.Advance(ExpectedDaemonRestart.RetryInterval);
+        await Assert.That(h.Reattaches).IsGreaterThanOrEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_retry_keeps_the_starting_label_and_a_vanished_process_drops_it() {
+        using var h = new Harness(probesPid: true);
+        h.LivePid = 200;
+        h.Raw.OnNext(Down);
+
+        h.Raw.OnNext(Connecting);
+        await Assert.That(h.Shown!.Reason).IsEqualTo(ExpectedDaemonRestart.StartingReason);
+
+        h.Raw.OnNext(Down);
+        h.LivePid = null;
+        h.Clock.Advance(ExpectedDaemonRestart.RetryInterval);
+
+        await Assert.That(h.Shown).IsEqualTo(Down);
+        await Assert.That(h.Starting).IsFalse();
+    }
+
+    /// A process that never starts serving is not success: past the grace the outage reads as an
+    /// ordinary one again, Start button and all.
+    [Test]
+    public async Task A_daemon_that_never_serves_reads_as_down_once_the_grace_ends() {
+        using var h = new Harness(probesPid: true);
+        h.LivePid = 200;
+        h.Raw.OnNext(Down);
+        await Assert.That(h.Shown!.Reason).IsEqualTo(ExpectedDaemonRestart.StartingReason);
+
+        h.Clock.Advance(ExpectedDaemonRestart.Grace);
+
+        await Assert.That(h.Shown).IsEqualTo(Down);
+        await Assert.That(h.Starting).IsFalse();
+        await Assert.That(h.Restart.Expected).IsFalse();
+    }
+
+    [Test]
+    public async Task Serving_ends_the_starting_state() {
+        using var h = new Harness(probesPid: true);
+        h.LivePid = 200;
+        h.Raw.OnNext(Down);
+
+        h.Raw.OnNext(ConnectedTo(200));
+
+        await Assert.That(h.Shown!.State).IsEqualTo(AttachState.Connected);
+        await Assert.That(h.Starting).IsFalse();
     }
 }

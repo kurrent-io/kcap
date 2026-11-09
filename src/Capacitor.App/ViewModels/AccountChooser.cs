@@ -6,20 +6,22 @@ namespace Capacitor.App.ViewModels;
 
 /// Not thread-safe: every input and every read belong on the UI thread.
 public sealed class AccountChooser {
-    readonly Func<string, string, string, string?> _remembered;
-    readonly Action<string, string, string, string?> _remember;
+    readonly Func<string, string, string, bool, string?> _remembered;
+    readonly Action<string, string, string, bool, string?> _remember;
     readonly Dictionary<string, string> _labels = new(StringComparer.Ordinal);
 
     string _repoPath = "";
     string _vendor   = "";
+    bool _remote;
     AccountSupport _support;
     bool _fetchFailed;
     AccountsSnapshotDto? _snapshot;
     bool _memoryLoaded;
     bool _picked;
+    bool _restoredPick;
     string? _pickedId;
 
-    public AccountChooser(Func<string, string, string, string?> remembered, Action<string, string, string, string?> remember) {
+    public AccountChooser(Func<string, string, string, bool, string?> remembered, Action<string, string, string, bool, string?> remember) {
         _remembered = remembered;
         _remember   = remember;
         Recompute();
@@ -39,10 +41,15 @@ public sealed class AccountChooser {
 
     public static string UnavailableReason(string label) => $"{label} is not available on this machine";
 
-    public void EnterTarget(string repoPath, string vendor) {
+    /// A change of remoteness drops the snapshot: it belongs to the other kind of host, and judging this
+    /// target's memory against it under this target's path rule could clear a valid choice.
+    public void EnterTarget(string repoPath, string vendor, bool remote) {
+        if (remote != _remote) _snapshot = null;
         _repoPath = repoPath;
         _vendor   = vendor;
+        _remote   = remote;
         _picked   = false;
+        _restoredPick = false;
         _pickedId = null;
         Recompute();
     }
@@ -67,14 +74,27 @@ public sealed class AccountChooser {
     public void Pick(string? accountId) {
         if (OffersAccounts) {
             _picked   = true;
+            _restoredPick = false;
             _pickedId = accountId;
-            if (_snapshot is not null) _remember(_snapshot.HostId, _vendor, _repoPath, accountId);
+            if (_snapshot is not null) _remember(_snapshot.HostId, _vendor, _repoPath, _remote, accountId);
         }
 
         Recompute();
     }
 
     public void UseDefault() => Pick(null);
+
+    /// A choice a returned draft carried: held like a pick, but not remembered again, and still
+    /// loading rather than unavailable until the accounts are known.
+    public void Restore(string? accountId) {
+        if (OffersAccounts) {
+            _picked   = true;
+            _restoredPick = true;
+            _pickedId = accountId;
+        }
+
+        Recompute();
+    }
 
     bool OffersAccounts =>
         string.Equals(_vendor, HarnessId.Claude.VendorId, StringComparison.OrdinalIgnoreCase)
@@ -108,10 +128,10 @@ public sealed class AccountChooser {
     string? LiveEntry(IReadOnlyList<AccountRow> rows) {
         if (!OffersAccounts || !_memoryLoaded || _snapshot is null) return null;
 
-        var entry = _remembered(_snapshot.HostId, _vendor, _repoPath);
+        var entry = _remembered(_snapshot.HostId, _vendor, _repoPath, _remote);
         if (entry is null || Lists(rows, entry)) return entry;
 
-        _remember(_snapshot.HostId, _vendor, _repoPath, null);
+        _remember(_snapshot.HostId, _vendor, _repoPath, _remote, null);
         return null;
     }
 
@@ -120,6 +140,8 @@ public sealed class AccountChooser {
 
         if (_picked) {
             if (_pickedId is null) return (AccountSelectionState.Default, null);
+            if (_restoredPick && (_support == AccountSupport.Unknown || (_support == AccountSupport.Supported && _snapshot is null)))
+                return (AccountSelectionState.Pending, null);
 
             var valid = _support == AccountSupport.Supported && Lists(rows, _pickedId);
             return (valid ? AccountSelectionState.ExplicitValid : AccountSelectionState.ExplicitInvalid, _pickedId);

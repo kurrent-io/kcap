@@ -810,7 +810,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             Accounts: GetAccountsSnapshot?.Invoke(),
             HeadlessVendors: AdvertisedHeadlessVendors(),
             SupportsScratchWorkspace: true,
-            SupportsHandoffLaunch: true, SupportsResumeInPlace: true);
+            SupportsHandoffLaunch: true, SupportsResumeInPlace: true, SupportsDenyMessage: true, SupportsInputAcks: true);
     }
 
     async Task DaemonConnectCoreAsync(RegistrationAttempt attempt) {
@@ -1067,11 +1067,13 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             string agentId, string? prompt, string? model, string? effort, string? repoPath,
             string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null,
             string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null,
-            string? accountDirectory = null, string? accountId = null, string? accountLabel = null) {
+            string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
+            string? resumedSessionId = null, bool resumeFirstAnnounce = false) {
         var activeCount = GetActiveCount?.Invoke();
         var registration = new AgentRegistered(
             agentId, prompt, model, effort, repoPath, sandboxPolicy, approvalPolicy, permissionPreset, runtimeTransport,
-            title?.Text, title?.Derived ?? false, activeCount?.Count, activeCount?.Version, vendor, continuesAgentId, accountDirectory, accountId, accountLabel);
+            title?.Text, title?.Derived ?? false, activeCount?.Count, activeCount?.Version, vendor, continuesAgentId, accountDirectory, accountId, accountLabel,
+            resumedSessionId, resumeFirstAnnounce);
         var connection = CurrentConnectionId ?? "";
 
         if (!string.Equals(Volatile.Read(ref _registrationAckMissingOn), connection, StringComparison.Ordinal)) {
@@ -1085,7 +1087,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
         await InvokeAgentRegisteredRawAsync(registration);
 
-        return AgentRegisteredResponse.Accepted;
+        return AgentRegisteredResponse.Unanswered;
     }
 
     /// <summary>The connection id on which the server answered <c>AgentRegisteredAcked</c> as an unknown method.</summary>
@@ -1210,6 +1212,17 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                 .WaitAsync(SendInputRejectedBudget, _time, _ct);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report the dropped input for agent {AgentId} ({Reason})", agentId, reason);
+        }
+    }
+
+    /// <summary>Tells the server this daemon took a dispatched input, so it stops resending it. Swallowed
+    /// at Debug, like a refusal report: an older server has no such method and never resends.</summary>
+    public virtual async Task SendInputAckedAsync(Guid dispatchId, string agentId) {
+        try {
+            await _hub.InvokeAsync("SendInputAcked", new SendInputAcked(dispatchId, agentId), cancellationToken: _ct)
+                .WaitAsync(SendInputRejectedBudget, _time, _ct);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Could not acknowledge input {DispatchId} for agent {AgentId}", dispatchId, agentId);
         }
     }
 

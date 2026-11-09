@@ -45,25 +45,35 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
 
     /// What the process being replaced shows from the moment the update is accepted until it exits: quitting
     /// first quiesces its agents' connections, which can take a while, and nothing else is on screen meanwhile.
-    public static UpdateFinishViewModel Closing(string to, TimeProvider time) =>
-        new(to, time, OperatingSystem.IsWindows());
+    public static UpdateFinishViewModel Closing(string to, TimeProvider time, DaemonHandoff handoff = DaemonHandoff.None) =>
+        new(to, time, OperatingSystem.IsWindows(), handoff);
 
     /// <param name="stopsDaemon">The installer stops the daemon with the app, as Velopack does on Windows.</param>
-    internal UpdateFinishViewModel(string to, TimeProvider time, bool stopsDaemon) {
+    /// <param name="handoff">What the app did with the daemon before it began to close.</param>
+    internal UpdateFinishViewModel(string to, TimeProvider time, bool stopsDaemon, DaemonHandoff handoff = DaemonHandoff.None) {
         _time = time;
         _closing = true;
         OpenCommand = ReactiveCommand.Create(() => { });
         SetSteps([
-            stopsDaemon
-                ? new("Closing kcap and the daemon", "Eligible agents resume if auto-resume is on", UpdateStepState.Running)
-                : new("Closing kcap", "The daemon and its agents keep running", UpdateStepState.Running),
+            ClosingStep(stopsDaemon, handoff),
             new($"Installing kcap {Display(to)}", "Reopens when it is done", UpdateStepState.Pending),
         ]);
     }
 
+    internal static UpdateStep ClosingStep(bool stopsDaemon, DaemonHandoff handoff) => (stopsDaemon, handoff) switch {
+        (false, _) => new("Closing kcap", "The daemon and its agents keep running", UpdateStepState.Running),
+        (true, DaemonHandoff.Stopped) => new("Closing kcap", "The daemon stopped. Eligible agents resume after the update", UpdateStepState.Running),
+        (true, DaemonHandoff.NotRunning) => new("Closing kcap", "The daemon is not running", UpdateStepState.Running),
+        (true, DaemonHandoff.Interrupted) => new("Closing kcap and the daemon",
+            "The daemon did not stop by itself. Running agents are interrupted. Eligible agents resume if auto-resume is on", UpdateStepState.Running),
+        _ => new("Closing kcap and the daemon", "Eligible agents resume if auto-resume is on", UpdateStepState.Running),
+    };
+
+    /// <param name="otherInstall">StaleDaemonNudge.OtherInstall; null when nothing reports it.</param>
     public UpdateFinishViewModel(
             AppUpdateTransition transition, IObservable<AttachStatus> status, IObservable<(string? Version, string? Connection)> daemon,
-            IObservable<bool> restartPending, IObservable<LocalStepInput?> local, TimeProvider time) {
+            IObservable<DaemonRestartWait> restartPending, IObservable<LocalStepInput?> local, TimeProvider time,
+            IObservable<DaemonOnOtherInstall?>? otherInstall = null) {
         _time = time;
         OpenCommand = ReactiveCommand.Create(RequestOpen);
         ArmPatience();
@@ -71,15 +81,17 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
             .Subscribe(_ => ArmPatience())
             .DisposeWith(_disposables);
 
-        status.StartWith(new AttachStatus(AttachState.Connecting, null, null)).CombineLatest(daemon.StartWith((null, null)), restartPending.StartWith(false), local.StartWith((LocalStepInput?)null),
-                _waitedLong, (s, d, pending, l, waited) => Project(transition, s, d.Version, d.Connection, pending, l, waited))
+        status.StartWith(new AttachStatus(AttachState.Connecting, null, null)).CombineLatest(daemon.StartWith((null, null)),
+                restartPending.StartWith(DaemonRestartWait.None), local.StartWith((LocalStepInput?)null),
+                (otherInstall ?? Observable.Empty<DaemonOnOtherInstall?>()).StartWith((DaemonOnOtherInstall?)null), _waitedLong,
+                (s, d, pending, l, other, waited) => Project(transition, s, d.Version, d.Connection, pending, l, other, waited))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(Apply)
             .DisposeWith(_disposables);
     }
 
     public string Heading => _closing ? "Updating kcap…"
-        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is installed";
+        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is updated";
 
     public string Description => _closing
         ? "kcap restarts to install the update. Background services finish updating after it reopens."
@@ -170,13 +182,13 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     }
 
     internal static (IReadOnlyList<UpdateStep> Steps, bool Settled, bool Clean) Project(
-            AppUpdateTransition transition, AttachStatus status, string? daemonVersion, string? connection, bool restartPending,
-            LocalStepInput? local, bool waitedLong = false) {
-        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Installed", UpdateStepState.Done) };
+            AppUpdateTransition transition, AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
+            LocalStepInput? local, DaemonOnOtherInstall? otherInstall = null, bool waitedLong = false) {
+        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Updated", UpdateStepState.Done) };
         var localStep = LocalStep(local);
         if (localStep is not null) steps.Add(localStep);
         var localRunning = localStep?.State is UpdateStepState.Running or UpdateStepState.Pending;
-        steps.Add(DaemonStep(status, daemonVersion, connection, restartPending, transition.To, waitedLong, localRunning));
+        steps.Add(DaemonStep(status, daemonVersion, connection, restartPending, transition.To, waitedLong, otherInstall, localRunning));
         var settled = steps.All(step => step.State is not (UpdateStepState.Running or UpdateStepState.Pending));
         return (steps, settled, settled && steps.All(step => step.State == UpdateStepState.Done));
     }
@@ -185,8 +197,10 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     /// connected as an outage, so the step is not done before it.</param>
     /// <param name="localRunning">The local server is still being upgraded. A daemon already on the new version waits for it
     /// rather than showing done and then dropping back when the server stops.</param>
-    internal static UpdateStep DaemonStep(AttachStatus status, string? daemonVersion, string? connection, bool restartPending, string appVersion,
-            bool waitedLong = false, bool localRunning = false) {
+    /// <param name="otherInstall">The daemon runs a binary this app's update did not replace, so a restart does not move it on.
+    /// A restart waiting for turns outranks another install, whose update it follows, but not the app's own failed copy.</param>
+    internal static UpdateStep DaemonStep(AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
+            string appVersion, bool waitedLong = false, DaemonOnOtherInstall? otherInstall = null, bool localRunning = false) {
         const string title = "Daemon";
         var app = Display(appVersion);
         var known = daemonVersion is { Length: > 0 };
@@ -200,12 +214,22 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
             { State: AttachState.Connected } when current => new($"{title} {app}", "Connecting to the server", UpdateStepState.Running,
                 Activity: "Reconnecting the daemon to the server"),
             { State: AttachState.Connected } when newer => new(title, $"Running {Display(daemonVersion!)}, newer than this app", UpdateStepState.Note),
-            { State: AttachState.Connected } when restartPending => new(title, "Waiting for active turns. Long turns may be interrupted", UpdateStepState.Note),
+            { State: AttachState.Connected } when otherInstall is { CopyFailure: { } failure } copy => new(title,
+                $"Runs {Display(copy.Version)} from this app's copy of its CLI, which it could not replace. Fix that and reopen the app",
+                UpdateStepState.Note, Hint: failure),
+            { State: AttachState.Connected } when restartPending == DaemonRestartWait.Turns => new(title, "Waiting for active turns. Long turns may be interrupted", UpdateStepState.Note),
+            { State: AttachState.Connected } when otherInstall is { } other => new(title,
+                $"Runs {Display(other.Version)} from another install. Update that install to move it on", UpdateStepState.Note, Hint: other.Executable),
+            { State: AttachState.Connected } when restartPending == DaemonRestartWait.Agents => new(title,
+                "Restarts once it has no agents, idle ones included", UpdateStepState.Note),
+            { State: AttachState.Connected } when restartPending == DaemonRestartWait.Unstated => new(title, "A restart is queued", UpdateStepState.Note),
             { State: AttachState.Connected } when waitedLong && known => new(title,
                 $"Still on {Display(daemonVersion!)}. Moves to {app} on its next restart", UpdateStepState.Note),
             { State: AttachState.Connected } => new(title, $"Waiting to restart into {app}", UpdateStepState.Running, Activity: "Waiting for the daemon to restart"),
             { State: AttachState.Unreachable, Reason: ExpectedDaemonRestart.Reason } => new(title, $"Restarting into {app}", UpdateStepState.Running,
                 Activity: "Restarting the daemon"),
+            { State: AttachState.Unreachable, Reason: ExpectedDaemonRestart.StartingReason } => new(title, "Starting", UpdateStepState.Running,
+                Activity: "Starting the daemon"),
             // The old daemon is incompatible with the new app until it restarts into the new binary.
             { State: AttachState.Unreachable, Reason: "daemon_incompatible" } when !waitedLong => new(title, $"Waiting to restart into {app}", UpdateStepState.Running,
                 Activity: "Waiting for the daemon to restart"),

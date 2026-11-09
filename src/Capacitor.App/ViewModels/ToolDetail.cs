@@ -10,6 +10,8 @@ namespace Capacitor.App.ViewModels;
 /// a repository root is stripped as well.
 public static class ToolDetail {
     const int MaxLength = 80;
+    /// Narrow enough that a chat row at a narrow pane does not trim the path a second time.
+    const int MaxPathLength = 40;
     /// A question is read rather than scanned — the row wraps it instead of eliding — so the only
     /// cap on it is the one that keeps an unbounded prompt out of a notification body.
     const int MaxQuestionLength = 400;
@@ -39,7 +41,9 @@ public static class ToolDetail {
             foreach (var key in Keys) {
                 if (category == ToolCategory.Question && key == "prompt") continue;
                 if (doc.RootElement.Str(key) is { } s && s.Trim().Length > 0)
-                    return TextElision.Middle(FirstLine(PathKeys.Contains(key) ? Relative(s.Trim(), root) : s), MaxLength);
+                    return PathKeys.Contains(key)
+                        ? TextElision.Path(FirstLine(Relative(s.Trim(), root)), MaxPathLength)
+                        : TextElision.Middle(FirstLine(s), MaxLength);
             }
         } catch (JsonException) { }
         return "";
@@ -74,11 +78,11 @@ public static class ToolDetail {
     static string PatchDetail(IReadOnlyList<string> targets, string? root) {
         if (targets.Count == 0) return "";
         var paths = targets.Select(t => Relative(t, root)).ToList();
-        if (paths.Count == 1) return TextElision.Middle(paths[0], MaxLength);
+        if (paths.Count == 1) return TextElision.Path(paths[0], MaxPathLength);
         var list = string.Join(", ", paths);
         if (list.Length <= MaxLength) return list;
         var more = $" +{paths.Count - 1} more";
-        return TextElision.Middle(paths[0], MaxLength - more.Length) + more;
+        return TextElision.Path(paths[0], MaxPathLength) + more;
     }
 
     /// The one argument a catalogued kcap row shows, first line only, elided like any detail.

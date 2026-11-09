@@ -21,12 +21,16 @@ public class AccountChooserTests {
     static AccountsSnapshotDto Snapshot(string hostId, params AccountViewDto[] accounts) =>
         new(hostId, 1, accounts, [new("claude", "/u/.claude", "/u/.claude"), new("codex", "/u/.codex", "/u/.codex")]);
 
+    readonly List<bool> _remoteFlags = [];
+
     AccountChooser NewChooser() => new(
-        (host, vendor, repo) => {
+        (host, vendor, repo, remote) => {
             _reads++;
+            _remoteFlags.Add(remote);
             return _memory.GetValueOrDefault((host, vendor, repo));
         },
-        (host, vendor, repo, id) => {
+        (host, vendor, repo, remote, id) => {
+            _remoteFlags.Add(remote);
             _writes.Add($"{host}/{vendor}:{repo}={id ?? "null"}");
             if (id is null) _memory.Remove((host, vendor, repo));
             else _memory[(host, vendor, repo)] = id;
@@ -34,7 +38,7 @@ public class AccountChooserTests {
 
     AccountChooser Ready(AccountsSnapshotDto? snapshot, AccountSupport support = AccountSupport.Supported) {
         var chooser = NewChooser();
-        chooser.EnterTarget(Repo, "claude");
+        chooser.EnterTarget(Repo, "claude", remote: false);
         chooser.SetMemoryLoaded(true);
         chooser.SetSupport(support, fetchFailed: false);
         chooser.SetSnapshot(snapshot);
@@ -47,7 +51,7 @@ public class AccountChooserTests {
     public async Task A_vendor_without_accounts_is_default_with_no_section() {
         _memory[("h1", "pi", Repo)] = "p1";
         var chooser = NewChooser();
-        chooser.EnterTarget(Repo, "pi");
+        chooser.EnterTarget(Repo, "pi", remote: false);
 
         await Assert.That(chooser.State).IsEqualTo(AccountSelectionState.Default);
 
@@ -118,7 +122,7 @@ public class AccountChooserTests {
     public async Task Memory_not_yet_loaded_keeps_the_target_pending() {
         _memory[("h1", "claude", Repo)] = "a2";
         var chooser = NewChooser();
-        chooser.EnterTarget(Repo, "claude");
+        chooser.EnterTarget(Repo, "claude", remote: false);
         chooser.SetSnapshot(HomeAndWork);
         chooser.SetSupport(AccountSupport.Unsupported, fetchFailed: false);
 
@@ -331,27 +335,67 @@ public class AccountChooserTests {
         await Assert.That(chooser.SelectedAccountId).IsEqualTo("a2");
 
         chooser.Pick("a1");
-        chooser.EnterTarget("/r/other", "claude");
+        chooser.EnterTarget("/r/other", "claude", remote: false);
 
         await Assert.That(chooser.State).IsEqualTo(AccountSelectionState.Default);
         await Assert.That(chooser.SelectedAccountId).IsNull();
 
-        chooser.EnterTarget(Repo, "codex");
+        chooser.EnterTarget(Repo, "codex", remote: false);
 
         await Assert.That(chooser.State).IsEqualTo(AccountSelectionState.ExplicitValid);
         await Assert.That(chooser.SelectedAccountId).IsEqualTo("c2");
         await Assert.That(string.Join(",", chooser.Rows.Select(r => r.Row.Id))).IsEqualTo("c1,c2");
 
-        chooser.EnterTarget(Repo, "claude");
+        chooser.EnterTarget(Repo, "claude", remote: false);
 
         await Assert.That(chooser.State).IsEqualTo(AccountSelectionState.ExplicitValid);
         await Assert.That(chooser.SelectedAccountId).IsEqualTo("a1");
     }
 
     [Test]
+    public async Task Memory_is_read_and_written_under_the_targets_remoteness() {
+        _memory[("h1", "claude", Repo)] = "a1";
+        var chooser = NewChooser();
+        chooser.EnterTarget(Repo, "claude", remote: true);
+        chooser.SetMemoryLoaded(true);
+        chooser.SetSupport(AccountSupport.Supported, fetchFailed: false);
+        chooser.SetSnapshot(Snapshot("h1", Account("a2", "work", "/u/.claude-work")));
+        chooser.Pick("a2");
+
+        await Assert.That(_writes).IsEquivalentTo(["h1/claude:/r/app=null", "h1/claude:/r/app=a2"]);
+        await Assert.That(_remoteFlags).IsNotEmpty();
+        await Assert.That(_remoteFlags.All(remote => remote)).IsTrue();
+
+        _remoteFlags.Clear();
+        chooser.EnterTarget(Repo, "claude", remote: false);
+        chooser.SetSnapshot(Snapshot("h1", Account("a2", "work", "/u/.claude-work")));
+        chooser.Pick("a2");
+
+        await Assert.That(_remoteFlags).IsNotEmpty();
+        await Assert.That(_remoteFlags.Any(remote => remote)).IsFalse();
+    }
+
+    /// <summary>The snapshot at hand belongs to the remote host just left; judging the local target's
+    /// memory against it would drop an entry that snapshot was never going to list.</summary>
+    [Test]
+    public async Task Leaving_a_remote_target_does_not_judge_local_memory_against_the_remote_snapshot() {
+        _memory[("h1", "claude", "/r/app")] = "local-only";
+        var chooser = NewChooser();
+        chooser.EnterTarget("/r/App", "claude", remote: true);
+        chooser.SetMemoryLoaded(true);
+        chooser.SetSupport(AccountSupport.Supported, fetchFailed: false);
+        chooser.SetSnapshot(HomeAndWork);
+
+        chooser.EnterTarget("/r/app", "claude", remote: false);
+
+        await Assert.That(_writes).DoesNotContain("h1/claude:/r/app=null");
+        await Assert.That(_memory[("h1", "claude", "/r/app")]).IsEqualTo("local-only");
+    }
+
+    [Test]
     public async Task Retry_is_offered_only_while_pending_after_a_failed_fetch() {
         var chooser = NewChooser();
-        chooser.EnterTarget(Repo, "claude");
+        chooser.EnterTarget(Repo, "claude", remote: false);
         chooser.SetMemoryLoaded(true);
         chooser.SetSupport(AccountSupport.Unknown, fetchFailed: false);
 

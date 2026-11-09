@@ -1,5 +1,5 @@
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit;
 
@@ -12,6 +12,9 @@ namespace Capacitor.Cli.Tests.Unit;
 public class CwdRepositoryTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempDir]        public required TempDir        Cwd    { get; init; }
+
+    // Every repository here has a remote, so the server is never asked.
+    static readonly ResolvingServer NoServer = new("unused");
 
     static CommandRunner RecordingRunner(List<string> commands, string? origin = "git@github.com:acme/widget.git") =>
         (cmd, args, _, _) => {
@@ -40,7 +43,7 @@ public class CwdRepositoryTests {
         var commands = new List<string>();
         var repo     = new CwdRepository(Config.Root, Cwd.Path, new GitProviderRouter(), TimeProvider.System, RecordingRunner(commands));
 
-        var hash = await repo.GetHashAsync();
+        var hash = await repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl);
 
         await Assert.That(hash).IsEqualTo(RepoHashHelper.ComputeRepoHash("acme", "widget"));
         await Assert.That(commands).IsNotEmpty();
@@ -52,10 +55,10 @@ public class CwdRepositoryTests {
         var commands = new List<string>();
         var repo     = new CwdRepository(Config.Root, Cwd.Path, new GitProviderRouter(), TimeProvider.System, RecordingRunner(commands));
 
-        await repo.GetHashAsync();
+        await repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl);
         var spawned = commands.Count;
 
-        await repo.GetHashAsync();
+        await repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl);
         await repo.GetAsync();
 
         await Assert.That(spawned).IsGreaterThan(0);
@@ -75,8 +78,8 @@ public class CwdRepositoryTests {
         };
         var repo = new CwdRepository(Config.Root, Cwd.Path, new GitProviderRouter(), TimeProvider.System, gated);
 
-        var first  = repo.GetHashAsync().AsTask();
-        var second = repo.GetHashAsync().AsTask();
+        var first  = repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl).AsTask();
+        var second = repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl).AsTask();
         release.SetResult();
 
         await Assert.That(await first).IsEqualTo(await second);
@@ -88,7 +91,7 @@ public class CwdRepositoryTests {
         var repo = new CwdRepository(Config.Root, Cwd.Path, new GitProviderRouter(), TimeProvider.System, (_, _, _, _) => Task.FromResult<string?>(null));
 
         await Assert.That(await repo.GetAsync()).IsNull();
-        await Assert.That(await repo.GetHashAsync()).IsNull();
+        await Assert.That(await repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl)).IsNull();
     }
 
     [Test]
@@ -97,6 +100,6 @@ public class CwdRepositoryTests {
         var repo     = new CwdRepository(Config.Root, Cwd.Path, new GitProviderRouter(), TimeProvider.System, RecordingRunner(commands, origin: null));
 
         await Assert.That(await repo.GetAsync()).IsNotNull();
-        await Assert.That(await repo.GetHashAsync()).IsNull();
+        await Assert.That(await repo.GetHashAsync(NoServer.Client(), ResolvingServer.BaseUrl)).IsNull();
     }
 }

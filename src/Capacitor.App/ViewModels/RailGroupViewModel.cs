@@ -60,12 +60,12 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             IObservable<bool> remoteStale,
             Action<string> openLocal, Action<string> openRemote, TimeProvider time,
             IObservable<IReadOnlySet<string>> agentsAwaitingAnswer,
-            IObservable<IReadOnlyDictionary<string, int>> agentsRunningCommands,
+            IObservable<IReadOnlyDictionary<string, RunningWork>> agentsRunningWork,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>> pullRequests,
             IObservable<bool> localOnAppServer, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest,
             bool isExpanded, Action<bool> setExpanded, IObservable<Unit>? ageTicks,
             Action<string>? openServer, IObservable<RailGrouping> grouping,
-            IObservable<IComparer<RailSessionViewModel>> rowComparer) {
+            IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort) {
         Key = group.Key;
         Kind = kind;
         _label = label;
@@ -83,13 +83,13 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         var answeringHere = query.CombineLatest(agentsAwaitingAnswer, (rows, answering) =>
                 rows.Items.Where(row => answering.Contains(row.Id)).Select(row => row.Id).ToHashSet(StringComparer.Ordinal))
             .DistinctUntilChanged(EqualityComparer<HashSet<string>>.Create((a, b) => a!.SetEquals(b!)));
-        var commandsHere = query.CombineLatest(agentsRunningCommands, (rows, commands) =>
-                rows.Items.Where(row => commands.GetValueOrDefault(row.Key) > 0)
-                    .ToDictionary(row => row.Key, row => commands[row.Key], StringComparer.Ordinal))
-            .DistinctUntilChanged(EqualityComparer<Dictionary<string, int>>.Create((a, b) => a!.Count == b!.Count && a.All(item => b.GetValueOrDefault(item.Key) == item.Value)));
-        var header = query.CombineLatest(pendingHere, answeringHere, commandsHere, _expanded,
-                (rows, pending, answering, commands, visible) => visible ? null
-                    : SessionStatusDots.Rollup(rows.Items, pending, answering, commands))
+        var workHere = query.CombineLatest(agentsRunningWork, (rows, work) =>
+                rows.Items.Where(row => work.ContainsKey(row.Key))
+                    .ToDictionary(row => row.Key, row => work[row.Key], StringComparer.Ordinal))
+            .DistinctUntilChanged(EqualityComparer<Dictionary<string, RunningWork>>.Create((a, b) => a!.Count == b!.Count && a.All(item => b.GetValueOrDefault(item.Key) == item.Value)));
+        var header = query.CombineLatest(pendingHere, answeringHere, workHere, _expanded,
+                (rows, pending, answering, work, visible) => visible ? null
+                    : SessionStatusDots.Rollup(rows.Items, pending, answering, work))
             .Replay(1).RefCount();
         _headerStatus = header.ToProperty(this, x => x.HeaderStatus, initialValue: null).DisposeWith(_disposables);
         _showsHeaderBadge = header.Select(status => status is not null)
@@ -107,8 +107,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         Sessions = new ReadOnlyObservableCollection<RailSessionViewModel>(_sessionsSource);
         group.Cache.Connect()
             .TransformWithInlineUpdate(row => new RailSessionViewModel(row, selectedSessionKey, agentsWithPending, remoteStale,
-                openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningCommands,
-                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping), (vm, row) => vm.Update(row))
+                openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningWork,
+                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort), (vm, row) => vm.Update(row))
             .DisposeMany()
             .SortAndBind(_sessionsSource, rowComparer)
             .Subscribe()

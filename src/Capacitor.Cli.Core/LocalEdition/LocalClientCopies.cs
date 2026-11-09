@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Core.LocalEdition;
@@ -18,14 +19,28 @@ public sealed class LocalClientCopies(IProcessRunner runner, string? searchPath,
 
     /// <summary>Where a desktop app's bundled kcap can be.</summary>
     public static IReadOnlyList<string> AppClis(UserHome home) =>
-        OperatingSystem.IsMacOS() ? [AppCli("/Applications"), AppCli(Path.Combine(home.Path, "Applications"))] : [];
+        AppClis(home, OperatingSystem.IsMacOS() ? OSPlatform.OSX : OperatingSystem.IsWindows() ? OSPlatform.Windows : OSPlatform.Linux);
+
+    internal static IReadOnlyList<string> AppClis(UserHome home, OSPlatform os) =>
+        os == OSPlatform.OSX ? [AppCli("/Applications"), AppCli(Path.Combine(home.Path, "Applications"))]
+        : os == OSPlatform.Windows ? WindowsAppClis(home)
+        : [];
 
     public static string AppCli(string applications) => Path.Combine(applications, "kcap.app", "Contents", "MacOS", "kcap");
+
+    /// The per-user Velopack install in <c>%LOCALAPPDATA%\kcap</c>: its kcap.exe is in <c>current\bin</c>, or in
+    /// <c>current</c> itself for a release that shipped no <c>bin</c>.
+    static string[] WindowsAppClis(UserHome home) {
+        var current = Path.Combine(home.Path, "AppData", "Local", "kcap", "current");
+
+        return [Path.Combine(current, "bin", "kcap.exe"), Path.Combine(current, "kcap.exe")];
+    }
 
     public IReadOnlyList<ClientCopy> Find() => _found ??= Locate().Select(c => c with { Version = VersionOf(runner, c.Path) }).ToList();
 
     IEnumerable<ClientCopy> Locate() {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        // PATH, the process path and the profile can each spell one Windows path in a different case.
+        var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         if (self is not null) seen.Add(CanonicalPath.Resolve(self));
 
         foreach (var app in appClis.Where(File.Exists)) {
@@ -33,7 +48,18 @@ public sealed class LocalClientCopies(IProcessRunner runner, string? searchPath,
         }
 
         if (BinaryProbe.Searching(searchPath).Resolve("kcap") is { } onPath && seen.Add(CanonicalPath.Resolve(onPath)))
-            yield return new(ClientCopyKind.OnPath, onPath, null);
+            yield return new(ClientCopyKind.OnPath, OperatingSystem.IsWindows() ? AsNamedOnDisk(onPath) : onPath, null);
+    }
+
+    /// The probe builds a Windows candidate from PATHEXT, which spells the extension in capitals; the user is shown the
+    /// file as it is named on disk.
+    static string AsNamedOnDisk(string path) {
+        try {
+            var dir = Path.GetDirectoryName(path);
+            return dir is null ? path : Directory.EnumerateFiles(dir, Path.GetFileName(path)).FirstOrDefault() ?? path;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+            return path;
+        }
     }
 
     /// <summary>The version the kcap at <paramref name="path"/> reports, or null when it reports none. Without

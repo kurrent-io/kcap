@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Capacitor.Cli.Core;
@@ -24,6 +25,27 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     public TranscriptSpool(string dir, TimeProvider time, long capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
 
+    /// <summary>One spool line: a batch as the drain replays it.</summary>
+    public static string BuildTranscriptSpoolBatch(
+            string                sessionId,
+            string?               agentId,
+            string                vendor,
+            IReadOnlyList<string> lines,
+            IReadOnlyList<int>    lineNumbers,
+            ObservedCommit[]?     observedCommits,
+            bool                  moreFollows = false
+        ) => JsonSerializer.Serialize(
+            new TranscriptBatch {
+                SessionId       = sessionId,
+                AgentId         = agentId,
+                Lines           = lines.ToArray(),
+                LineNumbers     = lineNumbers.ToArray(),
+                Vendor          = vendor,
+                ObservedCommits = observedCommits,
+                MoreFollows     = moreFollows,
+            },
+            CapacitorJsonContext.Default.TranscriptBatch);
+
     /// <summary>Outcome of an <see cref="Append"/> call.</summary>
     public enum AppendResult {
         Appended,          // batch persisted to the live spool file
@@ -41,8 +63,12 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     string? LivePathFor(string sessionId) =>
         SafeSessionId.IsMatch(sessionId) ? Path.Combine(DirectoryPath, $"{EncodeKey(sessionId)}.transcript.jsonl") : null;
 
-    string? MarkerPathFor(string sessionId) =>
-        SafeSessionId.IsMatch(sessionId) ? Path.Combine(DirectoryPath, $"{EncodeKey(sessionId)}.needs-import") : null;
+    // An owner's marker sits beside the shared one, which every older build reads and writes, so
+    // removing it never races another writer.
+    string? MarkerPathFor(string sessionId, int? owner = null) =>
+        SafeSessionId.IsMatch(sessionId)
+            ? Path.Combine(DirectoryPath, owner is { } o ? $"{EncodeKey(sessionId)}.p{o}.needs-import" : $"{EncodeKey(sessionId)}.needs-import")
+            : null;
 
     /// <summary>With <paramref name="reserving"/>, refuses the batch unless that one still fits after it.</summary>
     public AppendResult Append(string sessionId, string batchJson, string? reserving = null) {
@@ -72,10 +98,11 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     /// <summary>
     /// Records a needs-import marker for the session. Returns <c>true</c> if the marker was
     /// persisted; <c>false</c> (and logs to stderr) if it could not be written — the caller must
-    /// not assume a marker exists just because it asked for one.
+    /// not assume a marker exists just because it asked for one. With <paramref name="owner"/>, the
+    /// marker is that owner's own, which only <see cref="ClearNeedsImport"/> with the same owner removes.
     /// </summary>
-    public bool MarkNeedsImport(string sessionId, string reason) {
-        var p = MarkerPathFor(sessionId);
+    public bool MarkNeedsImport(string sessionId, string reason, int? owner = null) {
+        var p = MarkerPathFor(sessionId, owner);
         if (p is null) return false;
         try {
             Directory.CreateDirectory(DirectoryPath);
@@ -87,9 +114,26 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         }
     }
 
+    /// <summary>Removes the marker <paramref name="owner"/> set. Best effort: one that stays only asks for an
+    /// import nobody needed.</summary>
+    public void ClearNeedsImport(string sessionId, int owner) {
+        if (MarkerPathFor(sessionId, owner) is not { } p) return;
+        try {
+            File.Delete(p);
+        } catch {
+            // Ignore: the marker stays, and the reap removes it
+        }
+    }
+
+    /// <summary>True while any marker for the session is down, its owner's or the shared one.</summary>
     public bool NeedsImport(string sessionId) {
-        var p = MarkerPathFor(sessionId);
-        return p is not null && File.Exists(p);
+        if (MarkerPathFor(sessionId) is not { } p) return false;
+        if (File.Exists(p)) return true;
+        try {
+            return Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import").Any();
+        } catch {
+            return false;
+        }
     }
 
     // ---- filename key encoding -------------------------------------------------------------

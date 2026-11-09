@@ -1,3 +1,5 @@
+using TUnit.Core.Enums;
+
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 public class CanonicalPathTests {
@@ -86,6 +88,28 @@ public class CanonicalPathTests {
         await Assert.That(CanonicalPath.Resolve(through))
             .IsEqualTo(Tmp.GetResolvedPath("outside", "sibling"));
         await Assert.That(CanonicalPath.IsWithin(through, boundary)).IsFalse();
+    }
+
+    /// <summary>A relative path's <c>..</c> follows the link ahead of it too: rooting the path by
+    /// normalizing it would fold that <c>..</c> before the walk sees the link.</summary>
+    [Test]
+    [RunOn(OS.Linux | OS.MacOs)]
+    public async Task A_dot_dot_in_a_relative_path_is_resolved_not_folded() {
+        var boundary = Tmp.CreateDir("repo");
+        var outside  = Tmp.CreateDir("outside");
+
+        outside.CreateDir("child");
+        outside.CreateDir("sibling");
+        Directory.CreateSymbolicLink(boundary.PathTo("hop"), outside.PathTo("child"));
+
+#pragma warning disable RS0030 // a relative path means the working directory, which is the point
+        var relative = Path.Combine(
+            Path.GetRelativePath(Environment.CurrentDirectory, Tmp.GetResolvedPath("repo")), "hop", "..", "sibling");
+#pragma warning restore RS0030
+
+        await Assert.That(Path.IsPathRooted(relative)).IsFalse();
+        await Assert.That(CanonicalPath.Resolve(relative)).IsEqualTo(Tmp.GetResolvedPath("outside", "sibling"));
+        await Assert.That(CanonicalPath.IsWithin(relative, boundary)).IsFalse();
     }
 
     /// <summary>A cycle exhausts the budget, and what a walk gave up on is a name rather than a

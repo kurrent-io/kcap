@@ -109,13 +109,13 @@ public class AppStateStoreTests {
         var store = new AppStateStore(path);
 
         await store.UpdateAsync(s => s with {
-            AccountByRepo = AccountMemory.With(s.AccountByRepo, "host1", "claude", "/home/a/kcap-cli", "a1"),
+            AccountByRepo = AccountMemory.With(s.AccountByRepo, "host1", "claude", "/home/a/kcap-cli", remote: false, "a1"),
         });
 
         var reloaded = await new AppStateStore(path).LoadAsync();
 
-        await Assert.That(AccountMemory.Lookup(reloaded.AccountByRepo, "host1", "claude", "/home/a/kcap-cli")).IsEqualTo("a1");
-        await Assert.That(AccountMemory.Lookup(reloaded.AccountByRepo, "host1", "codex", "/home/a/kcap-cli")).IsNull();
+        await Assert.That(AccountMemory.Lookup(reloaded.AccountByRepo, "host1", "claude", "/home/a/kcap-cli", remote: false)).IsEqualTo("a1");
+        await Assert.That(AccountMemory.Lookup(reloaded.AccountByRepo, "host1", "codex", "/home/a/kcap-cli", remote: false)).IsNull();
     }
 
     [Test]

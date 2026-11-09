@@ -2,7 +2,11 @@ namespace Capacitor.Cli.Core.Setup;
 
 /// Finds and removes `kcap` symlinks, in the given folders, that resolve to `target`. A regular
 /// file, or a link to any other binary, is never touched.
-public sealed class KcapLinkRemover(IReadOnlyList<string> folders, string target) {
+public sealed class KcapLinkRemover(IReadOnlyList<string> folders, string target, AdoptedLinkInventory? inventory = null) {
+    /// The usual folders plus those of the adopted links; a removed link also leaves the inventory.
+    public static KcapLinkRemover For(UserHome home, ConfigRoot config, string target) =>
+        new(KcapLinkFolders.WithAdopted(home, config), target, new AdoptedLinkInventory(config));
+
     public IReadOnlyList<string> Find() {
         var resolvedTarget = Resolve(target);
         var found          = new List<string>();
@@ -22,7 +26,10 @@ public sealed class KcapLinkRemover(IReadOnlyList<string> folders, string target
         foreach (var path in Find()) {
             try {
                 // The link may have been repointed since Find.
-                if (PointsAt(path, resolvedTarget)) File.Delete(path);
+                if (!PointsAt(path, resolvedTarget)) continue;
+
+                File.Delete(path);
+                inventory?.Remove(path);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 failures.Add(new KcapLinkFailure(path, ex.Message));
             }

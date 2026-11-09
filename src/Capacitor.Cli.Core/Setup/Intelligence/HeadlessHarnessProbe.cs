@@ -1,6 +1,8 @@
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.OpenCode;
+using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.Setup.Intelligence;
 
@@ -10,11 +12,23 @@ namespace Capacitor.Cli.Core.Setup.Intelligence;
 public static class HeadlessHarnessProbe {
     public const string Claude = "claude";
     public const string Codex  = "codex";
+    public const string Pi     = "pi";
+    public const string OpenCode = "opencode";
+
+    public static string Label(string token) => token switch {
+        Claude   => ClaudeHarness.Label,
+        Codex    => CodexHarness.Label,
+        Pi       => PiHarness.Label,
+        OpenCode => OpenCodeHarness.Label,
+        _        => token,
+    };
 
     public static string[] Detect(HarnessRegistry harnesses, BinaryProbe binaries) => [
         .. new (string Token, HarnessId Id, string Cli)[] {
                 (Claude, HarnessId.Claude, ClaudeHarness.CliBinary),
                 (Codex, HarnessId.Codex, CodexHarness.CliBinary),
+                (Pi, HarnessId.Pi, PiHarness.CliBinary),
+                (OpenCode, HarnessId.OpenCode, OpenCodeHarness.CliBinary),
             }
             .Where(h => binaries.Resolve(harnesses.LaunchCommand(h.Id, h.Cli)) is not null)
             .Select(h => h.Token)

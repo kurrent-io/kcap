@@ -6,7 +6,7 @@ using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -76,8 +76,9 @@ public class SpoolOutageRecoveryTests : IDisposable {
     Task<int> Invoke(HttpClient client, string payload) =>
         MakeCommand().HandleCore(client, AuthStatus.Ok, MakeSpool(), new StringReader(payload));
 
+    // Dot-prefixed files are the spool's own markers, such as the one a delivered end leaves, not spooled hooks.
     IEnumerable<string> SpoolFiles =>
-        Directory.Exists(_spoolDir) ? Directory.EnumerateFiles(_spoolDir) : [];
+        Directory.Exists(_spoolDir) ? Directory.EnumerateFiles(_spoolDir).Where(f => !Path.GetFileName(f).StartsWith('.')) : [];
 
     /// The hook's own drain is budget-bounded, so a loaded runner can legitimately stop it
     /// mid-entry and leave the remainder spooled for the next hook — which is exactly what

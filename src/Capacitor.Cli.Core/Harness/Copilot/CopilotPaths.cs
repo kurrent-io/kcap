@@ -59,9 +59,25 @@ public sealed class CopilotPaths {
     public string EventsJsonl(string sessionStateDir, string sessionDirName)
         => Path.Combine(sessionStateDir, sessionDirName, "events.jsonl");
 
+    /// <summary>Whether a transcript is the one VS Code's Local harness writes
+    /// (<c>GitHub.copilot-chat/transcripts/{id}.jsonl</c>), rather than Copilot's own
+    /// <c>{id}/events.jsonl</c>. Local writes no <c>session.shutdown</c>, fires no session-end hook and
+    /// has no agent process above its hooks, so its end can only be read from the file going quiet.</summary>
+    public static bool IsVsCodeLocalTranscript(string transcriptPath)
+        => !string.Equals(Path.GetFileName(transcriptPath), "events.jsonl", StringComparison.OrdinalIgnoreCase);
+
     public string WorkspaceYaml(string sessionStateDir, string sessionDirName)
         => Path.Combine(sessionStateDir, sessionDirName, "workspace.yaml");
 
-    /// <summary>Whether Copilot has run here — it creates this root on first run.</summary>
-    public bool HasUserData() => Directory.Exists(Root);
+    /// <summary>Whether Copilot has run here, by what it writes itself. Wiring creates this root and its
+    /// hooks, MCP config and instructions, so none of those can say so; VS Code writes <c>logs</c> on its
+    /// first launch, before any sign-in.</summary>
+    public bool HasUserData() =>
+        CopilotOwnDirectories.Any(dir => Directory.Exists(Path.Combine(Root, dir)))
+     || File.Exists(Path.Combine(Root, "config.json"));
+
+    static readonly string[] CopilotOwnDirectories = ["logs", "ide", "session-state", "history-session-state"];
+
+    /// <summary>Whether VS Code has signed Copilot in here: only its harness writes <c>ide</c>.</summary>
+    public bool HasVsCodeSignIn() => Directory.Exists(Path.Combine(Root, "ide"));
 }

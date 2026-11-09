@@ -9,6 +9,11 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Windows;
 /// text the child erased has to leave the screen copy through whatever ConPTY sent.
 [ParallelLimiter<SubprocessLimit>]
 public class ConPtyScreenTests {
+    // The first powershell.exe a runner starts loads cold: about 7s on an idle windows-latest runner, against under 2s
+    // for the next, and a loaded runner has run these rows 8x slower. Only the erase, once the probe is drawn, gets the
+    // usual deadline.
+    static readonly TimeSpan StartupAllowance = TimeSpan.FromMinutes(2);
+
     [Test, RunOn(OS.Windows)]
     [Arguments("[Console]::Write(\"`r\" + (' ' * 20))")]
     [Arguments("[Console]::Write(\"`r$e[K\")")]
@@ -26,7 +31,7 @@ public class ConPtyScreenTests {
         var screen = new AnsiScreen(120, 30);
         var seen   = new StringBuilder();
         var drawn  = false;
-        using var cts = new CancellationTokenSource(BoundedWait.Deadline);
+        using var cts = new CancellationTokenSource(StartupAllowance);
         try {
             await foreach (var chunk in proc.ReadOutputAsync(cts.Token)) {
                 screen.Write(chunk);
@@ -34,6 +39,7 @@ public class ConPtyScreenTests {
                 var shown = screen.Text().Contains("kcap-erase-probe", StringComparison.Ordinal);
                 if (shown && !drawn) {
                     drawn = true;
+                    cts.CancelAfter(BoundedWait.Deadline);
                     await proc.WriteAsync("x");
                 }
                 if (drawn && !shown) break;
@@ -41,7 +47,7 @@ public class ConPtyScreenTests {
         } catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
 
         var sent = seen.ToString().Replace("\x1b", "ESC", StringComparison.Ordinal);
-        await Assert.That(drawn).IsTrue().Because($"ConPTY sent: {sent}");
+        await Assert.That(drawn).IsTrue().Because($"the probe was not drawn within {StartupAllowance}; ConPTY sent: {sent}");
         await Assert.That(screen.Text()).DoesNotContain("kcap-erase-probe").Because($"ConPTY sent: {sent}");
     }
 }

@@ -37,6 +37,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(PullRequests));
             this.RaisePropertyChanged(nameof(IsStale));
             RebuildLinks();
+            RaisePlanProgress();
         }
     }
     public bool ShowsLegacyLinks => PullRequests is null;
@@ -50,6 +51,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+    internal const double CompactThreshold = 80;
+    internal static readonly TimeSpan CompactPollInterval = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan CompactPollLimit = TimeSpan.FromMinutes(2);
     static readonly IReadOnlyList<HarnessOption> DefaultHarnessOptions = HostedHarnessCatalog.Build(null);
 
     internal const string WaitingNote      = "Waiting for session…";
@@ -61,8 +65,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     internal const string UnreachableNote  = "Couldn't reach the server.";
 
     readonly bool _isRemote;
-    /// A session no daemon hosts: nothing reports how it ran, so the vendor must not stand in for that.
-    readonly bool _sessionOnly;
     readonly IWorkContextSource _source;
     readonly SingleFlightReader<string, WorkContextRead> _reader;
     readonly SingleFlightReader<(string? Path, string? Reported), string> _branchReader;
@@ -70,33 +72,79 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     readonly TimeProvider _time;
     readonly Action<string>? _openWorkItem;
     readonly SessionRuns _runs;
+    readonly Func<bool> _canSendToAgent;
+    readonly Func<string, Task<bool>> _sendToAgent;
     readonly BehaviorSubject<bool> _canOpenWorkItem = new(false);
     readonly CompositeDisposable _disposables = new();
     ITimer? _timer;
     bool _tornDown;
     bool _serverDown;
+    bool _compactPending;
+    long _compactStartedAt;
     AgentStatusDto? _dto;
 
     string _repository = "—";
     public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
     string? _repositoryPath;
-    public string? RepositoryPath { get => _repositoryPath; private set => this.RaiseAndSetIfChanged(ref _repositoryPath, value); }
+    public string? RepositoryPath {
+        get => _repositoryPath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _repositoryPath, value);
+            this.RaisePropertyChanged(nameof(CanCopyRepository));
+        }
+    }
+    public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
     string _worktree = "—";
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;
-    public string? WorktreePath { get => _worktreePath; private set => this.RaiseAndSetIfChanged(ref _worktreePath, value); }
+    public string? WorktreePath {
+        get => _worktreePath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _worktreePath, value);
+            this.RaisePropertyChanged(nameof(CanCopyWorktree));
+        }
+    }
+    public bool CanCopyWorktree => !string.IsNullOrEmpty(_worktreePath);
     string _branch = "—";
-    public string Branch { get => _branch; private set => this.RaiseAndSetIfChanged(ref _branch, value); }
+    public string Branch {
+        get => _branch;
+        private set {
+            this.RaiseAndSetIfChanged(ref _branch, value);
+            this.RaisePropertyChanged(nameof(CanCopyBranch));
+        }
+    }
+    public bool CanCopyBranch => _branch != "—";
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
-    string _transport = "—";
-    public string Transport { get => _transport; private set => this.RaiseAndSetIfChanged(ref _transport, value); }
     string _tokens = SessionFactText.Unknown;
     public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
     string _cost = SessionFactText.Unknown;
     public string Cost { get => _cost; private set => this.RaiseAndSetIfChanged(ref _cost, value); }
     string _contextUse = SessionFactText.Unknown;
     public string ContextUse { get => _contextUse; private set => this.RaiseAndSetIfChanged(ref _contextUse, value); }
+    string? _currentContextUse;
+    /// The context in use now, or "compacted" while a compaction awaits its next reading; null
+    /// when the server reports neither.
+    public string? CurrentContextUse {
+        get => _currentContextUse;
+        private set {
+            if (_currentContextUse == value) return;
+            this.RaiseAndSetIfChanged(ref _currentContextUse, value);
+            this.RaisePropertyChanged(nameof(ShowsCurrentContext));
+        }
+    }
+    public bool ShowsCurrentContext => _currentContextUse is not null;
+    public bool CurrentContextWarns => IsLive && ContextPercent >= CompactThreshold;
+    public bool ShowsCompact =>
+        CurrentContextWarns && _stats?.AwaitingContextReading != true && !_compactPending
+        && _dto is { Vendor: var vendor } && (vendor.Equals("claude", StringComparison.OrdinalIgnoreCase) || vendor.Equals("codex", StringComparison.OrdinalIgnoreCase))
+        && _canSendToAgent();
+    public ReactiveCommand<Unit, Unit> CompactCommand { get; }
+
+    SessionStatsDto? _stats;
+    bool IsLive => _dto is not null && !SessionStatusDots.IsTerminal(_dto.Status);
+    double? ContextPercent => SessionFactText.CurrentContextPercent(_stats);
+
     string _sessionSharing = SessionFactText.Unknown;
     public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
     string _agentSharing = SessionFactText.Unknown;
@@ -115,16 +163,17 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanCopySessionId => _sessionIdText.Length > 0 && _sessionIdText != "resolving…";
 
     /// The session's subagents, shared with the chat tab; a session-local fact like the ones
-    /// under SESSION, so it renders in every pane phase.
-    public IAvaloniaReadOnlyList<RunRow> Runs => _runs.Rows;
-    public bool HasRuns => _runs.Rows.Count > 0;
+    /// under SESSION, so it renders in every pane phase. Background commands are listed above the
+    /// composer instead.
+    public IAvaloniaReadOnlyList<RunRow> Subagents => _runs.Agents;
+    public bool HasSubagents => _runs.Agents.Count > 0;
     /// What the collapsed section lists.
-    public IAvaloniaReadOnlyList<RunRow> RunningRuns => _runs.Running;
-    public bool HasRunningRuns => _runs.RunningCount > 0;
-    public string RunsHeader {
+    public IAvaloniaReadOnlyList<RunRow> RunningSubagents => _runs.RunningAgents;
+    public bool HasRunningSubagents => _runs.RunningAgents.Count > 0;
+    public string SubagentsHeader {
         get {
-            var running = _runs.RunningCount;
-            var total = _runs.Rows.Count;
+            var running = _runs.RunningAgents.Count;
+            var total = _runs.Agents.Count;
             return running switch {
                 0                     => $"{total}",
                 var r when r == total => $"{r} running",
@@ -138,8 +187,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     /// What the collapsed header shows: one entry per state something is in, so the numbers
     /// add up to the list.
-    public IReadOnlyList<RunCount> RunCounts =>
-        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Count(state))).Where(c => c.Count > 0)];
+    public IReadOnlyList<RunCount> SubagentCounts =>
+        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Agents.Count(row => row.State == state))).Where(c => c.Count > 0)];
 
     /// A subagent row the user chose to read; the workspace opens its transcript in place of the chat.
     public event Action<RunRow>? RunOpened;
@@ -151,10 +200,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public PlanSectionViewModel Plan { get; }
 
     void RefreshRuns() {
-        this.RaisePropertyChanged(nameof(HasRuns));
-        this.RaisePropertyChanged(nameof(HasRunningRuns));
-        this.RaisePropertyChanged(nameof(RunsHeader));
-        this.RaisePropertyChanged(nameof(RunCounts));
+        this.RaisePropertyChanged(nameof(HasSubagents));
+        this.RaisePropertyChanged(nameof(HasRunningSubagents));
+        this.RaisePropertyChanged(nameof(SubagentsHeader));
+        this.RaisePropertyChanged(nameof(SubagentCounts));
     }
 
     internal static string MiddleTruncate(string value, int head = 8, int tail = 8) {
@@ -191,6 +240,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool ShowsRetry  => Phase == WorkContextPhase.Unreachable;
 
     void OnPullRequestChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName is nameof(PullRequestContextViewModel.MergedPullRequests)) RaisePlanProgress();
         if (e.PropertyName is nameof(PullRequestContextViewModel.HasChoice)
             or nameof(PullRequestContextViewModel.HasNotice)
             or nameof(PullRequestContextViewModel.HasReaderNote)
@@ -294,10 +344,12 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             IObservable<AgentStatusDto?> presence, IWorkContextSource source, TimeProvider time, IUrlOpener opener,
             SessionRuns runs, Action? requestSignIn = null, IObservable<Unit>? signInCompleted = null,
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
-            ArtefactsTabViewModel? artefacts = null, bool isRemote = false, bool sessionOnly = false,
-            IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? layout = null) {
+            ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
+            IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
+            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
-        _sessionOnly = sessionOnly;
+        _canSendToAgent = canSendToAgent ?? (() => false);
+        _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -316,6 +368,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             reading => IsReading = reading,
             cached: _source.Cached);
         Plan = new PlanSectionViewModel(plans, planActivity ?? new PlanActivity(), time);
+        Plan.PropertyChanged += OnPlanProgressChanged;
+        _disposables.Add(Disposable.Create(() => Plan.PropertyChanged -= OnPlanProgressChanged));
         Artefacts = artefacts;
         _opener = opener;
         _time = time;
@@ -350,6 +404,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _disposables.Add(OpenWorkItemCommand);
         SignInCommand = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         _disposables.Add(SignInCommand);
+        CompactCommand = ReactiveCommand.CreateFromTask(CompactAsync);
+        _disposables.Add(CompactCommand);
 
         presence.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnDto).DisposeWith(_disposables);
         if (serverLane is not null) {
@@ -375,7 +431,11 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     void OnDto(AgentStatusDto? dto) {
         if (_tornDown || dto is null) return;
+        var previous = _dto;
         _dto = dto;
+        RaiseCompactState();
+        // The chat reads a local agent's transcript by its path and a remote one by its session id.
+        if (Artefacts is not null) Artefacts.TranscriptKey = _isRemote ? dto.SessionId : dto.TranscriptPath;
         UpdateFacts(dto);
         HasAgent = true;
         this.RaisePropertyChanged(nameof(ShowsPeople));
@@ -395,14 +455,47 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             Artefacts?.SwitchSession(null, null);
             _runs.Clear();
         }
+        else if (_reader.HasCurrent && previous is not null
+                 && ((dto.AwaitingInput == true && previous.AwaitingInput != true) || previous.Status != dto.Status))
+            _reader.Refresh();
         this.RaisePropertyChanged(nameof(PhaseNote));
     }
 
-    internal static string TransportLabel(string family) => family switch {
-        "pty" => "PTY",
-        "acp" => "ACP",
-        _     => "chat",
-    };
+    internal void AgentInputAvailabilityChanged() {
+        if (!_tornDown) RaiseCompactState();
+    }
+
+    void RaiseCompactState() {
+        this.RaisePropertyChanged(nameof(CurrentContextWarns));
+        this.RaisePropertyChanged(nameof(ShowsCompact));
+    }
+
+    async Task CompactAsync() {
+        if (_tornDown || !ShowsCompact) return;
+        _compactPending = true;
+        _compactStartedAt = _time.GetTimestamp();
+        RaiseCompactState();
+        bool sent;
+        try { sent = await _sendToAgent("/compact"); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: compact send failed: {ex.Message}");
+            sent = false;
+        }
+        if (_tornDown) return;
+        if (!sent) {
+            _compactPending = false;
+            RaiseCompactState();
+            return;
+        }
+        if (_compactPending) _timer?.Change(CompactPollInterval, CompactPollInterval);
+    }
+
+    void EndCompact() {
+        if (!_compactPending) return;
+        _compactPending = false;
+        _timer?.Change(PollInterval, PollInterval);
+        RaiseCompactState();
+    }
 
     void UpdateFacts(AgentStatusDto dto) {
         ResolveRepository(dto.RepoPath);
@@ -416,7 +509,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         ResolveBranch();
         var vendorLabel = HostedHarnessCatalog.LabelFor(DefaultHarnessOptions, dto.Vendor);
         Harness = $"{vendorLabel} · {HostedHarnessCatalog.ModelLabelFor(dto.Vendor, dto.Model ?? "")}";
-        Transport = _sessionOnly ? "—" : TransportLabel(HostedHarnessCatalog.EffectiveFamily(dto.HasTerminal, dto.Vendor));
         if (!_reader.HasCurrent) SessionIdText = SessionIds.Canonical(dto.SessionId) ?? "resolving…";
         UpdateRequester(dto, vendorLabel);
     }
@@ -444,9 +536,11 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     void OnTick() {
         if (_tornDown) return;
+        if (_compactPending && _time.GetElapsedTime(_compactStartedAt) >= CompactPollLimit) EndCompact();
         if (_dto is not null) ResolveBranch(refresh: true);
         Plan.Refresh();
         if (Artefacts is { IsShown: true } or { LastReadFailed: true }) Artefacts.Refresh();
+        else Artefacts?.RefreshPages();
         _reader.StartIfIdle();
     }
 

@@ -25,6 +25,23 @@ public class WatcherSpawnArgsTests {
             .IsEqualTo(Environment.GetEnvironmentVariable(HostedAgent.AgentIdVar));
     }
 
+    /// <summary>The test host has no agent above it, which is what a hook sees when its agent cannot be named.
+    /// A Copilot watcher then follows nothing, since all the fallback can find is a process whose exit says
+    /// nothing about the session, a transient hook shell included.</summary>
+    [Test]
+    [Arguments("copilot", "/data/GitHub.copilot-chat/transcripts/abc.jsonl", false)]
+    [Arguments("copilot", "/home/.copilot/session-state/abc/events.jsonl", false)]
+    [Arguments("claude", "/home/.claude/projects/abc.jsonl", true)]
+    public async Task Only_a_named_agent_gives_a_Copilot_watcher_a_parent(string vendor, string transcript, bool followsParent) {
+        var starter = FakeProcessStarter.Refusing();
+        var spawner = new ProcessWatcherSpawner(
+            Config.Root, Resolutions.At("http://localhost", Config.Root), WatcherPaths.FromEnvironment(Config.Root), starter, TimeProvider.System);
+
+        await spawner.SpawnAsync(new WatcherSpawnRequest("abc", transcript, null, Vendor: vendor) { Stderr = TextWriter.Null });
+
+        await Assert.That(starter.Seen!.Arguments.Contains("--parent-pid")).IsEqualTo(followsParent);
+    }
+
     /// <summary>Every spawn names its vendor, including the one `kcap watch` would have defaulted
     /// to: a reader of the command line never has to know what that default is.</summary>
     [Test]

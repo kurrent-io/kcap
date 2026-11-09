@@ -24,7 +24,7 @@ public sealed class HarnessRowViewModel : ReactiveObject {
         Flag     = vendor.Flag;
         Declined = declined;
         SettingsOnly = !detected.BinaryFound && !detected.DesktopAppFound;
-        Signal   = detected.BinaryFound ? "on your PATH" : detected.DesktopAppFound ? "desktop app or its data" : "settings folder only";
+        Signal   = detected.HostApp is { } host ? $"in {host}" : detected.BinaryFound ? "on your PATH" : detected.DesktopAppFound ? "desktop app or its data" : "settings folder only";
 
         // A settings folder outlives an uninstall and can be written by something else, so it is no
         // consent to record: those rows wait for the user to turn them on.

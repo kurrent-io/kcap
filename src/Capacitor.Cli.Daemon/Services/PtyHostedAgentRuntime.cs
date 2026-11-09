@@ -24,13 +24,24 @@ namespace Capacitor.Cli.Daemon.Services;
 /// bracketed paste rather than for any output. The factory sets it on Windows, where ConPTY writes
 /// its own preamble before the agent starts; see <see cref="DeliverLaunchPrompt"/>.
 ///
+/// <paramref name="bracketedPasteMeansComposerUp"/> is set when the vendor turns bracketed paste on
+/// only while a text input is mounted, so that mode is the readiness signal and no quiet window is
+/// waited out after it.
+///
+/// <paramref name="awaitsSessionStart"/> is set when the vendor fires SessionStart only once its
+/// composer is up and that hook reaches this daemon (<see cref="NoteSessionStarted"/>), so the launch
+/// prompt waits for it.
+///
 /// <paramref name="confirmsLaunchPrompt"/> is set when the agent's hooks report its turns to this
 /// daemon (<see cref="NoteTurnRelayed"/>), so the launch prompt is not counted as delivered until
-/// one does.
+/// one does, and any message whose turn is not reported gets its submit Enter once more.
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
-        ILogger? logger = null, bool readyOnBracketedPaste = false, bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
+        ILogger? logger = null, bool readyOnBracketedPaste = false,
+        bool bracketedPasteMeansComposerUp = false,
+        bool awaitsSessionStart = false,
+        bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
     /// <summary>
     /// Delays (relative to the previous write) before each carriage return on the spray submit path.
     /// A single CR right after a paste is unreliable: codex's TUI suppresses Enter-as-submit for a
@@ -63,8 +74,9 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// How long output must have been silent, once the TUI looks ready, before the launch prompt is
-    /// pasted: a TUI still drawing its banner or startup spinner is not reading its composer yet.
-    /// Codex's spinner redraws every 100 ms, so the window has to outlast that gap.
+    /// pasted, for a vendor with no signal that its composer is reading input: a TUI still drawing its
+    /// banner or startup spinner may not be. Codex's spinner redraws every 100 ms, so the window has to
+    /// outlast that gap.
     /// </summary>
     internal static readonly TimeSpan LaunchPromptQuietWindow = TimeSpan.FromMilliseconds(500);
 
@@ -73,8 +85,15 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>How long the hooks get to report the turn a submitted launch prompt starts, before the
     /// submit is sent again, and again after that before the prompt is reported unconfirmed. A hook
-    /// relays within a second or two of the submit, so this runs out only when the prompt did not go.</summary>
+    /// relays within a second or two of the submit, so this runs out only when the prompt did not go.
+    /// Also how long a prompt can be held for SessionStart before it reads as overdue: a follow-up
+    /// can wait this long, on the daemon's one sequential SignalR dispatch, before it is refused.</summary>
     internal static readonly TimeSpan LaunchPromptConfirmWait = TimeSpan.FromSeconds(20);
+
+    /// <summary>The same wait for a later message. The agent is up by then and its hooks report a
+    /// submitted turn within about two seconds, so this runs out only when the Enter was lost; one
+    /// that runs out early costs an Enter in an empty composer.</summary>
+    internal static readonly TimeSpan FollowUpConfirmWait = TimeSpan.FromSeconds(5);
 
     /// <summary>The PTY offers no exit event and the TUI can turn bracketed paste off again, so the
     /// launch prompt's waits are sliced and both re-read between slices.</summary>
@@ -87,6 +106,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     readonly Lock                    _dialogGate  = new();
     readonly Lock                    _arrivalGate = new();
     readonly TaskCompletionSource<bool> _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource    _sessionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource    _overdue        = new(TaskCreationOptions.RunContinuationsAsynchronously);
     long                             _lastOutputAt;
     volatile bool                    _sawOutput;
     volatile bool                    _stopRequested;
@@ -95,6 +116,9 @@ internal sealed partial class PtyHostedAgentRuntime(
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
     bool                             _unconfirmed;
+    Task<bool>?                      _inputReadiness;
+    int                              _deliveries;
+    int                              _keystrokes;
 
     /// <summary>The pending launch-prompt delivery, or null when the launch carried no prompt to paste.</summary>
     public Task<LaunchPromptOutcome>? LaunchPromptDelivery { get; private set; }
@@ -104,14 +128,30 @@ internal sealed partial class PtyHostedAgentRuntime(
     internal Task<bool> LaunchPromptSubmitted => _submitted.Task;
 
     public bool LaunchPromptUnconfirmed {
-        get { lock (_arrivalGate) { return _unconfirmed; } }
+        get { lock (_arrivalGate) { return _unconfirmed || LaunchPromptDelivery is not null && HeldTooLong; } }
     }
+
+    public Task? LaunchPromptOverdue => awaitsSessionStart ? _overdue.Task : null;
+
+    bool HeldTooLong => _overdue.Task.IsCompleted && !_sessionStarted.Task.IsCompleted;
 
     public void NoteTurnRelayed() {
         lock (_arrivalGate) {
             _arrival?.TrySetResult();
             _unconfirmed = false;
         }
+
+        // Only a REPL starts a turn, whatever became of the SessionStart notice.
+        NoteSessionStarted();
+    }
+
+    public void NoteSessionStarted() {
+        if (!awaitsSessionStart || _sessionStarted.Task.IsCompleted) return;
+
+        // The hook can fire before the composer mounts, so a screen quiet since before it proves
+        // nothing and the quiet window runs from here. Stamped first: the delivery this releases reads it.
+        Volatile.Write(ref _lastOutputAt, time.GetTimestamp());
+        _sessionStarted.TrySetResult();
     }
 
     public string  Vendor              => vendor;
@@ -132,7 +172,8 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    bool LooksReadyForInput => readyOnBracketedPaste ? _modes.IsBracketedPasteEnabled : _sawOutput;
+    bool LooksReadyForInput =>
+        readyOnBracketedPaste || bracketedPasteMeansComposerUp ? _modes.IsBracketedPasteEnabled : _sawOutput;
 
     public void NoteTerminalDialog(bool showing) {
         lock (_dialogGate) {
@@ -151,13 +192,20 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// Makes <paramref name="prompt"/> the agent's first message without putting it on the command
-    /// line: pastes it once the TUI looks ready and output has then been quiet for
-    /// <see cref="LaunchPromptQuietWindow"/>, or <see cref="LaunchPromptMaxWait"/> has passed. A text
+    /// line: pastes it once the TUI looks ready, or <see cref="LaunchPromptMaxWait"/> has passed. Ready
+    /// is bracketed paste on where the vendor ties that mode to its composer, and otherwise output
+    /// followed by <see cref="LaunchPromptQuietWindow"/> of quiet. A text
     /// follow-up sent meanwhile lands after it; raw and special keys do not wait, so a viewer can
     /// answer a startup dialog themselves. A dialog on screen is not a settled startup and has no
     /// time limit: its default option would take the submit Enter and leave the prompt unsent in the
     /// composer. Neither is a terminal that still rewrites CR, which would turn the submit Enter into a
     /// newline.
+    ///
+    /// A prompt that awaits SessionStart waits for it ahead of all that, also with no time limit: a
+    /// first-run screen fires no hook and is output followed by silence, so it passes every check
+    /// here and would take the paste, the Enter and the retry Enter. Past
+    /// <see cref="LaunchPromptConfirmWait"/> the hold reads as unconfirmed, which points a viewer at
+    /// the terminal, and a follow-up is refused.
     /// </summary>
     /// <remarks>
     /// Under ConPTY output alone is no sign of readiness: it writes its own preamble before the agent
@@ -174,21 +222,23 @@ internal sealed partial class PtyHostedAgentRuntime(
         try {
             bool settled;
 
-            // A dialog can open while the delivery waits for the lane, so it is checked again once the
-            // lane is held, and the wait starts over.
+            // A dialog can open, or the composer that turned bracketed paste on unmount, while the
+            // delivery waits for the lane, so both are checked again once it is held and the wait
+            // starts over.
             while (true) {
                 settled = await WaitForStartupToSettleAsync(_disposal.Token);
                 if (pty.HasExited) return LaunchPromptOutcome.AgentExited;
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
 
                 await _lane.WaitAsync(_disposal.Token);
-                if (DialogGone is null) break;
+                if (DialogGone is null && !(settled && bracketedPasteMeansComposerUp && !_modes.IsBracketedPasteEnabled)) break;
 
                 _lane.Release();
             }
 
             _deliveryHoldsLane = true;
             Task? arrived = null;
+            var keystrokes = Volatile.Read(ref _keystrokes);
 
             try {
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
@@ -211,7 +261,15 @@ internal sealed partial class PtyHostedAgentRuntime(
 
             if (arrived is null) return settled ? LaunchPromptOutcome.Delivered : LaunchPromptOutcome.DeliveredAfterMaxWait;
 
-            return await ConfirmArrivalAsync(arrived);
+            var outcome = await ConfirmArrivalAsync(arrived, () => Volatile.Read(ref _keystrokes) == keystrokes, LaunchPromptConfirmWait);
+            if (outcome != LaunchPromptOutcome.NotConfirmed) return outcome;
+
+            lock (_arrivalGate) {
+                if (arrived.IsCompleted) return LaunchPromptOutcome.ConfirmedAfterResubmit;
+                _unconfirmed = true;
+            }
+
+            return outcome;
         } catch (OperationCanceledException) {
             return LaunchPromptOutcome.Cancelled;
         } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
@@ -221,50 +279,56 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// Waits for the hooks to report a turn, which only a submitted prompt starts. When none comes the
-    /// submit is sent once more, since under ConPTY a later Enter submits a paste the first one missed.
-    /// That Enter goes only while no turn has been reported and no dialog shows: after the prompt
-    /// arrived it would submit an empty turn, and in a dialog it would pick an option.
+    /// submit is sent once more: under ConPTY, or after a paste so large the agent was still taking it
+    /// in, the first Enter lands as a newline and leaves the prompt unsent in the composer. That Enter
+    /// goes only while no turn has been reported, no dialog shows and <paramref name="mayResubmit"/>
+    /// holds: after the prompt arrived it would submit an empty turn, in a dialog it would pick an
+    /// option, and behind someone's typing it would submit that too.
     /// </summary>
-    async Task<LaunchPromptOutcome> ConfirmArrivalAsync(Task arrived) {
-        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.Confirmed;
+    async Task<LaunchPromptOutcome> ConfirmArrivalAsync(Task arrived, Func<bool> mayResubmit, TimeSpan wait) {
+        if (await ArrivesWithinAsync(arrived, wait)) return LaunchPromptOutcome.Confirmed;
         if (Withdrawn() is { } early) return early;
 
-        await _lane.WaitAsync(_disposal.Token);
+        // A write parked in the lane would otherwise hold the verdict as well as the Enter.
+        using (var expiry = new CancellationTokenSource(ResubmitLaneWait, time))
+        using (var bound = CancellationTokenSource.CreateLinkedTokenSource(_disposal.Token, expiry.Token)) {
+            try {
+                await _lane.WaitAsync(bound.Token);
+            } catch (OperationCanceledException) when (!_disposal.IsCancellationRequested) {
+                return arrived.IsCompleted ? LaunchPromptOutcome.Confirmed : LaunchPromptOutcome.NotConfirmed;
+            }
+        }
         _deliveryHoldsLane = true;
 
         try {
             if (!await WaitOutDialogsAsync()) return LaunchPromptOutcome.StopRequested;
             if (arrived.IsCompleted) return LaunchPromptOutcome.Confirmed;
+            if (!mayResubmit()) return LaunchPromptOutcome.NotConfirmed;
             if (!await WriteSubmitCarriageReturnAsync())
                 return pty.HasExited ? LaunchPromptOutcome.AgentExited : LaunchPromptOutcome.WriteFailed;
         } finally {
             ReleaseDeliveryLane();
         }
 
-        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.ConfirmedAfterResubmit;
+        if (await ArrivesWithinAsync(arrived, wait)) return LaunchPromptOutcome.ConfirmedAfterResubmit;
         if (Withdrawn() is { } late) return late;
 
-        lock (_arrivalGate) {
-            if (arrived.IsCompleted) return LaunchPromptOutcome.ConfirmedAfterResubmit;
-            _unconfirmed = true;
-        }
-
-        return LaunchPromptOutcome.NotConfirmed;
+        return arrived.IsCompleted ? LaunchPromptOutcome.ConfirmedAfterResubmit : LaunchPromptOutcome.NotConfirmed;
     }
 
     LaunchPromptOutcome? Withdrawn() =>
         pty.HasExited ? LaunchPromptOutcome.AgentExited : _stopRequested ? LaunchPromptOutcome.StopRequested : null;
 
-    /// <summary>True once a turn is reported; false when <see cref="LaunchPromptConfirmWait"/> passes
+    /// <summary>True once a turn is reported; false when <paramref name="wait"/> passes
     /// first or the agent exits or is asked to stop. The wait starts over while a dialog shows: the
     /// prompt cannot start a turn until it is answered.</summary>
-    async Task<bool> ArrivesWithinAsync(Task arrived) {
+    async Task<bool> ArrivesWithinAsync(Task arrived, TimeSpan wait) {
         var started = time.GetTimestamp();
 
         while (!arrived.IsCompleted && !pty.HasExited && !_stopRequested) {
             if (DialogGone is not null) started = time.GetTimestamp();
 
-            var remaining = LaunchPromptConfirmWait - time.GetElapsedTime(started);
+            var remaining = wait - time.GetElapsedTime(started);
             if (remaining <= TimeSpan.Zero) return false;
 
             try {
@@ -283,16 +347,44 @@ internal sealed partial class PtyHostedAgentRuntime(
     }
 
     /// <summary>A follow-up waits for the launch prompt so it lands after it. The delivery reports
-    /// its own fate; the follow-up only needs it to be over.</summary>
+    /// its own fate; the follow-up only needs it to be over. A prompt held too long refuses the
+    /// follow-up instead: that hold has no time limit, and a server dispatch awaits this on the
+    /// daemon's one sequential SignalR dispatch, ahead of every other agent's stop and launch.</summary>
     async Task WaitForLaunchPromptAsync() {
-        if (LaunchPromptDelivery is not { } delivery) return;
+        if (((Task?)LaunchPromptDelivery ?? _inputReadiness) is not { } delivery) return;
+
+        await Task.WhenAny(delivery, _overdue.Task);
+        if (HeldTooLong && !delivery.IsCompleted)
+            throw new IOException("the agent is still starting: finish what its terminal is asking, then send this again");
 
         try { await delivery; } catch (Exception) { }
+
+        if (delivery == _inputReadiness && Interlocked.Exchange(ref _inputReadiness, null) is { } readiness && !await readiness)
+            LogInputSentUnsettled(_logger, vendor, LaunchPromptMaxWait.TotalSeconds);
     }
 
-    /// <summary>True once output has been quiet for the window, false when the wait expired first.
+    /// <summary>Holds the first text input of an agent spawned with no launch prompt, such as one resumed
+    /// idle, until its terminal is ready for a paste on the launch prompt's terms. Input sent once
+    /// <see cref="LaunchPromptMaxWait"/> has run out is pasted anyway, and logged as unproven.</summary>
+    internal void HoldInputUntilReady() {
+        if (LaunchPromptDelivery is not null) throw new InvalidOperationException("The launch prompt already holds input.");
+
+        _inputReadiness ??= WaitForInputReadinessAsync();
+    }
+
+    async Task<bool> WaitForInputReadinessAsync() {
+        try {
+            return await WaitForStartupToSettleAsync(_disposal.Token);
+        } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
+            return true;
+        }
+    }
+
+    /// <summary>True once the TUI is ready for a paste, false when the wait expired first.
     /// Returns early, true, when the agent has exited or been asked to stop; the caller checks those.</summary>
     async Task<bool> WaitForStartupToSettleAsync(CancellationToken ct) {
+        await WaitForSessionStartAsync(ct);
+
         var started = time.GetTimestamp();
 
         var sawCooked  = false;
@@ -331,6 +423,8 @@ internal sealed partial class PtyHostedAgentRuntime(
                 continue;
             }
 
+            if (bracketedPasteMeansComposerUp) return true;
+
             var quietFor = time.GetElapsedTime(Math.Max(Volatile.Read(ref _lastOutputAt), uncookedAt));
             if (quietFor >= LaunchPromptQuietWindow) return true;
 
@@ -338,6 +432,21 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
 
         return true;
+    }
+
+    /// <summary>Returns once SessionStart has been reported, or the agent has exited or been asked to stop.</summary>
+    async Task WaitForSessionStartAsync(CancellationToken ct) {
+        if (!awaitsSessionStart) return;
+
+        var started = time.GetTimestamp();
+
+        while (!_sessionStarted.Task.IsCompleted && !pty.HasExited && !_stopRequested) {
+            try {
+                await _sessionStarted.Task.WaitAsync(LaunchPromptPoll, time, ct);
+            } catch (TimeoutException) { }
+
+            if (time.GetElapsedTime(started) >= LaunchPromptConfirmWait) _overdue.TrySetResult();
+        }
     }
 
     /// <summary>Called by a delivery holding the input lane, before each submit Enter. A dialog
@@ -401,8 +510,21 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
 
         _deliveryHoldsLane = true;
+        var delivery   = Interlocked.Increment(ref _deliveries);
+        var keystrokes = Volatile.Read(ref _keystrokes);
+        Task? arrived  = null;
 
         try {
+            // A message still awaiting its turn shares this one's: the turn either starts reads as
+            // both arriving, so neither reports a miss the other's turn answered.
+            if (confirmsLaunchPrompt) {
+                lock (_arrivalGate) {
+                    if (_arrival is not { Task.IsCompleted: false })
+                        _arrival = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    arrived = _arrival.Task;
+                }
+            }
+
             await pty.WriteAsync(BracketedPaste.Frame(text));
             // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
             // would land in the composer behind the unsent paste. A stop asked for while a dialog this
@@ -414,6 +536,28 @@ internal sealed partial class PtyHostedAgentRuntime(
             if (!submitted) throw AgentEnding();
         } finally {
             ReleaseDeliveryLane();
+        }
+
+        // The sender has its answer once the Enter is written; the receipt can take a whole turn.
+        if (arrived is not null) FollowUpConfirmation = ConfirmFollowUpAsync(arrived, delivery, keystrokes);
+    }
+
+    /// <summary>The latest follow-up's confirmation, for tests; null until a confirming runtime sends one.</summary>
+    internal Task<LaunchPromptOutcome>? FollowUpConfirmation { get; private set; }
+
+    /// <summary>Any reported turn boundary counts as the receipt, so a message sent mid-turn is taken
+    /// as arrived when that turn ends and is never resubmitted. The retry is for an idle agent, where
+    /// the next boundary is the turn the message starts.</summary>
+    async Task<LaunchPromptOutcome> ConfirmFollowUpAsync(Task arrived, int delivery, int keystrokes) {
+        try {
+            var outcome = await ConfirmArrivalAsync(arrived, () =>
+                Volatile.Read(ref _deliveries) == delivery && Volatile.Read(ref _keystrokes) == keystrokes, FollowUpConfirmWait);
+            if (outcome == LaunchPromptOutcome.NotConfirmed) LogFollowUpNotConfirmed(_logger, vendor);
+            return outcome;
+        } catch (OperationCanceledException) {
+            return LaunchPromptOutcome.Cancelled;
+        } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+            return LaunchPromptOutcome.WriteFailed;
         }
     }
 
@@ -433,6 +577,7 @@ internal sealed partial class PtyHostedAgentRuntime(
                 LogWheelDropped(_logger);
                 return;
             }
+            if (!isWheel) Interlocked.Increment(ref _keystrokes);
             await pty.WriteAsync(bytes);
         } finally {
             _lane.Release();
@@ -443,6 +588,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         await _lane.WaitAsync();
 
         try {
+            if (data.Length > 0 && !TerminalReply.IsOnlyReplies(data)) Interlocked.Increment(ref _keystrokes);
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
@@ -532,6 +678,12 @@ internal sealed partial class PtyHostedAgentRuntime(
             return false;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A {Vendor} agent's first message was pasted without its terminal settling within {Seconds:F0}s, so it may not have been submitted")]
+    static partial void LogInputSentUnsettled(ILogger logger, string vendor, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A {Vendor} agent reported no turn for a message after its submit was sent twice")]
+    static partial void LogFollowUpNotConfirmed(ILogger logger, string vendor);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Dropped wheel input while PTY mouse reporting is inactive or the process has exited")]
     static partial void LogWheelDropped(ILogger logger);

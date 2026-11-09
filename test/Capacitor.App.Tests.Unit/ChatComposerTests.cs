@@ -89,6 +89,36 @@ public class ChatComposerTests {
         });
     }
 
+    /// Pins that text sent from outside the composer goes down the same channel as a typed
+    /// message and leaves whatever the user is typing alone.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_text_from_outside_the_composer_pastes_it_and_keeps_the_draft() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, client, _) = await BuildAttachedAsync();
+            chat.ComposerText = "draft";
+            await Assert.That(chat.CanSendText).IsTrue();
+
+            await Assert.That(await chat.SendTextAsync("/compact")).IsTrue();
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("/compact"));
+            await Assert.That(chat.ComposerText).IsEqualTo("draft");
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_text_is_refused_once_the_session_has_ended() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, client, _) = await BuildAttachedAsync();
+            daemon.Agents.Remove("a1");
+            await Assert.That(chat.CanSendText).IsFalse();
+            await Assert.That(await chat.SendTextAsync("/compact")).IsFalse();
+            await Assert.That(client.SentInput).IsEmpty();
+            await chat.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Hint_follows_send_availability() {

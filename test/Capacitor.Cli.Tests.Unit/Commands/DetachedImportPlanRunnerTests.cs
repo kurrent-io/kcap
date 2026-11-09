@@ -4,7 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.FirstRun;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -58,6 +58,21 @@ public class DetachedImportPlanRunnerTests {
         await Assert.That(_seen.Select(s => s.Level.Level)).IsEquivalentTo(
             [FirstRunImportLevel.Shared, FirstRunImportLevel.OnlyMe], CollectionOrdering.Matching);
         await Assert.That(_seen[0].Level.Repos[0].Slug).IsEqualTo("acme/api");
+    }
+
+    /// <summary>Setup reports the child running on this signal, so a rejected plan must never send it.</summary>
+    [Test]
+    public async Task Only_a_usable_plan_signals_accepted_and_before_any_level_runs() {
+        var path = WritePlan(Level(FirstRunImportLevel.Shared, "a", "b"));
+        var seenWhenAccepted = -1;
+
+        await Runner(Resolutions.None(Config.Root)).RunAsync(path, () => seenWhenAccepted = _seen.Count);
+
+        var rejected = false;
+        await Runner(Resolutions.None(Config.Root)).RunAsync(WriteGarbage("import-plan-bad.json"), () => rejected = true);
+
+        await Assert.That(seenWhenAccepted).IsEqualTo(0);
+        await Assert.That(rejected).IsFalse();
     }
 
     [Test]

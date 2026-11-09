@@ -14,7 +14,7 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Spectre.Console;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -359,6 +359,16 @@ public class SetupCommandTests {
         await Assert.That(text).Contains("Imported your newest sessions from 1 repository");
         await Assert.That(text).Contains("the rest is importing in the background");
         await Assert.That(text).Contains("/logs/import-run1.log");
+    }
+
+    [Test]
+    public async Task BrowserImportSummary_an_unconfirmed_child_is_not_said_to_be_importing() {
+        var text = string.Join("\n", SetupCommand.BrowserImportSummary(
+            ImportAnswer(repos: "kcap"), background: Launch(BackgroundImportStatus.Unconfirmed)));
+
+        await Assert.That(text).Contains("Imported your newest sessions from 1 repository");
+        await Assert.That(text).Contains("has not confirmed it started");
+        await Assert.That(text).DoesNotContain("importing in the background");
     }
 
     [Test]
@@ -743,6 +753,22 @@ public class SetupCommandTests {
 
         await Assert.That(SetupCommand.CodexTrustReminder(withCodex)).Contains("trust");
         await Assert.That(SetupCommand.CodexTrustReminder(withoutCodex)).IsNull();
+    }
+
+    /// <summary>A user who only runs <c>codex exec</c> never sees Codex's trust prompt, so the reminder has to say
+    /// so and name what works without it: an interactive launch, the app's settings, or the per-run bypass.</summary>
+    [Test]
+    public async Task CodexTrustReminder_says_codex_exec_never_prompts_and_names_the_routes() {
+        var result = new CodingAgentsStep.Result(
+            ClaudeInstalled: false, CodexHooksInstalled: true, AgentSkillsInstalled: false,
+            CursorHooksInstalled: false, CopilotHooksInstalled: false);
+
+        var reminder = SetupCommand.CodexTrustReminder(result)!;
+
+        await Assert.That(reminder).Contains("[cyan]codex exec[/] never shows the trust prompt");
+        await Assert.That(reminder).Contains("Run [cyan]codex[/] once");
+        await Assert.That(reminder).Contains("Settings → Hooks");
+        await Assert.That(reminder).Contains("--dangerously-bypass-hook-trust");
     }
 
     [Test]

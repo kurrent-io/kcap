@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
+using Capacitor.Cli.Core.Harness.Headless;
 using Capacitor.Cli.Daemon.Acp;
 using Capacitor.Cli.Daemon.Harness.OpenCode;
 using Capacitor.Cli.Daemon.Services;
@@ -14,6 +15,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.OpenCode;
 /// </summary>
 public class OpenCodeReviewerLaunchTests {
     const string InstalledVersion = "1.18.9";
+    const string UserHomePath     = "/home/kcap-test";
 
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
@@ -22,7 +24,8 @@ public class OpenCodeReviewerLaunchTests {
             OpenCodeUnattendedReviewerEnabled = true,
             Store = paths ?? Daemons.Store,
             Name = "test-daemon",
-            DaemonEpoch = "epoch-1"
+            DaemonEpoch = "epoch-1",
+            Home = new UserHome(UserHomePath)
         };
 
         // Seeded exactly as enabling the reviewer does in production: without it every launch is
@@ -83,7 +86,7 @@ public class OpenCodeReviewerLaunchTests {
     ///
     /// <para><b>Why a literal and not <c>OpenCodeReviewerPermissions.ReadTools</c>.</b> Iterating the
     /// source list makes it its own oracle: adding <c>bash</c> to <c>ReadTools</c> and dropping it from
-    /// <c>ForbiddenTools</c> would widen the reviewer to a shell and keep this test green, because both
+    /// <c>OpenCodeForbiddenTools</c> would widen the reviewer to a shell and keep this test green, because both
     /// halves of the comparison moved together. The same trap
     /// <c>AcpHostedAgentRuntimeFactory.ExpectedGeminiArgv</c> documents for argv. Written out, a widened
     /// posture goes red and a deliberate widening has to be restated here.</para>
@@ -171,23 +174,70 @@ public class OpenCodeReviewerLaunchTests {
     /// <summary>The recursion guard: without an isolated config dir the reviewer inherits the
     /// operator's global MCP servers, the flow-starting one included.</summary>
     [Test]
+    [NotInParallel]
     public async Task AReviewLaunch_GetsAnEmptyIsolatedConfigDirectory() {
         SkipOnWindows();
 
+        using var noCredentials = new TempDir();
+        using var userHome      = EnvScope.Exclusive(OpenCodeLaunchEnvironment.HomeVariable, noCredentials.Path);
+
         var psi = Psi(isReviewFlow: true, EnabledConfig(Daemons.Store));
 
-        var dir = psi.Environment[OpenCodeLaunchEnvironment.ConfigDirVariable];
+        string?[] dirs = [
+            psi.Environment[OpenCodeLaunchEnvironment.ConfigDirVariable],
+            psi.Environment[OpenCodeLaunchEnvironment.ConfigHomeVariable],
+            psi.Environment[OpenCodeLaunchEnvironment.HomeVariable],
+        ];
 
-        await Assert.That(dir).IsNotNull();
-        await Assert.That(Directory.Exists(dir!)).IsTrue();
-        await Assert.That(Directory.EnumerateFileSystemEntries(dir!)).IsEmpty();
-        // Under THIS daemon's own root, never a shared one — a shared root's "delete every directory
-        // whose epoch is not mine" rule would select a peer daemon's live directory.
-        await Assert.That(dir!.StartsWith(
-            OpenCodeReviewerConfigDir.RootFor(
-                AcpHostedAgentRuntimeFactory.ReviewerStateDir(
-                    new DaemonConfig { Store = Daemons.Store, Name = "test-daemon" })),
-            StringComparison.Ordinal)).IsTrue();
+        await Assert.That(dirs.Distinct().Count()).IsEqualTo(3);
+        await Assert.That(psi.Environment[OpenCodeLaunchEnvironment.TestHomeVariable]).IsEqualTo(dirs[2]);
+
+        foreach (var dir in dirs) {
+            await Assert.That(Directory.Exists(dir!)).IsTrue();
+            await Assert.That(Directory.EnumerateFileSystemEntries(dir!)).IsEmpty();
+            // Under THIS daemon's own root, never a shared one: a shared root's "delete every directory whose epoch is
+            // not mine" rule would select a peer daemon's live directory.
+            await Assert.That(dir!.StartsWith(
+                OpenCodeReviewerConfigDir.RootFor(
+                    AcpHostedAgentRuntimeFactory.ReviewerStateDir(
+                        new DaemonConfig { Store = Daemons.Store, Name = "test-daemon" })),
+                StringComparison.Ordinal)).IsTrue();
+        }
+    }
+
+    /// <summary>The reviewer's own private home carries the user's cloud sign-ins, so Bedrock and Vertex still work.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task AReviewLaunch_KeepsTheUsersCloudSignIns() {
+        SkipOnWindows();
+
+        using var user = new TempDir();
+        user.CreateFile(Path.Combine(".aws", "credentials"), "aws");
+
+        using var home = EnvScope.Exclusive(OpenCodeLaunchEnvironment.HomeVariable, user.Path);
+
+        var psi = Psi(isReviewFlow: true);
+
+        var linked = Path.Combine(psi.Environment[OpenCodeLaunchEnvironment.HomeVariable]!, ".aws", "credentials");
+        await Assert.That(File.ReadAllText(linked)).IsEqualTo("aws");
+    }
+
+    /// <summary>Without these the data directory, and with it the sign-in, would follow the private home.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task AReviewLaunch_KeepsTheUsersDataStateAndCache() {
+        SkipOnWindows();
+
+        using var home  = EnvScope.Exclusive("HOME", "/home/inherited");
+        using var data  = EnvScope.Exclusive("XDG_DATA_HOME", "/custom/data");
+        using var state = EnvScope.Exclusive("XDG_STATE_HOME", null);
+        using var cache = EnvScope.Exclusive("XDG_CACHE_HOME", null);
+
+        var psi = Psi(isReviewFlow: true);
+
+        await Assert.That(psi.Environment["XDG_DATA_HOME"]).IsEqualTo("/custom/data");
+        await Assert.That(psi.Environment["XDG_STATE_HOME"]).IsEqualTo("/home/inherited/.local/state");
+        await Assert.That(psi.Environment["XDG_CACHE_HOME"]).IsEqualTo("/home/inherited/.cache");
     }
 
     /// <summary>The reviewed BRANCH is not trusted input: its own opencode config and its
@@ -201,23 +251,55 @@ public class OpenCodeReviewerLaunchTests {
         await Assert.That(psi.Environment[OpenCodeLaunchEnvironment.ProjectConfigVariable]).IsEqualTo("1");
     }
 
-    /// <summary>The config sources that merge OVER the isolated dir do not reach a reviewer.</summary>
+    /// <summary>Every layer's <c>model</c> and <c>provider</c> survive, so the reviewer keeps the user's default and
+    /// custom providers. Nothing else in a layer does: the servers planted in each are what must never start.</summary>
     [Test]
     [NotInParallel]
-    public async Task AReviewLaunch_DropsTheConfigSourcesThatMergeOverTheIsolatedDir() {
+    public async Task AReviewLaunch_TakesOnlyModelAndProviderFromTheUsersConfig() {
         SkipOnWindows();
 
-        // Absence is assertable only because these scopes established the values: the child's block is
-        // seeded from this process, so a variable nothing set proves nothing about the scrub.
-        using var file    = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigFileVariable,
-                                               "/tmp/kcap-opencode-config-probe.json");
+        using var user = new TempDir();
+        var file = user.CreateFile("named.json", """{"provider":{"from-file":{"name":"f"}},"mcp":{"kcap-flows":{"type":"local"}}}""");
+        user.CreateFile(Path.Combine("xdg", "opencode", "opencode.json"),
+            """{"model":"a/global","instructions":["x.md"],"mcp":{"kcap-flows":{"type":"local"}}}""");
+
+        using var config  = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigHomeVariable, Path.Combine(user.Path, "xdg"));
+        using var named   = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigFileVariable, file);
         using var content = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigContentVariable,
-                                               """{"mcp":{"kcap-flows":{"type":"local"}}}""");
+                                               """{"model":"a/inline","mcp":{"kcap-flows":{"type":"local"}}}""");
 
         var psi = Psi(isReviewFlow: true);
 
         await Assert.That(psi.Environment.ContainsKey(OpenCodeLaunchEnvironment.ConfigFileVariable)).IsFalse();
-        await Assert.That(psi.Environment.ContainsKey(OpenCodeLaunchEnvironment.ConfigContentVariable)).IsFalse();
+
+        var passed = JsonDocument.Parse(psi.Environment[OpenCodeLaunchEnvironment.ConfigContentVariable]!).RootElement;
+        await Assert.That(passed.EnumerateObject().Select(p => p.Name).Order()).IsEquivalentTo(["model", "provider"]);
+        await Assert.That(passed.GetProperty("model").GetString()).IsEqualTo("a/inline");
+        await Assert.That(passed.GetProperty("provider").TryGetProperty("from-file", out _)).IsTrue();
+    }
+
+    /// <summary>OpenCode would refuse the layer too, so the launch fails naming it before any directory is made.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task AReviewLaunch_IsRefusedWhenAUserConfigLayerCannotBeParsed() {
+        SkipOnWindows();
+
+        using var content = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigContentVariable, "{not json");
+
+        await Assert.That(() => Psi(isReviewFlow: true)).Throws<HeadlessRunRefusedException>();
+    }
+
+    /// <summary>Each injected server is a nested kcap that finds its sign-in under the home: under the reviewer's private
+    /// one it starts and can never report.</summary>
+    [Test]
+    public async Task TheInjectedServers_GetTheUsersHomeAndKeepTheirOwnEnvironment() {
+        AcpMcpServerSpec[] servers = [new("kcap-flow-result", "/bin/kcap", ["mcp"], [new("KCAP_FLOW_AGENT_ID", "a")])];
+
+        var spec = OpenCodeLaunchEnvironment.WithUserHome(servers, UserHomePath).Single();
+
+        await Assert.That(spec.Args).IsEquivalentTo(["mcp"]);
+        await Assert.That(spec.Env.Single(e => e.Name == "KCAP_FLOW_AGENT_ID").Value).IsEqualTo("a");
+        await Assert.That(spec.Env.Single(e => e.Name == OpenCodeLaunchEnvironment.HomeVariable).Value).IsEqualTo(UserHomePath);
     }
 
     /// <summary>
@@ -230,8 +312,13 @@ public class OpenCodeReviewerLaunchTests {
         using var permission = EnvScope.Exclusive(OpenCodeLaunchEnvironment.PermissionVariable, "inherited-permission");
         using var configDir  = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigDirVariable, "/tmp/kcap-opencode-dir-probe");
         using var project    = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ProjectConfigVariable, "inherited-project");
+        using var home       = EnvScope.Exclusive(OpenCodeLaunchEnvironment.HomeVariable, "/home/inherited");
+        using var configHome = EnvScope.Exclusive(OpenCodeLaunchEnvironment.ConfigHomeVariable, "/home/inherited/.config");
 
         var psi = Psi(isReviewFlow: false);
+
+        await Assert.That(psi.Environment[OpenCodeLaunchEnvironment.HomeVariable]).IsEqualTo("/home/inherited");
+        await Assert.That(psi.Environment[OpenCodeLaunchEnvironment.ConfigHomeVariable]).IsEqualTo("/home/inherited/.config");
 
         await Assert.That(psi.Environment[OpenCodeLaunchEnvironment.PureVariable]).IsEqualTo("1");
         await Assert.That(psi.Environment.TryGetValue(OpenCodeLaunchEnvironment.PermissionVariable, out var p) ? p : null)

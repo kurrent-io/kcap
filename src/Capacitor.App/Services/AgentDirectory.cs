@@ -52,8 +52,10 @@ public interface IAgentDirectory {
 /// Suppression is evidence-based, symmetric and pairwise — a row hides only where the twin daemon's
 /// other lane holds a row for the SAME agent. While the twin is proven, its remote row hides
 /// whenever the local socket is Connected (the local view is current), and the local row hides once
-/// it isn't (the twin's own server row wins). Another daemon's rows never take part: an unproven
-/// identity, an unpaired agent and a same-id agent elsewhere all keep both lanes' rows.
+/// it isn't (the twin's own server row wins) — except for an agent the daemon's own resume ledger
+/// says it is taking back up while its process starts, whose local row stands as Resuming. Another
+/// daemon's rows never take part: an unproven identity, an unpaired agent and a same-id agent
+/// elsewhere all keep both lanes' rows.
 public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly SourceCache<AgentRow, string> _rows = new(r => r.Key);
     readonly CompositeDisposable _subscriptions = new();
@@ -77,7 +79,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly BehaviorSubject<bool> _onAppServer = new(false);
 
     IReadOnlyList<DaemonInfo> _daemons = [];
+    (string OwnerUserId, string DaemonName)? _provenTwin;
     bool _localConnected;
+    bool _localStarting;
+    IReadOnlySet<string> _resuming = FrozenSet<string>.Empty;
     string? _localServerUrl;
     List<AgentInstanceDto> _remoteAgents = [];
     List<AgentStatusDto> _localAgents = [];
@@ -108,11 +113,14 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly Dictionary<string, DateTime> _finished = new(StringComparer.Ordinal);
     bool _disposed;
 
+    /// <param name="localStarting">The local daemon's process is up but not yet serving its socket.</param>
+    /// <param name="resumingAgents">The agent ids the local daemon's resume ledger holds as resuming.</param>
     public AgentDirectory(
             IDaemonClientService local, IRemoteAgentsService remote, IServerLane lane,
             RepoIdentityResolver repoIdentity, Func<string, string> resolveLocalRepoRoot,
             string? localMachineId, string? appServerUrl, TimeProvider time,
-            IServerSessionsService? sessions = null) {
+            IServerSessionsService? sessions = null,
+            IObservable<bool>? localStarting = null, Func<IReadOnlySet<string>>? resumingAgents = null) {
         _local = local;
         _repoIdentity = repoIdentity;
         _resolveLocalRepoRoot = resolveLocalRepoRoot;
@@ -192,6 +200,29 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 Recompute();
             })
             .DisposeWith(_subscriptions);
+        // The ledger is read once as the start begins: it changes only as the daemon resumes, and from its
+        // first snapshot on the daemon says so itself.
+        localStarting?
+            .DistinctUntilChanged()
+            .Subscribe(starting => {
+                var resuming = starting ? ReadResuming(resumingAgents) : FrozenSet<string>.Empty;
+                lock (_lock) {
+                    _localStarting = starting;
+                    _resuming = resuming;
+                }
+                Recompute();
+            })
+            .DisposeWith(_subscriptions);
+    }
+
+    static IReadOnlySet<string> ReadResuming(Func<IReadOnlySet<string>>? read) {
+        if (read is null) return FrozenSet<string>.Empty;
+        try {
+            return read();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap app: reading the daemon's resume ledger failed: {ex.Message}");
+            return FrozenSet<string>.Empty;
+        }
     }
 
     public IObservableCache<AgentRow, string> Rows => _rows.AsObservableCache();
@@ -329,20 +360,32 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // The expiry timer's callback can land after Dispose ran; the lock serialises the two
             // and the flag turns the late callback into a no-op instead of an edit of a disposed cache.
             if (_disposed) return;
-            var twin = LocalDaemonTwin.Find(_daemons, _localMachineId, _local.DaemonName, _localServerUrl, _appServerUrl);
+            // A daemon that drops off the server's registry while it restarts is the same daemon: the
+            // identity proven before stands until the registry gives its slot to another machine.
+            var found = LocalDaemonTwin.Find(_daemons, _localMachineId, _local.DaemonName, _localServerUrl, _appServerUrl);
+            _provenTwin = found ?? LocalDaemonTwin.Retained(_provenTwin, _daemons, _localMachineId, _local.DaemonName, _localServerUrl, _appServerUrl);
+            var twin = _provenTwin;
             var twinProven = twin is not null;
             bool OnTwin(AgentInstanceDto a) =>
                 twinProven && a.OwnerUserId == twin!.Value.OwnerUserId && a.DaemonName == twin.Value.DaemonName;
 
+            // While the daemon's process starts and its socket is not yet up, its own resume ledger is
+            // the evidence that it takes an agent back up: the row it last reported stands for that
+            // agent, as Resuming.
+            var resumingHere = !_localConnected && _localStarting
+                ? _localAgents.Select(a => a.Id).Where(_resuming.Contains).ToHashSet(StringComparer.Ordinal)
+                : [];
+
             // What says a retiring remote row means the local daemon took that agent over. It is a
             // takeover verdict, so it takes current local authority and not the pairing alone: the
-            // socket up and the agent still live on it. A server verdict that ends the session
-            // retires the same row, and read as a takeover it would hide the end.
-            var liveLocally = _localAgents
-                .Where(a => !ViewModels.SessionStatusDots.IsTerminal(a.Status))
-                .Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
-            _twinAgents = twinProven && _localConnected
-                ? _remoteAgents.Where(OnTwin).Select(a => a.AgentId).Where(liveLocally.Contains).ToFrozenSet(StringComparer.Ordinal)
+            // socket up and the agent still live on it, or the daemon's ledger resuming it. A server
+            // verdict that ends the session retires the same row, and read as a takeover it would hide the end.
+            var claimedLocally = _localConnected
+                ? _localAgents.Where(a => !ViewModels.SessionStatusDots.IsTerminal(a.Status))
+                    .Select(a => a.Id).ToHashSet(StringComparer.Ordinal)
+                : resumingHere;
+            _twinAgents = twinProven
+                ? _remoteAgents.Where(OnTwin).Select(a => a.AgentId).Where(claimedLocally.Contains).ToFrozenSet(StringComparer.Ordinal)
                 : FrozenSet<string>.Empty;
 
             var remote = _remoteAgents
@@ -351,7 +394,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 .Where(a => a.Status.Equals("Starting", StringComparison.OrdinalIgnoreCase)
                     || a.Status.Equals("Running", StringComparison.OrdinalIgnoreCase)
                     || a.Status.Equals("Idle", StringComparison.OrdinalIgnoreCase))
-                .Where(a => !(_localConnected && OnTwin(a)))
+                .Where(a => !(OnTwin(a) && (_localConnected || resumingHere.Contains(a.AgentId))))
                 .ToList();
             // The counterpart set is the TWIN's own rows, never every remote row: proving this
             // daemon's registry twin establishes no correspondence with an agent of the same id
@@ -359,8 +402,19 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var twinIds = remote.Where(OnTwin).Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
             var localRows = _localAgents
                 .Where(a => !(twinProven && !_localConnected && twinIds.Contains(a.Id)))
-                .Select(ProjectLocal);
-            var next = localRows.Concat(remote.Select(AgentRow.FromRemote)).ToList();
+                .Select(a => ProjectLocal(resumingHere.Contains(a.Id) ? a with { Status = "Resuming" } : a));
+            // A twin row standing in for a hidden local one keeps the checkout that daemon reported for the
+            // same agent: the registry names none, and the session pane would lose its worktree.
+            var hidden = _localConnected
+                ? FrozenDictionary<string, AgentStatusDto>.Empty
+                : _localAgents.Where(a => twinIds.Contains(a.Id)).ToFrozenDictionary(a => a.Id, StringComparer.Ordinal);
+            var remoteRows = remote.Select(a => {
+                var row = AgentRow.FromRemote(a);
+                return OnTwin(a) && hidden.TryGetValue(a.AgentId, out var own)
+                    ? row with { WorktreePath = own.WorktreePath, WorkLocation = own.WorkLocation, BorrowedFrom = own.BorrowedFrom }
+                    : row;
+            });
+            var next = localRows.Concat(remoteRows).ToList();
             if (_sessions is not null) MergeServerLane(next);
 
             // A published local row retires the launch's stand-ins for good; the daemon's own

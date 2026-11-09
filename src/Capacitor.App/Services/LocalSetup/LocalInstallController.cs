@@ -12,9 +12,13 @@ namespace Capacitor.App.Services.LocalSetup;
 /// </summary>
 /// <param name="prefetch">The app's bundle prefetch; a run waits for one still downloading rather than download beside it.</param>
 /// <param name="rememberWindowsServiceDeclined">Records a declined or failed service install, so the app does not offer the service again.</param>
+/// <param name="settlesUnpublished">
+/// Settles a run without spawning setup once the prefetch found no bundle, unless an unfinished setup may need none:
+/// Windows setup can reach its service step, and its administrator prompt, before it looks for the bundle itself.
+/// </param>
 public sealed class LocalInstallController(
         Func<IKcapCli> cli, LocalRoot root, Func<bool> committedLocal, Action<Action> post, SetupFunnel funnel,
-        LocalBundlePrefetch? prefetch = null, Func<Task>? rememberWindowsServiceDeclined = null)
+        LocalBundlePrefetch? prefetch = null, Func<Task>? rememberWindowsServiceDeclined = null, bool settlesUnpublished = false)
     : ReactiveObject {
     LocalSetupProgress    _progress = new();
     bool                  _running;
@@ -113,9 +117,15 @@ public sealed class LocalInstallController(
         var unexplained = kcap.CliPath is null ? "cli_missing" : "no_failure_line";
         StreamingResult result;
         try {
-            if (!await AwaitPrefetchAsync(progress, interrupt).ConfigureAwait(false)) {
+            var waited = await AwaitPrefetchAsync(progress, interrupt).ConfigureAwait(false);
+            var unpublished = waited && settlesUnpublished && prefetch is { NotPublished: true }
+                           && !await Task.Run(() => LocalSetupState.Pending(root)).ConfigureAwait(false);
+            if (!waited || unpublished && interrupt.IsCancellationRequested) {
                 post(() => progress.Apply(CancelledLine));
                 result = new StreamingResult(130, false, []);
+            } else if (unpublished) {
+                post(() => progress.Apply(NotPublishedLine));
+                result = new StreamingResult(LocalBundlePrefetch.NotPublishedExit, false, []);
             } else {
                 result = await kcap.SetupLocalAsync(embeddings, line => {
                     if (line.Kind != ProcessStreamKind.Stdout || LocalSetupLine.Parse(line.Text) is not { } parsed) return;
@@ -133,6 +143,9 @@ public sealed class LocalInstallController(
 
     static readonly LocalSetupLine CancelledLine =
         LocalSetupLine.Parse("""{"v":1,"event":"failed","code":"cancelled","message":"The install was cancelled."}""")!;
+
+    static readonly LocalSetupLine NotPublishedLine = LocalSetupLine.Parse(
+        """{"v":1,"event":"failed","code":"bundle_not_published","message":"No local edition bundle is published for this version."}""")!;
 
     /// A fetch still downloading is waited out, its download shown as this run's; false when the run was interrupted first.
     async Task<bool> AwaitPrefetchAsync(LocalSetupProgress progress, CancellationToken interrupt) {

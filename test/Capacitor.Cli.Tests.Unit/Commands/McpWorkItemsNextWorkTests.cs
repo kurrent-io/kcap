@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -292,6 +292,33 @@ public class McpWorkItemsNextWorkTests {
         var url = McpWorkItemsServer.BuildNextWorkUrl("http://x", JsonNode.Parse("""{"limit":7}""")!.AsObject(), "a/b", "s 1");
 
         await Assert.That(url).IsEqualTo("http://x/api/next-work?repo_hash=a%2Fb&limit=7&session_id=s%201");
+    }
+
+    /// <summary>Feed answered to a session is POSTed, which is what records it as presented; without a session it
+    /// is only read. A server that predates the POST answers 405 and is asked again with the GET it records on.</summary>
+    [Test]
+    [Arguments(false, HttpStatusCode.OK, "GET")]
+    [Arguments(true, HttpStatusCode.OK, "POST")]
+    [Arguments(true, HttpStatusCode.MethodNotAllowed, "POST,GET")]
+    public async Task Feed_for_a_session_is_posted_and_falls_back_to_a_get_on_an_older_server(
+            bool presenting, HttpStatusCode postAnswer, string sent) {
+        var handler = new MethodHandler(postAnswer);
+        using var client = new HttpClient(handler);
+
+        using var response = await McpWorkItemsServer.SendNextWorkAsync(client, "http://x/api/next-work", presenting, CancellationToken.None);
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(string.Join(',', handler.Methods)).IsEqualTo(sent);
+    }
+
+    sealed class MethodHandler(HttpStatusCode postAnswer) : HttpMessageHandler {
+        public List<string> Methods { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            Methods.Add(request.Method.Method);
+
+            return Task.FromResult(new HttpResponseMessage(request.Method == HttpMethod.Post ? postAnswer : HttpStatusCode.OK));
+        }
     }
 
     [Test]

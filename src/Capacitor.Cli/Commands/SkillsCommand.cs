@@ -8,7 +8,8 @@ using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Skills;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 
@@ -101,7 +102,17 @@ class SkillsCommand(
             return Failed;
         }
 
-        var hash     = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
+        string? hash;
+        try {
+            hash = await repositories.HashForAsync(repo.Owner, repo.RepoName);
+        } catch (CapacitorApiException ex) {
+            await Console.Error.WriteLineAsync(ex.Message);
+            return Failed;
+        }
+        if (hash is null) {
+            await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+            return Failed;
+        }
         var repoHome = $"repo:{repo.Owner}/{repo.RepoName}";
 
         var adopted = Targets(legacy)

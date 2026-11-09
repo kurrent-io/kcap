@@ -89,7 +89,9 @@ public class AgentAttachClientTests {
             await server.SendExitedAsync(0);
             await run.WithinDeadlineAsync("the run to settle");
             await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
-            await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
+            // The first resize, not EOF, which on Windows AF_UNIX can fail to arrive: a stray nudge would be
+            // that frame and fail the size check, and the explicit one follows the input on the wire.
+            await server.WaitForReceivedAsync(FrameType.Resize);
 
             var received = server.SnapshotReceived();
             await Assert.That(received.Single(f => f.Type == FrameType.Stdin).Bytes).IsEquivalentTo(new byte[] { 42 });

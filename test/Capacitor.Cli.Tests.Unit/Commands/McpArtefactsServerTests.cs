@@ -100,10 +100,14 @@ public class McpArtefactsServerTests {
         });
     }
 
+    /// <summary>A new version cites the session too, so a page revised from a later session is listed there.</summary>
     [Test]
-    public async Task Publish_body_cites_claude_code_session_id_in_mcp_stdio_env() {
-        var body = McpArtefactsServer.BuildPublishBody(
-            Args("""{"title":"Plan"}"""),
+    [Arguments("""{"title":"Plan"}""")]
+    [Arguments("""{"title":"Plan","update_id":"a1"}""")]
+    public async Task A_publish_or_a_revision_cites_claude_code_session_id_in_mcp_stdio_env(string args) {
+        var (_, body) = McpArtefactsServer.BuildPublishRequest(
+            "https://kcap.test",
+            Args(args),
             "<p>x</p>",
             name => name == ClaudeSessionIdEnvVar ? "69849952-6dcc-484c-81cc-ccf504b1a807" : null);
 
@@ -210,16 +214,40 @@ public class McpArtefactsServerTests {
     // ── the advertised surface ────────────────────────────────────────────────────────
 
     [Test]
-    public async Task The_tool_list_is_exactly_these_eight() {
+    public async Task The_tool_list_is_exactly_these_nine() {
         // Deliberate and worth keeping deliberate: an agent's context pays for every schema it
         // carries whether or not it ever publishes. Widening this is a decision, not a drive-by.
         var names = McpArtefactsServer.BuildToolsList().Select(t => t.Name).ToArray();
 
         await Assert.That(names).IsEquivalentTo(new[] {
-            "publish_page", "await_page_responses", "get_page_results",
+            "publish_page", "get_page_guide", "await_page_responses", "get_page_results",
             "close_page_responses", "list_my_pages", "search_pages", "get_page", "set_page_visibility"
         });
     }
+
+    [Test]
+    public async Task The_page_guide_takes_no_arguments_and_only_reads() {
+        var tool = McpArtefactsServer.BuildToolsList().Single(t => t.Name == "get_page_guide");
+
+        await Assert.That(tool.InputSchema.Required).IsEmpty();
+        await Assert.That(tool.Annotations).IsEqualTo(McpToolAnnotations.Read);
+    }
+
+    public static IEnumerable<Func<(string Surface, string Text)>> AnswerableSteeringSurfaces() {
+        var publish = McpArtefactsServer.BuildToolsList().Single(t => t.Name == "publish_page");
+
+        yield return () => ("server instructions", McpArtefactsServer.ServerInstructions);
+        yield return () => ("publish_page description", publish.Description);
+        yield return () => ("response_schema description", publish.InputSchema.Properties["response_schema"].Description);
+        yield return () => ("pages skill", File.ReadAllText(Path.Combine(RepoTree.SkillsSource(), "pages", "SKILL.md")));
+    }
+
+    /// <summary>A page that answers through a form or fetch renders and loses every answer, so each
+    /// surface an agent reads before declaring a response_schema has to send it to the guide.</summary>
+    [Test]
+    [MethodDataSource(nameof(AnswerableSteeringSurfaces))]
+    public async Task Every_surface_about_answerable_pages_points_at_the_guide(string surface, string text) =>
+        await Assert.That(text).Contains("get_page_guide").Because(surface);
 
     [Test]
     public async Task Search_pages_requires_a_query_and_only_reads() {
@@ -495,6 +523,50 @@ public class McpArtefactsServerTests {
     public async Task The_follow_up_asks_for_the_link_in_the_reply_and_the_harness_browser_tool() {
         await Assert.That(McpArtefactsServer.PublishFollowUp).Contains("link");
         await Assert.That(McpArtefactsServer.PublishFollowUp).Contains("browser tool");
+    }
+
+    // ── the page guide ────────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task The_page_guide_is_the_servers_document_unwrapped() {
+        using var stub = WireMockServer.Start();
+        stub.Given(Request.Create().WithPath("/api/artefacts/guide").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"text":"Send ready first."}"""));
+
+        var (isError, text) = await CallAsync(Server(), stub.Url!, new JsonObject(), "get_page_guide");
+
+        await Assert.That(isError).IsFalse();
+        await Assert.That(text).IsEqualTo("Send ready first.");
+    }
+
+    /// <summary>A server without the route reads "guide" as a page id. "No such page" there would
+    /// tell the agent nothing about how to build the page it is about to publish.</summary>
+    [Test]
+    public async Task An_older_server_without_the_guide_says_so_rather_than_no_such_page() {
+        using var stub = WireMockServer.Start();
+        stub.Given(Request.Create().WithPath("/api/artefacts/guide").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(404));
+
+        var (isError, text) = await CallAsync(Server(), stub.Url!, new JsonObject(), "get_page_guide");
+
+        await Assert.That(isError).IsTrue();
+        await Assert.That(text).IsEqualTo(McpArtefactsServer.NoGuideMessage);
+    }
+
+    [Test]
+    [Arguments("<html>a proxy's error page</html>")]
+    [Arguments("[\"text\"]")]
+    [Arguments("\"text\"")]
+    [Arguments("{\"text\":42}")]
+    public async Task A_guide_answer_that_is_not_the_document_reads_as_unreadable(string body) {
+        using var stub = WireMockServer.Start();
+        stub.Given(Request.Create().WithPath("/api/artefacts/guide").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody(body));
+
+        var (isError, text) = await CallAsync(Server(), stub.Url!, new JsonObject(), "get_page_guide");
+
+        await Assert.That(isError).IsTrue();
+        await Assert.That(text).IsEqualTo(McpArtefactsServer.UnreadableGuideMessage);
     }
 
     // ── searching pages ───────────────────────────────────────────────────────────────

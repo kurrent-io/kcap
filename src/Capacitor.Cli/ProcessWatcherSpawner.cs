@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.Copilot;
 
 namespace Capacitor.Cli;
 
@@ -29,15 +30,14 @@ public sealed class ProcessWatcherSpawner(
             Directory.CreateDirectory(watcherDir);
 
             var kcapPath = Environment.ProcessPath ?? "kcap";
-            // Resolve the long-lived coding-agent PID rather than getppid(): coding
-            // agents invoke hooks through a transient executor that dies the moment the
-            // hook returns, so by the time the watcher checks IsProcessAlive it sees a
-            // dead PID and never starts the monitor task — leaving sessions stuck
-            // "active" because session-end is never POSTed. The vendor-aware resolver
-            // walks the ppid ancestry to find the agent by name, which is robust to the
-            // differing process-group topologies of Claude (transient hook group → bare
-            // getpgrp() resolves a dead PID) and Codex (inherits the agent's group).
-            var parentPid     = requestedParentPid ?? ProcessHelpers.GetCodingAgentPid(vendor);
+            // The long-lived agent, not getppid(): hooks run under a transient executor that dies when the hook
+            // returns, and following it either ends the session or arms nothing.
+            // Copilot's follows only a process named as Copilot's. A VS Code Local session has none, and a process
+            // above it that happens to match says nothing about the session.
+            var parentPid     = requestedParentPid
+                             ?? (vendor != "copilot"                                ? ProcessHelpers.GetCodingAgentPid(vendor)
+                                 : CopilotPaths.IsVsCodeLocalTranscript(transcriptPath) ? null
+                                 :                                                        ProcessHelpers.GetCopilotHostPid());
             var arguments     = BuildSpawnArgs(key, transcriptPath, agentId, sessionIdOverride, cwd, skipTitle, parentPid, vendor);
 
             var psi = new ProcessStartInfo(kcapPath, arguments) {

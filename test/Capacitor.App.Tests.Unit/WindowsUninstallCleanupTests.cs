@@ -45,6 +45,19 @@ public class WindowsUninstallCleanupTests {
         await Assert.That(_steps).IsEquivalentTo([$"daemon service uninstall --under {Tmp.PathTo("app")}", "path"], CollectionOrdering.Matching);
     }
 
+    /// The uninstaller the app starts after its own uninstall runs this hook too: the CLI is not started again over what
+    /// `kcap uninstall` removed, and the PATH removal, which is idempotent, still runs.
+    [Test]
+    public async Task After_the_apps_own_uninstall_only_the_path_is_removed() {
+        var cli = Tmp.CreateFile("app/bin/kcap.exe");
+        Tmp.CreateFile("local/install.json", "{}");
+
+        WindowsUninstallCleanup.Run(cli, Tmp.PathTo("app"), new LocalRoot(Tmp.PathTo("local")),
+            (_, args, _) => _steps.Add(string.Join(' ', args)), () => _steps.Add("path"), appUninstallCompleted: true);
+
+        await Assert.That(_steps).IsEquivalentTo(["path"], CollectionOrdering.Matching);
+    }
+
     [Test]
     public async Task A_missing_cli_still_removes_the_path() {
         Tmp.CreateFile("local/install.json", "{}");

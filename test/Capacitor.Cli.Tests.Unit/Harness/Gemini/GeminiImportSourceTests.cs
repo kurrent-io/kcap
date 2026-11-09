@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Gemini;
 /// <summary>
 /// discovery walks <c>~/.gemini/tmp/&lt;project&gt;/chats/session-*.jsonl</c>
 /// and reads the FULL dashed session id from the file's header record (the
-/// filename only carries the 8-char shortId). <see cref="GeminiImportSource.IsImportRelevantLine"/>
+/// filename only carries the 8-char shortId). <c>GeminiLines.IsImportRelevantLine</c>
 /// must mirror the server normalizer's skip rules so the import watermark
 /// compares against the right line.
 /// </summary>
@@ -115,17 +115,5 @@ public class GeminiImportSourceTests {
         using var tmp = new TempDir();
         var source = new GeminiImportSource(tmp.PathTo("does-not-exist"), TimeProvider.System);
         await Assert.That(source.IsAvailable).IsFalse();
-    }
-
-    // Mirror of the GeminiTranscriptNormalizer skip rules.
-    [Test]
-    [Arguments("""{"sessionId":"s","projectHash":"h","kind":"main"}""", false)]                                                              // header
-    [Arguments("""{"$set":{"lastUpdated":"t"}}""", false)]                                                                                    // mutation op
-    [Arguments("""{"id":"u","type":"user","content":[{"text":"<session_context>x</session_context>"}]}""", false)]                            // bootstrap
-    [Arguments("""{"id":"u","type":"user","content":[{"functionResponse":{"id":"f","name":"read","response":{"output":"x"}}}]}""", false)]    // tool-result echo
-    [Arguments("""{"id":"u","type":"user","content":[{"text":"real prompt"}]}""", true)]                                                      // real user prompt
-    [Arguments("""{"id":"g","type":"gemini","content":"answer"}""", true)]                                                                    // gemini turn
-    public async Task import_relevant_line_mirrors_normalizer_skips(string line, bool expected) {
-        await Assert.That(GeminiImportSource.IsImportRelevantLine(line)).IsEqualTo(expected);
     }
 }

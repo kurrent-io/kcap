@@ -1,14 +1,15 @@
 # kcap CLI
 
-**File paths:** CLI source at `src/Capacitor.Cli/`, shared core at `src/Capacitor.Cli.Core/`, transcript normalization at `src/Capacitor.Models.Transcripts/`, daemon at `src/Capacitor.Cli.Daemon/`, desktop app at `src/Capacitor.App/`, npm packages at `npm/`, Claude Code plugin at `kcap/`.
+**File paths:** CLI source at `src/Capacitor.Cli/`, shared core at `src/Capacitor.Cli.Core/`, transcript normalization at `src/Capacitor.Models.Transcripts/`, transcript recorder at `src/Capacitor.Cli.Recording/`, daemon at `src/Capacitor.Cli.Daemon/`, desktop app at `src/Capacitor.App/`, npm packages at `npm/`, Claude Code plugin at `kcap/`.
 
 **Harness layout:** vendor-specific code lives under `Harness/`. Vendors: Antigravity, Claude, Codex, Copilot, Cursor, Gemini, Grok, Kiro, MistralVibe, Muse, OpenCode, Pi.
 
 - `src/Capacitor.Models.Transcripts/Harness/<Vendor>/` — transcript projections to canonical events, the one place a vendor's transcript format is read.
 - `src/Capacitor.Cli.Core/Harness/<Vendor>/` — paths, hook parsers/installers, CLI runners, chat display rules.
+- `src/Capacitor.Cli.Recording/Harness/<Vendor>/` — what the transcript recorder does for a vendor: subagent scans and child watchers, live transcript, usage and title readers, line helpers, shutdown and rewrite guards.
 - `src/Capacitor.Cli.Daemon/Harness/<Vendor>/` — launchers, runtimes, reviewer capabilities, posture policies; one directory per vendor covering what used to be split between `Services/` and `Acp/`.
 - `src/Capacitor.Cli/Commands/Harness/` — command entry points, flat (`<Vendor>HookCommand` and friends).
-- `src/Capacitor.Cli/Harness/<Vendor>/` — everything else per vendor: import sources, subagent teardowns, correlators, ledgers.
+- `src/Capacitor.Cli/Harness/<Vendor>/` — everything else per vendor: import sources, subagent teardowns and correlators, policy seams, hosted-session helpers, nudge and import ledgers.
 
 Namespaces follow the directory (`Capacitor.Cli.Core.Harness.Codex`, `Capacitor.Cli.Commands.Harness`, `Capacitor.Cli.Harness.Pi`), enforced by the compiler, so moving a file means fixing its namespace in the same change. Code shared across vendors stays outside `Harness/` — a directory named after a vendor holds only that vendor's code. Adding a harness should mean a new `Harness/<Vendor>/` directory plus one registration site per assembly, not edits to shared folders.
 
@@ -32,6 +33,12 @@ running notes file that every PR edits.
   clamp, and its support is conjunctive — macOS/ARM64 and `sandbox-exec` and a brokerable token, or
   the capability is not advertised. Containment is proven by a real process run under the profile,
   never by a model-layer refusal.
+- **kcap's own tools skip Claude's auto-mode classifier, and only there.** A plugin cannot ship
+  permission rules and the classifier ignores MCP annotations, so the `PreToolUse` seam answers
+  `allow` for the `AutoApprove` servers and for read tools, when `permission_mode` is `auto` and no
+  rule decided the call, in rendered sessions too. Manual stays the user's control. Trust rests on
+  the hook payload's `mcp_server` report, never the tool name: a repository's `.mcp.json` can name a
+  server so its tools carry `mcp__plugin_kcap_`, and a call without the report gets no trust.
 - **The daemon never looks for a credential.** No keychain read, prompt, cache, persistence or
   default command: it forwards what the operator exported, or runs the one command they configured,
   and only when a borrowed launch needs it. Availability is configuration presence, never execution
@@ -109,6 +116,17 @@ running notes file that every PR edits.
   contains its pattern. The PTY launch spawns the agent without its prompt and pastes it into the
   composer once startup output has settled, so the real prompt is the agent's first message; only
   a slash command stays inline, because the agent runs one only as the literal first message.
+- **A Claude launch prompt waits for SessionStart with no time limit.** A first-run screen fires no
+  hook and reads as a settled composer, so a paste or a retry Enter on a timer answers it and the
+  prompt is lost. With hooks wired only SessionStart, a relayed turn or a fresh agent's transcript
+  releases the hold; a timeout that falls back to pasting undoes this. An enabled plugin with no
+  install record counts as wired, because Claude installs it on the first start, the one this exists
+  for, and the project's settings outrank the account's. Do not add more guesses about whether Claude
+  will load a plugin: what kcap cannot see counts as wired, because a wrong hold shows its warning and
+  the terminal, while a wrong paste loses the prompt silently. A follow-up is refused once the hold is overdue rather than parked on it: server input runs
+  on the daemon's one sequential SignalR dispatch, so it would stall every other agent's stop and
+  launch. Codex stays on the output checks, since nothing shows it fires SessionStart ahead of the
+  first input, and if it fires on the first turn a hold deadlocks
 - **The daemon's state directory is owner-only on Windows too, and securing it never blocks a
   boot.** `OwnerOnlyDirectory` gives it a protected DACL (the user and SYSTEM) at every start, so
   what is inside stops inheriting from a relocated `KCAP_DAEMONS_DIR`. A failure warns and boots:

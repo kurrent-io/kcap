@@ -1,0 +1,90 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:nw="clr-namespace:Capacitor.App.ViewModels.NextWork"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.NextWorkCardView"
+             x:DataType="nw:NextWorkCardViewModel">
+    <!-- Styled by NextWorkBandView, the only view that hosts it. The row itself is the button: pressing it fills the
+         composer. ▶ and the menu show on hover, keyboard focus or the row the composer holds. -->
+        <Grid x:Name="RowHost" Classes="nwbRowHost" Classes.filled="{Binding IsFilled}" Classes.busy="{Binding Busy}">
+            <Button x:Name="CardRow" Classes="nwbRow" Classes.filled="{Binding IsFilled}" Command="{Binding FillCommand}" ToolTip.Tip="{Binding FillTip}"
+                    AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding FillTip}">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <Panel VerticalAlignment="Top" Margin="0,1,0,0" Background="Transparent" ToolTip.Tip="{Binding KindTip}">
+                        <Border Classes="nwbGlyph">
+                            <views:AppIcon Classes="nwbTint" Classes.waiting="{Binding Glyph.TintWaiting}"
+                                           Classes.finish="{Binding Glyph.TintFinish}" Kind="{Binding Glyph.Icon}" Size="14" />
+                        </Border>
+                        <Ellipse Classes="nwbBadge" Classes.wait="{Binding Glyph.BadgeWait}" Classes.ok="{Binding Glyph.BadgeOk}"
+                                 Classes.stop="{Binding Glyph.BadgeStop}" IsVisible="{Binding Glyph.HasBadge}" />
+                    </Panel>
+                    <!-- The right margin keeps the title clear of the actions that show over the row's end. -->
+                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" Margin="0,0,72,0">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Classes="nwbNew" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit" />
+                            <TextBlock Classes="nwbTitle" Text="{Binding Label}" />
+                        </StackPanel>
+                        <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. -->
+                        <StackPanel Orientation="Horizontal" Spacing="4" ClipToBounds="True">
+                            <TextBlock x:Name="CardKind" Classes="nwbMeta" Text="{Binding KindLabel}" />
+                            <Border Classes="nwbChip" Classes.warning="{Binding ArmChipWarns}" IsVisible="{Binding HasArmChip}">
+                                <TextBlock Text="{Binding ArmChip}" />
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding Marks}" IsVisible="{Binding HasMarks}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4" /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="nw:NextWorkChip">
+                                        <Border Classes="nwbChip" Classes.warning="{Binding IsWarning}" Classes.danger="{Binding IsDanger}"
+                                                Classes.success="{Binding IsSuccess}">
+                                            <TextBlock Text="{Binding Text}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="nwbMeta" Text="·" IsVisible="{Binding HasMeta}" />
+                            <TextBlock x:Name="CardMeta" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
+                        </StackPanel>
+                        <StackPanel x:Name="CardContext" Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasContext}"
+                                    ToolTip.Tip="Loose end noted against this item">
+                            <views:AppIcon Kind="CornerDownRight" Size="12" Foreground="{StaticResource KcapFaintBrush}" />
+                            <TextBlock Classes="nwbContext" Text="{Binding Context}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Button>
+
+            <StackPanel x:Name="CardActions" Classes="nwbActs" Orientation="Horizontal" Spacing="2"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
+                <views:AppIcon Classes="kcapSpinning" Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}"
+                               Margin="0,0,6,0" IsVisible="{Binding Busy}" />
+                <Button x:Name="CardStart" Classes="kcapGhost nwbIconAction" Command="{Binding StartCommand}" IsVisible="{Binding CanWorkOn}"
+                        ToolTip.Tip="Start an agent on this now, on this machine"
+                        AutomationProperties.Name="{Binding Label, StringFormat='Start an agent on: {0}'}">
+                    <views:AppIcon Kind="Play" Size="16" />
+                </Button>
+                <Button x:Name="CardMore" Classes="kcapGhost nwbIconAction" ToolTip.Tip="More"
+                        AutomationProperties.Name="{Binding Label, StringFormat='More actions for {0}'}">
+                    <views:AppIcon Kind="Ellipsis" Size="16" />
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel"
+                                Opened="OnMenuOpened" Closed="OnMenuClosed">
+                            <StackPanel Spacing="2" Margin="6" MinWidth="190">
+                                <Button Classes="kcapGhost nwbMenuRow" Content="Open in browser" Command="{Binding OpenCommand}"
+                                        IsVisible="{Binding CanOpenInBrowser}" Click="OnMenuItemClick" />
+                                <Button Classes="kcapGhost nwbMenuRow" Content="Snooze until tomorrow" Command="{Binding SnoozeCommand}"
+                                        IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
+                                <Button Classes="kcapGhost nwbMenuRow" Content="Mark done" Command="{Binding DoneCommand}"
+                                        IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
+                                <Border Height="1" Background="{StaticResource KcapBorderBrush}" Margin="4,3" IsVisible="{Binding HasMenuActions}" />
+                                <Button Classes="kcapGhost nwbMenuRow" Content="Dismiss suggestion" Command="{Binding DismissCommand}"
+                                        Click="OnMenuItemClick" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+</UserControl>

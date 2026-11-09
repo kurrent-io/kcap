@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -332,6 +333,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.DaemonName).IsEqualTo("daemon-a");
             await Assert.That(vm.ServerUrl).IsEqualTo("http://localhost:9999");
             await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
         });
     }
 
@@ -340,7 +342,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_raises_an_alert_while_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(false);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.None);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -348,12 +350,12 @@ public class MainWindowViewModelTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert).IsNull();
 
-            restartPending.OnNext(true);
+            restartPending.OnNext(DaemonRestartWait.Turns);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
             await Assert.That(vm.Alert.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-            restartPending.OnNext(false);
+            restartPending.OnNext(DaemonRestartWait.None);
 
             await Assert.That(vm.Alert).IsNull();
         });
@@ -364,7 +366,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_is_hidden_while_not_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(true);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.Turns);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -395,6 +397,7 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "connected", MainWindowViewModel.DaemonStoppedText, RailRecovery.StartDaemon)]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "connected", MainWindowViewModel.DaemonMismatchText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.Reason, "connected", MainWindowViewModel.DaemonRestartingText, RailRecovery.None)]
+    [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, "connected", MainWindowViewModel.DaemonStartingText, RailRecovery.None)]
     [Arguments(AttachState.Unreachable, "socket_refused", "connected", MainWindowViewModel.DaemonUnreachableText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Connected, null, "connecting", MainWindowViewModel.ServerConnectingText, RailRecovery.None)]
     [Arguments(AttachState.Connected, null, "reconnecting", MainWindowViewModel.ReconnectingText, RailRecovery.None)]
@@ -404,6 +407,22 @@ public class MainWindowViewModelTests {
         var alert = MainWindowViewModel.AlertFor(new AttachStatus(state, reason, null), daemonConnection);
         await Assert.That(alert?.Text).IsEqualTo(text);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
+    }
+
+    /// Connected needs the attach and the daemon's hub both up, and gives way to any alert, so it
+    /// cannot sit beside a word that says otherwise.
+    [Test]
+    [Arguments(AttachState.Connected, "connected", false, true)]
+    [Arguments(AttachState.Connected, "connected", true, false)]
+    [Arguments(AttachState.Connected, "", false, false)]
+    [Arguments(AttachState.Connected, "reconnecting", false, false)]
+    [Arguments(AttachState.Connecting, "connected", false, false)]
+    [Arguments(AttachState.Unreachable, "connected", false, false)]
+    public async Task ShowsConnectedFor_only_when_attached_connected_and_alert_free(
+            AttachState state, string daemonConnection, bool alerting, bool expected) {
+        var alert = alerting ? new RailAlert(MainWindowViewModel.RestartPendingText, StatusColors.InProgress) : null;
+        await Assert.That(MainWindowViewModel.ShowsConnectedFor(new AttachStatus(state, null, null), daemonConnection, alert))
+            .IsEqualTo(expected);
     }
 
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach
@@ -445,52 +464,140 @@ public class MainWindowViewModelTests {
     }
 
     [Test]
-    [Arguments(false, false, false, true, null, RailRecovery.None)]
-    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer)]
-    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None)]
-    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None)]
-    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None)]
+    [Arguments(false, false, false, true, null, RailRecovery.None, null)]
+    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer, StatusColors.InProgress)]
+    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None, StatusColors.InProgress)]
+    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None, StatusColors.Pending)]
+    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None, StatusColors.Disrupted)]
     public async Task LocalServerAlertFor_names_a_stopped_server_and_offers_start_when_the_launcher_does(
-            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery) {
+            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery, string? tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed, starting, stopped, canStart);
         await Assert.That(alert?.Text).IsEqualTo(text);
+        await Assert.That(alert?.Tone).IsEqualTo(tone);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
     }
 
     /// A stopped server whose installation is gone, is being changed by another kcap, or whose port another program
-    /// holds never carries Start, and its hover says why.
+    /// holds never carries Start, and its hover says why. Only an installation missing its server's files is red: it
+    /// cannot run until it is reinstalled.
     [Test]
-    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText)]
-    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText)]
-    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText)]
-    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(LocalServerCondition condition, string text) {
+    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText, StatusColors.Pending)]
+    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.Disrupted)]
+    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Unreadable, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText, StatusColors.Pending)]
+    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(
+            LocalServerCondition condition, string text, string tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true, condition);
 
         await Assert.That(alert!.Text).IsEqualTo(text);
+        await Assert.That(alert.Tone).IsEqualTo(tone);
         await Assert.That(alert.Recovery).IsEqualTo(RailRecovery.None);
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }
 
-    /// The lowest rungs: a queued daemon restart, then the lane's diagnostic, each with its long copy on hover.
+    /// The lowest rung: a queued daemon restart, with its long copy on hover.
     [Test]
-    public async Task AlertFor_restart_pending_and_lane_diagnostic_only_when_nothing_else_is_wrong() {
+    public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true, laneDiagnostic: "marker");
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Turns);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-        var diagnostic = MainWindowViewModel.AlertFor(connected, "connected", laneDiagnostic: "marker");
-        await Assert.That(diagnostic!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-        await Assert.That(diagnostic.Detail).IsEqualTo("marker");
-
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
+    }
+
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay. A marker that does
+    /// not say what it waits for promises neither.
+    [Test]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.RestartWhenNoAgentsMessage)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.RestartUnstatedMessage)]
+    public async Task AlertFor_a_restart_not_waiting_for_turns_says_what_it_waits_for(DaemonRestartWait wait, string message) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: wait);
+
+        await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(pending.Detail).IsEqualTo(message);
+    }
+
+    /// A signed-out daemon on another server cannot be repaired by the app's Sign in, so the
+    /// mismatch speaks instead of its sign-out and no Sign in is offered, even on the app's profile.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_signed_out_daemon_on_another_server_alerts_the_mismatch() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai", requestSignIn: () => { });
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "disconnected",
+                credential: "env", profile: "kurrent"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+            await Assert.That(vm.SignInVisible).IsFalse();
+        });
+    }
+
+    /// A daemon on another server outranks the reports that assume it serves this app, and gives way
+    /// to a local server that needs the user.
+    [Test]
+    public async Task AlertFor_a_daemon_on_another_server_outranks_its_hub_word_and_queued_restarts() {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        const string notice = "This machine's daemon uses another server.";
+
+        var alert = MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns,
+            otherServerNotice: notice);
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+        await Assert.That(alert.Detail).IsEqualTo(notice);
+
+        var local = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true);
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "connected", local: local, otherServerNotice: notice))
+            .IsEqualTo(local);
+    }
+
+    /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
+    /// restart brings back the same version, so the report outranks it.
+    [Test]
+    [Arguments(DaemonRestartWait.None, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Turns, MainWindowViewModel.RestartPendingText)]
+    public async Task AlertFor_a_daemon_on_another_install_is_outranked_only_by_a_turn_wait(DaemonRestartWait wait, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        if (text == MainWindowViewModel.DaemonNotUpdatedText)
+            await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+    }
+
+    /// kcap update does not touch the app's own copy of its CLI, so the alert names why the app could not replace it.
+    /// No queued restart outranks it: each one starts that same copy again.
+    [Test]
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartWait.Agents)]
+    public async Task AlertFor_a_daemon_on_a_cli_copy_the_app_could_not_replace_names_the_failure(DaemonRestartWait wait) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var copy = new DaemonOnOtherInstall("1.4.0", "/home/u/.local/share/kcap/desktop/bin/kcap-daemon", "No space left on device.");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: copy, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+        await Assert.That(alert.Detail).Contains("kcap 1.4.0 from /home/u/.local/share/kcap/desktop/bin/kcap-daemon");
+        await Assert.That(alert.Detail).Contains("No space left on device. Fix that");
+        await Assert.That(alert.Detail).DoesNotContain("kcap update");
     }
 
     [Test]
@@ -502,6 +609,46 @@ public class MainWindowViewModelTests {
     [Arguments("kurrent", "kurrent")]
     public async Task ProfileLabelForRail_hides_the_built_in_default(string? profile, string expected) {
         await Assert.That(MainWindowViewModel.ProfileLabelForRail(profile)).IsEqualTo(expected);
+    }
+
+    /// A daemon attached to another server must not lend its host to the app's org, and its hub
+    /// being up says nothing about this app's server: the footer alerts instead of saying Connected.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_daemon_on_another_server_alerts_and_keeps_the_app_profiles_identity() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai");
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "connected"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+
+            await Assert.That(vm.FooterIdentity).IsEqualTo("kurrent · kurrent.kcap.ai");
+            await Assert.That(vm.FooterServerUrl).IsEqualTo("https://kurrent.kcap.ai");
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+            await Assert.That(vm.Alert?.Detail).Contains("another server");
+            await Assert.That(vm.ShowsConnected).IsFalse();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://kurrent.kcap.ai", connection: "connected"));
+
+            await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
+        });
+    }
+
+    /// The footer names the host, port included, never the scheme; either half stands alone when
+    /// the other is missing.
+    [Test]
+    [Arguments("kurrent", "https://kurrent.kcap.ai", "kurrent · kurrent.kcap.ai")]
+    [Arguments("kurrent", "http://localhost:9999", "kurrent · localhost:9999")]
+    [Arguments("", "https://kurrent.kcap.ai", "kurrent.kcap.ai")]
+    [Arguments("kurrent", "", "kurrent")]
+    [Arguments("kurrent", "not a url", "kurrent")]
+    [Arguments("", "", "")]
+    public async Task IdentityLine_joins_the_org_and_the_server_host(string tenant, string serverUrl, string expected) {
+        await Assert.That(MainWindowViewModel.IdentityLine(tenant, serverUrl)).IsEqualTo(expected);
     }
 
     /// The alert takes the launcher card's tone: grey while in progress, amber when it needs the user, red once broken.
@@ -618,29 +765,6 @@ public class MainWindowViewModelTests {
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             await Assert.That(with.SignInVisible).IsFalse();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_lane_diagnostic_is_an_alert_with_its_text_on_hover() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var service = new FakeDaemonClientService();
-            var lane = new FakeServerLane();
-            var vm = new MainWindowViewModel(
-                service, CancellationToken.None, TestActivity.New(), TimeProvider.System, laneStatus: lane.Status);
-            using var activation = vm.Activator.Activate();
-            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
-            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
-
-            await Assert.That(vm.Alert).IsNull();
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Diagnostic: "diagnostic-marker"));
-            await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-            await Assert.That(vm.Alert.Detail).IsEqualTo("diagnostic-marker");
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
-            await Assert.That(vm.Alert).IsNull();
         });
     }
 
@@ -823,6 +947,26 @@ public class MainWindowViewModelTests {
             gate.SetResult();
             await execute;
             await Assert.That(startCanExecute).IsTrue(); // status unchanged, attempt finished
+        });
+    }
+
+    /// A daemon whose process is up but not yet serving is coming back by itself: neither a Start
+    /// (which would race it) nor a Reconnect (which the attach already retries) is the next step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_starting_daemon_offers_neither_start_nor_reconnect() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var startCanExecute = true;
+            var retryCanExecute = true;
+            using var subStart = vm.StartDaemonCommand.CanExecute.Subscribe(v => startCanExecute = v);
+            using var subRetry = vm.RetryCommand.CanExecute.Subscribe(v => retryCanExecute = v);
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, null));
+
+            await Assert.That(startCanExecute).IsFalse();
+            await Assert.That(retryCanExecute).IsFalse();
         });
     }
 

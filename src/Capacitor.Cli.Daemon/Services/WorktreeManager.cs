@@ -227,6 +227,7 @@ public partial class WorktreeManager(
     /// <summary>Creates a detached worktree: the agent names a branch for the work it ends up doing, so the
     /// daemon creates none and removal never deletes one.</summary>
     public async Task<WorktreeInfo> CreateAsync(string repoPath, string? name = null, string? baseRef = null) {
+        var pinned = PinSource(repoPath);
         // Place worktrees under the repo's own .capacitor/ directory so they inherit
         // the repo's workspace trust in Claude Code (trust cascades up parent dirs).
         var worktreeRoot = Path.Combine(repoPath, ".capacitor", "worktrees");
@@ -242,22 +243,27 @@ public partial class WorktreeManager(
             if (!string.IsNullOrEmpty(baseRef) && !await IsValidRefNameAsync(repoPath, baseRef))
                 throw new InvalidOperationException($"invalid_base_ref: {baseRef}");
 
+            var commonDir = await ResolvedCommonDirAsync(repoPath);
+            RefuseIfSourceMoved(repoPath, pinned);
+
             // Created HERE rather than in a shared prologue. The standalone branch below must validate the
             // destination chain BEFORE anything is created — a pre-existing `.capacitor` or `worktrees`
             // symlink is FOLLOWED by this call, so a check placed after the branch decision would run once
             // the snapshot had already been rooted wherever the source tree chose.
             Directory.CreateDirectory(worktreeRoot);
-            await ExcludeWorktreeRootAsync(repoPath);
+            await ExcludeWorktreeRootAsync(repoPath, pinned, commonDir);
 
             var noHooks = NoBranchHooks();
 
             async Task<WorktreeInfo> AddAtCommitAsync(string commit, string source) {
-                await WithWorktreeMetadataGate(repoPath, time, () =>
-                    RunGit(repoPath, GitTimeout, time, noHooks,
-                        "worktree", "add", "--no-checkout", "--detach", worktreePath, commit));
+                await WithWorktreeMetadataGate(repoPath, time, async () => {
+                    await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
+                    await RunGit(repoPath, GitTimeout, time, noHooks,
+                        "worktree", "add", "--no-checkout", "--detach", worktreePath, commit);
+                });
                 LogWorktreeBase(worktreePath, baseRef!, source);
                 var added = Detached(worktreePath, repoPath);
-                await StripOrRollBackAsync(added);
+                await StripOrRollBackAsync(added, pinned, commonDir);
 
                 return added;
             }
@@ -276,6 +282,7 @@ public partial class WorktreeManager(
                 // origin's branches. A fetch that fails, such as on a remote-tracking ref a concurrent launch holds
                 // locked, leaves the lookup after it to decide; one that times out fails the launch.
                 if (IsAbbreviatedSha(baseRef)) {
+                    await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                     await RunGitCaptureResult(repoPath, FetchTimeout, time, false,
                         [new("maintenance.auto", "false"), new("gc.auto", "0"), new("remote.origin.prune", "false"),
                          .. NoSubmoduleRecursion()],
@@ -289,6 +296,7 @@ public partial class WorktreeManager(
                 // race on each other's fetches. The unique ref carries the
                 // worktree name so it's traceable and easy to clean up.
                 var fetchedRef = FetchedRefFor(name);
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 // Fetch OUTSIDE the metadata gate: it's already collision-free (per-worktree ref) and
                 // it's the slow, network-bound half. But a plain fetch ends by running automatic
                 // maintenance, whose task list includes worktree-prune — which WOULD touch
@@ -299,28 +307,34 @@ public partial class WorktreeManager(
                     time,
                     [new("maintenance.auto", "false"), new("gc.auto", "0"), .. NoSubmoduleRecursion()],
                     "fetch", "origin", $"{baseRef}:{fetchedRef}");
-                await WithWorktreeMetadataGate(repoPath, time, () =>
-                    RunGit(repoPath, GitTimeout, time, noHooks,
-                        "worktree", "add", "--no-checkout", "--detach", worktreePath, fetchedRef));
+                await WithWorktreeMetadataGate(repoPath, time, async () => {
+                    await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
+                    await RunGit(repoPath, GitTimeout, time, noHooks,
+                        "worktree", "add", "--no-checkout", "--detach", worktreePath, fetchedRef);
+                });
                 LogWorktreeBase(worktreePath, baseRef, "origin fetch");
                 var fetched = Detached(worktreePath, repoPath) with { FetchedRef = fetchedRef };
-                await StripOrRollBackAsync(fetched);
+                await StripOrRollBackAsync(fetched, pinned, commonDir);
 
                 return fetched;
             }
 
-            await WithWorktreeMetadataGate(repoPath, time, () =>
-                RunGit(repoPath, GitTimeout, time, noHooks,
-                    "worktree", "add", "--no-checkout", "--detach", worktreePath));
+            await WithWorktreeMetadataGate(repoPath, time, async () => {
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
+                await RunGit(repoPath, GitTimeout, time, noHooks,
+                    "worktree", "add", "--no-checkout", "--detach", worktreePath);
+            });
             var linked = Detached(worktreePath, repoPath);
-            await StripOrRollBackAsync(linked);
+            await StripOrRollBackAsync(linked, pinned, commonDir);
 
             return linked;
         }
 
         // Standalone: copy files + git init.
-        var standalone = await CreateStandaloneAsync(repoPath, name, worktreeRoot, worktreePath);
-        await ExcludeWorktreeRootAsync(repoPath);
+        // A repository with no commits yet still has a common dir to exclude the snapshot from.
+        var standaloneCommonDir = await ResolvedCommonDirAsync(repoPath);
+        var standalone = await CreateStandaloneAsync(repoPath, pinned, name, worktreeRoot, worktreePath);
+        await ExcludeWorktreeRootAsync(repoPath, pinned, standaloneCommonDir);
 
         return standalone;
     }
@@ -332,7 +346,7 @@ public partial class WorktreeManager(
     /// that the checks themselves cannot detect.</para>
     /// </summary>
     async Task<WorktreeInfo> CreateStandaloneAsync(
-            string repoPath, string name, string worktreeRoot, string worktreePath) {
+            string repoPath, string pinned, string name, string worktreeRoot, string worktreePath) {
         // `name` reaches Path.Combine, which DISCARDS the root for an absolute value and would place the
         // destination anywhere; `../evil` would land it outside `worktrees`, where the marker cannot
         // exclude it and the copy recurses into its own destination again. Defense-in-depth today — both
@@ -350,6 +364,7 @@ public partial class WorktreeManager(
         RefuseIfLink(Path.Combine(repoPath, ".capacitor"));
         RefuseIfLink(worktreeRoot);
 
+        RefuseIfSourceMoved(repoPath, pinned);
         Directory.CreateDirectory(worktreeRoot);
 
         // Atomic claim. Directory.CreateDirectory is a NO-OP on an existing directory, so the freshness
@@ -363,6 +378,7 @@ public partial class WorktreeManager(
         // concurrency test can pass by running them sequentially, where the second is refused by the
         // occupied-destination check and the claim's atomicity is never exercised.
         await barrier.ReachedAsync(SnapshotPoint.PreClaim);
+        RefuseIfSourceMoved(repoPath, pinned);
 
         try {
             using (new FileStream(claimPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
@@ -390,13 +406,18 @@ public partial class WorktreeManager(
             if (IsPresentEntry(worktreePath))
                 throw new InvalidOperationException($"standalone_snapshot_destination_occupied: {name}");
 
+            RefuseIfSourceMoved(repoPath, pinned);
             Directory.CreateDirectory(worktreePath);
 
             try {
-                return await BuildStandaloneSnapshotAsync(repoPath, worktreePath);
+                return await BuildStandaloneSnapshotAsync(repoPath, pinned, worktreePath);
             } catch {
-                // Only the successful claimant reaches here, so this delete is ownership-gated.
-                try { DeleteTreeNoFollow(worktreePath); } catch { /* keep the original failure */ }
+                // Only the successful claimant reaches here, so this delete is ownership-gated. A moved
+                // source would aim it at another tree.
+                try {
+                    if (SourceStillAt(repoPath, pinned)) DeleteTreeNoFollow(worktreePath);
+                    else LogRollbackSkipped(repoPath);
+                } catch { /* keep the original failure */ }
                 // INSIDE the claim's protected region and after the delete: the exact window in which a
                 // same-name caller must still be excluded.
                 await barrier.ReachedAsync(SnapshotPoint.Rollback);
@@ -404,7 +425,7 @@ public partial class WorktreeManager(
             }
         } finally {
             // Best effort: a stale claim fails CLOSED, refusing that one name until an operator clears it.
-            try { File.Delete(claimPath); } catch { /* the refusal names the file */ }
+            try { if (SourceStillAt(repoPath, pinned)) File.Delete(claimPath); } catch { /* the refusal names the file */ }
         }
     }
 
@@ -466,7 +487,9 @@ public partial class WorktreeManager(
         }
     }
 
-    async Task<WorktreeInfo> BuildStandaloneSnapshotAsync(string repoPath, string worktreePath) {
+    /// <summary>Every write lands under <paramref name="worktreePath"/>, which is spelled through the source, so
+    /// each one after an await re-walks the source first.</summary>
+    async Task<WorktreeInfo> BuildStandaloneSnapshotAsync(string repoPath, string pinned, string worktreePath) {
         // Unique per invocation and created CreateNew, so a collision is detected rather than silently
         // shared, a hostile source cannot plant one that suppresses real content, and a marker orphaned by
         // a crash can never suppress anything on a later run.
@@ -486,16 +509,21 @@ public partial class WorktreeManager(
 
         // BEFORE the initial commit, so the snapshot's own history never carries the hostile config
         // either — a later `git checkout` inside the tree would otherwise restore it.
+        RefuseIfSourceMoved(repoPath, pinned);
         StripWorkspaceMcpConfig(worktreePath);
         var noHooks = NoBranchHooks();
         await RunGit(worktreePath, GitTimeout, time, noHooks, "init");
         var userAttributes = await UserAttributesFileAsync(worktreePath, time);
+        RefuseIfSourceMoved(repoPath, pinned);
         var verbatim       = VerbatimLineEndings(CreateSnapshotAttributesFile(worktreePath, userAttributes));
         // Kept in the snapshot's own config too, so the agent's later diffs compare the bytes that were copied.
-        foreach (var setting in verbatim)
+        foreach (var setting in verbatim) {
+            RefuseIfSourceMoved(repoPath, pinned);
             await RunGit(worktreePath, GitTimeout, time, noHooks, "config", setting.Key, setting.Value);
+        }
         // Inventoried here: `add -A` is where this snapshot's filters resolve.
         var standaloneOverrides = await FilterOverridesForAsync(worktreePath);
+        RefuseIfSourceMoved(repoPath, pinned);
         await RunGit(worktreePath, GitTimeout, time, sourceReadOnly: false, [.. noHooks, .. verbatim, .. standaloneOverrides],
             NoSystemAttributes, "add", "-A");
         // Exit 0 = empty index (greenfield: nothing to copy). Exit 1 = staged content.
@@ -514,6 +542,7 @@ public partial class WorktreeManager(
         var commitArgs = staged.ExitCode == 0
             ? new[] { "commit", "--allow-empty", "-m", "Initial snapshot" }
             : new[] { "commit", "-m", "Initial snapshot" };
+        RefuseIfSourceMoved(repoPath, pinned);
         await RunGit(worktreePath, GitTimeout, time, sourceReadOnly: false,
             [.. noHooks, .. verbatim,
              new("user.email", "daemon@kcap.local"), new("user.name", "kcap"), new("commit.gpgsign", "false")],
@@ -641,16 +670,20 @@ public partial class WorktreeManager(
     /// <para>A rollback failure is swallowed in favour of the original exception: the reason the launch is
     /// being refused is more useful to an operator than whatever went wrong while tidying up after it.</para>
     /// </summary>
-    async Task StripOrRollBackAsync(WorktreeInfo created) {
+    async Task StripOrRollBackAsync(WorktreeInfo created, string pinned, string? pinnedCommonDir) {
         try {
             // The add above used --no-checkout, so the tree is still empty here. Populating it inside the
             // rollback means a filter-inventory failure cleans up like any other fail-closed step.
-            await CheckoutInTargetContextAsync(created.Path);
+            await CheckoutInTargetContextAsync(created.Path, () => RefuseIfRepositoryMovedAsync(created.SourceRepo, pinned, pinnedCommonDir));
+            RefuseIfSourceMoved(created.SourceRepo, pinned);
             StripWorkspaceMcpConfig(created.Path);
             RecordDaemonBaseline(created.Path);
         } catch {
             // A half-created worktree holds nothing of the agent's: its empty index reads as every file deleted.
-            try { await RemoveAsync(created, time, keepUnsavedWork: false); } catch { /* keep the original failure */ }
+            try {
+                await RollBackUnlessMovedAsync(created.SourceRepo, pinned, pinnedCommonDir,
+                    () => RemoveAsync(created, time, keepUnsavedWork: false));
+            } catch { /* keep the original failure */ }
             throw;
         }
     }
@@ -665,23 +698,25 @@ public partial class WorktreeManager(
     /// checkout is what lets the inventory be taken where the filters actually resolve, and
     /// <c>--no-checkout</c> means nothing is materialised before that guarded step.</para>
     /// </summary>
-    async Task CheckoutInTargetContextAsync(string worktreePath) {
+    /// <param name="guard">Runs last before the checkout, which writes the source repository's per-worktree
+    /// index.</param>
+    async Task CheckoutInTargetContextAsync(string worktreePath, Func<Task> guard) {
         var overrides = await FilterOverridesForAsync(worktreePath);
         var noHooks = NoBranchHooks();
+        await guard();
 
         // `reset --hard HEAD`, not `checkout -- .`: --no-checkout leaves the INDEX unpopulated too, so a
         // pathspec matches nothing. This is the step that materialises the tree, and therefore the step
         // the overrides have to guard.
-        await RunGit(worktreePath, GitTimeout, time,
-            [.. noHooks, .. NoSubmoduleRecursion(), .. overrides, .. ParallelCheckoutFor(OperatingSystem.IsWindows())],
+        await RunGit(worktreePath, CheckoutTimeout, time,
+            [.. noHooks, .. NoSubmoduleRecursion(), .. overrides, .. ParallelCheckout],
             "reset", "--hard", "HEAD");
     }
 
-    /// Windows only: its per-file write cost makes a serial checkout most of a launch's wait (7.5k files,
-    /// 9.1 s serial vs 2.4 s with a worker per core), while macOS and Linux keep git's default. Git older
+    /// A worker per core overlaps per-file write latency, which dominates on Windows and on a host
+    /// directory shared into a VM: 15k files took 182 s serial and 19 s parallel over virtiofs. Git older
     /// than 2.32 ignores the key.
-    internal static GitConfigOverride[] ParallelCheckoutFor(bool isWindows) =>
-        isWindows ? [new("checkout.workers", "0")] : [];
+    static readonly GitConfigOverride[] ParallelCheckout = [new("checkout.workers", "0")];
 
     /// <summary>
     /// The filter overrides for a context, LOGGED as a side effect.
@@ -774,6 +809,19 @@ public partial class WorktreeManager(
             return WorktreeRemoval.Removed;
         }
 
+        // Every removal step writes to the source repository after an await, so each re-checks it against
+        // where it resolved on entry; a source that moved keeps what is left rather than removing it from
+        // another repository. A source that no longer resolves at all fails in git as before.
+        var pinned       = CanonicalPath.TryResolve(worktree.SourceRepo, out var resolved) ? resolved : null;
+        var pinnedCommon = pinned is null ? null : await ResolvedCommonDirAsync(worktree.SourceRepo, time);
+        var moved        = false;
+
+        async Task<bool> StillThereAsync() {
+            if (pinned is null || await RepositoryStillAtAsync(worktree.SourceRepo, pinned, pinnedCommon, time)) return true;
+            moved = true;
+            return false;
+        }
+
         if (keepUnsavedWork && await UnsavedWorkAsync(worktree, time) is { } unsaved) return WorktreeRemoval.Keep(unsaved);
 
         // Both of these touch the same metadata tree as `worktree add`: the removal mutates it, and
@@ -782,18 +830,21 @@ public partial class WorktreeManager(
         // silently and leak the branch. One gate acquisition covers both. (As with the add, the exact
         // interleaving that breaks is hypothesis; git takes no lock, so we serialise our own access.)
         await WithWorktreeMetadataGate(worktree.SourceRepo, time, async () => {
+            if (!await StillThereAsync()) return;
             await RunGit(worktree.SourceRepo, GitTimeout, time, "worktree", "remove", worktree.Path, "--force");
 
-            if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch)) {
+            if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch) && await StillThereAsync()) {
                 await RunGitBestEffort(worktree.SourceRepo, time, "branch", "-D", worktree.Branch);
             }
         });
 
-        if (!string.IsNullOrEmpty(worktree.FetchedRef)) {
+        if (!moved && !string.IsNullOrEmpty(worktree.FetchedRef) && await StillThereAsync()) {
             await RunGitBestEffort(worktree.SourceRepo, time, "update-ref", "-d", worktree.FetchedRef);
         }
 
-        return WorktreeRemoval.Removed;
+        return moved
+            ? WorktreeRemoval.Keep($"nothing the daemon may remove: its source repository {worktree.SourceRepo} moved during cleanup")
+            : WorktreeRemoval.Removed;
     }
 
     /// <summary>Files the daemon itself deletes or writes in an owned worktree: the MCP configs it removes
@@ -894,7 +945,7 @@ public partial class WorktreeManager(
         if (status.ExitCode != 0) return "its git status could not be read";
 
         var baseline = ReadDaemonBaseline(worktree.Path);
-        var changes  = ParsePorcelainZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
+        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
         if (changes > 0) return $"{changes} uncommitted {(changes == 1 ? "change" : "changes")}";
 
         // An owned branch is deleted with the worktree, so its commits count even with HEAD moved elsewhere.
@@ -944,7 +995,7 @@ public partial class WorktreeManager(
         (await RunGitCaptureResult(worktreePath, GitTimeout, time, sourceReadOnly: true, [],
             "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}")).ExitCode == 0;
 
-    static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, (string Code, string Path) entry) {
+    static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, PorcelainEntry entry) {
         // Unstaged and still exactly as the daemon left it; anything staged is the agent's.
         if (baseline?.GetValueOrDefault(entry.Path) is { } recorded)
             return (entry.Code[0] == ' ' || entry.Code == "??") && SafeStamp(Path.Combine(worktree.Path, entry.Path)) == recorded;
@@ -976,18 +1027,6 @@ public partial class WorktreeManager(
             var read = left.ReadAtLeast(l, l.Length, throwOnEndOfStream: false);
             if (right.ReadAtLeast(r, r.Length, throwOnEndOfStream: false) != read || !l[..read].SequenceEqual(r[..read])) return false;
             if (read < l.Length) return true;
-        }
-    }
-
-    /// <summary>The entries of <c>git status --porcelain=v1 -z</c>: a two-letter code and the path,
-    /// skipping the original path a rename or copy carries after it.</summary>
-    internal static IEnumerable<(string Code, string Path)> ParsePorcelainZ(string output) {
-        var fields = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < fields.Length; i++) {
-            if (fields[i].Length < 4) continue;
-            var code = fields[i][..2];
-            yield return (code, fields[i][3..]);
-            if (code[0] is 'R' or 'C') i++;
         }
     }
 
@@ -1932,6 +1971,10 @@ public partial class WorktreeManager(
 
     /// <summary>Default timeout for local git operations (worktree add, init, commit, …).</summary>
     static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>Materialising the tree scales with the repository and the filesystem under it, so it gets
+    /// more room than <see cref="GitTimeout"/>.</summary>
+    static readonly TimeSpan CheckoutTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>Longer timeout for network git operations (fetch).</summary>
     static readonly TimeSpan FetchTimeout = TimeSpan.FromMinutes(2);

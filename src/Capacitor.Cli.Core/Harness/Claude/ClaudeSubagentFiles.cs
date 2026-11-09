@@ -7,11 +7,24 @@ public static class ClaudeSubagentFiles {
     const string Prefix     = "agent-";
     const string MetaSuffix = ".meta.json";
 
+    internal const string DirectoryName = "subagents";
+
     public static string DirectoryOf(string parentTranscriptPath) =>
-        Path.Combine(Path.ChangeExtension(parentTranscriptPath, null), "subagents");
+        Path.Combine(Path.ChangeExtension(parentTranscriptPath, null), DirectoryName);
 
     public static string TranscriptPath(string parentTranscriptPath, string agentId) =>
         Path.Combine(DirectoryOf(parentTranscriptPath), $"{Prefix}{agentId}.jsonl");
+
+    /// The transcripts of the subagents started so far; none when the directory is missing or unreadable.
+    public static IReadOnlyList<string> Transcripts(string parentTranscriptPath) {
+        var directory = DirectoryOf(parentTranscriptPath);
+        if (!Directory.Exists(directory)) return [];
+        try {
+            return Directory.GetFiles(directory, Prefix + "*.jsonl");
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
 
     /// The subagents started so far and not in <paramref name="known"/>, each with the tool call that
     /// started it. The meta file is written at the start, so it names a foreground subagent while it

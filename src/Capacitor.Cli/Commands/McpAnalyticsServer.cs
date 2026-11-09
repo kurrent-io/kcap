@@ -9,7 +9,7 @@ using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 
@@ -65,7 +65,8 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync());
+                return await HandleToolCallAsync(
+                    callId, callRequest, client, baseUrl, ReadsTheCwdRepository(callRequest) ? await repository.GetHashAsync(client, baseUrl) : null);
             } catch (Exception ex) {
                 await Console.Error.WriteLineAsync($"kcap mcp analytics: unexpected error handling tools/call: {ex}");
                 return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
@@ -119,6 +120,11 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
         ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
+
+    /// <summary>Whether the call's tool can read the working directory's repository: a query can, the schema cannot, and
+    /// only a reader is worth the lookup a repository with no remote costs.</summary>
+    internal static bool ReadsTheCwdRepository(JsonObject callRequest) =>
+        (callRequest["params"] as JsonObject)?["name"] is JsonValue name && name.TryGetValue(out string? tool) && tool == "query_analytics";
 
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,

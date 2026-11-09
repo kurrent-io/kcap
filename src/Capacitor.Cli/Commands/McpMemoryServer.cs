@@ -9,7 +9,7 @@ using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 
@@ -54,7 +54,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(), machineId);
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl), machineId);
             } catch (Exception ex) {
                 // Unexpected: log the detail to stderr (not to the client, which could leak local
                 // paths from IO errors) and return a generic tool error, keeping the loop alive.
@@ -135,7 +135,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         try {
             using var httpResponse = toolName switch {
                 "search_memories"     => await client.GetAsync(BuildSearchUrl(baseUrl, arguments, cwdRepoHash, machineId)),
-                "get_memory"          => await client.GetAsync(BuildGetUrl(baseUrl, arguments, cwdRepoHash, machineId)),
+                "get_memory"          => await GetMemoryAsync(client, BuildGetUrl(baseUrl, arguments, cwdRepoHash, machineId)),
                 "save_memory"         => await client.PostAsync($"{baseUrl}/api/memories", ToJsonContent(BuildSaveBody(arguments, cwdRepoHash, machineId))),
                 "update_memory"       => await client.PutAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(Id(arguments))}", ToJsonContent(BuildUpdateBody(arguments))),
                 "rescope_memory"      => await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(Id(arguments))}/rescope", ToJsonContent(BuildRescopeBody(arguments))),
@@ -160,6 +160,8 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
             if (!httpResponse.IsSuccessStatusCode) {
                 return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
+
+            if (toolName == "get_memory") await RecordUseAsync(client, baseUrl, body, time);
 
             return BuildToolResult(id, toolName switch {
                 "update_memory" => WithUncheckedVersionNotice(arguments, body),
@@ -244,6 +246,42 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         if (OptionalInt(args, "limit") is { } limit) qs.Add($"limit={limit}");
 
         return $"{baseUrl}/api/memories/search?{string.Join("&", qs)}";
+    }
+
+    /// <summary>Counts the fetch toward the memory's ranking. The server's GET counts nothing, because a browser sends
+    /// one from any site; a server older than the use route answers 404 or 405, which counts nothing either, and a
+    /// count that does not land never fails the fetch it follows.</summary>
+    /// <summary>Tells the server this fetch's use is posted separately, so its GET does not count the same fetch.</summary>
+    internal const string UseHeader = "X-Kcap-Use";
+
+    static async Task<HttpResponseMessage> GetMemoryAsync(HttpClient client, string url) {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation(UseHeader, "posted");
+
+        return await client.SendAsync(request);
+    }
+
+    /// <summary>The longest a fetched memory waits on its use being counted.</summary>
+    internal static readonly TimeSpan UseDeadline = TimeSpan.FromSeconds(2);
+
+    internal static async Task RecordUseAsync(HttpClient client, string baseUrl, string memoryBody, TimeProvider time) {
+        string? memoryId;
+
+        try {
+            memoryId = JsonNode.Parse(memoryBody)?["memory_id"]?.GetValue<string>();
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(memoryId)) return;
+
+        using var deadline = new CancellationTokenSource(UseDeadline, time);
+
+        try {
+            using var _ = await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(memoryId)}/uses", null, deadline.Token);
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
+            // A count that does not land costs the ranking one fetch and nothing else.
+        }
     }
 
     internal static string BuildGetUrl(string baseUrl, JsonObject? args, string? cwdRepoHash, string? machineId) =>

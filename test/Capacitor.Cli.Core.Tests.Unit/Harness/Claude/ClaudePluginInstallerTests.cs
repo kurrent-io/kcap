@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness.Claude;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Claude;
 
@@ -23,6 +24,226 @@ public class ClaudePluginInstallerTests {
             { "version": 2, "plugins": { "kcap@kcap": [
                 { "scope": "user", "installPath": {{JsonValue.Create(installPath).ToJsonString()}}, "version": "1.0.0" } ] } }
             """);
+
+    // ── RunsHooks — whether a launch can count on the plugin's hooks firing ──
+
+    [Test]
+    public async Task RunsHooks_true_when_the_installed_cache_ships_the_payload() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        var cache        = tmp.CreateDir("cache");
+        tmp.CreateFile("cache/.mcp.json", "{}");
+        WriteInstallRecord(tmp.Path, cache);
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Claude installs an enabled plugin on its first start, so the machine that has never run it
+    /// has no record yet and its hooks still fire. Calling this unwired would leave exactly that
+    /// first start on the output checks a first-run screen passes.
+    [Test]
+    public async Task RunsHooks_true_before_claude_has_first_installed_the_enabled_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_install_record_has_lost_its_payload() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        WriteInstallRecord(tmp.Path, tmp.PathTo("gone"));
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_plugin_is_not_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// Only a confirmed absence means Claude has yet to install it: a corrupt record proves nothing,
+    /// and calling it a first install would hold a launch prompt for a hook that may never fire.
+    [Test]
+    public async Task RunsHooks_false_when_the_install_record_cannot_be_read() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("plugins/installed_plugins.json", "{ not json");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// `kcap plugin install --project` enables the plugin in the repository's settings.local.json
+    /// and leaves the user's settings alone.
+    [Test]
+    public async Task RunsHooks_true_when_only_the_project_enables_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateFile("project/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Project settings outrank the user's, so a repository can switch the plugin off, and a launch
+    /// there must not wait for a hook that will not fire.
+    [Test]
+    public async Task RunsHooks_false_when_the_project_turns_off_a_plugin_the_user_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// Claude treats each plugin id on its own, so switching off a legacy id in a repository leaves
+    /// the current one running. Merging the ids would drop this launch from the hold and from arrival
+    /// confirmation, and a first-run screen could take the prompt with no sign of it.
+    [Test]
+    public async Task RunsHooks_keeps_project_precedence_to_the_same_plugin_id() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kapacitor@kurrent": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Whether Claude can load a project's plugin is not something kcap can see from here. Doubt counts
+    /// as wired: a wrong hold shows its warning and the terminal, while a wrong paste can lose the
+    /// prompt to a first-run screen with no sign at all.
+    [Test]
+    public async Task RunsHooks_true_for_an_enabled_project_plugin_whatever_its_marketplace_path_says() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateFile("project/.claude/settings.local.json", ProjectInstall(tmp.PathTo("moved")));
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    static string ProjectInstall(string marketplacePath) => $$"""
+        { "enabledPlugins": { "kcap@kcap": true },
+          "extraKnownMarketplaces": { "kcap": { "source": { "source": "directory", "path": {{JsonValue.Create(marketplacePath).ToJsonString()}} } } } }
+        """;
+
+    /// A second enabled id still loads when the project switches off the first, and it is that id's
+    /// own payload that has to be checked.
+    [Test]
+    public async Task RunsHooks_true_when_a_second_user_plugin_id_survives_the_project() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true, "kapacitor@kurrent": true } }""");
+        string cache     = tmp.CreateDir("cache");
+        tmp.CreateFile("cache/.mcp.json", "{}");
+        tmp.CreateFile("plugins/installed_plugins.json", $$"""
+            { "version": 2, "plugins": { "kapacitor@kurrent": [
+                { "scope": "user", "installPath": {{JsonValue.Create(cache).ToJsonString()}}, "version": "1.0.0" } ] } }
+            """);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// No hook of any plugin fires under this setting, so nothing could ever release a hold, and a
+    /// resumed agent has no transcript to fall back on.
+    [Test]
+    public async Task RunsHooks_false_when_the_user_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true }, "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_project_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.local.json", """{ "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// The nearer scope decides this too, so a repository can turn hooks back on for itself.
+    [Test]
+    public async Task RunsHooks_true_when_the_project_overrides_the_users_disable_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true }, "disableAllHooks": true }""");
+        tmp.CreateFile("project/.claude/settings.json", """{ "disableAllHooks": false }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Claude reads a repository's local settings at its root wherever a session starts, so a launch
+    /// from a subdirectory runs what a `--project` install enabled there. Missing it leaves that launch
+    /// on the output checks a first-run screen passes.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_true_when_only_the_repository_roots_local_settings_enable_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsTrue();
+    }
+
+    /// A linked worktree uses the main checkout's file, and a launch that borrows the worktree has
+    /// no copy of it.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_true_when_only_the_main_checkouts_local_settings_enable_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("main", ".git", "worktrees", "linked");
+        tmp.CreateFile("main/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+        tmp.CreateFile("linked/.git", $"gitdir: {tmp.PathTo("main/.git/worktrees/linked")}");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("linked"))).IsTrue();
+    }
+
+    /// Claude still reads a local file an older build left in the starting directory, beneath the root's.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_false_when_the_repository_root_turns_off_what_the_launch_directory_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+        tmp.CreateFile("repo/sub/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("repo/sub"))).IsFalse();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_false_when_the_repository_root_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
+    }
+
+    /// Only the local file moves to the root: Claude reads the shared one from the session's own
+    /// directory, so a hold here would wait for a hook that never fires.
+    [Test]
+    public async Task RunsHooks_false_for_a_plugin_only_the_repository_roots_shared_settings_enable() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
+    }
+
+    /// Windows keeps the local file in the starting directory, so the root's loads nothing there.
+    [Test, RunOn(OS.Windows)]
+    public async Task RunsHooks_false_on_windows_for_the_repository_roots_local_settings() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
+    }
 
     [Test]
     public async Task IsEffectivelyInstalled_true_when_the_installed_cache_ships_the_payload() {

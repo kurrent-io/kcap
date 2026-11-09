@@ -18,7 +18,7 @@ namespace Capacitor.Cli.Core.Harness;
 /// <summary>
 /// The harnesses this process can see, in setup and display order, and the search path their
 /// binaries are looked for on. The one place shared code names a vendor: adding one is a directory
-/// plus a line here, and every consumer that treats vendors alike keeps iterating.
+/// plus its line in each factory here, and every consumer that treats vendors alike keeps iterating.
 ///
 /// <para>Built once at an entry point and passed down, so two consumers cannot resolve one vendor's
 /// root differently — and Antigravity is composed from the Gemini instance rather than from the
@@ -26,9 +26,9 @@ namespace Capacitor.Cli.Core.Harness;
 ///
 /// <para><b>No answer is cached.</b> Each detection question stats the disk when asked, so a
 /// long-lived holder — the daemon keeps one for its lifetime — sees a vendor installed after it was
-/// built. A snapshot is the caller's to take, where it needs one. What IS fixed at build time is
-/// where to look: the search path and the vendor roots are read from the environment once, so a
-/// holder does not see those variables change under it.</para>
+    /// built. A snapshot is the caller's to take, where it needs one. Vendor roots are fixed at build
+    /// time. The search path is normally a snapshot too; a <see cref="BinaryProbe.Tracking"/> probe
+    /// lets the daemon follow its refreshed environment without rebuilding the harnesses.</para>
 /// </summary>
 public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection {
     readonly IReadOnlyList<IHarness> _harnesses;
@@ -87,6 +87,27 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
         ], binaries, DesktopAppProbe.FromEnvironment(home));
     }
 
+    /// <summary>Every vendor at its default layout under <paramref name="home"/>, no override variable read: the layout
+    /// another account on this machine has, whatever this process's environment says.</summary>
+    public static HarnessRegistry AtDefaults(UserHome home, BinaryProbe binaries) {
+        var gemini = GeminiHarness.Over(new GeminiPaths(home, null));
+
+        return new([
+            ClaudeHarness.Over(new ClaudePaths(home, null)),
+            CodexHarness.Over(new CodexPaths(home, null)),
+            CursorHarness.Over(new CursorPaths(home)),
+            CopilotHarness.Over(new CopilotPaths(home, null)),
+            gemini,
+            KiroHarness.Over(new KiroPaths(home, null)),
+            PiHarness.Over(new PiPaths(home, null)),
+            OpenCodeHarness.Over(new OpenCodePaths(home, null, null, null)),
+            AntigravityHarness.Over(gemini),
+            MistralVibeHarness.Over(new MistralVibePaths(home, null)),
+            GrokHarness.Over(new GrokPaths(home, null)),
+            MuseHarness.Over(new MusePaths(home, null, null)),
+        ], binaries, DesktopAppProbe.None);
+    }
+
     /// <summary>Over harnesses resolved elsewhere — a test's, or a subset.</summary>
     public static HarnessRegistry Over(BinaryProbe binaries, params IHarness[] harnesses) =>
         new(harnesses, binaries, DesktopAppProbe.None);
@@ -126,7 +147,8 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
             ? new DetectedAgent(
                 BinaryFound:        harness.Signals.CanLaunch(_binaries),
                 InstallSignalFound: harness.Signals.HasUserData,
-                DesktopAppFound:    harness.Signals.HasDesktopApp(_apps))
+                DesktopAppFound:    harness.Signals.HasDesktopApp(_apps),
+                HostApp:            harness.Signals.FindHostApp(_binaries, _apps))
             // An id this registry never carried — a stale flag, a server payload — reads as absent
             // rather than throwing: neither must take a command down.
             : DetectedAgent.None;

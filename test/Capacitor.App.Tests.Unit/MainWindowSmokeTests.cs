@@ -25,6 +25,7 @@ using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit;
@@ -120,11 +121,11 @@ public class MainWindowSmokeTests {
         return lines;
     }
 
-    /// A healthy stack renders no status, daemon name, agent count or version in the window: only
-    /// the org stays, and Settings › About holds the rest.
+    /// A healthy stack renders Connected and the org with its server host, but no daemon name, agent
+    /// count, version or full URL: Settings › About holds the rest.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task MainWindow_renders_no_health_line_while_everything_works() {
+    public async Task MainWindow_renders_only_connected_and_the_org_while_everything_works() {
         // Rendered text, so no immediate scheduler: an OAPH delivered immediately notifies
         // before its value is readable, and a binding that reads on the notification keeps the
         // stale one. The dispatcher scheduler sets the value first, as it does in the app.
@@ -159,8 +160,8 @@ public class MainWindowSmokeTests {
             return texts;
         });
 
-        await Assert.That(rendered).Contains("kurrent");
-        await Assert.That(rendered).DoesNotContain("Connected");
+        await Assert.That(rendered).Contains("kurrent · localhost:9999");
+        await Assert.That(rendered).Contains(MainWindowViewModel.ConnectedText);
         await Assert.That(rendered).DoesNotContain("of 5 agents");
         await Assert.That(rendered).DoesNotContain("daemon-a");
         await Assert.That(rendered).DoesNotContain("1.2.3");
@@ -880,7 +881,7 @@ public class MainWindowSmokeTests {
                 var prLabel = pr.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "PR #142");
                 double Baseline(TextBlock text) => text.TranslatePoint(new Point(0, text.TextLayout.Baseline), card)!.Value.Y;
                 await Assert.That(Math.Abs(Baseline(age) - Baseline(prLabel))).IsLessThan(2);
-                await Assert.That(age.Text).IsEqualTo("1h 30m");
+                await Assert.That(age.Text).IsEqualTo("1h 30m ago");
                 await Assert.That(age.Bounds.Width).IsGreaterThanOrEqualTo(NaturalWidth(age) - 1);
                 var ageRight = age.TranslatePoint(new Point(age.Bounds.Width, 0), card)!.Value.X;
                 var prLeft = pr.TranslatePoint(default, card)!.Value.X;
@@ -1757,11 +1758,11 @@ public class MainWindowSmokeTests {
         }
     });
 
-    /// A healthy footer carries no status. A stopped daemon shows the alert with its long copy on
-    /// hover, and its Start runs the same start as the launcher's.
+    /// A healthy footer says Connected beside the org and no alert. A stopped daemon swaps Connected
+    /// for the alert with its long copy on hover, and its Start runs the same start as the launcher's.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Rail_footer_shows_an_alert_and_its_action_only_when_something_needs_the_user() {
+    public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
         var shown = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
@@ -1776,6 +1777,8 @@ public class MainWindowSmokeTests {
             var row = rail.FindControl<StackPanel>("RailAlertRow")!;
             var footer = rail.FindControl<StackPanel>("RailFooterPanel")!;
             var healthyRow = row.IsEffectivelyVisible;
+            var connected = rail.FindControl<TextBlock>("RailConnectedText")!;
+            var healthyConnected = connected.IsEffectivelyVisible;
             var healthyTexts = footer.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
 
@@ -1786,6 +1789,8 @@ public class MainWindowSmokeTests {
             var action = rail.FindControl<Button>("RailAlertActionButton")!;
             var result = (
                 HealthyRow: healthyRow,
+                HealthyConnected: healthyConnected,
+                AlertConnected: connected.IsEffectivelyVisible,
                 HealthyTexts: healthyTexts,
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
@@ -1801,7 +1806,10 @@ public class MainWindowSmokeTests {
         });
 
         await Assert.That(shown.HealthyRow).IsFalse();
-        await Assert.That(shown.HealthyTexts).Contains("kurrent");
+        await Assert.That(shown.HealthyConnected).IsTrue();
+        await Assert.That(shown.AlertConnected).IsFalse();
+        await Assert.That(shown.HealthyTexts).Contains(MainWindowViewModel.ConnectedText);
+        await Assert.That(shown.HealthyTexts).Contains("kurrent · localhost:9999");
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);
@@ -1985,21 +1993,45 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Filter_dot_follows_filters_differ() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Custom_list_settings_stay_highlighted_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
-        var dot = host.Named<Ellipse>("RailFilterDot");
-        var atDefaults = dot.IsVisible;
+        var filter = host.Named<Button>("RailFilterButton");
+        var icon = filter.GetVisualDescendants().OfType<AppIcon>().Single();
+        var presenter = filter.GetVisualDescendants().OfType<ContentPresenter>()
+            .Single(p => p.Name == "PART_ContentPresenter");
+        var app = Application.Current!;
+        var muted = app.FindResource("KcapMutedBrush");
+        var blue = app.FindResource("KcapInfoBrush");
+        var collapsedBackground = presenter.Background;
 
-        host.Rail.Scope = RailScope.Team;
-        host.Settle();
-        var narrowed = dot.IsVisible;
-        host.Rail.Scope = RailScope.Mine;
-        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
+        Click(host, filter);
+        await Assert.That(host.Rail.FiltersOpen).IsTrue();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        var expandedBackground = presenter.Background;
+        await Assert.That(expandedBackground).IsNotSameReferenceAs(collapsedBackground);
 
-        await Assert.That(atDefaults).IsFalse();
-        await Assert.That(narrowed).IsTrue();
-        await Assert.That(dot.IsVisible).IsFalse();
-        await Assert.That(dot.Fill).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
+        host.Rail.Sort = RailSort.Title;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(expandedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Custom list settings applied");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Custom list settings applied");
+
+        Click(host, filter);
+        host.Window.MouseMove(new Point(0, 0));
+        host.Settle();
+        await Assert.That(host.Rail.FiltersOpen).IsFalse();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+
+        host.Rail.Sort = RailSort.LastUpdated;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Default list settings");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
     });
 
     [Test]
@@ -2101,6 +2133,35 @@ public class MainWindowSmokeTests {
         await Assert.That(yield.CanExecute(null)).IsFalse();
         await Assert.That(passedThrough.Handled).IsFalse();
         await Assert.That(host.Vm.IsSearchOpen).IsFalse();
+    });
+
+    /// Ctrl+PageDown and Ctrl+PageUp reach the rail even while the terminal has focus.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Ctrl_page_keys_step_through_the_rail_from_a_focused_terminal() => AvaloniaSession.RunOnUiAsync(async () => {
+        FakeDaemonClientService? service = null;
+        var opened = new List<string>();
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id), openLocal: opened.Add);
+        service = host.Service;
+        const string id = "0123456789abcdef0123456789abcdef";
+        var now = DateTime.UtcNow;
+        foreach (var (agent, minutesAgo) in new[] { ("newer", 1), (id, 2), ("older", 3) }) {
+            host.Directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                new AgentStatusDto(agent, "agent", "claude", "/repo", "Running", null, null, null, now.AddMinutes(-minutesAgo), null, null),
+                new RepoIdentity("path:/repo", "repo")));
+        }
+        host.Vm.OpenSession(id);
+        service.Agents.AddOrUpdate(WorkspaceFixtures.Agent(id, "claude", true, "/repo/myproj", sessionId: id));
+        host.Settle();
+        ((WorkspaceViewModel)host.Vm.CurrentWorkspace!).ShowTerminalCommand.Execute().Subscribe();
+        host.Settle();
+        await Assert.That(host.Window.GetVisualDescendants().OfType<TerminalControl>().Single().Focus()).IsTrue();
+
+        host.Window.KeyPressQwerty(PhysicalKey.PageDown, RawInputModifiers.Control);
+        host.Window.KeyPressQwerty(PhysicalKey.PageUp, RawInputModifiers.Control);
+        host.Settle();
+
+        await Assert.That(opened).IsEquivalentTo(["older", "newer"], CollectionOrdering.Matching);
     });
 
     [Test]

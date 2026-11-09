@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 
@@ -103,10 +104,14 @@ sealed class CaptureScope {
     ImportCommand.SessionClassification Stamp(
             ImportCommand.SessionClassification c, IReadOnlyDictionary<string, string> resolvedCwds) {
         var cwd     = CwdOf(c);
-        var repoKey = RepoKeyAt(ImportCommand.ResolveCwd(c, resolvedCwds));
+        // A harness's own record is where the import places the session, so it is judged in place of the folder.
+        var recorded = ImportCommand.ParseRecordedRepository(c.SourceMeta?.GetValueOrDefault(ImportCommand.RecordedRepositoryKey) as string) is { } r
+            ? $"{r.Owner}/{r.Name}"
+            : null;
+        var repoKey = recorded ?? RepoKeyAt(ImportCommand.ResolveCwd(c, resolvedCwds));
 
         string[] excludedRepoKeys = ExcludesRepos
-            ? [.. new[] { ExcludedRepo(repoKey), ExcludedRepo(RepoKeyAt(cwd)) }
+            ? [.. new[] { ExcludedRepo(repoKey), ExcludedRepo(RepoKeyAt(ImportCommand.ResolveCwd(c, resolvedCwds))), ExcludedRepo(RepoKeyAt(cwd)) }
                     .OfType<string>()
                     .Distinct(StringComparer.OrdinalIgnoreCase)]
             : [];

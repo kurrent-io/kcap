@@ -18,7 +18,8 @@ using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
 using Spectre.Console;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 
@@ -1062,6 +1063,14 @@ class ImportCommand(
 
             foreach (var (sid, cwd) in cursorRemapped) {
                 resolved[sid] = cwd is not null && repoByCwd.TryGetValue(cwd, out var r) ? r : null;
+            }
+        }
+
+        // A harness's own record is where the import will place the session, whatever its folder holds now.
+        foreach (var session in discoveriesPerSource.SelectMany(d => d)) {
+            if (session.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) is string recorded
+             && ParseRecordedRepository(recorded) is { } repo) {
+                resolved[session.SessionId] = repo;
             }
         }
 
@@ -2332,6 +2341,18 @@ class ImportCommand(
         }
 
         return map;
+    }
+
+    /// <summary>The <see cref="DiscoveredSession.SourceMeta"/> entry naming the <c>owner/name</c> a
+    /// harness recorded a session against.</summary>
+    internal const string RecordedRepositoryKey = "RecordedRepository";
+
+    /// <summary>Splits <c>owner/name</c> at its last slash, since a GitLab owner can be nested. Null for
+    /// anything without both halves.</summary>
+    internal static (string Owner, string Name)? ParseRecordedRepository(string? recorded) {
+        var slash = recorded?.LastIndexOf('/') ?? -1;
+
+        return slash <= 0 || slash == recorded!.Length - 1 ? null : (recorded[..slash], recorded[(slash + 1)..]);
     }
 
     /// <summary>

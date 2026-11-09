@@ -8,7 +8,10 @@ using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -259,7 +262,10 @@ sealed class GeminiHookCommand(
         // disable` must stop every POST and watcher restart for the session. Suppression is not
         // silence — these paths are not stderr-free (Program.cs drains the spool before dispatch).
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "SessionEnd") DisabledSessions.RemoveMarker(sessionId, config);
+            if (eventName == "SessionEnd") {
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+            }
             return 0;
         }
 
@@ -332,6 +338,8 @@ sealed class GeminiHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Started in PARALLEL with the POST below, not before it — the lifecycle POST is the
         // latency-critical path. Remaining() already subtracts its own safety margin; do not subtract
@@ -427,7 +435,12 @@ sealed class GeminiHookCommand(
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/gemini", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        var outcome = await PostHookAsync("session-end/gemini", forwarded.ToJsonString());
+
+        // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
+        if (outcome == HookPostOutcome.Posted)
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 
     async Task<int> HandleNotification(JsonNode node, string sessionId, string? cwd) {

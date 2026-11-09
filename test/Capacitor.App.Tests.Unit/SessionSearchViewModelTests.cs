@@ -19,6 +19,7 @@ public class SessionSearchViewModelTests {
 
         public Harness() {
             Vm = new SessionSearchViewModel(Search, Identity, Access, new FakeTimeProvider(), Scheduler, (_, _, _) => Task.FromResult(SearchOpenOutcome.Opened));
+            Vm.Tab = SearchMode.Sessions;
             Identity.OnNext(new SessionIdentity(1, 1, true));
         }
 
@@ -332,7 +333,7 @@ public class SessionSearchViewModelTests {
 
         await Assert.That(h.Calls[0].Token.IsCancellationRequested).IsTrue();
         await Assert.That(h.Vm.Query).IsEqualTo("");
-        await Assert.That(h.Vm.Tab).IsEqualTo(SearchMode.Sessions);
+        await Assert.That(h.Vm.Tab).IsEqualTo(SearchMode.Sidebar);
         await Assert.That(h.Vm.ListState).IsEqualTo(SearchListState.Empty);
     }
 

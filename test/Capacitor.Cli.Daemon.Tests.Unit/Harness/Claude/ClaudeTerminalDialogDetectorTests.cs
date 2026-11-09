@@ -55,7 +55,63 @@ public class ClaudeTerminalDialogDetectorTests {
     const string NarrowCursorUpErased =
         "\r\u001b[2C\u001b[1B\u001b[39m \u001b[5GContinue without using this MCP\u001b[K\r\u001b[4C\u001b[1Bserver\r\r\n\r\n\r\n\u001b[2C\u001b[6A";
 
+    // An AskUserQuestion as Claude Code draws it over its spinner, at 120 columns.
+    const string Question =
+        "\x1b[2D\x1b[4B\r\x1b[8A\x1b[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r\x1b[1B\x1b[48;5;153m\x1b[38;5;16m ☐ Codex round \x1b[39m\x1b[49m\x1b[K\r\x1b[2B\x1b[38;5;231m\x1b[1mCodex raised five more findings on the PR. How should I handle them?\x1b[22m\x1b[39m\x1b[K\r\x1b[1B\x1b[K\r\x1b[1B\x1b[38;5;153m❯\x1b[39m \x1b[38;5;246m1.\x1b[39m \x1b[38;5;153mFix the cheap ones (Recommended)\x1b[39m\x1b[K\r\x1b[2C\x1b[1B   \x1b[38;5;246mFix items 1, 2 and 5 and reply to the other two with reasons, without changing\x1b[85Gcode\x1b[90Gfor them.\x1b[39m\x1b[K\r\x1b[2C\x1b[1B\x1b[38;5;246m2.\x1b[39m Fix all five\x1b[K\r\r\n"
+        + "\x1b[6G\x1b[38;5;246mAlso\x1b[11Gscan\x1b[16Gevery\x1b[22Gprocess\x1b[30Gand\x1b[34Gquery\x1b[40Glaunchd\x1b[48Gas\x1b[51Groot.\x1b[39m\r\r\n"
+        + "\x1b[3G\x1b[38;5;246m3.\x1b[6G\x1b[39mStop\x1b[11Gthe\x1b[15Gloop\x1b[20Ghere\r\r\n"
+        + "\x1b[6G\x1b[38;5;246mReply\x1b[12Gwithout\x1b[20Gchanging\x1b[29Gcode\x1b[34Gand\x1b[38Gstop\x1b[43Greview\x1b[50Grounds.\x1b[39m\r\r\n"
+        + "\x1b[3G\x1b[38;5;246m4.\x1b[6GType\x1b[11Gsomething.\x1b[39m\r\r\n"
+        + "\x1b[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[39m\r\r\n"
+        + "\x1b[3G5.\x1b[6GChat\x1b[11Gabout\x1b[17Gthis\r\r\n"
+        + "\r\r\n"
+        + "\x1b[38;5;246mEnter\x1b[7Gto\x1b[10Gselect\x1b[17G·\x1b[19G↑/↓\x1b[23Gto\x1b[26Gnavigate\x1b[35G·\x1b[37GEsc\x1b[41Gto\x1b[44Gcancel\x1b[39m\r\r\n"
+        + "\x1b[11A";
+
+    // The redraw after one Down arrow.
+    const string QuestionCursorDown =
+        "\x1b(B\u000f\x1b[?2004h\x1b[11B\r\x1b[11A \x1b[6GFix the cheap ones (Recommended)\r\x1b[2B\x1b[38;5;153m❯\x1b[6GFix all five\x1b[39m\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\x1b[9A";
+
     static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
+
+    [Test]
+    public async Task A_Bash_approval_with_an_amend_footer_uses_the_terminal_fallback_and_clears() {
+        var screen = new ClaudeScreenWatcher();
+        var approval = string.Join('\n',
+            "  Look for kcap page commands",
+            new string('─', 120),
+            "  Bash command",
+            "  Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below",
+            "  Look for kcap page commands",
+            new string('╌', 120),
+            "  grep -ril \"pages/\" README.md src/Capacitor.Cli.Core/Resources/ 2>/dev/null | head; kcap --help 2>&1",
+            "  | head -60",
+            new string('╌', 120),
+            "  This command requires approval",
+            "",
+            "  Do you want to proceed?",
+            "  ❯ 1. Yes",
+            "    2. Yes, and don't ask again for: kcap --help",
+            "    3. Yes, and switch to auto mode · auto mode handles these prompts for you",
+            "    4. No",
+            "",
+            "  Esc to cancel · Tab to amend");
+        var split = approval.IndexOf("Tab to amend", StringComparison.Ordinal);
+        await Assert.That(screen.Observe(Utf8(approval[..split])).Dialog).IsNull();
+
+        var dialog = screen.Observe(Utf8(approval[split..])).Dialog;
+
+        await Assert.That(dialog).IsNotNull();
+        await Assert.That(dialog!.Heading).StartsWith("Bash command");
+        await Assert.That(dialog.Options).IsEmpty();
+        await Assert.That(dialog.Selected).IsEqualTo(-1);
+        await Assert.That(dialog.Screen).Contains("grep -ril \"pages/\"");
+        await Assert.That(dialog.Screen).Contains("This command requires approval");
+        await Assert.That(dialog.Screen).Contains("4. No");
+
+        var composer = string.Join('\n', "", new string('─', 120), "❯ ", new string('─', 120), "  ? for shortcuts");
+        await Assert.That(screen.Observe(Utf8(composer)).Dialog).IsNull();
+    }
 
     [Test]
     [Arguments(0)]
@@ -262,6 +318,7 @@ public class ClaudeTerminalDialogDetectorTests {
     [Test]
     [Arguments("Enter to confirm · Esc to cancel")]
     [Arguments("←/→ to change · Enter to continue · Esc to cancel")]
+    [Arguments("Esc to cancel · Tab to amend")]
     public async Task Output_that_quotes_the_footer_is_not_a_dialog(string footer) {
         var quoted = string.Join('\n',
             new string('─', 40),
@@ -279,6 +336,7 @@ public class ClaudeTerminalDialogDetectorTests {
     [Test]
     [Arguments("Enter to confirm · Esc to cancel")]
     [Arguments("←/→ to change · Enter to continue · Esc to cancel")]
+    [Arguments("Esc to cancel · Tab to amend")]
     public async Task A_footer_with_no_rule_above_it_is_not_a_dialog(string footer) {
         var screen = string.Join('\n', "  Use this one", "  ❯ Or this one", "", "  " + footer);
 
@@ -447,4 +505,122 @@ public class ClaudeTerminalDialogDetectorTests {
         await Assert.That(dialog!.Heading).IsEqualTo("Pick a server");
         await Assert.That(dialog.Options).Count().IsEqualTo(2);
     }
+
+    [Test]
+    public async Task A_question_is_read_with_each_choice_described_and_the_cursor_followed() {
+        var screen = new ClaudeScreenWatcher();
+        var dialog = screen.Observe(Utf8(Question)).Dialog;
+
+        await Assert.That(dialog).IsNotNull();
+        await Assert.That(dialog!.Heading).IsEqualTo("Codex raised five more findings on the PR. How should I handle them?");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(new[] {
+            "Fix the cheap ones (Recommended) — Fix items 1, 2 and 5 and reply to the other two with reasons, without changing code for them.",
+            "Fix all five — Also scan every process and query launchd as root.",
+            "Stop the loop here — Reply without changing code and stop review rounds.",
+            "Type something.",
+            "Chat about this",
+        }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+
+        await Assert.That(screen.Observe(Utf8(QuestionCursorDown)).Dialog?.Selected).IsEqualTo(1);
+    }
+
+    /// The rule above "Chat about this" is inside the dialog: taken for its top edge, it would leave
+    /// that one row as the whole dialog.
+    [Test]
+    public async Task The_choice_under_the_questions_own_rule_is_still_a_choice() {
+        var dialog = ClaudeTerminalDialogDetector.Parse(QuestionScreen(
+            " ☐ Scope",
+            "",
+            "How far should the check reach?",
+            "",
+            "  1. Default folders",
+            "  2. Type something.",
+            new string('─', 120),
+            "❯ 3. Chat about this",
+            "",
+            "Enter to select · ↑/↓ to navigate · Esc to cancel"), 120);
+
+        await Assert.That(dialog!.Options.ToArray()).IsEquivalentTo(
+            new[] { "Default folders", "Type something.", "Chat about this" }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task A_question_in_a_series_is_read_under_its_tab_row() {
+        var dialog = ClaudeTerminalDialogDetector.Parse(QuestionScreen(
+            "←  ☐ Scope  ☐ Replies  ✔ Submit  →",
+            "",
+            "How far should the check reach?",
+            "",
+            "❯ 1. Default folders",
+            "     Only the default Claude and Codex folders.",
+            "  2. Registered folders",
+            "  3. Type something.",
+            new string('─', 120),
+            "  4. Chat about this",
+            "",
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel"), 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("How far should the check reach?");
+        await Assert.That(dialog.Options).Count().IsEqualTo(4);
+        await Assert.That(dialog.Options[0]).IsEqualTo("Default folders — Only the default Claude and Codex folders.");
+    }
+
+    [Test]
+    public async Task The_review_closing_a_series_is_read_though_it_has_no_footer() {
+        var dialog = ClaudeTerminalDialogDetector.Parse(QuestionScreen(
+            "←  ☒ Scope  ☒ Replies  ✔ Submit  →",
+            "",
+            "Review your answers",
+            "",
+            " ● How far should the check reach?",
+            "   → Default folders",
+            "",
+            "Ready to submit your answers?",
+            "",
+            "❯ 1. Submit answers",
+            "  2. Cancel"), 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Review your answers");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(new[] { "Submit answers", "Cancel" }, CollectionOrdering.Matching);
+    }
+
+    /// Without the footer, only the series' tab row makes a numbered list the end of a question:
+    /// a reply that happens to end on one, under a task checkbox, is output.
+    [Test]
+    public async Task A_numbered_list_ending_the_screen_without_a_tab_row_is_not_a_question() {
+        var screen = QuestionScreen(
+            " ☐ Write the tests",
+            "",
+            "❯ 1. Default folders",
+            "  2. Cancel");
+
+        await Assert.That(ClaudeTerminalDialogDetector.Parse(screen, 120)).IsNull();
+    }
+
+    [Test]
+    public async Task A_multi_select_question_comes_back_as_its_screen() {
+        var dialog = ClaudeTerminalDialogDetector.Parse(QuestionScreen(
+            "←  ☐ Fixes  ✔ Submit  →",
+            "",
+            "Which findings should I fix?",
+            "",
+            "❯ 1. [ ] Item one",
+            "         Homes from the account database.",
+            "  2. [ ] Item two",
+            "  3. [ ] Type something",
+            "     Submit",
+            new string('─', 120),
+            "  4. Chat about this",
+            "",
+            "Enter to select · ↑/↓ to navigate · Esc to cancel"), 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Which findings should I fix?");
+        await Assert.That(dialog.Options).IsEmpty();
+        await Assert.That(dialog.Screen).Contains("[ ] Item two");
+    }
+
+    static string QuestionScreen(params string[] rows) =>
+        string.Join('\n', new[] { "❯ earlier prompt", new string('─', 120) }.Concat(rows));
 }

@@ -1,6 +1,7 @@
 using Lucide.Avalonia;
 using System.ComponentModel;
 using System.Reactive;
+using System.Text.RegularExpressions;
 using Avalonia.Collections;
 using Capacitor.App.Views;
 using ReactiveUI.Reactive;
@@ -79,26 +80,45 @@ public sealed class AssistantThinkingItem : ChatItemViewModel {
 
 /// System-attributed text — a finished background task, a reconnect note, another agent's message
 /// — never the user's speech.
-public sealed class SystemNoteItem : ChatItemViewModel {
+public sealed partial class SystemNoteItem : ChatItemViewModel {
     public const string NoteLabel = "Note";
     public const string AgentReportLabel = "Subagent report";
     public const string AgentMessageLabel = "Agent message";
     public const string CompactSummaryLabel = "Conversation compacted";
+    public const string TaskNotificationLabel = "Background task";
+    public const string InterruptedLabel = "Interrupted";
 
+    const int PeekLength = 80;
+
+    readonly string? _peek;
+    readonly LucideIconKind? _icon;
     bool _isExpanded;
 
-    public SystemNoteItem(string text, string label = NoteLabel) {
+    public SystemNoteItem(string text, string label = NoteLabel, LucideIconKind? icon = null) {
         Text = text;
         Label = label;
-        // A compaction summary restates the whole conversation above it, so it starts folded.
-        IsCollapsible = label == CompactSummaryLabel;
+        _icon = icon;
+        // A compaction summary restates the whole conversation above it, and a subagent's report
+        // can run to pages, so both start folded. A report of one line has nothing to fold.
+        if (label is AgentReportLabel or TaskNotificationLabel) {
+            var lead = LeadLine(text);
+            IsCollapsible = lead is { HasMore: true };
+            if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
+        } else {
+            IsCollapsible = label == CompactSummaryLabel;
+        }
         _isExpanded = !IsCollapsible;
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
 
     public string Text { get; }
     public string Label { get; }
-    public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
+
+    /// A note that is only its label, such as an interrupt, has no body to show.
+    public bool ShowsBody => _isExpanded && !string.IsNullOrWhiteSpace(Text);
+
+    public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
+    public LucideIconKind IconKind => _icon ?? ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
     public bool IsExpanded {
@@ -107,17 +127,98 @@ public sealed class SystemNoteItem : ChatItemViewModel {
             if (_isExpanded == value) return;
             _isExpanded = value;
             this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(ShowsBody));
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
+            this.RaisePropertyChanged(nameof(HeaderLabel));
         }
     }
 
-    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Label}";
+    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {HeaderLabel}";
 
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
     public void Toggle() {
         if (IsCollapsible) IsExpanded = !IsExpanded;
     }
+
+    static (bool HasMore, string Clean)? LeadLine(string text) {
+        string? clean = null;
+        foreach (var raw in text.AsSpan().EnumerateLines()) {
+            if (Content(raw.Trim()) is not { } words) continue;
+            if (clean is not null) return (true, clean);
+            clean = words;
+        }
+        return clean is null ? null : (false, clean);
+    }
+
+    static string? Content(ReadOnlySpan<char> line) {
+        if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
+        var unquoted = QuoteMarker().Replace(line.ToString(), "");
+        if (Rule().IsMatch(unquoted)) return null;
+        var stripped = WithoutEmphasis(LeadMarker().Replace(unquoted, "")).Trim();
+        return stripped.Length > 0 ? stripped : null;
+    }
+
+    // Only a paired marker is emphasis; a lone "**" is the note's own text. Code spans are masked
+    // first so a pair can wrap one ("**Run `__init__`**") without reaching inside it.
+    static string WithoutEmphasis(string text) {
+        // A code span stands in as mark-index-mark, with a mark the text does not contain, so a
+        // span's contents never meet the emphasis patterns and nothing in the text reads as one.
+        var mark = '\uE000';
+        while (text.Contains(mark)) mark++;
+        var spans = new List<string>();
+        var masked = new System.Text.StringBuilder();
+        var i = 0;
+        while (i < text.Length) {
+            if (text[i] != '`') { masked.Append(text[i++]); continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            var close = ClosingRun(text, i + run, run);
+            if (close < 0) { masked.Append('`', run); i += run; continue; }
+            masked.Append(mark).Append(spans.Count).Append(mark);
+            spans.Add(text[(i + run)..close]);
+            i = close + run;
+        }
+        var parts = WholeLineEmphasis().Replace(StripStrong(masked.ToString()), "$2").Split(mark);
+        for (var p = 1; p < parts.Length; p += 2)
+            parts[p] = spans[int.Parse(parts[p], System.Globalization.CultureInfo.InvariantCulture)];
+        return string.Concat(parts);
+    }
+
+    static string StripStrong(string text) => PairedUnderscores().Replace(PairedStars().Replace(text, "$1"), "$1");
+
+    [GeneratedRegex(@"\*\*(?=\S)(.+?)(?<=\S)\*\*")]
+    private static partial Regex PairedStars();
+
+    // Underscores never embolden inside a word, so "user__id__" stays an identifier.
+    [GeneratedRegex(@"(?<![\p{L}\p{N}])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}])")]
+    private static partial Regex PairedUnderscores();
+
+    [GeneratedRegex(@"^([*_])(?=\S)(.+?)(?<=\S)\1$")]
+    private static partial Regex WholeLineEmphasis();
+
+    static int ClosingRun(string text, int from, int length) {
+        var i = from;
+        while (i < text.Length) {
+            if (text[i] != '`') { i++; continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            if (run == length) return i;
+            i += run;
+        }
+        return -1;
+    }
+
+    [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
+    private static partial Regex Rule();
+
+    [GeneratedRegex(@"^(\s*>)*\s*")]
+    private static partial Regex QuoteMarker();
+
+    // A heading or list marker counts only when whitespace follows: "-10%" and "#123" are the note's own words.
+    // A rule is checked before this strips, or "- - -" would read as two bullets and a dash.
+    [GeneratedRegex(@"^(#{1,6}\s+|[-*+]\s+)*")]
+    private static partial Regex LeadMarker();
 }
 
 /// A bang command the user ran, and the output record that follows it. The output arrives later,
@@ -206,6 +307,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
             this.RaisePropertyChanged(nameof(IsError));
             this.RaisePropertyChanged(nameof(IsSettled));
             this.RaisePropertyChanged(nameof(IsRunning));
+            this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
             InvalidateInspection();
         }
     }
@@ -225,12 +327,27 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     bool _isAwaitingPermission;
     /// Owned by the permission cache, not the transcript: the two arrive in either order.
     public bool IsAwaitingPermission {
-        get => _isAwaitingPermission;
+        get => _isAwaitingPermission && !_sessionOver;
         set {
             if (_isAwaitingPermission == value) return;
             _isAwaitingPermission = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsRunning));
+            InvalidateInspection();
+        }
+    }
+
+    bool _sessionOver;
+    /// The session's end changes presentation, not the recorded outcome. An absent result
+    /// stays pending so a late transcript result can still settle this same row.
+    internal bool SessionOver {
+        get => _sessionOver;
+        set {
+            if (_sessionOver == value) return;
+            _sessionOver = value;
+            this.RaisePropertyChanged(nameof(IsRunning));
+            this.RaisePropertyChanged(nameof(IsAwaitingPermission));
+            this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
             InvalidateInspection();
         }
     }
@@ -260,7 +377,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     ToolInspection? _inspection;
     /// Built only while the row is open, from what the item holds at that moment.
     public ToolInspection? Inspection =>
-        _isExpanded ? _inspection ??= ToolInspection.Build(Name, InputJson, _result, _outcome, _isAwaitingPermission) : null;
+        _isExpanded ? _inspection ??= ToolInspection.Build(Name, InputJson, _result, _outcome, IsAwaitingPermission, _sessionOver) : null;
 
     void InvalidateInspection() {
         if (!_isExpanded && _inspection is null) return;
@@ -270,9 +387,10 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
 
     public bool IsSettled => _outcome != ToolOutcome.Running;
     public bool IsError => _outcome == ToolOutcome.Error;
+    public bool IsOutcomeUnknown => _sessionOver && !IsSettled;
     /// True while the call is in flight and not waiting on a permission prompt — drives the
     /// pulsing status pill so a live row is never blank.
-    public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission;
+    public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission && !_sessionOver;
 
     string? _previewPath;
     public string? PreviewPath {

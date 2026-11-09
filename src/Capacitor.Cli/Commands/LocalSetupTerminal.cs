@@ -241,6 +241,7 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
             LocalInstallEvent.EmbeddingBuiltinConfigured { Replaced: { } old } =>
                 $"Semantic search uses the built-in model; everything embedded with {old} is embedded again in the background",
             LocalInstallEvent.EmbeddingBuiltinConfigured    => "Semantic search uses the built-in model",
+            LocalInstallEvent.EmbeddingBuiltinRemoved r     => r.Message,
             LocalInstallEvent.EmbeddingsSkipped k      => k.Message,
             LocalInstallEvent.WindowsServiceDeclined   => $"The administrator prompt was declined; {TaskFallback}",
             LocalInstallEvent.WindowsServiceUnavailable u => $"{u.Message.TrimEnd('.')}; {TaskFallback}",

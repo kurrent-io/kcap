@@ -53,6 +53,25 @@ public class AgentOrchestratorStopForResumeTests {
         await Assert.That(Ledger().TryRead("working")!.AwaitingInput).IsFalse();
     }
 
+    /// <summary>The stop kills a background subagent, and only the nudge gets the parent to pick its work up:
+    /// the turn having ended says nothing about it.</summary>
+    [Test]
+    public async Task KeepAgents_records_a_waiting_agent_with_a_live_subagent_as_not_waiting() {
+        var orch    = Build(new CaptureServerConnection());
+        var running = Seed(orch, "subagent-running").ActivityClock;
+        running.SetAwaitingInput(true);
+        running.SubagentSeen("child", 1);
+        var finished = Seed(orch, "subagent-finished").ActivityClock;
+        finished.SetAwaitingInput(true);
+        finished.SubagentSeen("child", 1);
+        finished.SubagentStopped("child", 2);
+
+        await orch.DisposeAsync();
+
+        await Assert.That(Ledger().TryRead("subagent-running")!.AwaitingInput).IsFalse();
+        await Assert.That(Ledger().TryRead("subagent-finished")!.AwaitingInput).IsTrue();
+    }
+
     [Test]
     public async Task KeepAgents_persists_the_ring_and_keeps_the_worktree_and_pid_record() {
         using var tmp      = new TempDir();
@@ -214,6 +233,24 @@ public class AgentOrchestratorStopForResumeTests {
         await orch.PrepareForResumeAsync(agent, CancellationToken.None);
 
         await Assert.That(Ledger().TryRead("cleared-1")!.State).IsEqualTo(ResumeState.Resuming);
+        await orch.DisposeAsync();
+    }
+
+    /// The successor shows and registers the entry's title until it reads the server's, so the entry
+    /// carries the title the session has by the stop, never the launch-time cut of the goal.
+    [Test]
+    public async Task A_stop_for_resume_records_the_title_the_session_shows() {
+        var orch     = Build(new CaptureServerConnection());
+        var titled   = Seed(orch, "titled-1");
+        var untitled = Seed(orch, "untitled-1");
+        var launched = Ledger().TryRead("untitled-1")!.Launch.Title;
+        orch.SetResolvedTitle(titled, "PONG reply test");
+
+        await orch.PrepareForResumeAsync(titled, CancellationToken.None);
+        await orch.PrepareForResumeAsync(untitled, CancellationToken.None);
+
+        await Assert.That(Ledger().TryRead("titled-1")!.Launch.Title).IsEqualTo("PONG reply test");
+        await Assert.That(Ledger().TryRead("untitled-1")!.Launch.Title).IsEqualTo(launched);
         await orch.DisposeAsync();
     }
 

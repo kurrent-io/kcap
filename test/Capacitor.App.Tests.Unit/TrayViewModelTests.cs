@@ -98,6 +98,7 @@ public class TrayViewModelTests {
     [NotInParallel("AvaloniaSession")]
     [Arguments("daemon_unreachable", TrayState.Stopped)]
     [Arguments(ExpectedDaemonRestart.Reason, TrayState.Connecting)]
+    [Arguments(ExpectedDaemonRestart.StartingReason, TrayState.Connecting)]
     [Arguments("daemon_incompatible", TrayState.Attention)]
     [Arguments("some_future_reason", TrayState.Attention)]
     public async Task Unreachable_reason_maps_to_state(string reason, TrayState expected) {
@@ -1212,6 +1213,29 @@ public class TrayViewModelTests {
             await Assert.That(vm.MenuModel.ShimInstallVisible).IsTrue();
             // Orthogonal to the rest of the model — the state-matrix projection is untouched.
             await Assert.That(vm.MenuModel.State).IsEqualTo(TrayState.Connecting);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task FinishSwitchOffered_drives_FinishSwitchVisible_and_the_command_runs_the_switch() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var offered = new BehaviorSubject<bool>(false);
+            var runs = 0;
+            using var vm = new TrayViewModel(service, new FakePauseController(), NewActions(service), new FakeConsentService(),
+                finishSwitchOffered: offered, finishSwitch: () => {
+                    runs++;
+                    return Task.CompletedTask;
+                });
+
+            await Assert.That(vm.MenuModel.FinishSwitchVisible).IsFalse();
+
+            offered.OnNext(true);
+
+            await Assert.That(vm.MenuModel.FinishSwitchVisible).IsTrue();
+            await vm.FinishSwitchCommand.Execute();
+            await Assert.That(runs).IsEqualTo(1);
         });
     }
 

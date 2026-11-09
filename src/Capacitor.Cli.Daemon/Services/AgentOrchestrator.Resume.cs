@@ -52,9 +52,9 @@ internal partial class AgentOrchestrator {
     internal int FlowParticipantsMidRound =>
         _agents.Values.Count(a => !IsInteractive(a) && a.Status is "Starting" or "Running" && a.ActivityClock.TurnInFlight);
 
-    /// True when every live interactive agent is waiting on input, so a restart interrupts no turn.
+    /// True when no live interactive agent has anything in flight, so a restart interrupts no work.
     internal bool InteractiveAgentsAtTurnBoundary =>
-        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.AwaitingInput);
+        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.NothingInFlight);
 
     LaunchHold BeginLaunchHold() {
         Interlocked.Increment(ref _launchesInAdmission);
@@ -304,10 +304,11 @@ internal partial class AgentOrchestrator {
                         PredecessorInstanceId = _config.InstanceId,
                         ResumingAt            = now,
                         UpdatedAt             = now,
-                        AwaitingInput         = agent.ActivityClock.AwaitingInput,
+                        AwaitingInput         = agent.ActivityClock.NothingInFlight,
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
-                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null
+                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
+                        Launch                = WithShownTitle(entry.Launch, agent)
                     };
                 }, EntryLockWait);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -321,6 +322,11 @@ internal partial class AgentOrchestrator {
             return true;
         }
     }
+
+    /// <summary>The successor registers and shows the entry's title until it reads the server's: a launch-time
+    /// title, a cut of the goal, would stand over the title the session has been given since.</summary>
+    static ResumeLaunchDescriptor WithShownTitle(ResumeLaunchDescriptor launch, AgentInstance agent) =>
+        agent.ResolvedTitle is { Length: > 0 } shown ? launch with { Title = shown } : launch;
 
     /// <summary>An end committed for the session the agent now runs. One committed for an earlier session
     /// of the same process — a Claude <c>/clear</c> ends one session and starts the next — does not count;
@@ -368,7 +374,7 @@ internal partial class AgentOrchestrator {
             ApprovalPolicy:   agent.ApprovalPolicy,
             PermissionPreset: agent.PermissionPreset,
             McpConfigPath:    agent.McpConfigPath,
-            Title:            agent.Title,
+            Title:            agent.ResolvedTitle ?? agent.Title,
             TitleDerived:     agent.StartTitle?.Derived ?? true,
             IsPrivate:        agent.IsPrivate,
             Origin:           origin,
@@ -625,6 +631,9 @@ internal partial class AgentOrchestrator {
     const string TranscriptRefusedReason   = "acp_binding_unavailable";
     const string RegistrationRefusedReason = "registration_refused";
 
+    /// <summary>The server's refusal of a registration whose own run it already saw end.</summary>
+    const string RunEndedRefusal = "run_ended";
+
     static bool TranscriptRefused(AgentInstance agent) => agent.ReopenedTranscript == ReopenedTranscript.Refused;
 
     static readonly TimeSpan ReadinessPoll = TimeSpan.FromMilliseconds(50);
@@ -746,6 +755,7 @@ internal partial class AgentOrchestrator {
 
     /// <summary>Guarded by <see cref="_ledgerLock"/>.</summary>
     readonly Dictionary<string, HeldParticipantInput> _heldInput = new(StringComparer.Ordinal);
+    readonly DispatchedInputLedger _dispatchedInputs;
 
     /// <summary>How long after start the server is kept from proving old participants absent while this
     /// daemon resumes its own; every participant still unpublished then is failed.</summary>
@@ -852,9 +862,18 @@ internal partial class AgentOrchestrator {
                 }
             }
 
-            await DeliverSendInputAsync(next);
+            try {
+                await DeliverSendInputAsync(next);
+            } catch (Exception ex) {
+                // Forgotten so the server's resend can deliver it; the rest of the queue still goes.
+                if (next.DispatchId is { } failed) _dispatchedInputs.Forget(failed);
+                LogHeldInputDeliveryFailed(ex, agentId);
+            }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Delivering a held round to agent {AgentId} failed; the server resends it")]
+    partial void LogHeldInputDeliveryFailed(Exception ex, string agentId);
 
     /// <summary>A participant whose resume ended unpublished is gone, which is what each held input is told.</summary>
     async Task DropHeldInputAsync(string agentId) {
@@ -1265,10 +1284,11 @@ internal partial class AgentOrchestrator {
         }
 
         // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
-        // be being handed off, and a continuation would take it over a second time.
+        // be being handed off, and a continuation would take it over a second time; and a run the server saw end must not
+        // be revived under a new agent id.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
          && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
-                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged)
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged or RunEndedRefusal)
          && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
@@ -1277,7 +1297,7 @@ internal partial class AgentOrchestrator {
 
         InterruptEntry(entry.AgentId, LastErrorOf(reason, exitCode));
         // A refused id's status would overwrite the failure the server recorded, and an unstopped runtime is not ended.
-        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RuntimeUnstoppedReason))
+        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RunEndedRefusal or RuntimeUnstoppedReason))
             await ReportResumeFailedAsync(entry, reason, exitCode, ct);
 
         return ResumeOutcome.Interrupted;
@@ -1301,7 +1321,7 @@ internal partial class AgentOrchestrator {
             entry.Launch.RepoPath, entry.Vendor, entry.Launch.RequesterDisplay);
         var consent = _consentGate.GrantResume(entry.AgentId, input, entry.Launch.ConsentSource ?? "");
 
-        // An agent that was waiting comes back waiting: a nudge would start a turn nobody asked for. A participant
+        // An agent with nothing in flight comes back waiting: a nudge would start a turn nobody asked for. A participant
         // always gets its nudge, which is how it learns it was relaunched mid-flow.
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
@@ -1353,7 +1373,7 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume.RefusedRegistration is not null) {
+        if (resume.RefusedRegistration is { } registrationRefusal) {
             if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
 
             // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
@@ -1365,7 +1385,7 @@ internal partial class AgentOrchestrator {
                 return (RuntimeUnstoppedReason, null);
             }
 
-            return (RegistrationRefusedReason, null);
+            return registrationRefusal == RunEndedRefusal ? (RunEndedRefusal, null) : (RegistrationRefusedReason, null);
         }
 
         if (outcome.Kind == CommandOutcomeKind.LaunchRejected)
@@ -1403,8 +1423,40 @@ internal partial class AgentOrchestrator {
         }
 
         await ReleaseHeldInputAsync(entry.AgentId);
+        if (silent) _ = NudgeIfWorkWasLostAsync(agent, entry);
 
         return null;
+    }
+
+    /// <summary>Scans for lost work, half a readiness window apart: a slow start writes its notices, and discovery links
+    /// the transcript, after that window. An idle agent has nothing to find, so the looking has to end.</summary>
+    internal const int LostWorkScans = 12;
+
+    /// <summary>An agent back with no turn stays idle even when the restart cut off its background work, because its
+    /// vendor records that and starts no turn on it. Asked once the agent is back, so it also covers what the
+    /// predecessor could not see at its stop: background shells, and an older daemon's record of a waiting agent. A
+    /// failed nudge leaves a resume that succeeded standing. Never throws: it runs unobserved, since a delivery lasts
+    /// as long as any dialog on screen and the resume must not hold its lane slot for that long.</summary>
+    async Task NudgeIfWorkWasLostAsync(AgentInstance agent, ResumeLedgerEntry entry) {
+        try {
+            if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory)) return;
+
+            for (var scan = 1; ; scan++) {
+                if (!agent.ActivityClock.AwaitingInput || agent.IsCleanupStarted) return;
+                if (factory.ReportsLostWork(agent.TranscriptPath)) break;
+                if (scan == LostWorkScans) return;
+
+                await Task.Delay(_config.ResumeReadinessWindow / 2, _time, _shutdownCts.Token);
+            }
+
+            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
+            if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
+            else LogResumeNudgeDropped(null, agent.Id, outcome.Error ?? outcome.Reason ?? "");
+        } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) {
+            // The vendor's record stands until a turn answers it, so the next resume finds it.
+        } catch (Exception ex) {
+            LogResumeNudgeDropped(ex, agent.Id, "fault");
+        }
     }
 
     /// <summary>Whether the resumed runtime is still running, and still this agent, once the readiness
@@ -1685,6 +1737,11 @@ internal partial class AgentOrchestrator {
             ScratchWorkspace:    launch.ScratchWorkspace == true);
     }
 
+    /// <summary>The session a launch reopens as the daemon's resume of its own agent: the vendor process restarts
+    /// on the entry's vendor session. A continuation, a participant and a launch the server asked for reopen none.</summary>
+    internal static string? ResumedSessionOf(ResumeLedgerEntry? resumed, string? resumeSessionId) =>
+        resumed is { Participant: null, VendorSession: { } vendorSession } && resumeSessionId == vendorSession ? resumed.SessionId : null;
+
     /// <summary>The ledger's worktree as the launch path names it.</summary>
     static WorktreeInfo ResumedWorktree(ResumeLedgerEntry entry) {
         var launch = entry.Launch;
@@ -1821,4 +1878,10 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} {Outcome}")]
     partial void LogResumeOutcome(string agentId, string outcome);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} lost background work to the restart and was nudged")]
+    partial void LogResumeNudgedLostWork(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: agent {AgentId} lost background work but its nudge was dropped: {Reason}")]
+    partial void LogResumeNudgeDropped(Exception? ex, string agentId, string reason);
 }

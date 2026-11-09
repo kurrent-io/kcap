@@ -25,6 +25,50 @@ public class ProcessTreeTests {
             await PidIdentity.WaitUntilGoneAsync(pid, identity, TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>On Windows the child under a <c>cmd</c> is listed through the Toolhelp snapshot, so this is what
+    /// proves that interop's struct layout. A root that is not the captured incarnation lists nothing.</summary>
+    [Test]
+    public async Task Descendants_lists_every_level_with_each_ones_identity() {
+        using var root = OperatingSystem.IsWindows()
+            ? Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 300 127.0.0.1 >NUL") { UseShellExecute = false, CreateNoWindow = true })!
+            : StartTree("sh -c 'sleep 300 & wait' & wait");
+        var expected = OperatingSystem.IsWindows() ? 1 : 2;
+
+        try {
+            var identity = PidIdentity.Capture(root.Id);
+            var start    = Environment.TickCount64;
+            var listed   = Listed();
+
+            while (listed.Count < expected && Environment.TickCount64 - start < 10_000) {
+                await Task.Delay(50);
+                listed = Listed();
+            }
+
+            await Assert.That(listed.Count).IsEqualTo(expected);
+            foreach (var (pid, childIdentity) in listed) await Assert.That(PidIdentity.Capture(pid)).IsEqualTo(childIdentity);
+            await Assert.That(ProcessTree.Descendants(root.Id, identity + "0")).IsEmpty();
+        } finally {
+            ProcessTree.Kill(root);
+        }
+
+        // Windows can also list the short-lived conhost serving cmd's console, so only ping is counted there.
+        IReadOnlyList<(int Pid, string Identity)> Listed() {
+            var all = ProcessTree.Descendants(root.Id, PidIdentity.Capture(root.Id));
+
+            return OperatingSystem.IsWindows() ? [.. all.Where(d => IsPing(d.Pid))] : all;
+        }
+    }
+
+    static bool IsPing(int pid) {
+        try {
+            using var process = Process.GetProcessById(pid);
+
+            return process.ProcessName.Equals("ping", StringComparison.OrdinalIgnoreCase);
+        } catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
+            return false;
+        }
+    }
+
     [Test]
     public async Task Kill_reaches_the_third_level() {
         if (OperatingSystem.IsWindows()) return;

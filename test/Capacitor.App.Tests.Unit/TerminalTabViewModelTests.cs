@@ -748,11 +748,14 @@ public class TerminalTabViewModelTests {
 
             await Assert.That(client.CallbackTask!.IsCanceled).IsTrue();
 
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
-            await Assert.That(surfaceRef.IsAlive).IsFalse();
+            // The finished run's state machine lets go of the surface only once the pool thread that
+            // completed it unwinds, which can trail TeardownAsync's return.
+            await WaitUntilAsync(() => {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                return !surfaceRef.IsAlive;
+            }, what: "the torn-down surface collected");
         });
     }
 

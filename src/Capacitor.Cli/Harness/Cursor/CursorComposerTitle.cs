@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Data.Sqlite;
@@ -14,6 +15,10 @@ namespace Capacitor.Cli.Harness.Cursor;
 /// Opened read-only and unpooled, so no handle outlives a read and holds the IDE's own database open.</para></summary>
 public sealed class CursorComposerTitle(string stateDbPath, string dashedSessionId) : IHarnessTitleStore {
     static CursorComposerTitle() => SqliteNativeResolver.Register();
+
+    /// <summary>Null where the IDE keeps no state database.</summary>
+    public static CursorComposerTitle? ForTranscript(CursorPaths paths, string transcriptPath) =>
+        paths.GlobalStateDb is { } stateDb ? new CursorComposerTitle(stateDb, Path.GetFileNameWithoutExtension(transcriptPath)) : null;
 
     public bool RecordsChangeTime => false;
 

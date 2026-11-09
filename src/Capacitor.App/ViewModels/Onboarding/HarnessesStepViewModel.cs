@@ -113,8 +113,11 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     public PathFixViewModel? PathFix { get; }
 
-    /// The login shell cannot find kcap, and nothing has fixed that yet.
-    public bool PathHazard => PathFix is { Fixed: false };
+    /// The login shell cannot find kcap, nothing has fixed that yet, and the selection does not rule out needing it.
+    public bool PathHazard => PathFix is { Fixed: false } && (NeedsKcapOnPath || !Rows.Any(r => r.Selected));
+
+    // Copilot's hooks and every harness's MCP config name kcap by its full path; other harnesses' hooks use the bare command.
+    bool NeedsKcapOnPath => Rows.Any(r => r.Selected && r.Id != HarnessId.Copilot);
 
     public bool PathResolved => PathFix is { Fixed: true };
 
@@ -306,9 +309,9 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
         if (!await PersistAsync(ct).ConfigureAwait(true)) return false;
 
-        // Hooks store the bare command, so turning a harness on first puts kcap on the login
-        // shell. Not now installs nothing, so it does not wait.
-        if (direction != WizardNavigation.Skip && PathFix is { Fixed: false } pathFix && Rows.Any(r => r.Selected)) {
+        // Those bare commands are why turning a harness on first puts kcap on the login shell. Not now installs
+        // nothing, so it does not wait.
+        if (direction != WizardNavigation.Skip && PathFix is { Fixed: false } pathFix && NeedsKcapOnPath) {
             Message = null;
             Busy    = true;
             bool installed;
@@ -435,6 +438,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     };
 
     void RestateSelection() {
+        this.RaisePropertyChanged(nameof(PathHazard));
         this.RaisePropertyChanged(nameof(SelectedCount));
         this.RaisePropertyChanged(nameof(NextLabel));
         this.RaisePropertyChanged(nameof(DeclineVisible));

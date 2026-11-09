@@ -59,16 +59,18 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
         Disclosure        = prompt.Disclosure;
         PathDegraded      = prompt.PathDegraded;
         Warning           = prompt.Warning;
-        IsUpdate          = prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateInfo;
+        IsUpdate          = prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateInfo or LifecyclePrompt.KindUpdateWaiting;
         if (IsUpdate) InstalledVersion = prompt.CliVersion?.Split('+', 2)[0];
-        if (prompt.Kind == LifecyclePrompt.KindUpdateReady) UpdateVersion = prompt.DaemonVersion?.Split('+', 2)[0];
+        if (prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateWaiting)
+            UpdateVersion = prompt.DaemonVersion?.Split('+', 2)[0];
         ShowDeclineButton = prompt.Kind is not (LifecyclePrompt.KindQuarantine or LifecyclePrompt.KindUpdateInfo);
         AcceptButtonText  = prompt.Kind switch {
             LifecyclePrompt.KindQuarantine     => "Acknowledge",
             LifecyclePrompt.KindUpdateInfo     => "Dismiss",
             LifecyclePrompt.KindReloadService  => "Reload now",
             LifecyclePrompt.KindUpdateReady    => "Restart now",
-            LifecyclePrompt.KindRename         => "Rename and restart",
+            LifecyclePrompt.KindUpdateWaiting  => "Restart now",
+            LifecyclePrompt.KindRename        => "Rename and restart",
             LifecyclePrompt.KindRemoveProfile  => "Remove",
             LifecyclePrompt.KindSetup          => "Restart and continue",
             LifecyclePrompt.KindUninstall      => "Uninstall",
@@ -95,9 +97,11 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
         LifecyclePrompt.KindQuarantine    => "Corrupted consent claims file",
         LifecyclePrompt.KindUpdateReady   => "Update ready",
         LifecyclePrompt.KindUpdateInfo    => "Software update",
+        LifecyclePrompt.KindUpdateWaiting => "Waiting for active turns",
         LifecyclePrompt.KindReloadService => "Reload the daemon service",
         LifecyclePrompt.KindRename        => "Rename daemon",
         LifecyclePrompt.KindRemoveProfile => "Remove profile",
+        LifecyclePrompt.KindRemoveSharedInstall => "Remove the shared kcap install",
         LifecyclePrompt.KindSetup         => "Reopen setup",
         LifecyclePrompt.KindUninstall     => "Uninstall kcap",
         LifecyclePrompt.KindWindowsService       => "Run kcap as a Windows service",

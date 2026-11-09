@@ -76,6 +76,11 @@ public interface IKcapCli {
     /// whatever it hosts. One <c>refresh_outcome=&lt;token&gt;</c> line on stderr; exit 0 only for reloaded/current.
     Task<ProcessResult> ServiceReloadAsync(CancellationToken ct);
 
+    /// <c>daemon service repoint --from &lt;dir&gt;</c>: moves every launchd unit whose daemon lies inside
+    /// <paramref name="dir"/> onto this kcap's own daemon, keeping its agents. Exit 3 is a daemon that was busy or did
+    /// not stop in time, left on its old binary for a later run.
+    Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct);
+
     Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null);
 
     /// `daemon service install --system --verify`: installs or updates the machine's Windows service behind the
@@ -152,6 +157,8 @@ public sealed class KcapCli : IKcapCli {
     static readonly TimeSpan ElevationTimeout = TimeSpan.FromMinutes(10);
     /// The forced refresh may wait 10 s for the service transaction lock before its own 85 s deadline starts.
     static readonly TimeSpan ReloadTimeout = TimeSpan.FromSeconds(105);
+    /// The repoint gives each unit it moves a 5 s lock wait and an 85 s deadline; five minutes covers three units.
+    static readonly TimeSpan RepointTimeout = TimeSpan.FromMinutes(5);
     // Discovery reads every vendor's history off disk; a large Claude projects tree takes seconds.
     static readonly TimeSpan DiscoverTimeout = TimeSpan.FromSeconds(120);
     // The server probes a provider's key with one model call before it answers.
@@ -258,6 +265,13 @@ public sealed class KcapCli : IKcapCli {
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
         return await Run(cliPath, ["daemon", "service", "refresh", "--name", _daemonName, "--force"],
             new RunOptions(EnvOverlay: await EnvWithTerminalPathAsync(env, ct).ConfigureAwait(false), Timeout: ReloadTimeout), ct).ConfigureAwait(false);
+    }
+
+    public async Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct) {
+        var env = MutationEnv(); // throws before any spawn if the instance carries no server
+        if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
+        return await Run(cliPath, ["daemon", "service", "repoint", "--from", dir],
+            new RunOptions(EnvOverlay: await EnvWithTerminalPathAsync(env, ct).ConfigureAwait(false), Timeout: RepointTimeout), ct).ConfigureAwait(false);
     }
 
     // The profile flag and environment overlay must agree with the identity the lane verifies.

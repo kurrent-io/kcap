@@ -33,6 +33,25 @@ public class LocalEmbeddingStepTests {
     LocalModelSetDownloader Downloader =>
         new(Root, new LocalBundleClient(new HttpClient(new ModelFiles(_models)), TimeProvider.System) { BaseUrl = "https://bundles.test/local" });
 
+    /// <summary>A set that cannot be deleted leaves the others deleted, and both amounts are told.</summary>
+    [Test]
+    public async Task A_partial_removal_reports_both_the_space_freed_and_what_is_left() {
+        File.WriteAllBytes(Tmp.CreateFile(["local", "models", new string('a', 64), "model.onnx"]), new byte[1024 * 1024]);
+        string locked = Tmp.CreateDir(["local", "models", new string('c', 64), "held"]);
+        File.WriteAllBytes(Path.Combine(locked, "model.onnx"), new byte[2 * 1024 * 1024]);
+        File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            LocalEmbeddingStep.RemoveUnusedModels(Root, _events);
+        } finally {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        var removed = _events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>().Single();
+        await Assert.That(removed).IsEqualTo(new LocalInstallEvent.EmbeddingBuiltinRemoved(LocalModelSets.Directory(Root), 1024 * 1024, 2 * 1024 * 1024));
+        await Assert.That(removed.Message).Contains("freeing 1 MB and leaving 2 MB");
+    }
+
     Task<LocalEmbeddingSetting?> Decide(FakeOllama ollama, LocalEmbeddingAnswer answer, LocalEmbeddingModelManifest? manifest = null) =>
         LocalEmbeddingStep.DecideAsync(Root, answer, ollama.Client(), Downloader, manifest, _events, CancellationToken.None);
 

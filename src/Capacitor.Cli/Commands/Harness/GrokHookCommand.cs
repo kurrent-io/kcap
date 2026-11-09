@@ -6,7 +6,10 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Grok;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -89,6 +92,8 @@ sealed class GrokHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         var outcome = await _poster.PostOrSpoolAsync("session-start/grok", enriched, "grok-hook",
             new HookSpool(config, clock.Time, Url), sessionId, route: "session-start/grok");

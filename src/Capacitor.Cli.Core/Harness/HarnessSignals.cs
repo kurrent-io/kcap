@@ -30,6 +30,10 @@ public readonly record struct HarnessSignals {
     /// it answers what to launch once a vendor is found.</summary>
     public Func<DesktopAppProbe, string?>? BundledCli { get; init; }
 
+    /// <summary>The app this vendor runs inside on this machine, or null. Not a detection signal: it
+    /// answers what to call what the signals found.</summary>
+    public Func<BinaryProbe, DesktopAppProbe, string?>? HostApp { get; init; }
+
     /// <summary>Whether kcap's hook or extension is registered with the vendor.</summary>
     public Func<bool>? Wired { get; init; }
 
@@ -44,6 +48,9 @@ public readonly record struct HarnessSignals {
 
     /// <summary>Looks for the bundled CLI now. A vendor whose app bundles none reads as null.</summary>
     public string? FindBundledCli(DesktopAppProbe apps) => BundledCli?.Invoke(apps);
+
+    /// <summary>Asks which app hosts this vendor now. A vendor with no host app reads as null.</summary>
+    public string? FindHostApp(BinaryProbe binaries, DesktopAppProbe apps) => HostApp?.Invoke(binaries, apps);
 
     /// <summary>Asks the wiring question now. A vendor that cannot answer reads as not wired.</summary>
     public bool IsWired => Wired?.Invoke() ?? false;

@@ -9,12 +9,7 @@ public partial class WorktreeManager {
     /// <summary>Reads origin and decides where a hand-off worktree starts, without creating anything but
     /// fetched refs. A branch is reported absent only when origin answers that it has no such branch.</summary>
     public async Task<HandoffResolution> ResolveHandoffStartAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
-        ct.ThrowIfCancellationRequested();
-
-        if (target is { HeadIsFork: true, PullRequestNumber: null })
-            throw new InvalidOperationException("invalid_handoff_target: a fork head needs its pull request number");
-        if (target.Branch is { Length: > 0 } named && !await IsValidRefNameAsync(repoPath, named))
-            throw new InvalidOperationException($"invalid_base_ref: {named}");
+        await ValidateHandoffTargetAsync(repoPath, target, ct);
 
         if (target is { HeadIsFork: true, PullRequestNumber: { } number }) {
             var pullRef = $"refs/kcap/handoff/pull-{number}";
@@ -61,6 +56,43 @@ public partial class WorktreeManager {
             : new(new(HandoffSource.DefaultBranch, HandoffCheckout.Detached, defaultSha, defaultBranch, HandoffDetachReason.BranchAbsent, null), null);
     }
 
+    /// <summary>Decides the start <see cref="ResolveHandoffStartAsync"/> would, from the refs this checkout already
+    /// holds of origin, without running anything that reaches it. Null when those refs cannot name a start:
+    /// a branch missing from them may still be on origin, so it is never taken for an absent one.</summary>
+    public async Task<HandoffStart?> ResolveLocalHandoffStartAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
+        await ValidateHandoffTargetAsync(repoPath, target, ct);
+
+        if (target is { HeadIsFork: true, PullRequestNumber: { } number })
+            return await ResolveCommitAsync(repoPath, $"refs/kcap/handoff/pull-{number}") is { } head
+                ? new(HandoffSource.ForkPullRequest, HandoffCheckout.Detached, head, target.Branch, HandoffDetachReason.ForkHead, null)
+                : null;
+
+        if (target.Branch is not { Length: > 0 } branch
+         || await ResolveCommitAsync(repoPath, $"refs/remotes/origin/{branch}") is not { } sha) return null;
+
+        ct.ThrowIfCancellationRequested();
+
+        return await DecideBranchStartAsync(repoPath, branch, sha, NoLazyFetch);
+    }
+
+    // A partial clone fetches a missing object on demand, which would reach origin from a read meant to stay local.
+    static readonly KeyValuePair<string, string>[] NoLazyFetch = [new("GIT_NO_LAZY_FETCH", "1")];
+
+    async Task ValidateHandoffTargetAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
+        ct.ThrowIfCancellationRequested();
+
+        if (target is { HeadIsFork: true, PullRequestNumber: null })
+            throw new InvalidOperationException("invalid_handoff_target: a fork head needs its pull request number");
+        if (target.Branch is { Length: > 0 } named && !await IsValidRefNameAsync(repoPath, named))
+            throw new InvalidOperationException($"invalid_base_ref: {named}");
+    }
+
+    async Task<string?> ResolveCommitAsync(string repoPath, string refName) {
+        var result = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], NoLazyFetch, "rev-parse", "--verify", "--quiet", $"{refName}^{{commit}}");
+
+        return result.ExitCode == 0 && result.Stdout.Trim() is { Length: > 0 } sha ? sha : null;
+    }
+
     /// <summary>True for the refusals <see cref="ResolveHandoffStartAsync"/> raises about the target itself,
     /// as opposed to a git failure while reading the repository.</summary>
     public static bool IsHandoffTargetRefusal(Exception ex) =>
@@ -77,7 +109,7 @@ public partial class WorktreeManager {
         return ((await RunGitCapture(repoPath, GitTimeout, time, true, "rev-parse", "--verify", $"{tracking}^{{commit}}")).Trim(), null);
     }
 
-    async Task<HandoffStart> DecideBranchStartAsync(string repoPath, string branch, string sha) {
+    async Task<HandoffStart> DecideBranchStartAsync(string repoPath, string branch, string sha, KeyValuePair<string, string>[]? environment = null) {
         var (local, elsewhere) = await ReadLocalBranchAsync(repoPath, branch);
 
         if (local is null)
@@ -87,7 +119,7 @@ public partial class WorktreeManager {
         if (local == sha)
             return new(HandoffSource.Branch, HandoffCheckout.CheckoutBranch, sha, branch, HandoffDetachReason.None, local);
 
-        var ancestor = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "merge-base", "--is-ancestor", local, sha);
+        var ancestor = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment ?? [], "merge-base", "--is-ancestor", local, sha);
 
         return ancestor.ExitCode == 0
             ? new(HandoffSource.Branch, HandoffCheckout.FastForwardBranch, sha, branch, HandoffDetachReason.None, local)
@@ -116,6 +148,7 @@ public partial class WorktreeManager {
     public async Task<WorktreeInfo> CreateHandoffAsync(
             string repoPath, HandoffStart start, string? name = null, CancellationToken ct = default) {
         ct.ThrowIfCancellationRequested();
+        var pinned       = PinSource(repoPath);
         var worktreeRoot = Path.Combine(repoPath, ".capacitor", "worktrees");
         name ??= await PickWorktreeNameAsync(repoPath, worktreeRoot);
         var worktreePath = Path.Combine(worktreeRoot, name);
@@ -125,8 +158,10 @@ public partial class WorktreeManager {
         if (!detached && !await IsValidRefNameAsync(repoPath, branch))
             throw new InvalidOperationException($"invalid_base_ref: {branch}");
 
+        var commonDir = await ResolvedCommonDirAsync(repoPath);
+        RefuseIfSourceMoved(repoPath, pinned);
         Directory.CreateDirectory(worktreeRoot);
-        await ExcludeWorktreeRootAsync(repoPath);
+        await ExcludeWorktreeRootAsync(repoPath, pinned, commonDir);
 
         // Pinning the start under the worktree's own ref keeps a fork head out of the unsaved-work count,
         // and removal deletes it.
@@ -147,7 +182,9 @@ public partial class WorktreeManager {
                     if (checkedOut) throw StartChanged($"{branch} is checked out in another worktree");
                 }
 
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "update-ref", fetchedRef, start.Sha);
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
 
                 switch (start.Checkout) {
                     case HandoffCheckout.CreateBranch:
@@ -159,6 +196,7 @@ public partial class WorktreeManager {
                         // the gate cannot do for the user's own git, so the fast-forward moves no tree but ours.
                         await RunGit(repoPath, GitTimeout, time, noHooks, "worktree", "add", "--no-checkout", worktreePath, branch);
                         registered = true;
+                        await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                         var moved = await RunGitCaptureResult(repoPath, GitTimeout, time, false, [],
                             "update-ref", $"refs/heads/{branch}", start.Sha, start.LocalBranchSha!);
                         if (moved.ExitCode != 0) throw StartChanged($"{branch} moved before it could be fast-forwarded");
@@ -174,26 +212,37 @@ public partial class WorktreeManager {
                 }
             });
         } catch {
-            if (registered)
-                await WithWorktreeMetadataGate(repoPath, time, () =>
-                    RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath));
-            await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, async () => {
+                    if (registered)
+                        await WithWorktreeMetadataGate(repoPath, time, async () => {
+                            if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                                await RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath);
+                        });
+                    if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                        await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+                });
+            } catch { /* keep the original failure */ }
             throw;
         }
 
-        await StripOrRollBackAsync(created);
+        await StripOrRollBackAsync(created, pinned, commonDir);
 
         try {
             // Written directly: --set-upstream-to refuses a branch outside a single-branch clone's refspec.
             if (start.Checkout == HandoffCheckout.CreateBranch) {
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.remote", "origin");
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.merge", $"refs/heads/{branch}");
             }
 
             var head = (await RunGitCapture(worktreePath, GitTimeout, time, true, "rev-parse", "HEAD")).Trim();
             if (head != start.Sha) throw StartChanged($"the worktree is at {head}, not {start.Sha}");
         } catch {
-            try { await RemoveAsync(created, time, keepUnsavedWork: false); } catch { /* keep the original failure */ }
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, () => RemoveAsync(created, time, keepUnsavedWork: false));
+            } catch { /* keep the original failure */ }
             throw;
         }
 
@@ -204,11 +253,13 @@ public partial class WorktreeManager {
 
     /// <summary>Checks the session's commits against the starting point. <paramref name="sessionCommits"/>
     /// null means they are unknown; <paramref name="mayHaveUnpushedWork"/> means the session may have left
-    /// work that no commit list can show. A missing commit outranks any uncertainty.</summary>
+    /// work that no commit list can show. A missing commit outranks any uncertainty. <paramref name="localOnly"/> keeps
+    /// a partial clone from fetching a commit it lacks, which then reads as missing.</summary>
     public async Task<HandoffWork> CheckHandoffWorkAsync(
             string repoPath, string startSha, IReadOnlyList<string>? sessionCommits, bool mayHaveUnpushedWork,
-            int checkCap = HandoffCommitCheckCap, CancellationToken ct = default) {
-        var missing = new List<string>();
+            int checkCap = HandoffCommitCheckCap, bool localOnly = false, CancellationToken ct = default) {
+        var missing     = new List<string>();
+        var environment = localOnly ? NoLazyFetch : [];
 
         var reverted = false;
 
@@ -227,11 +278,11 @@ public partial class WorktreeManager {
         return new(completeness, missing);
 
         async Task<bool> IsReachableAsync(string commit) =>
-            (await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "merge-base", "--is-ancestor", commit, startSha)).ExitCode == 0;
+            (await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment, "merge-base", "--is-ancestor", commit, startSha)).ExitCode == 0;
 
         // A revert may itself have been reverted, so its message only makes the work unconfirmed.
         async Task<bool> IsNamedByRevertAsync(string commit) {
-            var reverts = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [],
+            var reverts = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment,
                 "rev-list", "--count", "--fixed-strings", $"--grep=This reverts commit {commit}", $"{commit}..{startSha}");
 
             return reverts.ExitCode != 0 || reverts.Stdout.Trim() != "0";

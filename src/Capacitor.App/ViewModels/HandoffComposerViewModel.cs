@@ -3,6 +3,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -14,7 +15,9 @@ namespace Capacitor.App.ViewModels;
 /// The composer of an ended server session: whether it can be resumed in place or handed off from this
 /// machine, where a new session would start, and the launch. Neither degrades into an ordinary launch:
 /// Resume needs both hops' resume-in-place/1 and the daemon's probe, Start their handoff/1 and a probed
-/// start, and what launches is exactly what the strip shows.
+/// start, and what launches is exactly what the strip shows. The strip is read from the checkout's own
+/// refs; origin is contacted only once the user starts the hand-off, since showing the composer is no
+/// request to reach off the machine.
 public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAttachmentSink {
     public const string NeedsFullAccess = "You need full access to this session to hand it off";
     public const string ServerTooOld = "Your kcap server doesn't support hand-off yet";
@@ -23,7 +26,18 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string DaemonNotRunning = "Your local kcap daemon isn't running. Start it to hand off.";
     public const string ContextUnavailable = "Couldn't load this session's details from your kcap server";
     public const string NoRepository = "This session isn't linked to a GitHub repository, so it can't be handed off";
+    public const string NoRemote     = "This session's repository has no remote, so it can't be handed off";
     public const string ProbeFailed = "Your local kcap daemon didn't answer, so the starting point couldn't be checked";
+    public const string CheckoutUnreadable = "Your local kcap daemon couldn't read this checkout, so the starting point couldn't be checked";
+    public const string CheckingOrigin = "Checking origin…";
+    public const string OriginMoved =
+        "Origin has moved on since this was checked, so nothing was started. Check where the new session would start and start again.";
+    public const string AccountMoved =
+        "Origin points to another checkout, which uses a different account, so nothing was started. Check the account and start again.";
+    public const string OriginSignInNeeded = "Couldn't sign in to origin, so nothing was started. Set up git's sign-in for it on this machine and start again.";
+    public const string OriginTimedOut = "Origin didn't answer in time, so nothing was started. Start again to retry.";
+    public const string OriginOffline = "Couldn't reach origin, so nothing was started. Check this machine's network and start again.";
+    public const string OriginUnreadable = "Couldn't read origin, so nothing was started.";
     public const string InvalidTarget = "There's no branch or commit to start this hand-off from";
     public const string SignInToHandOff = "Sign in to your kcap server to hand off";
     public const string DaemonOnAnotherServer = "Your local kcap daemon is connected to a different kcap server, so it can't take this hand-off";
@@ -33,18 +47,44 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string Resuming = "Resuming…";
     public const string ResumeSendsTextOnly = "Resume sends only your message. Hand off to send files too.";
     const string StripPrefix = "New session in a fresh worktree";
+    public const string OriginDecidesLabel = StripPrefix + "; where it starts is checked with origin when you start the hand-off";
     const string FullAccess = "full";
 
     public static string NoCheckout(string owner, string name) => $"There's no checkout of {owner}/{name} on this machine";
-    public static string OriginUnreachable(string detail) => $"Couldn't reach origin: {detail}";
     static string NotAllowed(string path) => $"Your local kcap daemon isn't allowed to work in {path}";
+
+    /// git's stderr for a failed read of origin, as one line. The detail itself only goes to the log: it
+    /// spans lines and speaks of prompts the user never saw.
+    public static string OriginUnreachable(string? detail) {
+        var text = detail ?? "";
+        if (OriginSignInMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase))) return OriginSignInNeeded;
+        if (text.Contains("timed out", StringComparison.OrdinalIgnoreCase)) return OriginTimedOut;
+        if (OriginNetworkMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase))) return OriginOffline;
+        return OriginUnreadable;
+    }
+
+    static readonly string[] OriginSignInMarkers = [
+        "authentication failed", "could not read username", "could not read password", "terminal prompts disabled",
+        "cannot prompt", "permission denied", "repository not found", "invalid username or password",
+        "returned error: 401", "returned error: 403",
+    ];
+
+    static readonly string[] OriginNetworkMarkers = [
+        "could not resolve host", "failed to connect", "connection refused", "network is unreachable", "no route to host",
+        "unable to access", "connection reset",
+    ];
 
     /// What the server's context names as the hand-off target, mapped for the probe.
     internal sealed record Target(string? Branch, int? PullRequestNumber, bool HeadIsFork, string? HeadOwner, string? HeadRepo);
 
+    /// What a probe of the target sends, and the checkouts it may ask about.
+    sealed record ProbePlan(IReadOnlyList<string> Checkouts, string Owner, string Name, Target Target, IReadOnlyList<string>? Commits);
+
+    /// FromOrigin is a start origin itself named; OriginFailed is a read of origin that did not answer.
     sealed record Evaluation(
         string? Reason, HandoffLaunchStart? Start = null, string? Checkout = null, string? Label = null,
-        string? CompletenessNote = null, bool Waiting = false);
+        string? CompletenessNote = null, bool Waiting = false, ProbePlan? Plan = null, bool FromOrigin = false,
+        bool OriginFailed = false);
 
     RepoSessionDto _session;
     readonly IDaemonClientService _daemon;
@@ -81,7 +121,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
     string? _checkout;
+    ProbePlan? _plan;
+    bool _originChecked;
+    bool _checkingOrigin;
     CancellationTokenSource? _evaluation;
+    string? _accountError;
 
     /// <param name="candidateRoots">Repositories this machine knows besides the session's own
     /// checkout: the launcher's and the daemon agents' roots.</param>
@@ -95,6 +139,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// launch reaches the daemon through that server.</param>
     /// <param name="onUnauthorized">IServerLane's ParkSignedOut, for a 401 on an upload or a launch.</param>
     /// <param name="localMachineId">This app's machine id, which a session recorded here carries; null offers no Resume.</param>
+    /// <param name="accounts">The local daemon's accounts and usage clock; null offers no account.</param>
+    /// <param name="accountMemory">Where the launcher remembers an account per repository.</param>
     public HandoffComposerViewModel(
             RepoSessionDto session, IDaemonClientService daemon, ILaunchClient launch, IServerSessionsService sessions,
             ILocalControlOps ops, LocalCheckoutFinder finder, Func<CancellationToken, Task<IReadOnlyList<string>>> candidateRoots,
@@ -105,6 +151,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
+            AccountReadings? accounts = null, AppStateStore? accountMemory = null,
             CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
@@ -126,7 +173,16 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _time = time ?? TimeProvider.System;
         _localMachineId = localMachineId;
         _shutdown = shutdown;
-        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog).DisposeWith(_disposables);
+        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        // A pick answers the refusal of the one before it.
+        _choices.WhenAnyValue(x => x.AccountRows)
+            .Skip(1)
+            .Subscribe(_ => {
+                if (_accountError is not null && Error == _accountError) Error = null;
+                _accountError = null;
+            })
+            .DisposeWith(_disposables);
 
         daemon.Status.Subscribe(s => _attach = s).DisposeWith(_disposables);
         daemon.Snapshots.Subscribe(s => _snapshot = s).DisposeWith(_disposables);
@@ -157,7 +213,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             .DisposeWith(_disposables);
         // A daemon that connects, restarts, updates or moves server under an open composer answers again.
         daemon.Status
-            .Select(s => (s.State, Handoff: HasHandoff(s), Resume: HasResume(s)))
+            .Select(s => (s.State, Handoff: HasHandoff(s), Local: HasLocalProbe(s), Resume: HasResume(s)))
             .DistinctUntilChanged()
             .Skip(1)
             .Select(_ => Unit.Default)
@@ -181,8 +237,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             .ToProperty(this, x => x.AttachHint, initialValue: (string?)null)
             .DisposeWith(_disposables);
 
-        var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
-            (start, reason, launching, resuming) => start is not null && reason is null && !launching && !resuming);
+        var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.StartsFromOrigin, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
+                (start, fromOrigin, reason, launching, resuming) => (start is not null || fromOrigin) && reason is null && !launching && !resuming)
+            .CombineLatest(_choices.WhenAnyValue(x => x.AccountPending), (ready, pending) => ready && !pending);
         StartCommand = ReactiveCommand.CreateFromTask(StartAsync, canStart);
         var canResume = this.WhenAnyValue(x => x.ResumeOffered, x => x.IsLaunching, x => x.IsResuming,
             (offered, launching, resuming) => offered && !launching && !resuming);
@@ -218,6 +275,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+    internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenStripCommand { get; }
@@ -286,7 +344,24 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     string _stripLabel = "";
     public string StripLabel {
         get => _stripLabel;
-        private set => this.RaiseAndSetIfChanged(ref _stripLabel, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _stripLabel, value);
+            this.RaisePropertyChanged(nameof(StripSummary));
+        }
+    }
+
+    public string StripSummary {
+        get {
+            if (ProbedStart is not { } start)
+                return StripLabel.Length > 0 ? "Starting point will be checked with origin when you start." : "";
+            var sha = start.StartSha.Length > 7 ? start.StartSha[..7] : start.StartSha;
+            var branch = start.Branch;
+            if (branch is not null && start.HeadIsFork && start.HeadOwner is { } owner)
+                branch = $"{owner}:{branch}";
+            var summary = branch is { Length: > 0 } ? $"Starting from {branch} at {sha}" : $"Starting at {sha}";
+            return start.Checkout == nameof(HandoffCheckout.Detached)
+                ? $"{summary} · No branch checked out" : summary;
+        }
     }
 
     string? _completenessNote;
@@ -335,7 +410,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// The start the strip shows, which a launch sends unchanged.
     public HandoffLaunchStart? ProbedStart {
         get => _probedStart;
-        private set => this.RaiseAndSetIfChanged(ref _probedStart, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _probedStart, value);
+            this.RaisePropertyChanged(nameof(StripSummary));
+        }
+    }
+
+    bool _startsFromOrigin;
+    /// Nothing on this machine names the start, so Start asks origin and launches from its answer.
+    public bool StartsFromOrigin {
+        get => _startsFromOrigin;
+        private set => this.RaiseAndSetIfChanged(ref _startsFromOrigin, value);
     }
 
     bool _isLaunching;
@@ -379,6 +464,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _evaluation?.Dispose();
         var cts = _evaluation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown, ct);
         ProbedStart = null;
+        StartsFromOrigin = false;
         StripLabel = "";
         CompletenessNote = null;
         DisabledReason = null;
@@ -400,13 +486,22 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(cts, _evaluation)) return;
         IsProbing = result.Waiting;
         Progress = IsResuming ? Resuming : result.Waiting ? WaitingForDaemon : null;
+        Show(result);
+        // Nothing else re-checks a failed read while the lane and the daemon stay connected.
+        if (result.Reason is ContextUnavailable or ProbeFailed or ServerUnreachable or CheckoutUnreadable || offered is null)
+            _ = RetryAsync(cts.Token);
+    }
+
+    void Show(Evaluation result) {
         DisabledReason = result.Reason;
         _checkout = result.Checkout;
+        _choices.SetRepository(result.Checkout);
+        _plan = result.Plan;
+        _originChecked = result.FromOrigin;
         StripLabel = result.Label ?? "";
         CompletenessNote = result.CompletenessNote;
         ProbedStart = result.Reason is null ? result.Start : null;
-        // Nothing else re-checks a failed read while the lane and the daemon stay connected.
-        if (result.Reason is ContextUnavailable or ProbeFailed or ServerUnreachable || offered is null) _ = RetryAsync(cts.Token);
+        StartsFromOrigin = result is { Reason: null, Start: null, Plan: not null };
     }
 
     internal static readonly TimeSpan TransientRetry = TimeSpan.FromSeconds(30);
@@ -449,18 +544,27 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
+        // The daemon proves a checkout by its origin, which a repository with no remote does not have.
+        if (LocalRepository.IsLocal(owner)) return new(NoRemote);
 
         var candidates = await Task.Run(() => _candidateRoots(ct), ct);
         var checkouts = await _finder.FindAllAsync(owner, name, _session.Cwd, candidates, ct);
         if (checkouts.Count == 0) return new(NoCheckout(owner, name));
 
-        var target = TargetFor(context, context.Branch ?? _session.Branch);
-        // A checkout the daemon refuses as the wrong repository or out of bounds may have a sibling it takes.
+        var plan = new ProbePlan(checkouts, owner, name, TargetFor(context, context.Branch ?? _session.Branch), context.SessionCommits);
+        // A daemon without the offline probe would fetch, so it is asked nothing until Start.
+        if (_attach is not { } attach || !HasLocalProbe(attach)) return new(null, Checkout: checkouts[0], Label: OriginDecidesLabel, Plan: plan);
+        return await ProbeAsync(plan, localOnly: true, ct);
+    }
+
+    /// A checkout the daemon refuses as the wrong repository or out of bounds may have a sibling it takes.
+    async Task<Evaluation> ProbeAsync(ProbePlan plan, bool localOnly, CancellationToken ct) {
+        var target = plan.Target;
         Evaluation? refused = null;
-        foreach (var checkout in checkouts) {
+        foreach (var checkout in plan.Checkouts) {
             var request = new HandoffProbeRequestDto(
-                checkout, owner, name, target.Branch, target.PullRequestNumber, target.HeadIsFork, target.HeadOwner,
-                target.HeadRepo, context.SessionCommits);
+                checkout, plan.Owner, plan.Name, target.Branch, target.PullRequestNumber, target.HeadIsFork, target.HeadOwner,
+                target.HeadRepo, plan.Commits, localOnly);
             HandoffProbeReplyDto? reply;
             try {
                 reply = await Task.Run(() => _ops.ProbeHandoffAsync(request, ct), ct);
@@ -468,21 +572,56 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 reply = null;
             }
 
+            var probed = plan with { Checkouts = [checkout] };
             switch (reply) {
                 case { Refusal: HandoffRefusals.RepoMismatch }:
-                    refused ??= new(NoCheckout(owner, name));
+                    refused ??= new(NoCheckout(plan.Owner, plan.Name));
                     continue;
                 case { Refusal: HandoffRefusals.RepoNotAllowed }:
                     refused ??= new(NotAllowed(checkout));
                     continue;
                 case { Refusal: { } }: return new(InvalidTarget);
-                case { FetchError: { } detail }: return new(OriginUnreachable(detail));
+                case { FetchError: { } detail }:
+                    Console.Error.WriteLine($"kcap: hand-off {(localOnly ? "check" : "origin read")}: {detail}");
+                    return localOnly ? new(CheckoutUnreadable) : new(OriginUnreachable(detail), OriginFailed: true);
                 case { Start: { } start, Completeness: var completeness, MissingCommits: var missing }:
-                    return new(null, start, checkout, StripLabelFor(start, target.Branch), CompletenessNoteFor(completeness, missing));
+                    return new(null, start, checkout, StripLabelFor(start, target.Branch), CompletenessNoteFor(completeness, missing),
+                        Plan: probed, FromOrigin: !localOnly);
+                case { NeedsOrigin: true } when localOnly:
+                    return new(null, Checkout: checkout, Label: OriginDecidesLabel, Plan: probed);
                 default: return new(ProbeFailed);
             }
         }
         return refused!;
+    }
+
+    /// The hand-off's one read of origin, made when the user starts it. A start other than the one the strip
+    /// shows is shown rather than launched; with nothing shown, the user started from origin's answer.
+    async Task<bool> CheckOriginAsync(ProbePlan plan) {
+        var shown = ProbedStart;
+        var shownCheckout = _checkout;
+        _checkingOrigin = true;
+        Progress = CheckingOrigin;
+        Evaluation result;
+        try {
+            result = await ProbeAsync(plan, localOnly: false, _shutdown);
+        } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+            return false;
+        } finally {
+            _checkingOrigin = false;
+            if (!_disposed) Progress = null;
+        }
+        if (_disposed) return false;
+        // Start stays offered, so a sign-in fixed meanwhile is one click away.
+        if (result.OriginFailed || result.Reason == ProbeFailed) {
+            Error = result.Reason;
+            return false;
+        }
+        Show(result);
+        if (result.Reason is not null) return false;
+        if (shown is null || (shown == result.Start && shownCheckout == result.Checkout)) return true;
+        Error = OriginMoved;
+        return false;
     }
 
     static bool HasAvailableHarness(IReadOnlyList<HarnessOption> options) => options.Any(o => o.Available);
@@ -585,9 +724,26 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
 
     async Task StartAsync() {
         // Execute() does not gate on CanExecute.
-        if (ProbedStart is not { } start || DisabledReason is not null || IsLaunching || _checkout is not { } checkout) return;
+        if ((ProbedStart is null && !StartsFromOrigin) || DisabledReason is not null || IsLaunching || _plan is not { } plan
+         || _choices.AccountPending) return;
+        if (_choices.AccountRefusal is { } refusedAccount) {
+            Error = _accountError = refusedAccount;
+            return;
+        }
         IsLaunching = true;
         try {
+            var account = _choices.CurrentAccount;
+            if (!_originChecked && !await CheckOriginAsync(plan)) return;
+            if (ProbedStart is not { } start || _checkout is not { } checkout || _choices.AccountPending) return;
+            if (_choices.CurrentAccount != account) {
+                Error = AccountMoved;
+                return;
+            }
+            // The account can go while origin answers.
+            if (_choices.AccountRefusal is { } refusedAfterOrigin) {
+                Error = _accountError = refusedAfterOrigin;
+                return;
+            }
             var draft = _choices.Capture(Text, Tray.Snapshot());
             IReadOnlyList<string>? attachmentIds = null;
             if (draft.Attachments.Count > 0) {
@@ -623,12 +779,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 }
                 attachmentIds = upload.Ids;
             }
+            if (_choices.AccountErrorFor(draft) is { } accountError) {
+                if (_disposed) _drafts.HoldFailed(_session.SessionId, draft with { Error = accountError });
+                else Error = _accountError = accountError;
+                return;
+            }
 
             var request = new LaunchRequest(
                 _daemon.DaemonName, checkout, draft.Vendor, draft.Text, draft.Model, draft.Effort,
                 HomeViewModel.PermissionModeFor(draft.Vendor, draft.PermissionMode!), attachmentIds,
                 HomeViewModel.CodexPostureFor(draft.Vendor, draft.CodexPosture!.Sandbox, draft.CodexPosture.Approval),
-                Handoff: start with { SourceSessionId = _session.SessionId });
+                Handoff: start with { SourceSessionId = _session.SessionId }, AccountId: draft.Account?.Id);
             // Captured before the call: a navigation while it is in flight must keep the launch from opening.
             var generation = _navigationGeneration();
             var launchEpoch = _laneEpoch;
@@ -770,6 +931,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     static bool HasHandoff(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(HandoffWire.Capability) == true;
 
+    static bool HasLocalProbe(AttachStatus status) =>
+        status.State == AttachState.Connected && status.Capabilities?.Contains(HandoffWire.LocalProbeCapability) == true;
+
     static bool HasResume(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeInPlaceWire.Capability) == true;
 
@@ -810,13 +974,14 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     internal static string? CompletenessNoteFor(string? completeness, IReadOnlyList<string>? missingCommits) => completeness switch {
         nameof(HandoffCompleteness.Complete) => null,
         nameof(HandoffCompleteness.PartlyMissing) => $"Part of the session's work is missing: {missingCommits?.Count ?? 0} commits",
-        _ => "The session may have left work that isn't pushed",
+        _ => "Previous session may have unpushed work",
     };
 
     public void Dispose() {
         if (_disposed) return;
-        // A launch in flight settles its own draft; anything else typed or staged waits for the next composer.
-        if (_initialized && !IsLaunching && (Text.Length > 0 || Tray.Count > 0))
+        // A launch in flight settles its own draft; anything else typed or staged waits for the next composer,
+        // including a draft whose launch is still waiting on origin, which has captured nothing yet.
+        if (_initialized && (!IsLaunching || _checkingOrigin) && (Text.Length > 0 || Tray.Count > 0))
             _drafts.KeepUnsent(_session.SessionId, _choices.Capture(Text, Tray.Snapshot()));
         _disposed = true;
         _evaluation?.Cancel();

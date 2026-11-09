@@ -94,6 +94,25 @@ public class HistoryStepViewModelTests {
         await Assert.That(h.Vm.Groups.Select(g => g.Owner)).IsEquivalentTo(["acme", "solo"], CollectionOrdering.Matching);
     }
 
+    /// Each repository with no remote has an owner of its own, so they are grouped together under one heading,
+    /// and each still imports under its own key.
+    [Test]
+    public async Task Repositories_with_no_remote_share_one_group() {
+        var h = new Harness(new ImportDiscoveryReport([
+            Repo("acme", "web", 40, 20, 5, 30),
+            Repo("local~0123456789abcdef0123", "demo", 3, 3, 0, 25),
+            Repo("local~fedcba98765432100123", "notes", 2, 2, 0, 24),
+        ], 0, [new(D30, 6), new(D90, 27), new(null, 53)]));
+        await h.EnterAsync();
+
+        var local = h.Vm.Groups.Single(g => g.Repos.Count == 2);
+
+        await Assert.That(h.Vm.Groups.Count).IsEqualTo(2);
+        await Assert.That(local.Owner).IsEqualTo(HistoryStepViewModel.LocalOwnerLabel);
+        await Assert.That(local.Repos.Select(r => r.Slug))
+            .IsEquivalentTo(["local~0123456789abcdef0123/demo", "local~fedcba98765432100123/notes"]);
+    }
+
     /// A Pi-only setup still offers the Claude Code and Codex history already on disk, each harness its
     /// own checked choice, and importing it touches neither harness's recording or tools.
     [Test]
@@ -659,6 +678,22 @@ public class HistoryStepViewModelTests {
 
         await Assert.That(h.Vm.State).IsEqualTo(expected);
         await Assert.That(h.Vm.EmptyMessage).IsNotNull();
+    }
+
+    /// Sessions in a folder with no remote have no repository to list, and the folder is the way to import them.
+    [Test]
+    public async Task A_report_with_only_folders_offers_the_folders() {
+        var h = new Harness(new ImportDiscoveryReport([], 1, [], [new("/w/copilot-demo", 1, [new(D30, 1), new(D90, 1), new(null, 1)])]));
+        await h.EnterAsync();
+
+        await Assert.That(h.Vm.EmptyMessage).IsNull();
+        await Assert.That(h.Vm.FoldersVisible).IsTrue();
+        await Assert.That(h.Vm.UnmatchedNote!).Contains("check their folders");
+
+        h.Vm.Folders.Single().Included = true;
+        await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+
+        await Assert.That(h.Cli.ImportRequests.Single().Folders!).IsEquivalentTo(["/w/copilot-demo"]);
     }
 
     /// Every line the local path can show, across each empty arm and the repository list.

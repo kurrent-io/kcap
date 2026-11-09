@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Harness.Gemini;
 /// Gemini records each subagent in <c>chats/&lt;parentSessionId&gt;/&lt;subId&gt;.jsonl</c>;
 /// the parent's <c>invoke_agent</c> tool call persists <c>agentId == subId</c> plus
 /// <c>args.agent_name</c>. Shared by the historical import path (<c>GeminiImportSource</c>)
-/// and the live watcher (<c>WatchCommand</c> / <c>GeminiHookCommand</c>) so both speak one
+/// and the live scan (<c>GeminiSubagentScan</c>, <c>GeminiHookCommand</c>) so both speak one
 /// wire contract.
 /// </summary>
 public static class GeminiSubagentDiscovery {
