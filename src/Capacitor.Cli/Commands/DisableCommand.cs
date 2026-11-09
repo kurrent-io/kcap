@@ -40,9 +40,9 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
                 caveats.Add($"kcap could not record that a daemon sends this session to {other} ({unkept}), so a later kcap disable won't name that server.");
         }
 
-        // After the deletion, which a send still on its way can land behind, and ahead of a line that may not print. A post
-        // with no answer can bring the session back behind a deletion that found nothing too, and its records are the only
-        // trace of that doubt until it is kept, so they go only once it is.
+        // After the deletion, which a send still on its way can land behind, one that found nothing included, and ahead of a
+        // line that may not print. Unanswered posts' records are the only trace of that doubt until it is kept, so they go
+        // only once it is.
         void KeepDoubt() {
             if (Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config)) is { } unrecorded) {
                 if (!stopped.PostsUnanswered)
@@ -63,7 +63,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
 
                     break;
                 case DeleteSessionResponse.NotFound:
-                    if (stopped.PostsUnanswered) KeepDoubt();
+                    if (!confirmed) KeepDoubt();
 
                     await stdout.WriteLineAsync(marked
                         ? $"Session {sessionId} disabled. No server data found (may have already been deleted)."

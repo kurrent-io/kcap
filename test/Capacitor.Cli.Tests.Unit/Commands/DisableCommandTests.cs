@@ -289,13 +289,11 @@ public class DisableCommandTests : IDisposable {
     [Test]
     [Arguments("unreachable")]
     [Arguments("refused")]
-    [Arguments("not found")]
     public async Task An_unconfirmed_stop_with_no_deletion_leaves_nothing_behind(string server) {
         _daemon.Names = ["daemon-b"];
         _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
         if (server == "unreachable") _sessions.Failure = new CapacitorApiException(null, "The server could not be reached.");
         if (server == "refused") _sessions.Failure = new CapacitorApiException(500, "Server error.");
-        if (server == "not found") _sessions.Answer = new DeleteSessionResponse.NotFound();
         await Run();
         _out.GetStringBuilder().Clear();
         _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
@@ -305,6 +303,24 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>A send still on its way can create the session behind a deletion that found nothing, so that deletion is
+    /// doubted later as one that deleted would be.</summary>
+    [Test]
+    public async Task An_unconfirmed_stop_whose_deletion_found_nothing_is_doubted_later() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
+        _sessions.Answer = new DeleteSessionResponse.Deleted();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith(Clean);
+        await Assert.That(Printed).Contains(EarlierDeletion);
     }
 
     /// <summary>A live agent's output isn't recording, and its own line says what goes on.</summary>
