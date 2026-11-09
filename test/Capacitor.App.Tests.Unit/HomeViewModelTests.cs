@@ -179,11 +179,33 @@ public class HomeViewModelTests {
         });
     }
 
-    /// A task picked while discovery awaits its reads wins, though its pick of no repository leaves the selection
-    /// reading as it did: the pick parks on the held store before the task is recorded, which is when discovery resumes.
+    /// A pick of no repository made while discovery awaits its reads wins, though the selection reads as it did.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Default_discovery_yields_to_a_task_picked_while_it_reads() {
+    public async Task Default_discovery_yields_to_a_pick_of_no_repository_made_while_it_reads() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var known = new TaskCompletionSource<string[]>();
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), new RecordingLaunchClient(),
+                () => known.Task, TimeProvider.System);
+
+            var discovery = vm.EnsureDefaultRepositoryAsync();
+            await vm.SelectRepositoryAsync(HomeViewModel.ScratchRepoPath);
+            known.SetResult([Tmp.CreateDir("recent").Path]);
+            await discovery;
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+        });
+    }
+
+    /// Discovery started before a task pick or during it never fills the empty selection the pick makes: the pick
+    /// parks on the held store between selecting no repository and recording the task, and discovery resumes there.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Default_discovery_never_fills_the_selection_of_a_task_being_picked(bool discoveryFirst) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var launch = new RecordingLaunchClient();
             var daemon = new FakeDaemonClientService();
@@ -192,14 +214,42 @@ public class HomeViewModelTests {
             var known = new TaskCompletionSource<string[]>();
             using var vm = new HomeViewModel(daemon, store, launch, () => known.Task, TimeProvider.System);
 
-            var discovery = vm.EnsureDefaultRepositoryAsync();
+            var discovery = discoveryFirst ? vm.EnsureDefaultRepositoryAsync() : null;
             var pick = vm.FillFromNextWorkAsync(new("le:b", "Document B", "Document B", null, true, null, "Recorded context", AwaitsCheckout: true));
+            discovery ??= vm.EnsureDefaultRepositoryAsync();
             known.SetResult([Tmp.CreateDir("recent").Path]);
             await discovery;
             store.Release();
             await pick;
 
             await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
+        });
+    }
+
+    /// A picked task's checkout is its own: once its directory is deleted, opening the menu leaves the task waiting
+    /// for one and Start refusing, never running it in another known repository.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_tasks_deleted_checkout_leaves_it_waiting_for_one() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var launch = new RecordingLaunchClient();
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var other = Tmp.CreateDir("other").Path;
+            var checkout = Tmp.CreateDir("checkout").Path;
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), launch, Known(other), TimeProvider.System);
+            await WaitUntilAsync(() => vm.SelectedRepoPath == other, "the startup default adopted");
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, checkout, "Recorded context"));
+            Directory.Delete(checkout);
+
+            var repos = await vm.ListRepositoriesAsync();
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+            await Assert.That(vm.NextWorkSource!.AwaitsCheckout).IsTrue();
+            await Assert.That(repos.Any(r => r.RepoPath == checkout)).IsFalse();
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last).IsNull();
             await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);

@@ -164,9 +164,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     readonly CompositeDisposable _disposables = new();
 
     string _selectedRepoPath = ScratchRepoPath;
-    // Every assignment counts, the same path included: a task's pick of no repository leaves the
+    // Every assignment counts, the same path included: a pick of no repository leaves the
     // selection reading as it did, and default discovery must still yield to it.
     int _repoPicks;
+    // Held for a task pick's whole run: it selects the checkout before it records the task, and
+    // discovery in between would see neither.
+    int _taskPicksInFlight;
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
@@ -455,16 +458,21 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Picks a next-work task for the next launch, on the machine and in the checkout it names when it names one. The
     /// composer keeps what it holds, as context for the task.
     public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
-        bool OnTasksMachine() => fill.Machine is not { } want
-            || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
-        if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
-        // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
-        // path names nothing: the task waits for its checkout instead.
-        if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
-        if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
-        // A repository already chosen for something else is not this task's: left selected, Start would run it there.
-        else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
-        NextWorkSource = fill;
+        Interlocked.Increment(ref _taskPicksInFlight);
+        try {
+            bool OnTasksMachine() => fill.Machine is not { } want
+                || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
+            if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
+            // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
+            // path names nothing: the task waits for its checkout instead.
+            if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
+            if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
+            // A repository already chosen for something else is not this task's: left selected, Start would run it there.
+            else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
+            NextWorkSource = fill;
+        } finally {
+            Interlocked.Decrement(ref _taskPicksInFlight);
+        }
         _composerFills.OnNext(Unit.Default);
     }
 
@@ -1949,18 +1957,25 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// When nothing is selected, or the selected directory has been deleted, adopt the most recently
     /// used known repository that still exists (then a remembered harness key, then an agent root),
     /// or no repository when none does. No-op while the selection exists, for a remote machine,
-    /// which these local paths do not describe, and while a picked task waits for its own checkout:
-    /// the empty selection is how Start knows to refuse, not a gap to fill.
+    /// which these local paths do not describe, and while a task is being picked. A picked task that
+    /// has a repository never takes another one: its empty selection is how Start knows to refuse,
+    /// and a deleted one leaves it waiting for its checkout.
     public async Task EnsureDefaultRepositoryAsync() {
-        bool Held() => RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
+        bool Held() => RemoteMachineSelected || Volatile.Read(ref _taskPicksInFlight) > 0;
         if (Held()) return;
         var picks = Volatile.Read(ref _repoPicks);
+        var source = NextWorkSource;
+        var task = source is { AwaitsCheckout: true } or { RepoPath: not null } ? source : null;
         var selected = SelectedRepoPath;
+        if (task is not null && selected.Length == 0) return;
         if (selected.Length > 0 && await FirstExistingAsync([selected]) is not null) return;
-        var recent = await PreferRecentRepositoryAsync();
+        var recent = task is null ? await PreferRecentRepositoryAsync() : null;
         // Both awaits are file I/O — a pick or a machine switch made while they ran must win.
-        if (Held() || Volatile.Read(ref _repoPicks) != picks) return;
-        if (recent is not null) await SelectRepositoryAsync(recent);
+        if (Held() || Volatile.Read(ref _repoPicks) != picks || !ReferenceEquals(NextWorkSource, source)) return;
+        if (task is not null) {
+            NextWorkSource = task with { RepoPath = null, AwaitsCheckout = true };
+            await SelectRepositoryAsync(ScratchRepoPath);
+        } else if (recent is not null) await SelectRepositoryAsync(recent);
         else if (selected.Length > 0) await SelectRepositoryAsync(ScratchRepoPath);
     }
 
