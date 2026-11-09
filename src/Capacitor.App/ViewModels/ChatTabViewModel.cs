@@ -425,6 +425,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
             this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
+            this.RaisePropertyChanged(nameof(EmptyState));
+            this.RaisePropertyChanged(nameof(ShowsEmptyState));
         }
     }
 
