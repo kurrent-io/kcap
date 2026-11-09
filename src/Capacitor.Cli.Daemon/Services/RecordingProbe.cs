@@ -43,23 +43,34 @@ internal sealed class RecordingProbe {
         lock (_gate) {
             if (_answer.Task.IsCompleted) _answer = NewAnswer();
 
-            asking = _asking;
+            asking  = _asking;
+            _asking = null;
         }
 
         Cancel(asking);
     }
 
-    public void Report(bool records) {
+    public void Report(bool records) => Settle(records, from: null);
+
+    // With from, only while that asking is still the current one: a call already on the wire can answer after its
+    // connection went away, for a server the next connection may not reach.
+    bool Settle(bool records, CancellationTokenSource? from) {
         bool settled;
 
-        lock (_gate) settled = _answer.TrySetResult(records);
+        lock (_gate) {
+            if (from is not null && _asking != from) return false;
+
+            settled = _answer.TrySetResult(records);
+        }
 
         if (settled && !records) SaidNo?.Invoke();
+
+        return true;
     }
 
     /// <summary>Asks until the server answers, this asking gives way to the next, or <paramref name="ct"/> ends it.</summary>
     /// <param name="detach">Calls <c>WatcherDetach</c> for a key nobody holds.</param>
-    /// <returns>The server's answer, or null if it gave none.</returns>
+    /// <returns>The server's answer, or null if it gave none while this asking was the current one.</returns>
     public async Task<bool?> AskUntilAnsweredAsync(Func<CancellationToken, Task> detach, TimeProvider time, CancellationToken ct) {
         using var asking = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -74,11 +85,7 @@ internal sealed class RecordingProbe {
 
         try {
             for (var delay = FirstRetry;; delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, MaxRetry.Ticks))) {
-                if (await AskOnceAsync(detach, time, asking.Token) is { } answer) {
-                    Report(answer);
-
-                    return answer;
-                }
+                if (await AskOnceAsync(detach, time, asking.Token) is { } answer) return Settle(answer, from: asking) ? answer : null;
 
                 await Task.Delay(delay, time, asking.Token);
             }
