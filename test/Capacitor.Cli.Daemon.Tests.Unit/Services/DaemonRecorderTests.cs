@@ -117,7 +117,7 @@ public class DaemonRecorderTests {
         await using var recorder = NewRecorder(time: time);
         var source = Source();
         Directory.CreateDirectory(Paths.Directory);
-        var lockFile = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+        await using var lockFile = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
 
         var claim = recorder.ClaimAsync(source, CancellationToken.None);
         await Assert.That(claim.IsCompleted).IsFalse();

@@ -517,10 +517,11 @@ public class MuseHookCommandTests : IDisposable {
     public async Task SessionEnd_lifts_an_exclusion() {
         StubHooks();
         DisabledSessions.Exclude(ParentDashless, Config.Root);
+        using var stdin  = new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
+        using var stdout = new StringWriter();
 
-        await Command().Handle(new StringReader(
-            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
-            new StringWriter(), _ => null, Today);
+        await Command().Handle(stdin, stdout, _ => null, Today);
 
         await Assert.That(DisabledSessions.IsDisabled(ParentDashless, Config.Root)).IsFalse();
         await Assert.That(HookPosts("/hooks/").Count).IsEqualTo(0);
@@ -530,10 +531,11 @@ public class MuseHookCommandTests : IDisposable {
     public async Task SessionEnd_leaves_a_persons_disable() {
         StubHooks();
         DisabledSessions.Mark(ParentDashless, Config.Root);
+        using var stdin  = new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
+        using var stdout = new StringWriter();
 
-        await Command().Handle(new StringReader(
-            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
-            new StringWriter(), _ => null, Today);
+        await Command().Handle(stdin, stdout, _ => null, Today);
 
         await Assert.That(DisabledSessions.IsDisabledByPerson(ParentDashless, Config.Root)).IsTrue();
     }
