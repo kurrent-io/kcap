@@ -28,4 +28,26 @@ public class AgentOrchestratorUnstartedRoundTests {
         gate.SetResult();
         await failing.WaitAsync(TimeSpan.FromSeconds(5));
     }
+
+    /// <summary>The round is over once its rejection is decided, so a resend is refused the same way, never
+    /// acknowledged: the first report may not have reached the server.</summary>
+    [Test]
+    public async Task A_resend_after_the_unstarted_round_rejection_is_refused_again() {
+        var server   = new CaptureServerConnection();
+        var runtime  = new FakeHostedAgentRuntime("codex", emitsTerminalOutput: true);
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+        var agent = orch.SeedAgentForTest("unstarted-2", runtime: runtime);
+        var cmd   = new SendInputCommand(agent.Id, "round 2", null, Guid.NewGuid());
+
+        await orch.HandleSendInputForTest(cmd);
+        await orch.FailUnstartedCodexRoundAsync(agent, cmd.DispatchId, resubmitWritten: false);
+        await orch.HandleSendInputForTest(cmd);
+
+        await Assert.That(server.InputAcks.Count).IsEqualTo(1);
+        await Assert.That(server.InputRejections).IsEquivalentTo([
+            (cmd.DispatchId!.Value, agent.Id, AgentOrchestrator.SendInputDropReason.TurnNotStarted),
+            (cmd.DispatchId!.Value, agent.Id, AgentOrchestrator.SendInputDropReason.TurnNotStarted)
+        ]);
+    }
 }

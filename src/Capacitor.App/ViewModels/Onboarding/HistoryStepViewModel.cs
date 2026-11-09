@@ -2,6 +2,7 @@ using System.Globalization;
 using System.ComponentModel;
 using System.Reactive;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Setup.Intelligence;
@@ -143,6 +144,9 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     public bool SourcesVisible => HasRepos && Sources.Count > 0;
 
     public IReadOnlyList<HistoryOwnerGroup> Groups { get; private set; } = [];
+
+    /// The heading the repositories with no remote share.
+    public const string LocalOwnerLabel = "On this machine, no remote";
 
     readonly List<HistoryWindowOption> _windows = [];
 
@@ -448,9 +452,11 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
         Regroup();
         BuildWindows(report);
-        State = Groups.Count > 0 ? HistoryState.Repos
-            : _unmatched > 0     ? HistoryState.OnlyUnmatched
-            :                      HistoryState.NoHistory;
+        // With no repository to show, a folder's checkbox is all the page has to offer, so it starts open.
+        if (Groups.Count == 0 && Folders.Count > 0) Customizing = true;
+        State = Groups.Count > 0 || Folders.Count > 0 ? HistoryState.Repos
+            : _unmatched > 0                          ? HistoryState.OnlyUnmatched
+            :                                           HistoryState.NoHistory;
         this.RaisePropertyChanged(nameof(UnmatchedNote));
     }
 
@@ -486,9 +492,10 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
             rows.Add(row);
         }
 
-        // Owners by their most recent repository, repositories in the report's own order.
+        // Owners by their most recent repository, repositories in the report's own order. Every repository with
+        // no remote has an owner of its own, so they share one group instead.
         Groups = [.. rows
-            .GroupBy(r => r.Owner, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(r => LocalRepository.IsLocal(r.Owner) ? LocalOwnerLabel : r.Owner, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Max(r => r.LastSessionAt ?? DateTimeOffset.MinValue))
             .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
             .Select(g => new HistoryOwnerGroup(g.Key, [.. g]))];

@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -42,13 +43,13 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
 
     sealed record Fixture(AgentOrchestrator Orch, CaptureServerConnection Server, ReviewerFactory Factory, string Repo);
 
-    Fixture Build(ReviewerFactory? factory = null, Action<DaemonConfig>? configure = null) {
+    Fixture Build(ReviewerFactory? factory = null, Action<DaemonConfig>? configure = null, TimeProvider? time = null) {
         var repo   = Tmp.CreateDir("repo");
         var server = new CaptureServerConnection();
         factory ??= new ReviewerFactory();
         var orch = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
-            allowedRepoPath: repo, extraRuntimeFactories: [factory],
+            allowedRepoPath: repo, extraRuntimeFactories: [factory], timeProvider: time,
             configure: c => {
                 c.Store                 = Store.Store;
                 c.InstanceId            = "instance-now";
@@ -295,6 +296,63 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         await Assert.That(f.Factory.LastRuntime!.UserInputs.Any(i => i.Contains("round 2"))).IsTrue();
     }
 
+    /// <summary>A held round is acknowledged only once delivered, so a resume that fails leaves the server still
+    /// resending it; a resend that arrives while it waits is neither held again nor typed twice.</summary>
+    [Test]
+    public async Task A_held_round_is_acknowledged_once_delivered_and_a_resend_is_not_held_again() {
+        var (f, lane) = await StartHandshake();
+        await using var _ = f.Orch;
+        var round = Round("round 2");
+
+        await f.Orch.HandleSendInputForTest(round);
+        await f.Orch.HandleSendInputForTest(round);
+        await Assert.That(f.Server.InputAcks).IsEmpty();
+
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(f.Factory.LastRuntime!.UserInputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
+        await Assert.That(f.Server.InputAcks).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1")]);
+    }
+
+    /// <summary>A held round whose delivery throws once released is forgotten, so the server's resend delivers it, and
+    /// the rounds held behind it are still delivered.</summary>
+    [Test]
+    public async Task A_held_round_whose_delivery_throws_is_delivered_by_the_resend_and_the_rest_still_go() {
+        var (f, lane) = await StartHandshake();
+        await using var _ = f.Orch;
+        var failing = Round("round 2");
+        var behind  = Round("round 3");
+        var thrown  = 0;
+        f.Orch.SendInputBeforeWriteHookForTest = () =>
+            Interlocked.Increment(ref thrown) == 1 ? Task.FromException(new IOException("write failed")) : Task.CompletedTask;
+
+        await f.Orch.HandleSendInputForTest(failing);
+        await f.Orch.HandleSendInputForTest(behind);
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+        await f.Orch.HandleSendInputForTest(failing);
+
+        var inputs = f.Factory.LastRuntime!.UserInputs;
+        await Assert.That(inputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
+        await Assert.That(inputs.Count(i => i.Contains("round 3"))).IsEqualTo(1);
+    }
+
+    /// <summary>A round held for a resume that fails is refused and never acknowledged.</summary>
+    [Test]
+    public async Task A_held_round_whose_resume_fails_is_refused_and_never_acknowledged() {
+        var (f, lane) = await StartHandshake(fails: true);
+        await using var _ = f.Orch;
+        var round = Round("round 2");
+
+        await f.Orch.HandleSendInputForTest(round);
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(f.Server.InputRejections).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1", "unknown_agent")]);
+        await Assert.That(f.Server.InputAcks).IsEmpty();
+    }
+
     [Test]
     public async Task A_round_for_a_participant_whose_resume_failed_is_reported_unknown_agent() {
         var (f, lane) = await StartHandshake(fails: true);
@@ -396,14 +454,18 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
     /// goes out after the stop's own status, which would otherwise clear it.</summary>
     [Test]
     public async Task The_deadline_stops_a_published_participant_whose_resume_has_not_settled() {
-        var f = Build(configure: c => c.ResumeReadinessWindow = TimeSpan.FromMinutes(5));
+        var time = new FakeTimeProvider(TimeProvider.System.GetUtcNow());
+        var f    = Build(configure: c => c.ResumeReadinessWindow = TimeSpan.FromMinutes(5), time: time);
         await using var _ = f.Orch;
-        f.Orch.ParticipantRecoveryDeadline = TimeSpan.FromMilliseconds(300);
+        f.Orch.ParticipantRecoveryDeadline = TimeSpan.FromMinutes(1);
         f.Server.ShutdownReportGate = new TaskCompletionSource();
         Participant(f, "reviewer-1");
         f.Orch.LoadResumeLedger();
         var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
 
+        // The deadline passes only once the participant has published, which is the case under test.
+        await WaitHarness.PollUntilAsync(() => f.Orch.GetAgentForTest("reviewer-1") is not null);
+        time.Advance(f.Orch.ParticipantRecoveryDeadline);
         await WaitHarness.PollUntilAsync(() => f.Server.ShutdownReports.Count == 1);
         var completedBeforeFailure = f.Server.StatusChangedCalls.Contains(("reviewer-1", "Completed"));
         f.Server.ShutdownReportGate.SetResult();

@@ -30,6 +30,16 @@ public class LauncherPaneViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     [Test]
+    public async Task Folder_access_accepts_a_picker_path_through_a_symlink() {
+        Skip.When(OperatingSystem.IsWindows(), "Unix folder picker aliases; Windows symlinks require privileges");
+        var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
+        var alias = Tmp.PathTo("alias");
+        Directory.CreateSymbolicLink(alias, repository);
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
+    }
+
+    [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Retrying_a_failed_upgrade_replaces_the_failure_icon_with_progress() {
         await AvaloniaSession.RunOnUiAsync(async () => {
@@ -872,9 +882,17 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
-    static (Flyout Menu, List<AppIcon> Checks) OpenMenu(Window window, LauncherPaneView view, string chipName) {
+    /// The repository and machine menus build their rows from an awaited state read, so the flyout
+    /// opens on a later dispatcher job than the click; wait for a new one rather than read it at once.
+    static async Task<(Flyout Menu, List<AppIcon> Checks)> OpenMenuAsync(Window window, LauncherPaneView view, string chipName) {
+        Flyout? Current() => chipName is "RepositoryChip" or "MachineChip"
+            ? view.OpenMenuForTesting
+            : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting;
+        var before = Current();
         Click(window, Find<Button>(window, chipName)!);
-        var menu = (chipName is "RepositoryChip" or "MachineChip" ? view.OpenMenuForTesting : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting)!;
+        await WorkspaceFixtures.WaitUntilAsync(() => Current() is { } opened && opened != before, what: $"{chipName} menu");
+        Settle(window);
+        var menu = Current()!;
         var checks = ((Control)menu.Content!).GetVisualDescendants().OfType<AppIcon>()
             .Where(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).ToList();
         return (menu, checks);
@@ -893,7 +911,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             vm.SelectedEffort = "high";
 
-            var (effort, effortChecks) = OpenMenu(window, view, "EffortChip");
+            var (effort, effortChecks) = await OpenMenuAsync(window, view, "EffortChip");
             await Assert.That(effort.Placement).IsEqualTo(PlacementMode.BottomEdgeAlignedLeft);
             await Assert.That(effortChecks.Count(c => c.IsVisible)).IsEqualTo(1);
             var checkedRow = effortChecks.Single(c => c.IsVisible).FindAncestorOfType<Button>()!;
@@ -902,7 +920,7 @@ public class LauncherPaneViewSmokeTests {
             effort.Hide();
             Settle(window);
 
-            var (agent, agentChecks) = OpenMenu(window, view, "AgentChip");
+            var (agent, agentChecks) = await OpenMenuAsync(window, view, "AgentChip");
             await Assert.That(agent.Placement).IsEqualTo(PlacementMode.BottomEdgeAlignedLeft);
             await Assert.That(agentChecks.Count(c => c.IsVisible)).IsEqualTo(1);
             agent.Hide();
@@ -936,7 +954,7 @@ public class LauncherPaneViewSmokeTests {
             var window = new Window { Content = view, Width = 900, Height = 700 };
             window.Show();
 
-            var (menu, _) = OpenMenu(window, view, "RepositoryChip");
+            var (menu, _) = await OpenMenuAsync(window, view, "RepositoryChip");
             var rows = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().ToList();
             await Assert.That(rows.Any(r => AutomationProperties.GetName(r) == "Add repository…")).IsFalse();
             Click(window, rows.Single(r => AutomationProperties.GetName(r) == "Enter a path on home-pc…"));
@@ -954,9 +972,9 @@ public class LauncherPaneViewSmokeTests {
 
             field.Text = "/srv/other";
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Settle(window);
+            // The field closes only after the selection's awaited state read.
+            await WorkspaceFixtures.WaitUntilAsync(() => !entry.IsOpen, what: "path entry closed");
             await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/other");
-            await Assert.That(entry.IsOpen).IsFalse();
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1073,7 +1091,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             var tiles = ((Control)agent.Content!).GetVisualDescendants().OfType<Button>()
                 .Where(b => b.Width == 34).ToList();
             var disabled = tiles.Where(t => !t.IsEnabled).ToList();
@@ -1177,7 +1195,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
 
             await Assert.That(AccountHeader(agent)!.Classes.Contains("sectionMeta")).IsTrue();
@@ -1237,7 +1255,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             await Assert.That(AccountHeader(agent)).IsNotNull();
 
@@ -1297,7 +1315,7 @@ public class LauncherPaneViewSmokeTests {
             var window = new Window { Content = view, Width = 900, Height = 700 };
             window.Show();
             Settle(window);
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             static bool Shows(Flyout menu, string text) =>
                 ((Control)menu.Content!).GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == text);
@@ -1382,7 +1400,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             static bool Pending(Flyout menu) => ((Control)menu.Content!).GetVisualDescendants().OfType<TextBlock>()
                 .Any(t => t.Text == "Loading accounts…");
@@ -1432,7 +1450,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             Button Tab(string label) => PanelButtons(agent).Single(b => b.Width == 34 && AutomationProperties.GetName(b) == label);
             await Assert.That(AccountHeader(agent)).IsNotNull();
@@ -1466,7 +1484,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
             Settle(window);
@@ -1504,7 +1522,7 @@ public class LauncherPaneViewSmokeTests {
             var goal = Find<TextBox>(window, "GoalInput")!;
             await Assert.That(ControlAutomationPeer.CreatePeerForElement(goal).GetName()).IsEqualTo("Session goal");
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             var search = ((Control)agent.Content!).GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "ModelSearchBox");
             await Assert.That(ControlAutomationPeer.CreatePeerForElement(search).GetName()).IsEqualTo("Search models");

@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Lucide.Avalonia;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -470,6 +471,70 @@ public class ChatTabViewModelTests {
             await h.TeardownAsync();
         });
     }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_in_an_ended_session_has_an_unknown_outcome(bool alreadyEnded) => RunOnUiAsync(async () => {
+        var h = Claude();
+        try {
+            var path = Tmp.CreateFile("unresolved.jsonl", [ToolCallLine, ReadCallLine, ToolResultLine.Replace("t1", "t2")]);
+            var dto = Dto(path);
+            await h.PushAsync(alreadyEnded ? dto with { Status = "Completed" } : dto);
+            var group = Group(h.Chat, 0);
+            var call = group.Calls[0];
+            call.Toggle();
+            if (!alreadyEnded) {
+                await Assert.That(call.IsRunning).IsTrue();
+                await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Running");
+                call.IsAwaitingPermission = true;
+                await h.PushAsync(dto with { Status = "Completed" });
+            }
+
+            await Assert.That(call.IsRunning).IsFalse();
+            await Assert.That(call.IsAwaitingPermission).IsFalse();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Outcome unknown");
+            await Assert.That(call.Inspection.Sections[2].Text).IsEqualTo("No result was recorded");
+            await Assert.That(call.Inspection.Sections[2].IsMissing).IsTrue();
+            await Assert.That(call.Outcome).IsEqualTo(ToolOutcome.Running);
+            await Assert.That(group.VisibleCalls.Contains(call)).IsTrue();
+            await Assert.That(group.Calls[1].Outcome).IsEqualTo(ToolOutcome.Done);
+
+            File.AppendAllText(path, ToolCallLine.Replace("t1", "t3") + "\n");
+            await h.TickAsync();
+            await Assert.That(group.Calls[2].IsRunning).IsFalse();
+
+            call.IsAwaitingPermission = false;
+            await h.PushAsync(dto);
+            await Assert.That(call.IsRunning).IsTrue();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Running");
+        } finally { await h.TeardownAsync(); }
+    });
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_in_an_ended_session_accepts_a_late_result(bool error) => RunOnUiAsync(async () => {
+        var h = Claude();
+        try {
+            var path = Tmp.CreateFile("late-result.jsonl", [ToolCallLine]);
+            await h.PushAsync(Dto(path) with { Status = "Completed" });
+            var call = Group(h.Chat, 0).Calls.Single();
+            call.Toggle();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Outcome unknown");
+
+            File.AppendAllText(path, (error ? ToolErrorLine : ToolResultLine) + "\n");
+            await h.TickAsync();
+
+            await Assert.That(Group(h.Chat, 0).Calls.Single()).IsSameReferenceAs(call);
+            await Assert.That(call.IsRunning).IsFalse();
+            await Assert.That(call.IsSettled).IsTrue();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo(error ? "Failed" : "Finished");
+            await Assert.That(call.Inspection.Sections[2].Text).IsEqualTo(error ? "boom" : "ok");
+        } finally { await h.TeardownAsync(); }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -1082,6 +1147,44 @@ public class ChatTabViewModelTests {
             note.Toggle();
             await Assert.That(note.IsExpanded).IsTrue();
             await Assert.That(note.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// Another session's message reads as an agent's, open under its sender's name, with none of its envelope left.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_message_from_another_session_renders_as_an_open_agent_note_under_its_sender() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from=\"uds:/tmp/cc-socks/71031.sock\" from-name=\"quiet-cow-d1\" from-mode=\"prompting\">\nOne more symptom.\n\n- `declare_work_item` refuses the new name\n</cross-session-message>","isMeta":true,"origin":{"kind":"peer","name":"quiet-cow-d1"}}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.Text).IsEqualTo("One more symptom.\n\n- `declare_work_item` refuses the new name");
+            await Assert.That(note.HeaderLabel).IsEqualTo("Message from quiet-cow-d1");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.BotMessageSquare);
+            await Assert.That(note.IsExpanded).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The agent's icon is for agents: a trigger with no session behind it stays a plain note.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_ci_event_stays_a_plain_note() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"user","message":{"content":"<ci-monitor-event>Check `build` failed.</ci-monitor-event>"}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.HeaderLabel).IsEqualTo("CI event");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.StickyNote);
             await h.TeardownAsync();
         });
     }
@@ -1723,6 +1826,14 @@ public class ChatTabViewModelTests {
         public override string Hint => "scripted";
         public override bool CanAttach => CanAttachValue;
         public override string? AttachHint => CanAttachValue ? null : "attachments need the daemon updated";
+        public bool CanResubmitValue;
+        public bool ResubmitResult = true;
+        public int Resubmits;
+        public override bool CanResubmit => CanResubmitValue;
+        public override Task<bool> ResubmitAsync(CancellationToken ct) {
+            Resubmits++;
+            return Task.FromResult(ResubmitResult);
+        }
         public override Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
             Sends.Add((text, attachmentIds, ct));
             Pending = new TaskCompletionSource<ChatSendOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1993,6 +2104,165 @@ public class ChatTabViewModelTests {
             await Assert.That(h.Chat.RecallNewer()).IsTrue();
             await Assert.That(h.Chat.ComposerText).IsEqualTo("");
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    static async Task TickForAsync(Harness h, TimeSpan span) {
+        for (var waited = TimeSpan.Zero; waited <= span; waited += ChatTabViewModel.PollInterval) await h.TickAsync();
+    }
+
+    /// An idle agent that never echoes a send may have taken its Enter as a newline, as it does for
+    /// a large paste still arriving: Enter is pressed once more, then the row says it was not picked
+    /// up instead of waiting for a confirmation that will not come.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_unechoed_send_to_an_idle_agent_is_resubmitted_once_then_reads_not_picked_up(bool resubmitted) {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true, ResubmitResult = resubmitted };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.NotPickedUpNote);
+            await Assert.That(queued.CanSendNow).IsTrue();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 3);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A send made mid-turn waits in the agent's own queue until the turn ends, so the clock runs
+    /// only while the agent is not working.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_queued_behind_a_turn_is_not_resubmitted_while_the_agent_works() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.AwaitingPickupNote);
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A turn started after a send from an idle prompt means its Enter landed, even when the echo
+    /// does not match the sent text. A second Enter would submit whatever was typed since.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_from_idle_followed_by_a_turn_is_never_resubmitted_or_marked_not_picked_up() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+            await Assert.That(h.Chat.QueuedMessages).Contains(queued);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A subagent still running when the agent's own prompt waits does not make a send there a
+    /// mid-turn one: the agent's next attested turn is the send's.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_while_only_a_subagent_works_is_left_waiting_once_a_turn_starts() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true, LiveSubagents = 1 });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true, LiveSubagents = 1 });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true, LiveSubagents = 0 });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The submit clears the agent's wait even when its Enter only became a newline, so working
+    /// that no turn attests is not a turn: the row still gets its second Enter.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unattested_wait_cleared_by_the_submit_does_not_stop_the_resubmit() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A send made mid-turn counts a turn only once the agent has gone idle after it: the turn that
+    /// was already running is not its own.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_queued_behind_a_turn_is_left_waiting_once_a_later_turn_starts() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
             await h.TeardownAsync();
         });
     }
@@ -3522,6 +3792,46 @@ public class ChatTabViewModelTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_terminal_approval_pauses_working_until_the_dialog_closes() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"));
+            try {
+                var agent = Agent("a1", "claude", hasTerminal: true) with {
+                    Status = "Running", AwaitingInput = false,
+                    WorkingSince = h.Time.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(65),
+                };
+                await h.PushAsync(agent);
+                h.Time.Advance(TimeSpan.FromSeconds(10));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+
+                h.Chat.ComposerText = "hello";
+                var dialog = new TerminalDialogDto("Bash command", "", [], -1,
+                    "Bash command\ngrep -ril \"pages/\" README.md\nThis command requires approval\nDo you want to proceed?");
+                await h.PushAsync(agent with { TerminalDialog = dialog });
+
+                await Assert.That(h.Chat.HasPendingCards).IsFalse();
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                await Assert.That(h.Chat.TerminalMenuTitle).IsEqualTo("Waiting for you in Terminal");
+                await Assert.That(h.Chat.TerminalMenuScreen).IsEqualTo(dialog.Screen);
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsLiveNote).IsFalse();
+                await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+
+                h.Time.Advance(TimeSpan.FromMinutes(10));
+                await h.PushAsync(agent);
+
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Working);
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+                h.Time.Advance(TimeSpan.FromSeconds(2));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 17s");
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
     /// Pins the fallback for a dialog whose choices could not be read: the card carries the
     /// screen text and sends the user to the terminal, and offers Escape to close it.
     [Test]
@@ -3655,6 +3965,36 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// A resumed chat opens with its history, which hides the empty-chat note, so the warning takes
+    /// the activity row: a prompt held there would otherwise leave no sign at all.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_chat_with_history_says_when_the_first_message_may_not_have_been_sent() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            try {
+                var dto = Dto(Tmp.CreateFile("resumed.jsonl", [UserLine, AssistantLine]));
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = true });
+                await WaitUntilAsync(() => h.Chat.Items.Count > 0, what: "the resumed history");
+
+                await Assert.That(h.Chat.PhaseNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityNote).IsTrue();
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo(ChatTabViewModel.LaunchPromptUnconfirmedNote);
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+
+                h.Chat.ShowTerminal = () => { };
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalOffer).IsFalse();
+
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = false });
+
+                await Assert.That(h.Chat.ShowsActivityNote).IsFalse();
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
     /// An empty chat can mean the agent is held at a prompt only its terminal shows, so it points
     /// there, unless the agent has no terminal or the dialog card already does.
     [Test]
@@ -3679,7 +4019,7 @@ public class ChatTabViewModelTests {
 
     /// Pins the hook card's precedence: while a card asks the question, the screen's copy of the
     /// same dialog is not offered, and the composer stays shut because that dialog is still on
-    /// the terminal. The card comes back once the hook card is gone and the dialog is not.
+    /// the terminal. The dialog comes back only once it outlasts the card by the grace.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_pending_card_hides_the_terminal_dialog_it_raised() {
@@ -3699,10 +4039,41 @@ public class ChatTabViewModelTests {
 
                 h.Permissions.Remove("r1");
                 await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
-                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await WaitUntilAsync(() => h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
                 await Assert.That(h.Chat.HasTerminalMenu).IsTrue();
                 await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
                 await Assert.That(h.Chat.TerminalMenuChoices).Count().IsEqualTo(2);
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
+    /// The screen reports an answered card's dialog for a snapshot after the card goes; that copy
+    /// must not open the terminal card, nor may the stale grace hide a different dialog after it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_answered_card_does_not_flash_the_dialog_it_covered() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+            var dialog = new TerminalDialogDto("Bash command", "", [], -1, "Do you want to proceed?");
+            var agent = Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = dialog };
+            try {
+                h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
+                await WaitUntilAsync(() => h.Chat.HasPendingCards, what: "the card");
+                await h.PushAsync(agent);
+
+                h.Permissions.Remove("r1");
+                await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card answered");
+                await h.PushAsync(agent with { TerminalDialog = new TerminalDialogDto("Bash command", "", [], -1, "redrawn") });
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+
+                await h.PushAsync(agent with { TerminalDialog = null });
+                var next = new TerminalDialogDto("Do you want to proceed?", "", ["Yes", "No"], 0, "");
+                await h.PushAsync(agent with { TerminalDialog = next });
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
             } finally { await h.TeardownAsync(); }
         });
     }
@@ -3722,7 +4093,9 @@ public class ChatTabViewModelTests {
                 h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
                 await WaitUntilAsync(() => h.Chat.HasPendingCards && !h.Chat.ShowsTerminalMenu, what: "the dialog hidden");
                 h.Permissions.Remove("r1");
-                await WaitUntilAsync(() => !h.Chat.HasPendingCards && h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
+                await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await WaitUntilAsync(() => h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
 
                 await Assert.That(await h.Chat.TerminalMenuChoices[1].Choose.CanExecute.FirstAsync()).IsFalse();
                 await Assert.That(input.Writes).IsEquivalentTo(new[] { "\r" }, CollectionOrdering.Matching);

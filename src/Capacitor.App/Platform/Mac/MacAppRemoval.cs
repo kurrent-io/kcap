@@ -19,25 +19,32 @@ public sealed partial class MacAppRemoval : IAppRemoval {
     readonly IProcessRunner        _runner;
     readonly UserHome              _home;
     readonly string                _bundleRoot;
-    readonly IReadOnlyList<string> _linkFolders;
+    readonly KcapLinkRemover       _links;
     readonly MacUpdaterFiles?      _updaterFiles;
 
-    public MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot)
-        : this(runner, home, bundleRoot, KcapLinkFolders.For(home), MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
+    public MacAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, string bundleRoot)
+        : this(runner, home, config, bundleRoot, MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
+
+    internal MacAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, string bundleRoot, MacUpdaterFiles? updaterFiles)
+        : this(runner, home, bundleRoot, binary => KcapLinkRemover.For(home, config, binary), updaterFiles) { }
 
     internal MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot, IReadOnlyList<string> linkFolders,
-            MacUpdaterFiles? updaterFiles = null) {
+            MacUpdaterFiles? updaterFiles = null)
+        : this(runner, home, bundleRoot, binary => new KcapLinkRemover(linkFolders, binary), updaterFiles) { }
+
+    MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot, Func<string, KcapLinkRemover> linkRemover,
+            MacUpdaterFiles? updaterFiles) {
         _runner      = runner;
         _home        = home;
         _bundleRoot  = bundleRoot;
-        _linkFolders = linkFolders;
+        // Read now: the CLI's uninstall deletes the inventory that names the adopted links' folders before they go.
+        _links       = linkRemover(BundleBinary);
         _updaterFiles = updaterFiles;
     }
 
     public async Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
-        var remover = new KcapLinkRemover(_linkFolders, BundleBinary);
-        await RemoveAsAdminAsync(remover.Remove(), ct).ConfigureAwait(false);
-        return [.. remover.Find(), .. RemoveProfileLines()];
+        await RemoveAsAdminAsync(_links.Remove(), ct).ConfigureAwait(false);
+        return [.. _links.Find(), .. RemoveProfileLines()];
     }
 
     IEnumerable<string> RemoveProfileLines() {

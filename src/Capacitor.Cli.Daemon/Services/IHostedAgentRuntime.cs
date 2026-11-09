@@ -66,6 +66,9 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// causes.</summary>
     void NoteTurnRelayed() { }
 
+    /// <summary>The agent's SessionStart hook ran, so a launch prompt held for it can go.</summary>
+    void NoteSessionStarted() { }
+
     /// <summary>Sends one more submit Enter for input already in a terminal composer. False when nothing
     /// was written: no composer, a dialog that would take the Enter, a stop, the agent gone, or
     /// <paramref name="isCurrent"/> false once the input lane is held, because a newer input owns the
@@ -75,8 +78,13 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <summary>The launch prompt pasted after spawn, or null when nothing is pasted.</summary>
     Task<LaunchPromptOutcome>? LaunchPromptDelivery => null;
 
-    /// <summary>The launch prompt was not seen to arrive, and no turn has been relayed since.</summary>
+    /// <summary>The launch prompt was not seen to arrive, or is still held for SessionStart past the
+    /// time a start should take, and no turn has been relayed since.</summary>
     bool LaunchPromptUnconfirmed => false;
+
+    /// <summary>Completes when a launch prompt held for SessionStart has waited past the time a start
+    /// should take. Null for a prompt that is not held.</summary>
+    Task? LaunchPromptOverdue => null;
 
     /// <summary>
     /// Terminal byte stream consumed by the orchestrator read loop. PTY runtimes yield real
@@ -102,11 +110,16 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <see cref="SendUserInputAsync"/>, carried by the task from this method.</summary>
     Task SendUserInputAndWaitForWriteAsync(string text) => SendUserInputAsync(text);
 
-    /// <summary>Input a server dispatch delivered. A runtime that records the user message it sends stamps
-    /// the dispatch on it, so a viewer of its journal can ask the server who sent the message; the rest
-    /// send it as any other input.</summary>
-    Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) =>
-        waitForWrite ? SendUserInputAndWaitForWriteAsync(text) : SendUserInputAsync(text);
+    /// <summary>Input a server dispatch delivered. Completes once the runtime has taken the input, failing
+    /// with <see cref="InputNotAdmittedException"/> when it will not; the task it yields completes once the
+    /// input is written, and faults if it never will be, which for input queued behind an active turn can
+    /// be long after it was taken. A runtime that records the user message it sends stamps the dispatch on
+    /// it, so a viewer of its journal can ask the server who sent the message.</summary>
+    async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        await SendUserInputAsync(text).ConfigureAwait(false);
+
+        return Task.CompletedTask;
+    }
 
     /// <summary>Wait until any prior structured prompt turn has received its terminal response.
     /// PTY runtimes have no structured turn boundary and use the completed default.</summary>

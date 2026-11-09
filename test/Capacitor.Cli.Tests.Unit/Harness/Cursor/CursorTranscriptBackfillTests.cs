@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Capture;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Tests.Unit.Capture;
@@ -13,9 +14,9 @@ public class CursorTranscriptBackfillTests {
         SecretRedactor.WatcherPatterns.WithMatchTimeout(Regex.InfiniteMatchTimeout);
 
     [Test]
-    [Arguments(false, 2)]
-    [Arguments(true, 3)]
-    public async Task Final_drain_finishes_started_chunks_after_the_soft_budget(bool finalDrain, int expectedLines) {
+    [Arguments(false, 2, 2)]
+    [Arguments(true, 3, null)]
+    public async Task Final_drain_finishes_started_chunks_after_the_soft_budget(bool finalDrain, int expectedLines, int? firstUnsent) {
         using var tmp = new TempDir();
         var line = "{\"role\":\"assistant\",\"content\":\"" + new string('x', 1_500_000) + "\"}";
         var path = tmp.CreateFile("large.jsonl", string.Join('\n', Enumerable.Repeat(line, 3)) + "\n");
@@ -27,6 +28,7 @@ public class CursorTranscriptBackfillTests {
             () => posted.Count > 0, Frozen, CancellationToken.None, UnboundedPatterns, finalDrain: finalDrain);
         await Assert.That(stats.LinesPosted).IsEqualTo(expectedLines);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(firstUnsent);
     }
 
     [Test]
@@ -72,7 +74,40 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
         await Assert.That(posted).IsEqualTo(0);
+    }
+
+    /// <summary>A line sent after a held one makes the server drop the held one, so the drain ends at it
+    /// and says where it stopped.</summary>
+    [Test]
+    public async Task A_final_drain_posts_the_lines_before_a_held_line_and_reports_it() {
+        const string line = "{\"role\":\"assistant\",\"content\":\"hello\"}";
+        using var tmp = new TempDir();
+        var path = tmp.CreateFile("transcript.jsonl", string.Concat(Enumerable.Repeat(line + "\n", 3)));
+        var posted = new List<string>();
+        using var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent),
+            (_, body) => { posted.Add(body); return new HttpResponseMessage(HttpStatusCode.OK); });
+        using var client = new HttpClient(handler);
+        var redactionClock = new StallingRedactionClock();
+        redactionClock.StallOnReading(ReadingsOfALine(line) + MidFirstTry, TimeSpan.FromSeconds(1.2));
+
+        var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(), path,
+            () => false, redactionClock, CancellationToken.None, UnboundedPatterns, finalDrain: true);
+
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(1);
+        await Assert.That(stats.LinesPosted).IsEqualTo(1);
+        await Assert.That(posted.Select(body => JsonNode.Parse(body)!["line_numbers"]!.ToJsonString())).IsEquivalentTo(["[0]"]);
+    }
+
+    // The first try of a line has started and has yet to end.
+    const int MidFirstTry = 3;
+
+    static int ReadingsOfALine(string line) {
+        var clock = new StallingRedactionClock();
+        TranscriptCapture.EncodeUntilHeld([line], static () => false, clock, static (_, _) => { }, UnboundedPatterns);
+
+        return clock.Readings;
     }
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
@@ -128,6 +163,24 @@ public class CursorTranscriptBackfillTests {
         var lines = JsonNode.Parse(postedBody!)!["lines"]!.AsArray();
         await Assert.That(lines.Count).IsEqualTo(3); // the complete-but-unterminated final line was CONSUMED
         await Assert.That(stats.LinesPosted).IsEqualTo(3);
+        await Assert.That(stats.TailUnsent).IsFalse();
+    }
+
+    /// <summary>The record stays in the file, and on a final drain nothing comes back for it.</summary>
+    [Test]
+    public async Task A_final_drain_reports_an_unterminated_record_it_could_not_consume() {
+        using var tmp = new TempDir();
+        var transcript = tmp.PathTo("t.jsonl");
+        await File.WriteAllTextAsync(transcript,
+            "{\"role\":\"user\",\"message\":{\"content\":[]}}\n{\"role\":\"assistant\",\"message\":{\"content\":[]}}\n{\"role\":\"user\",\"mess");
+        using var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent), (_, _) => new HttpResponseMessage(HttpStatusCode.OK));
+        using var client  = new HttpClient(handler);
+
+        var stats = await CursorTranscriptBackfill.RunAsync(
+            Markers, client, "http://s", NewSessionId(), transcript, () => false, TimeProvider.System, CancellationToken.None, finalDrain: true);
+
+        await Assert.That(stats.LinesPosted).IsEqualTo(2);
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(2);
     }
 
     [Test]
@@ -143,6 +196,7 @@ public class CursorTranscriptBackfillTests {
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", sessionId, transcript, () => false, TimeProvider.System, CancellationToken.None);
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
+        await Assert.That(stats.TailUnsent).IsFalse();
         await Assert.That(postCount).IsEqualTo(0);
     }
 
@@ -161,6 +215,7 @@ public class CursorTranscriptBackfillTests {
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", sessionId, transcript, () => false, TimeProvider.System, CancellationToken.None);
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
+        await Assert.That(stats.TailUnsent).IsTrue();
         await Assert.That(postCount).IsEqualTo(0);
     }
 
@@ -237,6 +292,7 @@ public class CursorTranscriptBackfillTests {
             transcriptPath: null, budget: () => false, time: TimeProvider.System, ct: CancellationToken.None);
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
+        await Assert.That(stats.TailUnsent).IsFalse();
         await Assert.That(handler.Sent).IsEmpty();
     }
 
@@ -267,6 +323,7 @@ public class CursorTranscriptBackfillTests {
             transcriptPath: transcript, budget: () => false, time: TimeProvider.System, ct: CancellationToken.None);
 
         await Assert.That(stats.LinesPosted).IsEqualTo(2);
+        await Assert.That(stats.TailUnsent).IsFalse();
         await Assert.That(postedPath).IsEqualTo("/hooks/transcript");
 
         var node = JsonNode.Parse(postedBody!)!;
@@ -329,6 +386,7 @@ public class CursorTranscriptBackfillTests {
         // Budget already burnt before the batch POST — nothing posted, no failure.
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
         await Assert.That(postCount).IsEqualTo(0);
     }
 
@@ -350,6 +408,7 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsTrue();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
     }
 
     [Test]
@@ -370,6 +429,7 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsTrue();
+        await Assert.That(stats.TailUnsent).IsTrue();
     }
 
     sealed class RecordingHandler : HttpMessageHandler {

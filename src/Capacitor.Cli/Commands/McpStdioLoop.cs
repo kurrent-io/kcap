@@ -15,6 +15,7 @@ static class McpStdioLoop {
     /// <param name="callTool">Answers a <c>tools/call</c>; expected to turn its own failures into tool errors.</param>
     /// <param name="answer">Answers any other request that carries an id, given its method (null when absent or not a string).</param>
     /// <param name="orderKey">The key a <c>tools/call</c> is ordered under, or null for one that runs alongside everything.</param>
+    /// <param name="client">Where this server's own requests to the client go out, and the client's answers to them come back.</param>
     public static async Task RunAsync(
             TextReader reader,
             TextWriter writer,
@@ -22,7 +23,8 @@ static class McpStdioLoop {
             Func<JsonNode, JsonObject, Task<string>> callTool,
             Func<JsonNode, string?, JsonObject, string> answer,
             string serverName,
-            Func<JsonObject, string?>? orderKey = null) {
+            Func<JsonObject, string?>? orderKey = null,
+            McpClientRequests? client = null) {
         using var writeGate = new SemaphoreSlim(1, 1);
         var inFlight = new List<Task>();
         // The last call queued under each key; read and written only by this loop.
@@ -60,6 +62,8 @@ static class McpStdioLoop {
             await CallAsync(id, request);
         }
 
+        client?.Attach(WriteAsync);
+
         // However the loop ends, a call already running still answers, and nothing it uses is disposed under it.
         try {
             while (await reader.ReadLineAsync() is { } line) {
@@ -67,6 +71,12 @@ static class McpStdioLoop {
 
                 // Notifications have no id and get no response.
                 if (TryParseRequest(line) is not { } request || request["id"] is not { } id) continue;
+
+                // A response is never answered back.
+                if (client is not null && !request.ContainsKey("method") && (request.ContainsKey("result") || request.ContainsKey("error"))) {
+                    client.TryComplete(request);
+                    continue;
+                }
 
                 var method = request["method"] is JsonValue value && value.TryGetValue(out string? m) ? m : null;
                 if (method == "tools/call") {
@@ -93,6 +103,7 @@ static class McpStdioLoop {
                 }
             }
         } catch {
+            client?.Close();
             try {
                 await Task.WhenAll(inFlight);
             } catch {
@@ -101,6 +112,7 @@ static class McpStdioLoop {
             throw;
         }
 
+        client?.Close();
         await Task.WhenAll(inFlight);
     }
 

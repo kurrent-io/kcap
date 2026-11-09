@@ -42,7 +42,7 @@ public static class AtomicFile {
             }
 
             FaultPoints.Hit($"rename:{destination}");
-            File.Move(tmp, destination, overwrite: true);
+            Rename(tmp, destination);
             FaultPoints.Hit($"renamed:{destination}");
         } catch {
             if (created) {
@@ -50,6 +50,12 @@ public static class AtomicFile {
             }
             throw;
         }
+    }
+
+    static void Rename(string tmp, string destination) {
+        if (OperatingSystem.IsWindows() && PosixRename.TryReplace(tmp, destination)) return;
+
+        File.Move(tmp, destination, overwrite: true);
     }
 
     // The temporary sits beside the final target: a rename across directories could cross a mount.

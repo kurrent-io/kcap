@@ -114,6 +114,9 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         return sb.ToString();
     }
 
+    /// <summary>The single-case directory or file name a session id is kept under, or null for an id the spool refuses.</summary>
+    public static string? KeyFor(string sessionId) => SafeSessionId.IsMatch(sessionId) ? EncodeKey(sessionId) : null;
+
     static string? DecodeKey(string key) {
         var sb = new StringBuilder(key.Length);
 
@@ -147,6 +150,9 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             Func<string, string, Task<DrainOutcome>>  poster,
             TimeSpan                                  budget,
             CancellationToken                         ct) {
+        using var lease = SpoolDrainLease.TryTake(DirectoryPath);
+        if (lease is null) return;
+
         AdoptLegacyFiles(NewFifoTempName);
         poster = RecordingDeliveries(poster);
         var started = time.GetTimestamp();

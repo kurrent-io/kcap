@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Services;
 

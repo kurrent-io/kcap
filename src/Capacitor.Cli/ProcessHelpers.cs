@@ -1,4 +1,4 @@
-using System.Collections.Frozen;
+using Capacitor.Cli.Core.Processes;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -113,15 +113,6 @@ static partial class ProcessHelpers {
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static unsafe partial int proc_pidinfo(int pid, int flavor, ulong arg, byte* buffer, int buffersize);
 
-    // sysctl({CTL_KERN, KERN_PROCARGS2, pid}) returns argc + the kernel's recorded
-    // executable path + argv + env for a process. The exec path is immune to a process
-    // changing its title, so it is the reliable name source for the agent ancestry walk.
-    [LibraryImport("libc", EntryPoint = "sysctl", SetLastError = true)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    private static unsafe partial int sysctl(int* name, uint namelen, byte* oldp, nuint* oldlenp, byte* newp, nuint newlen);
-
-    const int CtlKern          = 1;
-    const int KernProcArgs2    = 49;
     const int ProcPidTBsdInfo  = 3;
     const int ProcBsdInfoSize  = 136;
     const int ProcBsdInfoPpid  = 16;
@@ -623,9 +614,35 @@ static partial class ProcessHelpers {
                 return null;
             }
 
-            if (info.names.Any(name => MatchesAgentName(name, vendor))) {
+            if (info.names.Any(name => AgentProcessNames.Matches(name, vendor))) {
                 return pid;
             }
+
+            pid = info.ppid;
+        }
+
+        return null;
+    }
+
+    /// <summary>The Copilot process above this one, or null: see <see cref="ResolveCopilotHostPid"/>.</summary>
+    public static int? GetCopilotHostPid() => GetParentPid() is { } parent ? ResolveCopilotHostPid(parent, GetProcessInfo) : null;
+
+    /// <summary>
+    /// The nearest Copilot CLI or VS Code <c>copilot-runtime</c> on the chain from <paramref name="startPid"/>, or
+    /// null. Only a name will do: the parent and process-group fallbacks can land on the shell running the hook,
+    /// and that shell's exit would end the session. The runtime is not one of the <c>copilot</c> vendor's names
+    /// because it hosts every chat in VS Code, and a lookup by that vendor claims the process for one session.
+    /// </summary>
+    internal static int? ResolveCopilotHostPid(
+            int                                                 startPid,
+            Func<int, (int ppid, IReadOnlyList<string> names)?> lookup,
+            int                                                 maxHops = 16
+        ) {
+        var pid = startPid;
+
+        for (var hop = 0; hop < maxHops && pid > 1; hop++) {
+            if (lookup(pid) is not { } info) return null;
+            if (info.names.Any(name => AgentProcessNames.Matches(name, "copilot") || AgentProcessNames.Matches(name, "copilot-runtime"))) return pid;
 
             pid = info.ppid;
         }
@@ -669,30 +686,6 @@ static partial class ProcessHelpers {
         }
     }
 
-    /// <summary>
-    /// The names by which <paramref name="execPath"/> could identify its agent: the basename,
-    /// plus the directory above a <c>versions/</c> segment. Claude Code's native installer
-    /// writes <c>~/.local/share/claude/versions/&lt;version&gt;</c>, where the basename is the
-    /// version and only the grandparent names the agent.
-    /// </summary>
-    internal static IEnumerable<string> ExecutableNameCandidates(string? execPath) {
-        if (string.IsNullOrEmpty(execPath)) {
-            yield break;
-        }
-
-        var parts = execPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
-
-        if (parts.Length == 0) {
-            yield break;
-        }
-
-        yield return parts[^1];
-
-        if (parts.Length >= 3 && parts[^2].Equals("versions", StringComparison.OrdinalIgnoreCase)) {
-            yield return parts[^3];
-        }
-    }
-
     static unsafe (int ppid, IReadOnlyList<string> names)? GetProcessInfoWindows(int pid) {
         var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
 
@@ -715,11 +708,11 @@ static partial class ProcessHelpers {
             // just won't match here) — but if it's the agent's own path that fails to read,
             // resolution falls back to the immediate parent and the watchdog can mis-arm,
             // so QueryImageName grows the buffer rather than giving up on long paths.
-            foreach (var candidate in ExecutableNameCandidates(QueryImageName(handle))) {
+            foreach (var candidate in AgentProcessNames.Candidates(QueryImageName(handle))) {
                 AddName(names, candidate);
             }
 
-            foreach (var candidate in ScriptNameCandidates(SplitWindowsCommandLine(QueryCommandLine(handle)))) {
+            foreach (var candidate in ProcessArgs.ScriptNameCandidates(SplitWindowsCommandLine(QueryCommandLine(handle)))) {
                 AddName(names, candidate);
             }
 
@@ -801,13 +794,13 @@ static partial class ProcessHelpers {
         // identifies the agent on every layout.
         var names = new List<string>(3);
 
-        var procArgs = ReadProcArgsMac(pid);
+        var procArgs = ProcessArgs.ReadBuffer(pid);
 
-        foreach (var candidate in ExecutableNameCandidates(procArgs is null ? null : ParseExecPath(procArgs))) {
+        foreach (var candidate in AgentProcessNames.Candidates(procArgs is null ? null : ParseExecPath(procArgs))) {
             AddName(names, candidate);
         }
 
-        foreach (var candidate in ScriptNameCandidates(procArgs is null ? [] : ParseArgs(procArgs))) {
+        foreach (var candidate in ProcessArgs.ScriptNameCandidates(procArgs is null ? [] : ProcessArgs.Parse(procArgs))) {
             AddName(names, candidate);
         }
 
@@ -817,115 +810,6 @@ static partial class ProcessHelpers {
         AddName(names, Encoding.UTF8.GetString(nul >= 0 ? nameSpan[..nul] : nameSpan));
 
         return (ppid, names);
-    }
-
-    /// <summary>
-    /// Returns the <c>KERN_PROCARGS2</c> buffer of <paramref name="pid"/> — the same source <c>ps</c>
-    /// uses — or null if it can't be read. Unlike <c>proc_bsdinfo</c>'s name fields, its exec path is
-    /// the kernel's recorded image path and is not affected by a process changing its title, so it
-    /// reliably identifies the coding agent for the ancestry walk.
-    /// </summary>
-    static unsafe byte[]? ReadProcArgsMac(int pid) {
-        Span<int> mib = [CtlKern, KernProcArgs2, pid];
-        nuint     size = 0;
-
-        fixed (int* m = mib) {
-            // First call (oldp = null) reports the buffer size to allocate. The buffer
-            // holds argc + exec_path + argv + env, so it can't be guessed up front.
-            if (sysctl(m, 3, null, &size, null, 0) != 0 || size == 0) {
-                return null;
-            }
-
-            var buf = new byte[size];
-
-            fixed (byte* b = buf) {
-                // Reuse the same `size` as the buffer length; a short buffer would make
-                // sysctl fail with ENOMEM rather than truncate, so we'd just fall back.
-                if (sysctl(m, 3, b, &size, null, 0) != 0) {
-                    return null;
-                }
-            }
-
-            return buf.AsSpan(0, (int)size).ToArray();
-        }
-    }
-
-    /// <summary>
-    /// The arguments in a <c>KERN_PROCARGS2</c> buffer: after <c>argc</c> and the exec path comes NUL
-    /// padding, then <c>argc</c> NUL-terminated strings. Pure so it is unit-testable; empty when the
-    /// buffer is too short to hold them.
-    /// </summary>
-    internal static IReadOnlyList<string> ParseArgs(ReadOnlySpan<byte> procArgs2) {
-        if (procArgs2.Length <= sizeof(int)) return [];
-
-        var argc = BitConverter.ToInt32(procArgs2[..sizeof(int)]);
-        var rest = procArgs2[sizeof(int)..];
-        var nul  = rest.IndexOf((byte)0);
-        if (nul < 0) return [];
-
-        // Only the padding after the exec path is skipped: past it each NUL ends one argument, an empty one
-        // included, so counting never runs on into the environment.
-        var first = rest[nul..].IndexOfAnyExcept((byte)0);
-        if (first < 0) return [];
-        rest = rest[(nul + first)..];
-        var args = new List<string>(Math.Clamp(argc, 0, 16));
-        while (args.Count < argc && !rest.IsEmpty) {
-            var end = rest.IndexOf((byte)0);
-            args.Add(Encoding.UTF8.GetString(end >= 0 ? rest[..end] : rest));
-            if (end < 0) break;
-            rest = rest[(end + 1)..];
-        }
-        return args;
-    }
-
-    /// <summary>
-    /// The names a JavaScript runtime's script identifies its agent by. Gemini CLI runs as <c>node</c>
-    /// and sets no title, so only the script it runs names it: the <c>gemini</c> shim the shebang
-    /// hands over, or the entry point inside its installed package. A script file of any other kind,
-    /// such as <c>codex.js</c>, names nothing: it is an ordinary script, not an installed agent.
-    /// </summary>
-    internal static IEnumerable<string> ScriptNameCandidates(IReadOnlyList<string> argv) {
-        if (argv.Count < 2 || !IsScriptRuntime(argv[0])) yield break;
-        if (ScriptArgument(argv) is not { } script) yield break;
-
-        if (!Path.HasExtension(script.Replace('\\', '/').Split('/')[^1]))
-            foreach (var candidate in ExecutableNameCandidates(script)) yield return candidate;
-
-        // An installed package's entry point is …/node_modules/[@scope/]<package>/….
-        var parts = script.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
-        var at    = Array.FindLastIndex(parts, part => part.Equals("node_modules", StringComparison.OrdinalIgnoreCase));
-        if (at < 0 || at + 1 >= parts.Length) yield break;
-        yield return parts[at + 1].StartsWith('@') && at + 2 < parts.Length ? parts[at + 2] : parts[at + 1];
-    }
-
-    /// The runtime's options that take their value as the next argument, so that value is not the script.
-    static readonly FrozenSet<string> ValueOptions = new[] {
-        "-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions", "--input-type",
-        "--inspect-port", "--debug-port", "--title", "--env-file", "--env-file-if-exists", "--watch-path",
-        "--redirect-warnings", "--openssl-config", "--icu-data-dir", "--diagnostic-dir", "--report-dir",
-        "--report-directory", "--report-filename", "--heapsnapshot-signal", "--secure-heap", "--secure-heap-min",
-        "--cwd", "--config", "--preload"
-    }.ToFrozenSet(StringComparer.Ordinal);
-
-    /// The script the runtime runs, or null when it runs code given inline or on stdin.
-    static string? ScriptArgument(IReadOnlyList<string> argv) {
-        for (var i = 1; i < argv.Count; i++) {
-            var arg = argv[i];
-            if (arg is "--") return i + 1 < argv.Count ? argv[i + 1] : null;
-            if (arg is "-" or "-e" or "--eval" or "-p" or "--print"
-                || arg.StartsWith("--eval=", StringComparison.Ordinal) || arg.StartsWith("--print=", StringComparison.Ordinal)
-                || (arg.Length > 2 && arg[0] == '-' && arg[1] != '-' && arg.AsSpan(1).IndexOfAny('e', 'p') >= 0)) return null;
-            if (ValueOptions.Contains(arg)) { i++; continue; }
-            if (arg.StartsWith('-') || (i == 1 && arg == "run")) continue;
-            return arg;
-        }
-        return null;
-    }
-
-    static bool IsScriptRuntime(string argv0) {
-        var name = Path.GetFileNameWithoutExtension(argv0.Replace('\\', '/').Split('/')[^1]);
-        return name.Equals("node", StringComparison.OrdinalIgnoreCase) || name.Equals("nodejs", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("bun", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1038,18 +922,18 @@ static partial class ProcessHelpers {
 
         var argv = ReadArgvLinux(pid);
 
-        foreach (var candidate in ExecutableNameCandidates(argv.Count > 0 ? argv[0] : null)) {
+        foreach (var candidate in AgentProcessNames.Candidates(argv.Count > 0 ? argv[0] : null)) {
             AddName(names, candidate);
         }
 
-        foreach (var candidate in ScriptNameCandidates(argv)) {
+        foreach (var candidate in ProcessArgs.ScriptNameCandidates(argv)) {
             AddName(names, candidate);
         }
 
         try {
             var exe = File.ResolveLinkTarget($"/proc/{pid}/exe", returnFinalTarget: false)?.FullName;
 
-            foreach (var candidate in ExecutableNameCandidates(exe)) {
+            foreach (var candidate in AgentProcessNames.Candidates(exe)) {
                 AddName(names, candidate);
             }
         } catch {
@@ -1087,7 +971,7 @@ static partial class ProcessHelpers {
         var pid = startPid;
         for (var hop = 0; hop < maxHops && pid > 1; hop++) {
             if (lookup(pid) is not { } info) return null;
-            if (NestableAgents.FirstOrDefault(vendor => info.names.Any(name => MatchesAgentName(name, vendor))) is { } found) return new(found, pid);
+            if (NestableAgents.FirstOrDefault(vendor => info.names.Any(name => AgentProcessNames.Matches(name, vendor))) is { } found) return new(found, pid);
             pid = info.ppid;
         }
         return null;
@@ -1096,64 +980,6 @@ static partial class ProcessHelpers {
     /// <summary>The nearest coding agent above this process, or null.</summary>
     internal static CodingAgentAncestor? NearestCodingAgent() =>
         GetParentPid() is { } parent ? NearestCodingAgent(parent, GetProcessInfo) : null;
-
-    /// <summary>
-    /// True when <paramref name="comm"/> names the coding-agent executable for
-    /// <paramref name="vendor"/>. Matches the basename exactly (optionally plus a
-    /// single file extension like <c>.exe</c>), case-insensitively — never a loose
-    /// substring, so descriptive names such as the Electron desktop "Claude Helper
-    /// (Renderer)" don't masquerade as the <c>claude</c> CLI.
-    /// </summary>
-    internal static bool MatchesAgentName(string comm, string vendor) {
-        if (string.IsNullOrEmpty(comm)) {
-            return false;
-        }
-
-        var slash    = comm.LastIndexOfAny(['/', '\\']);
-        var basename = slash >= 0 ? comm[(slash + 1)..] : comm;
-
-        // A versioned binary is matched by its prefix before the clean-stem gate, which its dots fail.
-        if (VersionedBinaryPrefixOf(vendor) is { } prefix && basename.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
-            return true;
-        }
-
-        // Reduce the basename to a clean stem: the whole name if it has no dot, or the part before a
-        // single trailing extension (".exe"). Anything else (multiple dots, a space) is not a clean
-        // executable name and never matches.
-        var dot = basename.IndexOf('.');
-        string stem;
-
-        if (dot < 0) {
-            stem = basename;
-        } else if (dot > 0 && !basename.AsSpan(dot + 1).Contains('.') && !basename.AsSpan(dot + 1).Contains(' ')) {
-            stem = basename[..dot];
-        } else {
-            return false;
-        }
-
-        // Match the vendor's process name OR `{name}-cli`. The bounded `-cli` tolerance fixes the Kiro
-        // watchdog, whose durable process image is `kiro-cli` while its vendor token is `kiro`
-        // The clean-stem gate above keeps it from over-matching unrelated processes.
-        return ProcessNamesOf(vendor).Any(name =>
-            stem.Equals(name, StringComparison.OrdinalIgnoreCase)
-         || stem.Equals($"{name}-cli", StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>The names a vendor's process shows, where they are not the vendor token itself.
-    /// Vibe retitles its interpreter to "Vibe CLI" on Linux and macOS; on Windows the title is
-    /// unchanged and its <c>vibe.exe</c> launcher is what the walk meets.</summary>
-    static string[] ProcessNamesOf(string vendor) => vendor switch {
-        "mistral-vibe" => ["vibe", "Vibe CLI"],
-        _              => [vendor],
-    };
-
-    /// <summary>The prefix of a vendor's versioned binary. Muse's <c>muse</c> is a launcher script that
-    /// execs <c>muse-bin-&lt;version&gt;</c>, so the durable process never reads as <c>muse</c>; its
-    /// comm is the same name truncated to 15 or 16 characters.</summary>
-    static string? VersionedBinaryPrefixOf(string vendor) => vendor switch {
-        "muse" => "muse-bin-",
-        _      => null,
-    };
 
     /// <summary>
     /// Detaches the current process from its controlling terminal on Unix so that

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Capacitor.App.Services.CliAdoption;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup;
@@ -14,7 +15,9 @@ namespace Capacitor.App.Services.LocalSetup;
 public sealed class StaleClientRepair(
         IProcessRunner runner, ILoginShellProbe probe, string? appCli, Func<string?, ILocalClientCopies> copies) {
     const string OsascriptPath = "/usr/bin/osascript";
-    const string NpmPackage    = "@kurrent/kcap";
+    const string NpmPackage    = OtherCliInstallReader.NpmPackage;
+
+    readonly EntryIdentity _identity = new(runner);
 
     static readonly TimeSpan NpmTimeout = TimeSpan.FromMinutes(5);
 
@@ -43,7 +46,7 @@ public sealed class StaleClientRepair(
             if (relinked.Contains(stale.Path)) return new ClientRepairOutcome.Failed(stale.Path, "it still reports an older version after it was replaced.");
 
             // Found again either way: npm may have left anything at that entry, updated or not.
-            if (NpmPrefix(stale.Path) is { } prefix && npmTried.Add(stale.Path)) {
+            if (OtherCliInstallReader.NpmPrefixOf(stale.Path) is { } prefix && npmTried.Add(stale.Path)) {
                 var (updated, why) = await UpdateThroughNpmAsync(prefix, path, ct).ConfigureAwait(false);
                 if (updated) repaired = stale.Path;
                 else npmFailed[stale.Path] = why;
@@ -78,7 +81,7 @@ public sealed class StaleClientRepair(
     /// The entry's identity, read before a probe that still finds it below the floor, so the version that probe reports
     /// belongs to the entry the identity describes: the replacement checks against it.
     async Task<string?> BoundIdentityAsync(string? path, string entry, CancellationToken ct) {
-        if (await IdentityAsync(entry, ct).ConfigureAwait(false) is not { } before) return null;
+        if (await _identity.OfAsync(entry, ct).ConfigureAwait(false) is not { } before) return null;
 
         return await FindStaleAsync(path, ct).ConfigureAwait(false) is { } stale && stale.Path == entry ? before : null;
     }
@@ -87,38 +90,6 @@ public sealed class StaleClientRepair(
         public sealed record Done : Relink;
         public sealed record Changed : Relink;
         public sealed record Refused(ClientRepairOutcome Outcome) : Relink;
-    }
-
-    /// The entry itself, not what it points at: device, inode, and modification and change times. Null when it
-    /// cannot be read, which includes an entry that is gone.
-    async Task<string?> IdentityAsync(string entry, CancellationToken ct) {
-        try {
-            var result = await runner.RunAsync(StatPath, [.. StatArgs, entry], new RunOptions(Timeout: TimeSpan.FromSeconds(5)), ct)
-                .ConfigureAwait(false);
-            return result is { ExitCode: 0, TimedOut: false } ? result.Stdout.Trim() : null;
-        } catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException) {
-            return null;
-        }
-    }
-
-    /// The global prefix of the npm install <paramref name="entry"/> runs, read from where its package lives; null when
-    /// npm does not own it.
-    static string? NpmPrefix(string entry) {
-        if (OperatingSystem.IsWindows()) return WindowsNpmPrefix(entry);
-
-        var package = CanonicalPath.Resolve(entry);
-        var at      = package.IndexOf($"/lib/node_modules/{NpmPackage}/", StringComparison.Ordinal);
-
-        return at > 0 ? package[..at] : null;
-    }
-
-    /// npm on Windows writes a global package's <c>kcap.cmd</c> into the prefix itself, beside its
-    /// <c>node_modules</c>; anything else there, a <c>kcap.exe</c> included, is not one npm would replace.
-    static string? WindowsNpmPrefix(string entry) {
-        if (!string.Equals(Path.GetExtension(entry), ".cmd", StringComparison.OrdinalIgnoreCase)) return null;
-        var prefix = Path.GetDirectoryName(entry);
-
-        return prefix is not null && File.Exists(Path.Combine(prefix, "node_modules", "@kurrent", "kcap", "package.json")) ? prefix : null;
     }
 
     /// Runs the npm of the prefix that owns the entry: another npm earlier on PATH would update a different install
@@ -182,7 +153,7 @@ public sealed class StaleClientRepair(
 
         if (result.ExitCode == 0) return new Relink.Done();
         if (result.Stderr.Contains(EntryChanged, StringComparison.Ordinal)) return new Relink.Changed();
-        if (result.Stderr.Contains("(-128)", StringComparison.Ordinal)) return new Relink.Refused(new ClientRepairOutcome.Cancelled(link));
+        if (AdministratorPrompt.WasCancelled(result)) return new Relink.Refused(new ClientRepairOutcome.Cancelled(link));
 
         return new Relink.Refused(new ClientRepairOutcome.Failed(
             link, string.IsNullOrWhiteSpace(result.Stderr) ? "osascript failed." : result.Stderr.Trim()));
@@ -195,34 +166,19 @@ public sealed class StaleClientRepair(
     /// renamed over it, so PATH never goes without a kcap. True when replaced, false when the entry changed, null
     /// when the folder needs an administrator.
     async Task<bool?> TryReplaceAsync(string link, string target, string found, CancellationToken ct) {
-        var temp = Path.Combine(Path.GetDirectoryName(link)!, $".kcap-{Guid.NewGuid():N}");
         try {
-            File.CreateSymbolicLink(temp, target);
+            return await KcapLinkSwap.ReplaceAsync(
+                link, target, async token => await _identity.OfAsync(link, token).ConfigureAwait(false) == found, ct).ConfigureAwait(false);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
-        }
-
-        try {
-            if (await IdentityAsync(link, ct).ConfigureAwait(false) != found) return false;
-            File.Move(temp, link, overwrite: true);
-            return true;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return null;
-        } finally {
-            try { File.Delete(temp); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }
-
-    const string StatPath = "/usr/bin/stat";
-
-    /// BSD stat reads the entry with lstat unless told to follow it.
-    static readonly string[] StatArgs = ["-f", "%d:%i:%m:%c"];
 
     /// The paths and the expected identity travel as argv and are read back through <c>quoted form</c>, never spliced
     /// into the script. The identity is compared in the same privileged shell that replaces the entry.
     internal static string[] OsascriptArgs(string target, string link, string found) => [
         "-e", "on run argv",
-        "-e", "do shell script \"[ \\\"$(" + StatPath + " -f " + StatArgs[1] + " \" & quoted form of item 2 of argv & \")\\\" = \" & quoted form of item 3 of argv & \" ] || { echo " + EntryChanged + " >&2; exit 3; }; /bin/ln -sfh \" & quoted form of item 1 of argv & \" \" & quoted form of item 2 of argv with administrator privileges",
+        "-e", "do shell script \"[ \\\"$(" + EntryIdentity.StatPath + " -f " + EntryIdentity.StatArgs[1] + " \" & quoted form of item 2 of argv & \")\\\" = \" & quoted form of item 3 of argv & \" ] || { echo " + EntryChanged + " >&2; exit 3; }; /bin/ln -sfh \" & quoted form of item 1 of argv & \" \" & quoted form of item 2 of argv with administrator privileges",
         "-e", "end run",
         "--", target, link, found,
     ];

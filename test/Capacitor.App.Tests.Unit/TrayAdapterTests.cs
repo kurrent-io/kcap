@@ -20,9 +20,9 @@ public class TrayAdapterTests {
     static TrayMenuModel Model(
             TrayState state = TrayState.Idle, int count = 0, string header = "hdr",
             IReadOnlyList<TrayAgentEntry>? agents = null, TrayPauseItem? pause = null, int pendingConsent = 0,
-            bool shimInstallVisible = false, string? updateItemLabel = null) =>
+            bool shimInstallVisible = false, string? updateItemLabel = null, bool finishSwitchVisible = false) =>
         new(state, count, header, agents ?? [], pause ?? new TrayPauseItem(Enabled: true, Checked: false), pendingConsent,
-            shimInstallVisible, updateItemLabel);
+            shimInstallVisible, updateItemLabel, finishSwitchVisible);
 
     // ---- CountBadge (pure) ----
 
@@ -432,6 +432,25 @@ public class TrayAdapterTests {
             await Assert.That(commandMatches).IsTrue();
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rebuild_shows_Finish_switching_only_while_offered() => AvaloniaSession.RunOnUiAsync(async () => {
+        const string Label = "Finish switching to the app's kcap…";
+        var service = new FakeDaemonClientService();
+        using var vm = new TrayViewModel(service, new FakePauseController(), NewActions(service), new FakeConsentService());
+        var menu = new NativeMenu();
+        var builder = new TrayMenuBuilder(vm);
+
+        builder.Rebuild(menu, Model(shimInstallVisible: true));
+        await Assert.That(menu.Items.OfType<NativeMenuItem>().Any(i => i.Header == Label)).IsFalse();
+
+        builder.Rebuild(menu, Model(shimInstallVisible: true, finishSwitchVisible: true));
+        var items = menu.Items.OfType<NativeMenuItem>().ToList();
+        var finish = items.Single(i => i.Header == Label);
+        await Assert.That(ReferenceEquals(finish.Command, vm.FinishSwitchCommand)).IsTrue();
+        await Assert.That(items.IndexOf(finish)).IsEqualTo(items.FindIndex(i => i.Header == "Install command-line tool…") + 1);
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]

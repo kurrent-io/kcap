@@ -218,10 +218,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         };
         BindRefreshShortcuts();
         BindSearchShortcuts();
+        BindRailStepShortcuts();
         BindSidebarShortcut();
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
+        ShowInstanceTitle();
         BindFullScreenShortcut();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
@@ -313,6 +315,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         DataContextChanged += (_, _) => Apply();
     }
 
+    // Ctrl+PageUp and Ctrl+PageDown on every platform, terminal focus included: they step through
+    // the sessions in the rail, which is how a user moves between agents' terminals.
+    void BindRailStepShortcuts() {
+        var previous = new KeyBinding { Gesture = new KeyGesture(Key.PageUp, KeyModifiers.Control) };
+        var next = new KeyBinding { Gesture = new KeyGesture(Key.PageDown, KeyModifiers.Control) };
+        KeyBindings.Add(previous);
+        KeyBindings.Add(next);
+
+        void Apply() {
+            if ((DataContext as MainWindowViewModel)?.Rail is not { } rail) return;
+            previous.Command = rail.OpenPreviousSessionCommand;
+            next.Command = rail.OpenNextSessionCommand;
+        }
+        Apply();
+        DataContextChanged += (_, _) => Apply();
+    }
+
     // ⌘[ and ⌘] on macOS; Alt+Left and Alt+Right elsewhere, which yield to a focused terminal
     // because a shell reads them as word moves. The mouse's back and forward buttons work anywhere.
     void BindHistoryShortcuts() {
@@ -350,6 +369,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             e.Handled = true;
             ui.Execute(null);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+    }
+
+    public const string TitleEnvVar = "KCAP_APP_TITLE";
+
+    // Names the instance, so several running side by side can be told apart. Where the window paints
+    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
+    // a non-empty Title at the top left; elsewhere the window manager draws Title. Onboarding puts
+    // its own step title in the same spot, so the label gives way to it.
+    void ShowInstanceTitle() {
+        if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
+        InstanceTitle.Text = title;
+        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => Title = extended ? "" : title);
+        InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty)
+            .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }
 
     // Windows draws its caption buttons over the top-right of the extended client area, so the
@@ -398,7 +431,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     // entirely), is invisible to the user — stderr (AppNotifier's own mirroring) is the only
     // channel that survives either case.
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, TimeSpan.FromSeconds(4)));
+        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, ToastDuration(message)));
+
+    // About fifteen characters a second to read it, never under four seconds or past twenty.
+    internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
     void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>

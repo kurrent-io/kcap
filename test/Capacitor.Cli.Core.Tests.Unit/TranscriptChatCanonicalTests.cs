@@ -9,6 +9,64 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 public class TranscriptChatCanonicalTests {
     static CanonicalEvent Event(string type, object payload) => new(type, payload, Guid.NewGuid(), DateTimeOffset.UtcNow);
 
+    static CanonicalEvent SessionStart(string? source) {
+        var started = new SessionStarted();
+        var slug = new Struct();
+        if (source is not null) slug.Fields["source"] = Value.ForString(source);
+        started.Extensions[ClaudeCodeExtension.Slug] = slug;
+        return Event(CanonicalEventTypes.SessionStarted, started);
+    }
+
+    [Test]
+    public async Task A_resumed_claude_session_start_is_a_restart_dated_by_the_event() {
+        var evt = SessionStart("Resume");
+        var result = TranscriptChat.Project(evt, ClaudeChatRules.Instance);
+        await Assert.That(result.Envelopes).IsEmpty();
+        await Assert.That(((RunSignal.Restarted)result.Runs.Single()).At).IsEqualTo(evt.Timestamp);
+    }
+
+    /// Compact and clear keep their process, and a first start has nothing before it to end.
+    [Test]
+    [Arguments("Startup")]
+    [Arguments("Compact")]
+    [Arguments("Clear")]
+    [Arguments(null)]
+    public async Task Any_other_claude_session_start_restarts_nothing(string? source) =>
+        await Assert.That(TranscriptChat.Project(SessionStart(source), ClaudeChatRules.Instance).Runs).IsEmpty();
+
+    [Test]
+    public async Task A_vendor_without_the_rule_reads_a_resumed_session_start_as_nothing() =>
+        await Assert.That(TranscriptChat.Project(SessionStart("Resume"), rules: null).Runs).IsEmpty();
+
+    const string OrphanReport = "<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</task-notification>";
+
+    static CanonicalEvent StoredReport(string? promptSource) {
+        var message = new UserMessageReceived { Content = OrphanReport };
+        if (promptSource is not null) {
+            var slug = new Struct();
+            slug.Fields[ClaudeCodeExtension.PromptSource] = Value.ForString(promptSource);
+            message.Extensions[ClaudeCodeExtension.Slug] = slug;
+        }
+        return Event(CanonicalEventTypes.UserMessageReceived, message);
+    }
+
+    /// A resume can reach the server with no session start, and the report of what the old process
+    /// left running is then its only mark. A stored event may carry no origin, so the report's own
+    /// shape decides.
+    [Test]
+    [Arguments(null)]
+    [Arguments("system")]
+    public async Task A_stored_report_of_work_the_previous_process_left_running_reopens_the_session(string? promptSource) {
+        var evt = StoredReport(promptSource);
+        var runs = TranscriptChat.Project(evt, ClaudeChatRules.Instance).Runs;
+        await Assert.That(runs.OfType<RunSignal.Reopened>().Single().At).IsEqualTo(evt.Timestamp);
+        await Assert.That(runs.OfType<RunSignal.Finished>().Single().AgentId).IsEqualTo("b7k2");
+    }
+
+    [Test]
+    public async Task A_stored_report_the_user_typed_reopens_nothing() =>
+        await Assert.That(TranscriptChat.Project(StoredReport("typed"), ClaudeChatRules.Instance).Runs.Where(r => r is RunSignal.Reopened or RunSignal.Restarted)).IsEmpty();
+
     [Test]
     public async Task A_user_message_is_one_row_and_one_submitted_input_without_rules() {
         var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, new UserMessageReceived { Content = "hello" }), rules: null);

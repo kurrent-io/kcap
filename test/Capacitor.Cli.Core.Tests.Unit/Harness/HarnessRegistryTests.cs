@@ -56,6 +56,19 @@ public class HarnessRegistryTests {
         await Assert.That(stray).IsEmpty();
     }
 
+    /// <summary>A vendor naming none of its integration files is one a check for references to a kcap binary
+    /// would skip; one naming a file outside the home is not reading user-scope configuration.</summary>
+    [Test]
+    public async Task Every_harness_names_its_user_scope_integration_files() {
+        var stray = TestHarnesses.Under(Home)
+            .Where(h => h.IntegrationFiles.Count == 0
+                     || h.IntegrationFiles.Any(f => !f.StartsWith(Home.Path + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+            .Select(h => h.Id)
+            .ToList();
+
+        await Assert.That(stray).IsEmpty();
+    }
+
     /// <summary>Each vendor's layout comes from its own factory rather than the registry reading the
     /// override variables itself, so relocating one vendor leaves the others where they were.</summary>
     // Bare: the overrides are inherited by any child a concurrent test spawns.

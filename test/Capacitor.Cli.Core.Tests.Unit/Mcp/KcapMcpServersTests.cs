@@ -4,21 +4,21 @@ namespace Capacitor.Cli.Core.Tests.Unit.Mcp;
 
 public class KcapMcpServersTests {
     [Test]
-    public async Task All_contains_the_ten_canonical_servers() {
+    public async Task All_contains_the_eleven_canonical_servers() {
         var names = KcapMcpServers.All.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]
     public async Task ForCodex_is_the_full_set_including_workitems() {
         var names = KcapMcpServers.ForCodex.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]
     public async Task ForCursor_is_the_full_set_including_workitems() {
         var names = KcapMcpServers.ForCursor.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]
@@ -69,10 +69,11 @@ public class KcapMcpServersTests {
         });
     }
 
+    /// <summary>Flows waits on a reviewer, and a pass on the human answering its approval prompt.</summary>
     [Test]
-    public async Task Flows_is_the_only_server_whose_tool_calls_block_for_minutes() {
+    public async Task Flows_and_pass_are_the_servers_whose_tool_calls_block_for_minutes() {
         var timed = KcapMcpServers.All.Where(s => s.ToolTimeout is not null).ToArray();
-        await Assert.That(timed.Select(s => s.Name).ToArray()).IsEquivalentTo(new[] { "kcap-flows" });
-        await Assert.That(timed[0].ToolTimeout).IsEqualTo(TimeSpan.FromMinutes(10));
+        await Assert.That(timed.Select(s => s.Name).ToArray()).IsEquivalentTo(new[] { "kcap-flows", "kcap-pass" });
+        foreach (var server in timed) await Assert.That(server.ToolTimeout).IsEqualTo(TimeSpan.FromMinutes(10));
     }
 }

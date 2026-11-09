@@ -7,6 +7,8 @@ using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -321,6 +323,8 @@ sealed class KiroHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Started BEFORE the lifecycle POST so the two overlap, and only after the disabled/
         // excluded-path/excluded-repo early-outs above so an excluded repo never reaches the memory

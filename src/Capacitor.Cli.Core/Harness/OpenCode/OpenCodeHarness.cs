@@ -25,6 +25,8 @@ public sealed class OpenCodeHarness : IHarness<OpenCodeHarness> {
     /// override a second time.</summary>
     public OpenCodePaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.KcapPlugin, Paths.McpConfigJson];
+
     // Config and data dirs are the marker; the PATH probe covers a fresh install.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),

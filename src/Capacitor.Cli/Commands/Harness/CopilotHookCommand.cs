@@ -10,6 +10,8 @@ using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -190,7 +192,10 @@ sealed class CopilotHookCommand(
         // Mirror the Claude/Codex disabled-session fast path: `kcap disable`
         // must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "sessionEnd") DisabledSessions.RemoveMarker(sessionId, config);
+            if (eventName == "sessionEnd") {
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+            }
             return 0;
         }
 
@@ -266,7 +271,11 @@ sealed class CopilotHookCommand(
         }
 
         SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Copilot, clock.Time);
-        var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
+
+        // Not the per-folder deduped path: each session needs its own link to the repository.
+        var enriched = cwd is null
+            ? forwarded.ToJsonString()
+            : await RepositoryDetection.EnrichWithRepositoryInfoFromCwd(router, config, forwarded.ToJsonString(), cwd, clock.Time);
 
         // Repo exclusion after enrichment (fast in-payload path) — mark the
         // session so per-turn agentStop events skip via DisabledSessions.
@@ -275,6 +284,8 @@ sealed class CopilotHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the
@@ -396,7 +407,12 @@ sealed class CopilotHookCommand(
         }
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/copilot", end) == HookPostOutcome.Failed ? 1 : 0;
+        var outcome = await PostHookAsync("session-end/copilot", end);
+
+        // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
+        if (outcome == HookPostOutcome.Posted)
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 
     async Task<int> HandleAgentStop(JsonNode node, string dashedSessionId, string sessionId, string? cwd) {

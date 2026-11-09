@@ -176,6 +176,25 @@ public class MarkViewSelectionTests {
     }
 
     [Test]
+    [Arguments("hello world", "hello worl")]
+    [Arguments("> hello world", "hello worl")]
+    [Arguments("- hello world", "• hello worl")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drag_from_a_text_blocks_left_margin_selects_from_its_first_character(string markdown, string expected) {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show(markdown);
+            try {
+                var block = BlockReading(view, "hello world");
+                block.Margin = new Thickness(20, 0, 0, 0);
+                window.UpdateLayout();
+                var end = block.TextLayout.HitTestTextPosition(10).X;
+                Drag(window, At(window, block, -8), At(window, block, end));
+                await Assert.That(await Copied(view)).IsEqualTo(expected);
+            } finally { window.Close(); }
+        });
+    }
+
+    [Test]
     [Arguments("above")]
     [Arguments("below")]
     [Arguments("left")]

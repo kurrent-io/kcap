@@ -8,7 +8,7 @@
                      x:Class="Capacitor.App.Views.MainWindow"
                      x:TypeArguments="vm:MainWindowViewModel"
                      x:DataType="vm:MainWindowViewModel"
-                     Title="kcap Desktop"
+                     Title=""
                      Icon="avares://kcap-desktop/Assets/kcap-icon.png"
                      Width="{x:Static svc:WindowSizeMemory.DefaultWidth}"
                      MinWidth="{x:Static svc:WindowSizeMemory.MinWidth}"
@@ -131,5 +131,10 @@
         <!-- Unscaled like the strip above: the pane draws its own title-bar drag area. -->
         <!-- Onboarding covers the rail and launcher until it hands over; see Onboarding. -->
         <onboarding:OnboardingPaneView x:Name="OnboardingPane" DataContext="{x:Null}" IsVisible="False" />
+
+        <TextBlock x:Name="InstanceTitle" IsVisible="False" IsHitTestVisible="False"
+                   Height="40" VerticalAlignment="Top" HorizontalAlignment="Center"
+                   Padding="0,12,0,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                   MaxWidth="480" Foreground="{StaticResource KcapMutedBrush}" />
     </Panel>
 </rxui:ReactiveWindow>

@@ -341,21 +341,66 @@ public class RailSessionViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_running_background_command_keeps_a_waiting_row_working() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var commands = new BehaviorSubject<IReadOnlyDictionary<string, int>>(FrozenDictionary<string, int>.Empty);
+            var commands = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
             using var row = new RailSessionViewModel(Row(awaitingInput: true), new BehaviorSubject<string?>(null), NoPending, NotStale,
-                _ => { }, _ => { }, TimeProvider.System, agentsRunningCommands: commands);
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: commands);
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
 
-            commands.OnNext(new Dictionary<string, int> { ["remote:a1"] = 2 });
+            commands.OnNext(new Dictionary<string, RunningWork> { ["remote:a1"] = new(2, 0) });
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
 
-            commands.OnNext(new Dictionary<string, int> { ["local:a1"] = 2 });
+            commands.OnNext(new Dictionary<string, RunningWork> { ["local:a1"] = new(2, 0) });
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(row.Status.Pulses).IsTrue();
             await Assert.That(row.Tooltip).Contains("2 commands running");
 
-            commands.OnNext(FrozenDictionary<string, int>.Empty);
+            commands.OnNext(FrozenDictionary<string, RunningWork>.Empty);
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+        });
+    }
+
+    /// A subagent paused on its own background work has left the daemon's count, so the transcript
+    /// alone keeps the row Working and names it; the count stays keyed by lane.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_subagent_only_the_transcript_sees_keeps_the_row_working_and_counted() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
+            using var row = new RailSessionViewModel(Row(awaitingInput: true, liveSubagents: 0), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: work);
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["remote:a1"] = new(0, 2) });
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["local:a1"] = new(0, 2) });
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
+            await Assert.That(row.Meta).EndsWith(" · 2 subagents");
+            await Assert.That(row.Tooltip).Contains("2 subagents running");
+
+            work.OnNext(FrozenDictionary<string, RunningWork>.Empty);
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+        });
+    }
+
+    /// Neither count alone is right: the daemon loses a paused subagent, and the transcript hears of
+    /// a new one a read after the daemon does, or never, where its feed cannot be read.
+    [Test]
+    [Arguments(2, 1, " · 2 subagents")]
+    [Arguments(1, 2, " · 2 subagents")]
+    [Arguments(3, 0, " · 3 subagents")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_row_shows_whichever_count_sees_more(int daemon, int transcript, string shown) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(
+                new Dictionary<string, RunningWork> { ["local:a1"] = new(1, transcript) });
+            using var row = new RailSessionViewModel(Row(awaitingInput: true, liveSubagents: daemon), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: work);
+
+            await Assert.That(row.Meta).EndsWith(shown);
         });
     }
 
@@ -624,7 +669,7 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_stale_server_row_greys_out_like_a_stale_remote_one() {
+    public async Task A_stale_server_row_greys_out_and_reads_stale() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var laneStale = new BehaviorSubject<bool>(false);
             using var fresh = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, laneStale,
@@ -634,8 +679,11 @@ public class RailSessionViewModelTests {
 
             await Assert.That(fresh.IsStale).IsFalse();
             await Assert.That(idle.IsStale).IsTrue();
+            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
+            await Assert.That(idle.Status.Label).IsEqualTo("Stale");
             laneStale.OnNext(true);
             await Assert.That(fresh.IsStale).IsTrue();
+            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
         });
     }
 }

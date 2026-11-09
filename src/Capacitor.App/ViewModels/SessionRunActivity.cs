@@ -4,16 +4,17 @@ using System.Reactive.Subjects;
 
 namespace Capacitor.App.ViewModels;
 
-/// Running commands by source-scoped row key. Closing a workspace hands its live commands to a
-/// transcript monitor until the session ends or the workspace reopens. Every call is on the UI thread.
-public sealed class BackgroundCommandActivity(
-        Func<string, Action<int>, Action, TranscriptFeedHandoff?, IDisposable>? watch = null) : IDisposable {
-    readonly BehaviorSubject<IReadOnlyDictionary<string, int>> _running = new(FrozenDictionary<string, int>.Empty);
+/// What each session's transcript shows running, by source-scoped row key. Closing a workspace hands
+/// its session to a transcript monitor until the session ends or the workspace reopens. Every call is
+/// on the UI thread.
+public sealed class SessionRunActivity(
+        Func<string, Action<RunningWork>, Action, TranscriptFeedHandoff?, IDisposable>? watch = null) : IDisposable {
+    readonly BehaviorSubject<IReadOnlyDictionary<string, RunningWork>> _running = new(FrozenDictionary<string, RunningWork>.Empty);
     readonly Dictionary<string, List<Registration>> _byKey = new(StringComparer.Ordinal);
     bool _disposed;
 
     sealed class Registration : IDisposable {
-        public int Count;
+        public RunningWork Work;
         public bool Detached;
         public readonly SerialDisposable Watch = new();
         public IDisposable Tracking = Disposable.Empty;
@@ -24,7 +25,7 @@ public sealed class BackgroundCommandActivity(
         }
     }
 
-    public IObservable<IReadOnlyDictionary<string, int>> Running => _running;
+    public IObservable<IReadOnlyDictionary<string, RunningWork>> Running => _running;
 
     /// The newest registration for a key is the one counted: a reopened session's workspace is
     /// built before the outgoing one is torn down, and that teardown drops only its own entry.
@@ -39,7 +40,7 @@ public sealed class BackgroundCommandActivity(
         }
         registrations.Add(registration);
         void Changed() {
-            registration.Count = runs.RunningCommandCount;
+            registration.Work = runs.Work;
             Publish();
         }
         runs.Changed += Changed;
@@ -52,9 +53,9 @@ public sealed class BackgroundCommandActivity(
                 registration.Detached = true;
                 var handoff = handOff?.Invoke();
                 try {
-                    registration.Watch.Disposable = watch(rowKey, count => {
+                    registration.Watch.Disposable = watch(rowKey, work => {
                         if (_disposed || !registrations.Contains(registration)) return;
-                        registration.Count = count;
+                        registration.Work = work;
                         Publish();
                     }, Remove, handoff);
                 } catch {
@@ -78,11 +79,11 @@ public sealed class BackgroundCommandActivity(
 
     void Publish() {
         var next = _byKey
-            .Where(pair => pair.Value[^1].Count > 0)
-            .ToFrozenDictionary(pair => pair.Key, pair => pair.Value[^1].Count, StringComparer.Ordinal);
+            .Where(pair => !pair.Value[^1].Work.IsIdle)
+            .ToFrozenDictionary(pair => pair.Key, pair => pair.Value[^1].Work, StringComparer.Ordinal);
         var current = _running.Value;
         if (next.Count == current.Count && next.All(pair => current.GetValueOrDefault(pair.Key) == pair.Value)) return;
-        _running.OnNext(next.Count == 0 ? FrozenDictionary<string, int>.Empty : next);
+        _running.OnNext(next.Count == 0 ? FrozenDictionary<string, RunningWork>.Empty : next);
     }
 
     public void Dispose() {

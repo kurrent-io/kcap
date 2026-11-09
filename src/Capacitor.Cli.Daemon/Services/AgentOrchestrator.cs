@@ -898,6 +898,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             Microsoft.Extensions.Logging.Abstractions.NullLogger<AdmissionFence>.Instance);
         _shutdownCts       = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
         _time              = time;
+        _dispatchedInputs  = new(time);
         _heartbeatTimer    = new(HeartbeatInterval, time);
         _daemonHeartbeat   = new(TimeSpan.FromSeconds(7), time);
         _tokenRefresh      = new(TimeSpan.FromSeconds(60), time);
@@ -992,6 +993,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.FindRepoForRemoteHandler      =  HandleFindRepoForRemote;
         _permissionBridge.AttributeHandler    =  HandleAttributePermission;
         _permissionBridge.InputWaitHandler    =  HandleInputWait;
+        _permissionBridge.SessionStartHandler =  HandleSessionStart;
         _permissionBridge.ToolSettledHandler  =  HandleToolSettled;
         _permissionBridge.SubagentHandler     =  HandleSubagent;
         _server.ProbeBorrowSourceHandler      =  HandleProbeBorrowSource;
@@ -1262,11 +1264,28 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (unconfirmed) _statusNotifier.Pulse();
     }
 
+    /// The bridge's attributed notice that a hosted agent's session started. An id the daemon does
+    /// not hold (torn down since the hook fired) is dropped.
+    void HandleSessionStart(string agentId) {
+        if (_agents.TryGetValue(agentId, out var agent)) NoteSessionStarted(agent);
+    }
+
+    void NoteSessionStarted(AgentInstance agent) {
+        var unconfirmed = agent.Runtime.LaunchPromptUnconfirmed;
+        agent.Runtime.NoteSessionStarted();
+        if (unconfirmed) _statusNotifier.Pulse();
+    }
+
+    internal Task WatchLaunchPromptForTest(AgentInstance agent) => WatchLaunchPromptAsync(agent);
+
     /// Republishes the agent once its launch prompt is found unconfirmed, so its chat can say so.
     async Task WatchLaunchPromptAsync(AgentInstance agent) {
         if (agent.Runtime.LaunchPromptDelivery is not { } delivery) return;
 
         try {
+            if (agent.Runtime.LaunchPromptOverdue is { } overdue
+             && await Task.WhenAny(overdue, delivery).ConfigureAwait(false) == overdue) _statusNotifier.Pulse();
+
             if (await delivery.ConfigureAwait(false) == LaunchPromptOutcome.NotConfirmed) _statusNotifier.Pulse();
         } catch (Exception) {
             // The runtime factory logs a faulted delivery.
@@ -2456,6 +2475,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             WorktreeInfo? worktree = null, WorkLocation work = WorkLocation.OwnedWorktree,
             string vendor = "codex",
             string? borrowedSnapshotSource = null,
+            bool bridgedSinceStart = false,
             IHostedAgentRuntime? runtime = null) {
         var agent = new AgentInstance(
             id, prompt, model, null, "/repo", vendor,
@@ -2470,7 +2490,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             InactivityBoundSeconds = inactivityBoundSeconds,
             ActivityClock = activityClock ?? CreateActivityClock(),
             Work = work,
-            BorrowedSnapshotSource = borrowedSnapshotSource
+            BorrowedSnapshotSource = borrowedSnapshotSource,
+            BridgedSinceStart = bridgedSinceStart
         };
         agent.Status = status;
         if (lastOutputAt is { } lo) agent.LastOutputAt = lo;
@@ -4998,6 +5019,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task ReportInputDroppedAsync(SendInputCommand cmd, string reason) {
         if (cmd.DispatchId is not { } dispatchId) return;
 
+        _dispatchedInputs.MarkDropped(dispatchId, reason);
+
         try {
             await _server.SendInputRejectedAsync(dispatchId, cmd.AgentId, reason);
         } catch (Exception ex) {
@@ -5005,16 +5028,66 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
+    /// <summary>Tells the server the dispatch was typed, so it stops resending it. Not awaited by the
+    /// caller's delivery path: the report is a server round trip, and a lost one only earns a resend that
+    /// is answered here again.</summary>
+    void AcknowledgeInput(SendInputCommand cmd) {
+        if (cmd.DispatchId is not { } dispatchId) return;
+
+        _dispatchedInputs.MarkTaken(dispatchId);
+        _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
+    }
+
+    /// <summary>Input queued behind an active turn is acknowledged once taken, since the server never
+    /// resends to another daemon process; a write the runtime later loses is still reported, after the ack.
+    /// Not awaited by the delivery path.</summary>
+    async Task ReportLostWriteAsync(SendInputCommand cmd, string vendor, Task written) {
+        try {
+            await written.ConfigureAwait(false);
+        } catch (Exception ex) {
+            LogSendInputDeliveryFailed(ex, cmd.AgentId, vendor, SendInputDropReason.DeliveryFailed);
+            await ReportInputDroppedAsync(cmd, SendInputDropReason.DeliveryFailed);
+        }
+    }
+
     async Task HandleSendInput(SendInputCommand cmd) {
-        switch (TryHoldForResume(cmd)) {
-            case true:
-                return;
-            case false:
-                await ReportInputDroppedAsync(cmd, SendInputDropReason.QueueFull);
-                return;
+        if (cmd.DispatchId is { } dispatchId) {
+            switch (_dispatchedInputs.Admit(dispatchId, out var dropReason)) {
+                case DispatchState.InFlight:
+                    LogSendInputDuplicateInFlight(cmd.AgentId, dispatchId);
+                    return;
+                case DispatchState.Taken:
+                    LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
+                    _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
+
+                    // A drop recorded since the admit is reported again, in case its own report never arrived.
+                    // The server records a rejection whether or not an ack reached it first.
+                    if (_dispatchedInputs.Peek(dispatchId, out var lost) == DispatchState.Dropped)
+                        await ReportInputDroppedAsync(cmd, lost!);
+                    return;
+                case DispatchState.Dropped:
+                    await ReportInputDroppedAsync(cmd, dropReason!);
+                    return;
+            }
         }
 
-        await DeliverSendInputAsync(cmd);
+        try {
+            switch (TryHoldForResume(cmd)) {
+                // Acknowledged only once delivered: a resume that fails drops the round, and the server must
+                // still be resending it then. Its resends meanwhile find it in flight and are ignored.
+                case true:
+                    return;
+                case false:
+                    await ReportInputDroppedAsync(cmd, SendInputDropReason.QueueFull);
+                    return;
+            }
+
+            await DeliverSendInputAsync(cmd);
+        } catch {
+            if (cmd.DispatchId is { } failed) _dispatchedInputs.Forget(failed);
+
+            throw;
+        }
     }
 
     async Task DeliverSendInputAsync(SendInputCommand cmd) {
@@ -5037,6 +5110,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         LogSendInputReceived(agentId, agent.Runtime.Vendor, text.Length, attachmentIds?.Length ?? 0);
 
         var outcome = await DeliverInputAsync(agent, text, attachmentIds, dispatchId);
+
+        if (outcome.Kind is InputDeliveryKind.Delivered or InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
+        if (outcome.Written is { IsCompletedSuccessfully: false } written) _ = ReportLostWriteAsync(cmd, agent.Runtime.Vendor, written);
 
         switch (outcome.Kind) {
             case InputDeliveryKind.QuitRequested:
@@ -5063,7 +5139,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// write depends on — the borrowed-snapshot refresh, attachment downloads, and the reap-claim
     /// checks that decide whether a condemned agent may still be written to — happens inside the
     /// agent's own delivery section.</summary>
-    internal async Task<InputDeliveryOutcome> DeliverInputAsync(AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null) {
+    internal async Task<InputDeliveryOutcome> DeliverInputAsync(
+            AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null, bool onlyIfWaiting = false) {
         // Refused before the section, so nothing is downloaded for a message that was never going to
         // be delivered. The ids are re-validated here whichever lane they arrived on: the local frame
         // checks them too, but a server dispatch reaches this method directly. A borrowed cwd is the
@@ -5197,6 +5274,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, TearingDown);
                 }
 
+                // Only here: a message mid-delivery leaves the agent waiting until its write lands.
+                if (onlyIfWaiting && !agent.ActivityClock.AwaitingInput) {
+                    batch?.Rollback();
+
+                    return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, "agent is on a turn");
+                }
+
                 // Under the gate and before the write: the bump retires the previous round's probe before
                 // this input can grow the rollout, and the rollout length and attestation count are
                 // sampled before anything this input starts can move them. A null baseline is handled in
@@ -5210,12 +5294,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // Sampled before the write: a turn can end while the delivery is still in flight, and
                 // that wait is newer than the one this input answers.
                 var waitGeneration = agent.ActivityClock.WaitGeneration;
+                var written        = Task.CompletedTask;
 
                 try {
                     // PTY runtimes use bracketed paste; ACP runtimes send a structured prompt.
-                    if (dispatchId is { } dispatch)
-                        await agent.Runtime.SendDispatchedInputAsync(message, dispatch, waitForWrite: agent.BorrowedSnapshotSource is not null);
-                    else if (agent.BorrowedSnapshotSource is not null)
+                    if (dispatchId is { } dispatch) {
+                        written = await agent.Runtime.SendDispatchedInputAsync(message, dispatch);
+                        if (agent.BorrowedSnapshotSource is not null) await written;
+                    } else if (agent.BorrowedSnapshotSource is not null)
                         await agent.Runtime.SendUserInputAndWaitForWriteAsync(message);
                     else
                         await agent.Runtime.SendUserInputAsync(message);
@@ -5256,7 +5342,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
                 LogSendInputDelivered(agent.Id, agent.Runtime.Vendor, message.Length);
 
-                return InputDeliveryOutcome.Delivered;
+                return InputDeliveryOutcome.Delivered with { Written = written };
             } catch {
                 batch?.Rollback();
 
@@ -5366,6 +5452,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (agent.IsCleanupStarted || agent.IsReapClaimed || agent.Runtime.HasExited) return;
 
         LogCodexRoundNotStarted(agent.Id, (CodexRoundConfirmation.Window * 2).TotalSeconds, resubmitWritten);
+
+        // A resend is refused the same way, since the report below may never reach the server.
+        if (dispatchId is { } dropped) _dispatchedInputs.MarkDropped(dropped, SendInputDropReason.TurnNotStarted);
 
         var report = dispatchId is { } dispatch && !agent.IsServerSilent
             ? ReportUnstartedRoundAsync(dispatch)
@@ -5810,7 +5899,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             cwd: transcript.Cwd,
             model: transcript.ResolvedModel,
             rawSessionId: transcript.AcpSessionId,
-            repository: HostedSessionRepository.Read(transcript.Cwd)
+            repository: HostedSessionRepository.Read(transcript.Cwd, dir => LocalRepositorySupport.IdentityFor(_config.ConfigRoot, _config.ServerUrl, dir))
         );
 
         var forwarder = new AcpTranscriptForwarder(
@@ -6338,6 +6427,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     agent.SessionId ??= winner.SessionId;
                     agent.VendorSession ??= winner.SessionId;
                     agent.TranscriptPath = winner.Path;
+                    // Claude's transcript opens with SessionStart's own record, which a kcap on PATH
+                    // too old to send the notice still produces. A resumed one predates the spawn.
+                    if (agent.BridgedSinceStart) NoteSessionStarted(agent);
                     UpdateLedgerSession(agent);
                     StartContinuationTakeover(agent);
                     StartHandoffTakeover(agent);
@@ -6922,7 +7014,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         if (!AgentCaptureScope.Configured(profile)) return null;
-        if (!AgentCaptureScope.IsOutOfScope(origin, profile, _config.Home)) return null;
+        if (!AgentCaptureScope.IsOutOfScope(origin, profile, _config.Home, _config.ConfigRoot, _config.ServerUrl)) return null;
 
         LogLaunchOutOfCaptureScope(agentId, origin ?? "");
         await _server.LaunchFailedAsync(agentId, AgentCaptureScope.RefusalReason);
@@ -7023,6 +7115,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SendInput dropped: agent {AgentId} is private — server-origin input is ignored")]
     partial void LogSendInputPrivateAgent(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SendInput {DispatchId} for agent {AgentId} resent while its first copy is still being delivered; ignored")]
+    partial void LogSendInputDuplicateInFlight(string agentId, Guid dispatchId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SendInput {DispatchId} for agent {AgentId} resent after it was taken; acknowledging again without typing it")]
+    partial void LogSendInputDuplicateTaken(string agentId, Guid dispatchId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SendInput to agent {AgentId} is a quit command; {Vendor} has no TUI to interpret it, stopping the agent instead of forwarding")]
     partial void LogSendInputQuitCommand(string agentId, string vendor);

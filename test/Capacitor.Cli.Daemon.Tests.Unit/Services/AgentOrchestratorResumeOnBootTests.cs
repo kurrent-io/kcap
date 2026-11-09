@@ -33,6 +33,15 @@ public class AgentOrchestratorResumeOnBootTests {
             ThrowsFromSupports ? throw new InvalidOperationException("the factory faulted") : true;
         public bool ResumesIdle { get; init; }
         public bool ResumesIdleWithoutPrompt(string? runtimeTransport) => ResumesIdle;
+        public volatile bool LostWork;
+        int _lostWorkScans;
+        public int LostWorkScans => Volatile.Read(ref _lostWorkScans);
+
+        public bool ReportsLostWork(string? transcriptPath) {
+            Interlocked.Increment(ref _lostWorkScans);
+
+            return LostWork;
+        }
 
         public ConcurrentQueue<RuntimeStartContext> Contexts { get; } = new();
         public TaskCompletionSource? Gate { get; set; }
@@ -548,6 +557,131 @@ public class AgentOrchestratorResumeOnBootTests {
         await resuming;
 
         await Assert.That(f.Orch.GetAgentForTest("resume-busy")!.ActivityClock.AwaitingInput).IsFalse();
+    }
+
+    /// <summary>The vendor records the work a restart cut off but starts no turn on it, and only it knows about
+    /// background shells, so the nudge goes out after all.</summary>
+    [Test]
+    public async Task A_silent_resume_sends_the_nudge_when_the_vendor_reports_lost_work() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
+        await using var _ = f.Orch;
+        var entry = Entry(f, "resume-lost", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-lost")!.Runtime;
+        await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo("");
+        await Assert.That(runtime.UserInputs).IsEquivalentTo([ResumeNudge.Build(entry.ResumingAt!.Value, "build the thing")]);
+    }
+
+    /// <summary>A slow start writes its notices, and discovery links the transcript, after the readiness window.</summary>
+    [Test]
+    public async Task Lost_work_reported_after_the_readiness_window_still_gets_the_nudge() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-slow", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-slow")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+
+        f.Factory.LostWork = true;
+        await WaitHarness.PollUntilAsync(() => runtime.UserInputs.Count == 1);
+    }
+
+    /// <summary>An idle agent has nothing to report, so the looking has to end by itself.</summary>
+    [Test]
+    public async Task An_agent_with_nothing_lost_is_only_looked_at_for_a_while() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-idle", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await WaitHarness.PollUntilAsync(() => f.Factory.LostWorkScans == AgentOrchestrator.LostWorkScans);
+        await Task.Delay(f.Config.ResumeReadinessWindow * 2);
+
+        await Assert.That(f.Factory.LostWorkScans).IsEqualTo(AgentOrchestrator.LostWorkScans);
+    }
+
+    [Test]
+    public async Task A_silent_resume_with_no_lost_work_stays_silent() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-quiet", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-quiet")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+        await Assert.That(f.Orch.GetAgentForTest("resume-quiet")!.ActivityClock.AwaitingInput).IsTrue();
+    }
+
+    /// <summary>Whoever gave it that turn outranks a nudge, which would only land in the middle of it.</summary>
+    [Test]
+    public async Task An_agent_already_on_a_turn_is_not_nudged_for_lost_work() {
+        var server = new CaptureServerConnection {
+            AgentRegisteredGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            AgentRegisteredEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "resume-taken", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        var resuming = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await server.AgentRegisteredEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        f.Orch.GetAgentForTest("resume-taken")!.ActivityClock.SetAwaitingInput(false);
+        server.AgentRegisteredGate.SetResult();
+        await resuming;
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-taken")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+    }
+
+    /// <summary>A message mid-delivery leaves the agent waiting until its write lands, so the check before the
+    /// delivery section passes. The wait ends inside the section here: a check anywhere earlier cannot see it.</summary>
+    [Test]
+    public async Task A_message_that_overtakes_the_nudge_keeps_it_out_of_the_turn_it_started() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-overtaken", awaitingInput: true);
+        f.Orch.SendInputBeforeWriteHookForTest = () => {
+            f.Orch.GetAgentForTest("resume-overtaken")!.ActivityClock.SetAwaitingInput(false);
+
+            return Task.CompletedTask;
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-overtaken")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+    }
+
+    /// <summary>A delivery lasts as long as a dialog on screen does, so a resume that waited for its nudge would hold
+    /// a lane slot for that long: two such agents would stop every later resume.</summary>
+    [Test]
+    public async Task A_nudge_held_up_in_delivery_leaves_the_resume_free_to_finish() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-dialog", awaitingInput: true);
+        var dialogCloses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Orch.SendInputBeforeWriteHookForTest = () => dialogCloses.Task;
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-dialog")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+
+        dialogCloses.SetResult();
+        await WaitHarness.PollUntilAsync(() => runtime.UserInputs.Count == 1);
     }
 
     [Test]

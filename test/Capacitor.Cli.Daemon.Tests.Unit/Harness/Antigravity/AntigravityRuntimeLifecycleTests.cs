@@ -366,6 +366,8 @@ public class AntigravityRuntimeLifecycleTests {
         // The acknowledging entry point rejects identically — same queue, same answer.
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => rt.SendUserInputAndWaitForWriteAsync("four").WaitAsync(HangGuard));
+        await Assert.ThrowsAsync<InputNotAdmittedException>(
+            () => rt.SendDispatchedInputAsync("five", Guid.NewGuid()).WaitAsync(HangGuard));
 
         await Task.Delay(100);
 

@@ -430,6 +430,10 @@
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
                                                 Background="{StaticResource KcapWarningBrush}" />
+                                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
+                                                IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
+                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" />
                                         <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
                                                        IsVisible="{Binding IsAwaitingPermission}"
                                                        Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
@@ -738,10 +742,22 @@
                 <!-- Inset to the cards' text edge; a horizontal StackPanel here would never wrap it. The
                      band does not scroll, so the line cap keeps a server-sent reason from pushing the
                      composer off-screen. -->
-                <TextBlock x:Name="ChatActivityNote" Grid.Row="3" Margin="14,0,14,8" IsVisible="{Binding ShowsActivityNote}"
-                           Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
-                           Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5"
-                           TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                <StackPanel x:Name="ChatActivityBand" Grid.Row="3" Margin="14,0,14,8" Spacing="2"
+                            IsVisible="{Binding ShowsActivityNote}">
+                    <TextBlock x:Name="ChatActivityNote"
+                               Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
+                               Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5"
+                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                    <StackPanel x:Name="ChatActivityTerminalOffer" Orientation="Horizontal"
+                                IsVisible="{Binding ShowsActivityTerminalOffer}">
+                        <TextBlock Text="Check on the agent in the " Foreground="{StaticResource KcapMutedBrush}"
+                                   FontSize="13.5" VerticalAlignment="Center" />
+                        <Button Classes="kcapLink" Command="{Binding ShowTerminalCommand}"
+                                VerticalAlignment="Center" AutomationProperties.Name="Open the terminal">
+                            <TextBlock Text="terminal" FontSize="13.5" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
 
                 <Border x:Name="ReadOnlyBanner" Grid.Row="4" IsVisible="{Binding ShowsReadOnlyBanner}"
                         Background="{StaticResource KcapWarningDimBrush}" BorderBrush="{StaticResource KcapWarningBrush}"

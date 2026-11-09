@@ -121,12 +121,14 @@ public sealed class OnboardingViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> SkipCommand { get; }
     public ReactiveCommand<Unit, Unit> FinishLaterCommand { get; }
     public ReactiveCommand<Unit, Unit> QuitCommand { get; }
+    public ReactiveCommand<Unit, Unit> CheckAgainCommand { get; }
+    public ReactiveCommand<Unit, Unit> ContinueWithoutHarnessCommand { get; }
 
     /// Fires once per logical close: the Done step's finish, or the window closing.
     public event Action? CloseRequested;
 
     /// The constructor's own initial-entry call, exposed so a test can await it deterministically.
-    internal Task PendingEnterForTesting { get; }
+    internal Task PendingEnterForTesting { get; private set; }
 
     internal Task PendingPreflightForTesting { get; } = Task.CompletedTask;
 
@@ -171,6 +173,15 @@ public sealed class OnboardingViewModel : ReactiveObject {
         QuitCommand = ReactiveCommand.Create(() => {
             QuitRequested = true;
             RequestClose();
+        });
+        CheckAgainCommand = ReactiveCommand.CreateFromTask(async () => {
+            if (preflight is null) return;
+            await preflight.RunAsync(shutdownToken);
+            if (StepVisible && !_closed) await (PendingEnterForTesting = SafeEnterAsync(Current));
+        });
+        ContinueWithoutHarnessCommand = ReactiveCommand.CreateFromTask(async () => {
+            preflight?.ContinueWithoutHarness();
+            if (!_closed) await (PendingEnterForTesting = SafeEnterAsync(Current));
         });
 
         if (preflight is not null) {

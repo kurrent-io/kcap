@@ -24,6 +24,7 @@ public sealed class ShimOfferCoordinator {
     readonly CancellationToken _lifetime;
     // True only for a gate-Incomplete startup — Offerable/manual install still work, only the once-ever auto-offer DIALOG is skipped.
     readonly bool _autoOfferSuppressed;
+    readonly Func<bool> _autoOfferHeld;
     readonly Task<string?> _pendingLink;
     // The warning this coordinator last posted, taken back once an install succeeds.
     string? _warning;
@@ -35,10 +36,12 @@ public sealed class ShimOfferCoordinator {
     /// name resolved — there is nothing to link, so the offer and the menu item both stay off for
     /// the whole run.
     /// </param>
+    /// <param name="autoOfferHeld">Read once the phase closes: true holds the auto-offer for a later launch without
+    /// using it up, as while the CLI takeover has found an install of its own to switch.</param>
     public ShimOfferCoordinator(
             Task phaseClosed, ILoginShellProbe probe, ICliPathInstaller? installer, IAppStateStore store,
             ILifecycleSurface surface, string? target, CancellationToken lifetime, bool autoOfferSuppressed = false,
-            Task<string?>? pendingLink = null) {
+            Task<string?>? pendingLink = null, Func<bool>? autoOfferHeld = null) {
         _phaseClosed          = phaseClosed;
         _probe                = probe;
         _installer            = installer;
@@ -48,6 +51,7 @@ public sealed class ShimOfferCoordinator {
         _lifetime             = lifetime;
         _autoOfferSuppressed  = autoOfferSuppressed;
         _pendingLink          = pendingLink ?? Task.FromResult<string?>(null);
+        _autoOfferHeld        = autoOfferHeld ?? (() => false);
     }
 
     /// True while the tray's "Install command-line tool…" item should show: applicable (an
@@ -81,6 +85,7 @@ public sealed class ShimOfferCoordinator {
             _offerable.OnNext(true); // applicable-but-absent — the menu item is live from here on
 
             if (_autoOfferSuppressed) return; // item + manual install still work; only the dialog never fires
+            if (_autoOfferHeld()) return;
 
             var state = await _store.LoadAsync().ConfigureAwait(false);
             if (state.ShimOffered || state.ShimDenied) return; // already resolved on a prior run

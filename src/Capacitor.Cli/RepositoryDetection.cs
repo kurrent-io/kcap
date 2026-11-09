@@ -10,11 +10,8 @@ using Capacitor.Cli.PrDetection;
 namespace Capacitor.Cli;
 
 static class RepositoryDetection {
-    // Bump whenever the cached shape/derivation changes so stale entries are ignored.
-    // v2: added Host + provider-aware parsing.
-    // v3: multi-segment owner parsing (nested GitLab groups) — v2 entries for
-    //     nested repos have owner=null and must re-derive.
-    internal const int CacheSchemaVersion = 3;
+    // Bump whenever the cached shape or derivation changes, so older entries are derived again.
+    internal const int CacheSchemaVersion = 4;
 
     internal static CommandRunner DefaultRunner(TimeProvider time) =>
         (cmd, arguments, cwd, timeout) => RunCommandAsync(cmd, arguments, cwd, time, timeout);
@@ -159,6 +156,11 @@ static class RepositoryDetection {
                 repoName  = cache.RepoName;
                 host      = cache.Host;
                 branch    = await branchTask;
+
+                // The servers can change within the cache's life, and one that does not store a local identity must
+                // not be sent one.
+                if (LocalRepository.IsLocal(owner) && !await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment()))
+                    (owner, repoName) = (null, null);
             } else {
                 // Run git commands in parallel
                 var userNameTask  = run("git", "config user.name", cwd, gitCap);
@@ -172,6 +174,10 @@ static class RepositoryDetection {
                 remoteUrl = remoteUrlTask.Result;
                 branch    = branchTask.Result;
 
+                // git may be missing from this process's PATH, or refuse a repository another account owns.
+                branch    ??= GitRepository.ShowCurrentBranch(cwd);
+                remoteUrl ??= GitRepository.OriginUrl(cwd);
+
                 // Not a git repo if we can't get branch or remote
                 if (branch is null && remoteUrl is null) {
                     return null;
@@ -179,6 +185,17 @@ static class RepositoryDetection {
 
                 (owner, repoName) = GitUrlParser.ParseRemoteUrl(remoteUrl);
                 host = remoteUrl is null ? null : RemoteMatcher.ExtractHost(remoteUrl);
+
+                // An origin that names no owner — none at all, or a path — is not a hosting service's, and its
+                // URL can be a private path, so neither leaves the machine. Only a server known to store a local
+                // identity is given one: an older one would link it to GitHub and ask GitHub about it.
+                if ((owner is null || repoName is null)
+                 && await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment())
+                 && LocalRepository.Of(config, cwd) is { } local) {
+                    (owner, repoName) = local;
+                    remoteUrl         = null;
+                    host              = null;
+                }
 
                 // Save to cache (without branch — it's always detected fresh)
                 SaveCache(
