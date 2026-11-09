@@ -102,8 +102,9 @@ internal static class PiRpc {
     /// ORDER, to <c>assistant_text</c> / <c>assistant_thinking</c> / <c>tool_call</c>; a
     /// <c>stopReason</c> of <c>"error"</c> then appends ONE <c>system_note</c> carrying the
     /// message's <c>errorMessage</c> (capped at <see cref="ExtensionNoteTextCap"/>) — a failed turn
-    /// usually has EMPTY content, so this note is its only visible trace; finally ONE trailing
-    /// <c>usage</c> envelope when the message carries a <c>usage</c> block. Every envelope's
+    /// usually has EMPTY content, so this note is its only visible trace; finally, when the message
+    /// carries a <c>usage</c> block, a <c>usage</c> envelope and then a <c>token_usage</c> envelope,
+    /// the only way a hosted Pi session's token counts reach the server. Every envelope's
     /// <see cref="AcpEventEnvelope.Model"/> is the message's own <c>"model"</c> field, else
     /// <paramref name="fallbackModel"/>.</description></item>
     /// <item><description><c>message_end</c> with a user message maps to ONE <c>user_message</c>
@@ -212,6 +213,22 @@ internal static class PiRpc {
                 Kind: AcpEventKind.Usage,
                 Model: model,
                 ContextUsedTokens: usage.Num("input")));
+
+            // Pi's input excludes both cache tiers, and the envelope carries gross input. A failed
+            // turn reports all zeros, which is no usage at all.
+            var cacheRead  = usage.Num("cacheRead") ?? 0;
+            var cacheWrite = usage.Num("cacheWrite") ?? 0;
+            var input      = (usage.Num("input") ?? 0) + cacheRead + cacheWrite;
+            var output     = usage.Num("output") ?? 0;
+            if (input > 0 || output > 0) {
+                envelopes.Add(new AcpEventEnvelope(
+                    Kind:                       AcpEventKind.TokenUsage,
+                    Model:                      model,
+                    UsageInputTokens:           input,
+                    UsageCachedInputTokens:     cacheRead,
+                    UsageCacheWriteInputTokens: cacheWrite,
+                    UsageOutputTokens:          output));
+            }
         }
 
         return envelopes ?? [];
