@@ -1559,14 +1559,46 @@ public class SetupCommandTests {
 
         await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
                 FakeHandoffAgentLauncher.Ran(), Config.Directory)
-            .RunImportStepAsync(Inputs(choose: choices => [.. choices.Where(c => c.Repo == ("acme", "web"))]) with { LeftOut = s => kept = s });
+            .RunImportStepAsync(Inputs(choose: choices => [.. choices.Where(c => c.Repo == ("acme", "web"))]) with { LeftOut = s => { kept = s; return true; } });
 
         await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
                 FakeHandoffAgentLauncher.Ran(), Config.Directory)
-            .RunImportStepAsync(Inputs(choose: _ => []) with { LeftOut = _ => offered++ });
+            .RunImportStepAsync(Inputs(choose: _ => []) with { LeftOut = _ => { offered++; return true; } });
 
         await Assert.That(kept).IsEqualTo(new ImportSkip([("acme", "secret")], ["/w/scratch"]));
         await Assert.That(offered).IsEqualTo(0);
+    }
+
+    /// <summary>Later runs are promised the left-out projects only once they are saved; a failed save names the flags
+    /// that keep them out instead.</summary>
+    [Test, NotInParallel]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Later_runs_are_promised_the_left_out_projects_only_once_saved(bool saved) {
+        using var console = new SpectreCapture();
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(choose: choices => [.. choices.Where(c => c.Repo == ("acme", "web"))]) with { LeftOut = _ => saved });
+
+        await Assert.That(console.Flat.Contains("later setup runs")).IsEqualTo(saved);
+        await Assert.That(console.Flat.Contains("--skip-import-repo or --skip-import-folder")).IsEqualTo(!saved);
+    }
+
+    /// <summary>A decline that cannot be saved names the flag that keeps a later unattended run from installing; a yes
+    /// costs nothing unsaved, since such a run installs anyway.</summary>
+    [Test, NotInParallel]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_harness_decline_that_cannot_be_saved_names_the_flag(bool install) {
+        using var console    = new SpectreCapture();
+        using var tmp        = new TempDir();
+        var       unwritable = new ConfigRoot(tmp.CreateFile("config-is-a-file"));
+
+        var answers = SetupCommand.RememberHarnesses(new LocalSetupAnswers("0123456789abcdef0123456789abcdef"), install, unwritable);
+
+        await Assert.That(answers.Harnesses).IsEqualTo(install);
+        await Assert.That(console.Flat.Contains("--skip-harnesses")).IsEqualTo(!install);
     }
 
     /// <summary>A project a flag left out starts unticked; ticking it again imports it, and a flag naming

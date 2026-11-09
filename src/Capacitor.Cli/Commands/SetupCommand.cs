@@ -1109,7 +1109,7 @@ sealed class SetupCommand(
         }
 
         if (remembered is not null && harnessAnswer is { } harnessesAnswered)
-            (remembered = remembered with { Harnesses = harnessesAnswered }).Save(config);
+            remembered = RememberHarnesses(remembered, harnessesAnswered, config);
 
         var stepOptions = new CodingAgentsStep.Options(
             SkipClaude:  skipClaude,
@@ -1676,6 +1676,20 @@ sealed class SetupCommand(
     internal const string RememberedHarnessDeclineLine =
         "Not installing kcap into these harnesses: an earlier setup of this installation was told not to. Run kcap setup --local at a terminal to be asked again.";
 
+    internal const string HarnessDeclineNotSavedLine =
+        "Could not save this answer, so a later unattended setup would install kcap into these harnesses. Pass --skip-harnesses to it.";
+
+    internal const string LeftOutNotSavedLine =
+        "Could not save what this import leaves out, so a later setup would import it. Pass --skip-import-repo or --skip-import-folder to it again.";
+
+    /// <summary>A decline that is not saved is the one that matters: an unattended run without it installs.</summary>
+    internal static LocalSetupAnswers RememberHarnesses(LocalSetupAnswers remembered, bool install, ConfigRoot config) {
+        var answers = remembered with { Harnesses = install };
+        if (!answers.Save(config) && !install) AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(HarnessDeclineNotSavedLine)}");
+
+        return answers;
+    }
+
     internal const string ChooseProjectsTitle =
         "Which projects should this import include? Unticking one leaves it out of the import, not out of recording.";
 
@@ -1785,7 +1799,7 @@ sealed class SetupCommand(
         IntelligenceSetupResponse?    Intelligence = null,
         bool?                         ImportOutcomes = null,
         Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null,
-        Action<ImportSkip>?           LeftOut = null);
+        Func<ImportSkip, bool>?       LeftOut = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
     /// never ran (browser-answered, skipped, declined or <c>--no-prompt</c>). <see cref="PasteBlock"/>
@@ -1907,14 +1921,15 @@ sealed class SetupCommand(
               - SetupImportChoice.From(found, skip).Where(c => !c.Included).Sum(c => c.Sessions), applied) is { } cost)
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
 
+        // Recorded once the import is certain to run, empty included, so ticking a project again is remembered too.
+        var leftOutSaved = inputs.LeftOut?.Invoke(skip) ?? false;
+
         if (!skip.IsEmpty) {
-            var leftOutFor = inputs.LeftOut is null ? "this import only" : "this import and later setup runs of this installation";
+            var leftOutFor = leftOutSaved ? "this import and later setup runs of this installation" : "this import only";
             AnsiConsole.MarkupLine($"  Leaving out of {leftOutFor}: {Markup.Escape(string.Join(", ", skip.Labels))}.");
+            if (inputs.LeftOut is not null && !leftOutSaved) AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(LeftOutNotSavedLine)}");
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(LeftOutNote)}[/]");
         }
-
-        // Recorded once the import is certain to run, empty included, so ticking a project again is remembered too.
-        inputs.LeftOut?.Invoke(skip);
 
         // Naming sends excerpts to a model provider, so it runs only on a yes given after the disclosure:
         // an unattended run, or a run that cannot ask, imports without it.
