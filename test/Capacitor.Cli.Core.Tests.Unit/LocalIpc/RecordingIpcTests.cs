@@ -217,6 +217,14 @@ public class RecordingIpcTests {
         await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
     }
 
+    /// <summary>A daemon that is up with nothing on its socket yet is starting or restarting, and what it restores next can
+    /// be the session asked about. One that is down says nothing, which is most machines.</summary>
+    [Test]
+    [Arguments(true, RecordingDisable.Silent)]
+    [Arguments(false, RecordingDisable.NoSocket)]
+    public async Task A_daemon_up_with_nothing_on_its_socket_is_silent_to_a_disable(bool up, RecordingDisable read) =>
+        await Assert.That((await RecordingIpc.DisableAsync(Daemons.Store, DaemonName, "session-1", CancellationToken.None, isUp: () => up)).Outcome).IsEqualTo(read);
+
     /// <summary>A daemons directory deep enough leaves a socket path no socket can be opened on, and nothing can be
     /// listening there.</summary>
     [Test]

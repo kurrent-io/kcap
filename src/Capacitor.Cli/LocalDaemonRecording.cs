@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli;
 
@@ -28,5 +29,14 @@ public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, 
     }
 
     public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) =>
-        RecordingIpc.DisableAsync(store, daemonName, sessionId, ct);
+        RecordingIpc.DisableAsync(store, daemonName, sessionId, ct, () => IsUp(daemonName));
+
+    // Its pid names a live daemon, or it has a restart queued. One that can't be read may be either.
+    bool IsUp(string daemonName) {
+        try {
+            return DaemonPidProbe.ValidatedPid(store, daemonName) is not null || DaemonRestartMarker.TryRead(store, daemonName) is not null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return true;
+        }
+    }
 }
