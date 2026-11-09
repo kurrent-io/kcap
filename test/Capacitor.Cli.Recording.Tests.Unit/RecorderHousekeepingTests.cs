@@ -30,7 +30,8 @@ public class RecorderHousekeepingTests {
 
     string CreateParentLog() => Tmp.CreateFile("muse/session.jsonl", "");
 
-    string CreateChildLog() => Tmp.CreateFile($"muse/subagent/{Child}/session.jsonl", "");
+    // In segments, as the scan builds the path it starts the child with: a literal "/" stays one on Windows.
+    string CreateChildLog() => Tmp.CreateFile(Path.Combine("muse", "subagent", Child, "session.jsonl"), "");
 
     RecorderHousekeeping MuseHousekeeping(string transcript, string serverUrl = "http://127.0.0.1:1") => new(
         new RecordingSource(Session, null, transcript, "muse", null), skipTitle: false, parentPid: null, _host,
