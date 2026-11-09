@@ -1086,8 +1086,8 @@ public class LauncherPaneViewSmokeTests {
 
             field.Text = "feature/x";
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Settle(window);
-            await Assert.That(menu.IsOpen).IsFalse();
+            // The menu closes only after the choice's awaited check.
+            await WorkspaceFixtures.WaitUntilAsync(() => !menu.IsOpen, what: "branch menu closed");
             await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
             await Assert.That(AutomationProperties.GetName(Find<Button>(window, "BaseRefChip")!)).IsEqualTo("Branch from · feature/x");
 
