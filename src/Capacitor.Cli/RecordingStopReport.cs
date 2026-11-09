@@ -12,10 +12,14 @@ namespace Capacitor.Cli;
 /// <param name="DaemonUnmarked">A daemon could not mark the session disabled where it and its agents' hooks read, so they
 /// can record it again.</param>
 /// <param name="DrainLeft">A pass sending what hooks spooled was still going when the stop stopped waiting, and it may
-/// have read the marker before it went down, or one sent a post of the session that never had an answer.</param>
+/// have read the marker before it went down.</param>
+/// <param name="PostsUnanswered">A pass sent a post of the session that has had no answer, which the server may still be
+/// taking in.</param>
 public sealed record RecordingStopReport(
     RecordingStopOutcome Outcome, IReadOnlyList<string> OtherServers, bool AgentLive = false, bool Unreadable = false, bool WatcherLeft = false,
-    bool DaemonUnmarked = false, bool DrainLeft = false) {
+    bool DaemonUnmarked = false, bool DrainLeft = false, bool PostsUnanswered = false) {
     /// <summary>Everything that could be recording this session is known to have stopped.</summary>
-    public bool Confirmed => this is { Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false, DaemonUnmarked: false, DrainLeft: false };
+    public bool Confirmed => this is {
+        Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false, DaemonUnmarked: false, DrainLeft: false, PostsUnanswered: false,
+    };
 }

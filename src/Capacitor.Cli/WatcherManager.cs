@@ -168,7 +168,9 @@ public sealed partial class WatcherManager(
             report = report with { Unreadable = true };
         }
 
-        return await SpoolPostsSettledAsync(sessionId) ? report : report with { DrainLeft = true };
+        var (ended, unanswered) = await SpoolPostsAsync(sessionId);
+
+        return report with { DrainLeft = !ended, PostsUnanswered = unanswered };
     }
 
     // Past the 3 s a drain gives each post, so a post a pass sent ahead of the marker has had its answer by then.
@@ -178,39 +180,39 @@ public sealed partial class WatcherManager(
 
     string[] SpoolDirectories => [new HookSpool(config, time, Url).DirectoryPath, new WorkspaceSpool(config, Url, time).DirectoryPath];
 
-    /// <summary>Whether every post of the session this profile's spool drains sent has had its answer. A pass holds its
-    /// spool's lease throughout and reads the marker before each post, so one that starts later sends nothing of the
-    /// session, while one under way may have read it a moment before it went down. A free lease says only that the pass
-    /// has ended: a post it heard nothing back for is in <see cref="UnansweredPosts"/>.</summary>
-    async Task<bool> SpoolPostsSettledAsync(string sessionId) {
+    /// <summary>Whether every drain pass of this profile's spools that was under way ahead of the marker has ended, and
+    /// whether any post of the session a pass sent has had no answer. A pass holds its spool's lease throughout and reads
+    /// the marker before each post, so one that starts later sends nothing of the session, while one under way may have
+    /// read it a moment before it went down. A free lease says only that the pass has ended: a post it heard nothing back
+    /// for is in <see cref="UnansweredPosts"/>.</summary>
+    async Task<(bool Ended, bool Unanswered)> SpoolPostsAsync(string sessionId) {
         using var bound = new CancellationTokenSource(SpoolPassBound, time);
 
-        var settled = true;
+        var (ended, unanswered) = (true, false);
 
         foreach (var dir in SpoolDirectories) {
             // A pass under way made its directory.
             if (!Directory.Exists(dir)) continue;
 
-            SpoolDrainLease? lease;
+            SpoolDrainLease? lease = null;
 
-            while ((lease = SpoolDrainLease.TryTake(dir)) is null) {
+            while (ended && (lease = SpoolDrainLease.TryTake(dir)) is null) {
                 try {
                     await Task.Delay(SpoolLeasePoll, time, bound.Token);
                 } catch (OperationCanceledException) {
-                    return false;
+                    ended = false;
                 }
             }
 
-            using (lease) {
-                if (UnansweredPosts.Has(dir, sessionId)) settled = false;
-            }
+            lease?.Dispose();
+
+            unanswered |= UnansweredPosts.Has(dir, sessionId);
         }
 
-        return settled;
+        return (ended, unanswered);
     }
 
-    /// <summary>Drops the session's record of posts with no answer, once a deletion has run behind them: from there what
-    /// they could still bring back is the deletion's own doubt, which the disable keeps.</summary>
+    /// <summary>Drops the session's records of posts with no answer, once the disable has kept the doubt they stand for.</summary>
     public void ForgetUnansweredPosts(string sessionId) {
         foreach (var dir in SpoolDirectories) UnansweredPosts.Clear(dir, sessionId);
     }

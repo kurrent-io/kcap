@@ -40,14 +40,22 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
                 caveats.Add($"kcap could not record that a daemon sends this session to {other} ({unkept}), so a later kcap disable won't name that server.");
         }
 
+        // After the deletion, which a send still on its way can land behind, and ahead of a line that may not print. A post
+        // with no answer can bring the session back behind a deletion that found nothing too, and its records are the only
+        // trace of that doubt until it is kept, so they go only once it is.
+        void KeepDoubt() {
+            if (Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config)) is { } unrecorded) {
+                if (!stopped.PostsUnanswered)
+                    caveats.Add($"kcap could not record that this deletion ran before recording was confirmed stopped ({unrecorded}), so a later kcap disable won't say so.");
+            } else if (stopped.PostsUnanswered) {
+                watchers.ForgetUnansweredPosts(sessionId);
+            }
+        }
+
         try {
             switch (await sessions().DeleteSessionAsync(sessionId)) {
                 case DeleteSessionResponse.Deleted:
-                    // After the deletion, which a send still on its way can land behind, and ahead of a line that may not print.
-                    if (!confirmed && Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config)) is { } unrecorded)
-                        caveats.Add($"kcap could not record that this deletion ran before recording was confirmed stopped ({unrecorded}), so a later kcap disable won't say so.");
-
-                    watchers.ForgetUnansweredPosts(sessionId);
+                    if (!confirmed) KeepDoubt();
 
                     await stdout.WriteLineAsync(!marked ? $"Server data for session {sessionId} deleted."
                         : sure ? $"Session {sessionId} disabled. Recording stopped and server data deleted."
@@ -55,7 +63,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
 
                     break;
                 case DeleteSessionResponse.NotFound:
-                    watchers.ForgetUnansweredPosts(sessionId);
+                    if (stopped.PostsUnanswered) KeepDoubt();
 
                     await stdout.WriteLineAsync(marked
                         ? $"Session {sessionId} disabled. No server data found (may have already been deleted)."
@@ -115,7 +123,10 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
             caveats.Add("A kcap daemon could not mark this session disabled where its agents' hooks read it, so they can record it again.");
 
         if (stopped.DrainLeft)
-            caveats.Add("A pass sending what hooks had spooled was still running when kcap stopped waiting, or sent this session something the server never answered, so a send of this session may still land.");
+            caveats.Add("A pass sending what hooks had spooled was still running when kcap stopped waiting, so a send of this session may still land.");
+
+        if (stopped.PostsUnanswered)
+            caveats.Add("A send of this session that hooks had spooled has had no answer from the server, so it may still land.");
 
         caveats.AddRange(stopped.Outcome switch {
             RecordingStopOutcome.HolderUnconfirmed => ["The daemon recording this session did not confirm it stopped, so more may have reached the server."],

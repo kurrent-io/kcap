@@ -757,9 +757,39 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(1);
 
         await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
-        await Assert.That(Printed).Contains("so a send of this session may still land");
+        await Assert.That(Printed).Contains("has had no answer from the server");
         await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
         await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsFalse();
+    }
+
+    /// <summary>Nothing found says nothing of a post the server may still be taking in, which can bring the session back
+    /// behind this run, so the doubt is kept for later runs as an unconfirmed deletion's is.</summary>
+    [Test]
+    public async Task A_spooled_post_with_no_answer_behind_nothing_found_is_kept_for_later_runs() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("has had no answer from the server");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsFalse();
+    }
+
+    /// <summary>The records are the only trace of the doubt until it is kept, so they stay when it can't be, and the next
+    /// run says it again.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task Posts_with_no_answer_stay_recorded_when_the_doubt_cannot_be_kept() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
+        File.SetUnixFileMode(Config.CreateFile(Path.Combine("disabled", Session)), UnixFileMode.UserRead);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsTrue();
+        await Assert.That(Printed).DoesNotContain("so a later kcap disable won't say so");
     }
 
     /// <summary>An error status is an answer: the server has finished with that post.</summary>
