@@ -46,6 +46,28 @@ public class DisabledSessionsTests {
         await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
     }
 
+    /// <summary>Another run's record of an unconfirmed deletion can land while this run marks, and the mark must not empty
+    /// it. Many rounds, because only one interleaving inside the mark loses it.</summary>
+    [Test]
+    public async Task A_mark_racing_another_runs_record_keeps_it() {
+        for (var round = 0; round < 500; round++) {
+            var session = round.ToString("x32", System.Globalization.CultureInfo.InvariantCulture);
+            using var start = new Barrier(2);
+
+            await Task.WhenAll(
+                Task.Run(() => {
+                    start.SignalAndWait();
+                    DisabledSessions.Mark(session, Config.Root);
+                }),
+                Task.Run(() => {
+                    start.SignalAndWait();
+                    DisabledSessions.MarkDeletedUnconfirmed(session, Config.Root);
+                }));
+
+            await Assert.That(DisabledSessions.WasDeletedUnconfirmed(session, Config.Root)).IsTrue();
+        }
+    }
+
     /// <summary>A run can leave both facts, in either order, and neither write may cost the other.</summary>
     [Test]
     public async Task Each_fact_a_disable_keeps_survives_the_other() {

@@ -31,14 +31,20 @@ public static class DisabledSessions {
      || SessionIds.Canonical(sessionId) is { } canonical && canonical != sessionId && File.Exists(Path.Combine(GetDisabledDir(config), canonical));
 
     /// <summary>A person's disable. A marker already there keeps what it holds: the stop that follows can be cut short,
-    /// and an emptied marker would read as clean to the next run.</summary>
+    /// and an emptied marker would read as clean to the next run. Created only if absent, because another run can write
+    /// one at any moment.</summary>
     public static void Mark(string sessionId, ConfigRoot config) {
         var dir  = GetDisabledDir(config);
         var path = Path.Combine(dir, sessionId);
         if (File.Exists(path)) return;
 
         Directory.CreateDirectory(dir);
-        File.WriteAllText(path, "");
+
+        try {
+            new FileStream(path, FileMode.CreateNew, FileAccess.Write).Dispose();
+        } catch (IOException) when (File.Exists(path)) {
+            // Another run's marker, which stays as it is.
+        }
     }
 
     /// <summary>A hook's exclusion of this run, lifted by <see cref="RemoveExclusion"/>.</summary>
