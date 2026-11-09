@@ -486,7 +486,10 @@ public sealed class CursorHookCommand(
                             return DrainOutcome.Delivered;
                         }
                         return HookSpool.OutcomeOf((int)resp.StatusCode);
-                    } catch { return DrainOutcome.TransientStop; }
+                    } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+                        // One that may have reached the server goes through, for the drain to record.
+                        return DrainOutcome.TransientStop;
+                    }
                 }, budget.Remaining, ct);
             }
 

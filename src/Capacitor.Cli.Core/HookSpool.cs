@@ -177,7 +177,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             }
 
             // Read before each post, for a pass under way when the person disables the session.
-            Task<DrainOutcome> Post(string route, string body) => IsDisabledByPerson(sid) ? Task.FromResult(DrainOutcome.Drop) : poster(route, body);
+            Task<DrainOutcome> Post(string route, string body) =>
+                IsDisabledByPerson(sid) ? Task.FromResult(DrainOutcome.Drop) : UnansweredPosts.TrackAsync(DirectoryPath, sid, () => poster(route, body));
 
             if (await DrainSessionAsync(sid, Post, Expired, ct)) return; // transient → stop the pass
         }

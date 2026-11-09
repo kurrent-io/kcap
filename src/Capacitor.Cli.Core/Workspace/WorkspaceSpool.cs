@@ -177,13 +177,15 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
                 continue;
             }
 
-            if (withheld is not null && SessionOf(body) is { } owner && withheld(owner)) {
+            var owner = SessionOf(body);
+
+            if (withheld is not null && owner is not null && withheld(owner)) {
                 WorkspaceFiles.TryDelete(file.FullName);
                 continue;
             }
 
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
-            var status = await SendAsync(() => client.PostOnceAsync(url, content, time, Left(), ct));
+            var status = await PostAsync(owner, () => client.PostOnceAsync(url, content, time, Left(), ct));
             if (status is >= 200 and < 300) {
                 WorkspaceFiles.TryDelete(file.FullName);
                 continue;
@@ -215,6 +217,20 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         try {
             return JsonSerializer.Deserialize(body, WorkspaceJsonContext.Default.WorkspaceChangesRequest)?.SessionId;
         } catch (JsonException) {
+            return null;
+        }
+    }
+
+    // A post with no answer is recorded for its session, as UnansweredPosts says, and a delivered one clears that.
+    async Task<int?> PostAsync(string? session, Func<Task<HttpResponseMessage>> send) {
+        try {
+            using var response = await send();
+            if (session is not null && response.IsSuccessStatusCode) UnansweredPosts.Clear(partition.DirectoryPath, session);
+
+            return (int) response.StatusCode;
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException) {
+            if (session is not null && UnansweredPosts.Sent(ex)) UnansweredPosts.Record(partition.DirectoryPath, session);
+
             return null;
         }
     }

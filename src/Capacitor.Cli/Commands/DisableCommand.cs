@@ -47,12 +47,16 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
                     if (!confirmed && Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config)) is { } unrecorded)
                         caveats.Add($"kcap could not record that this deletion ran before recording was confirmed stopped ({unrecorded}), so a later kcap disable won't say so.");
 
+                    watchers.ForgetUnansweredPosts(sessionId);
+
                     await stdout.WriteLineAsync(!marked ? $"Server data for session {sessionId} deleted."
                         : sure ? $"Session {sessionId} disabled. Recording stopped and server data deleted."
                         : $"Session {sessionId} disabled. Server data deleted.");
 
                     break;
                 case DeleteSessionResponse.NotFound:
+                    watchers.ForgetUnansweredPosts(sessionId);
+
                     await stdout.WriteLineAsync(marked
                         ? $"Session {sessionId} disabled. No server data found (may have already been deleted)."
                         : $"No server data found for session {sessionId} (may have already been deleted).");
@@ -111,7 +115,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
             caveats.Add("A kcap daemon could not mark this session disabled where its agents' hooks read it, so they can record it again.");
 
         if (stopped.DrainLeft)
-            caveats.Add("A pass sending what hooks had spooled was still running when kcap stopped waiting, so a send of this session may still land.");
+            caveats.Add("A pass sending what hooks had spooled was still running when kcap stopped waiting, or sent this session something the server never answered, so a send of this session may still land.");
 
         caveats.AddRange(stopped.Outcome switch {
             RecordingStopOutcome.HolderUnconfirmed => ["The daemon recording this session did not confirm it stopped, so more may have reached the server."],

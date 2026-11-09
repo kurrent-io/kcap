@@ -1680,7 +1680,10 @@ public sealed class ClaudeHookCommand(
                     } catch { }
                 }
                 return DrainOutcome.Delivered;
-            } catch { return DrainOutcome.TransientStop; }
+            } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+                // One that may have reached the server goes through, for the drain to record.
+                return DrainOutcome.TransientStop;
+            }
         };
 
     /// <summary>

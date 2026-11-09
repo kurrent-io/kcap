@@ -146,7 +146,8 @@ public sealed partial class WatcherManager(
     /// sources are found by their claims, because it leaves no pid file, and it is asked to stop rather than signalled.
     /// Every daemon on the machine is asked, whatever its profile: only a daemon can say a live agent's output goes on, and
     /// neither a hosted session on a watcher nor an ACP session has a claim. A drain of what hooks spooled that is already
-    /// under way is waited out, within <see cref="SpoolPassBound"/>.</summary>
+    /// under way is waited out, within <see cref="SpoolPassBound"/>, and a post of the session one sent with no answer
+    /// leaves the stop unconfirmed.</summary>
     public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
         var report = await StopDaemonsAsync(sessionId);
 
@@ -167,7 +168,7 @@ public sealed partial class WatcherManager(
             report = report with { Unreadable = true };
         }
 
-        return await SpoolPassesEndedAsync() ? report : report with { DrainLeft = true };
+        return await SpoolPostsSettledAsync(sessionId) ? report : report with { DrainLeft = true };
     }
 
     // Past the 3 s a drain gives each post, so a post a pass sent ahead of the marker has had its answer by then.
@@ -175,13 +176,18 @@ public sealed partial class WatcherManager(
 
     static readonly TimeSpan SpoolLeasePoll = TimeSpan.FromMilliseconds(50);
 
-    /// <summary>Whether every drain pass of this profile's spools that was under way ahead of the marker has ended. A pass
-    /// holds its spool's lease throughout and reads the marker before each post, so one that starts later sends nothing
-    /// of the session, while one under way may have read it a moment before it went down.</summary>
-    async Task<bool> SpoolPassesEndedAsync() {
+    string[] SpoolDirectories => [new HookSpool(config, time, Url).DirectoryPath, new WorkspaceSpool(config, Url, time).DirectoryPath];
+
+    /// <summary>Whether every post of the session this profile's spool drains sent has had its answer. A pass holds its
+    /// spool's lease throughout and reads the marker before each post, so one that starts later sends nothing of the
+    /// session, while one under way may have read it a moment before it went down. A free lease says only that the pass
+    /// has ended: a post it heard nothing back for is in <see cref="UnansweredPosts"/>.</summary>
+    async Task<bool> SpoolPostsSettledAsync(string sessionId) {
         using var bound = new CancellationTokenSource(SpoolPassBound, time);
 
-        foreach (var dir in new[] { new HookSpool(config, time, Url).DirectoryPath, new WorkspaceSpool(config, Url, time).DirectoryPath }) {
+        var settled = true;
+
+        foreach (var dir in SpoolDirectories) {
             // A pass under way made its directory.
             if (!Directory.Exists(dir)) continue;
 
@@ -195,10 +201,18 @@ public sealed partial class WatcherManager(
                 }
             }
 
-            lease.Dispose();
+            using (lease) {
+                if (UnansweredPosts.Has(dir, sessionId)) settled = false;
+            }
         }
 
-        return true;
+        return settled;
+    }
+
+    /// <summary>Drops the session's record of posts with no answer, once a deletion has run behind them: from there what
+    /// they could still bring back is the deletion's own doubt, which the disable keeps.</summary>
+    public void ForgetUnansweredPosts(string sessionId) {
+        foreach (var dir in SpoolDirectories) UnansweredPosts.Clear(dir, sessionId);
     }
 
     /// <summary>A daemon asked in a disable, and the claim that ties it to the session, if one does.</summary>

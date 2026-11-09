@@ -71,6 +71,21 @@ public class WorkspaceSpoolTests {
         await Assert.That(up.Posted).IsEquivalentTo([A]);
     }
 
+    /// <summary>A span post with no answer may still be landing, and only a delivered one of the session clears that.</summary>
+    [Test]
+    public async Task A_post_with_no_answer_is_recorded_for_its_session_and_a_delivered_one_clears_it() {
+        var spool = SpoolFor();
+        spool.Write(Span(A));
+
+        await spool.DrainAsync(new ScriptedRoute(_ => null).Client(), Server, Budget);
+
+        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsTrue();
+
+        await spool.DrainAsync(new ScriptedRoute(_ => HttpStatusCode.Accepted).Client(), Server, Budget);
+
+        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsFalse();
+    }
+
     [Test]
     public async Task A_401_keeps_the_file_and_stops_the_pass() {
         var spool = SpoolFor();
