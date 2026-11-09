@@ -189,6 +189,23 @@ public class LaunchRequestTests {
     }
 
     [Test]
+    public async Task A_chosen_base_ref_adds_the_base_ref_key() {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", BaseRef: "feature/x"));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo([.. TwelveKeys, "base_ref"]);
+        await Assert.That(json.GetProperty("base_ref").GetString()).IsEqualTo("feature/x");
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("  ")]
+    public async Task No_base_ref_is_sent_as_no_key(string? baseRef) {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", BaseRef: baseRef));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo(TwelveKeys);
+    }
+
+    [Test]
     public async Task The_payload_carries_the_handoff_block_snake_case() {
         var handoff = new HandoffLaunchStart(
             "src-1", "abc1234", "DetachedAtSha", "feature/x", "def5678", "Remote", "BranchDiverged",

@@ -176,7 +176,16 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             _selectedRepoPathChanges.OnNext(value);
             // A launch refusal describes the folder that failed. A later pick is a different attempt.
             if (changed && StartError != _intakeNotice) StartError = null;
+            if (changed) SelectedBaseRef = null;
         }
+    }
+
+    string? _selectedBaseRef;
+    /// The branch, tag or sha the next session's worktree starts from; null is the checkout's
+    /// current HEAD. A ref belongs to one repository on one machine, so picking either clears it.
+    public string? SelectedBaseRef {
+        get => _selectedBaseRef;
+        private set => this.RaiseAndSetIfChanged(ref _selectedBaseRef, value);
     }
 
     string _selectedVendor = DefaultVendor;
@@ -240,6 +249,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     string _selectedPermissionMode = DefaultPermissionMode;
     // Bumped by every user pick, so a repository restore that loaded before it leaves the pick alone.
     int _permissionModeChoices;
+    // Same role as _permissionModeChoices, for the base ref.
+    int _baseRefChoices;
     /// A ClaudePermissionModes token, remembered per repository like the harness and kept across
     /// vendor changes; PermissionModeFor decides whether it rides a given launch.
     public string SelectedPermissionMode {
@@ -611,7 +622,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Which daemon a launch targets: the local one until SelectMachineAsync picks a remote name.
     public string SelectedMachine {
         get => _selectedMachine;
-        private set => this.RaiseAndSetIfChanged(ref _selectedMachine, value);
+        private set {
+            if (_selectedMachine != value) SelectedBaseRef = null;
+            this.RaiseAndSetIfChanged(ref _selectedMachine, value);
+        }
     }
 
     bool _remoteMachineSelected;
@@ -620,6 +634,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     public bool RemoteMachineSelected {
         get => _remoteMachineSelected;
         private set {
+            if (_remoteMachineSelected != value) SelectedBaseRef = null;
             this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
             this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
         }
@@ -655,6 +670,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     static readonly TimeSpan PendingLaunchTtl = TimeSpan.FromMinutes(10);
     static readonly TimeSpan RecentFailureTtl = TimeSpan.FromSeconds(30);
     readonly IAgentDirectory? _directory;
+    readonly IBranchReader? _branches;
 
     /// One accepted launch awaiting settlement. UploadedAt is null for a text-only launch; both
     /// stamps come from the same clock, so one TimeProvider governs every expiry. Generation is
@@ -663,7 +679,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// later on the UI thread, which reads it only after that open has moved it on.
     sealed record PendingLaunch(
         DateTimeOffset At, AgentOrigin Lane, bool HadAttachments, DateTimeOffset? UploadedAt,
-        string RepoPath, StrongBox<int> Generation, string Machine);
+        string RepoPath, StrongBox<int> Generation, string Machine, string? BaseRef);
 
     /// The only copy of a sent launch's bytes, held until the daemon settles that launch or the
     /// window closes. The two counters are what the composer looked like AFTER the launch emptied
@@ -730,6 +746,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// (IRemoteAgentsService.RefreshDaemonsAsync).</param>
     /// <param name="readings">The drawable snapshots and clock behind <see cref="AccountUsageById"/>.
     /// Null ⇒ no usage is shown.</param>
+    /// <param name="branches">Reads branch names for the "Branch from" picker. Null ⇒ none are listed.</param>
     /// <param name="launchFailed">A tracked launch failed (MainWindowViewModel.CloseFailedLaunch):
     /// its auto-opened workspace would otherwise cover the StartError this view just set.</param>
     public HomeViewModel(
@@ -745,8 +762,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             IObservable<DaemonListing>? listing = null, IObservable<IReadOnlyList<DaemonAccountsDto>>? daemonAccounts = null,
             IObservable<AccountsSnapshotDto?>? localAccounts = null, Func<Task>? retryListing = null,
-            AccountReadings? readings = null, Action<string>? launchFailed = null) {
+            AccountReadings? readings = null, IBranchReader? branches = null, Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
+        _branches = branches;
         _daemon = daemon;
         _state = state;
         _launch = launch;
@@ -971,6 +989,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // An update still bringing this machine's local server and daemon back holds local launches until it settles.
         var updateHolds = _updateFinishing.CombineLatest(_machineSelectionChanges, (finishing, sel) => finishing && !sel.Remote)
             .DistinctUntilChanged();
+        var hasPrompt = this.WhenAnyValue(x => x.Goal).CombineLatest(stagedCount, HasPrompt).DistinctUntilChanged();
         var canLaunch = selectedAvailability.Select(a => a == LaunchAvailability.Ready)
             .CombineLatest(
                 stagedCount.CombineLatest(canAttach, (count, attach) => count == 0 || attach),
@@ -978,7 +997,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                 noHarnesses,
                 _accountPending.DistinctUntilChanged(),
                 updateHolds,
-                (ready, attachable, uploading, none, pending, held) => ready && attachable && !uploading && !none && !pending && !held);
+                hasPrompt,
+                (ready, attachable, uploading, none, pending, held, prompted) =>
+                    ready && attachable && !uploading && !none && !pending && !held && prompted);
 
         // Explicit ObserveOn: ReactiveCommand does NOT reschedule the supplied canExecute, and a
         // Status event arrives on the daemon client's pump thread (MainWindowViewModel's canStart
@@ -1124,9 +1145,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
 
         _startButtonTip = _selectedRepoPathChanges
-            .CombineLatest(notices, _accountTip, updateHolds,
-                (repo, notice, account, held) => TipFor(repo, held ? FinishingUpdateNotice : notice, account))
-            .ToProperty(this, x => x.StartButtonTip, TipFor(SelectedRepoPath, ConnectingNotice, null))
+            .CombineLatest(notices, _accountTip, updateHolds, hasPrompt,
+                (repo, notice, account, held, prompted) => TipFor(repo, held ? FinishingUpdateNotice : notice, account, prompted))
+            .ToProperty(this, x => x.StartButtonTip, TipFor(SelectedRepoPath, ConnectingNotice, null, prompted: false))
             .DisposeWith(_disposables);
 
         SignInCommand = ReactiveCommand.Create(() => { _requestSignIn?.Invoke(); });
@@ -1420,9 +1441,11 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// Repo gate first (IsEnabled), then the connection/sign-in notice StartCommand also gates on,
     /// then an account still resolving.
-    internal static string TipFor(string? repoPath, string? connectionNotice, string? accountNotice) =>
+    internal const string NeedsPromptTip = "Enter an initial prompt";
+
+    internal static string TipFor(string? repoPath, string? connectionNotice, string? accountNotice, bool prompted) =>
         string.IsNullOrEmpty(repoPath) ? "Select a repository to start"
-        : connectionNotice ?? accountNotice ?? "Start";
+        : connectionNotice ?? accountNotice ?? (prompted ? "Start" : NeedsPromptTip);
 
     // Constructor-scoped (like TrayViewModel/ActivityViewModel), not WhenActivated — the OAPH and
     // the Agents subscription above run for this object's whole lifetime, not a window's.
@@ -1511,11 +1534,72 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         await _state.UpdateAsync(s => s with { PermissionModeByRepo = WithEntry(s.PermissionModeByRepo, repoPath, mode) });
     }
 
+    /// Blank chooses the current HEAD. Returns why a typed name was refused, or null once chosen;
+    /// a choice is remembered for the repository like the permission mode.
+    public async Task<string?> ChooseBaseRefAsync(string? input) {
+        var name = input?.Trim();
+        if (string.IsNullOrEmpty(name)) name = null;
+        else if (BaseRefName.Problem(name) is { } problem) return problem;
+
+        _baseRefChoices++;
+        SelectedBaseRef = name;
+
+        var (repoPath, stored) = (SelectedRepoPath, name ?? "");
+        if (RemoteMachineSelected) {
+            var machine = SelectedMachine;
+            await _state.UpdateAsync(s => s with {
+                BaseRefByRemoteRepo = WithRemoteEntry(s.BaseRefByRemoteRepo, machine, repoPath, stored) });
+        } else {
+            await _state.UpdateAsync(s => s with { BaseRefByRepo = WithEntry(s.BaseRefByRepo, repoPath, stored) });
+        }
+        return null;
+    }
+
+    /// A stored "" or a value the name rules now refuse restores the current HEAD.
+    static string? KnownBaseRef(string? stored) =>
+        string.IsNullOrEmpty(stored) || BaseRefName.Problem(stored) is not null ? null : stored;
+
+    /// The refs sessions on the selected machine and repository recently started from, newest first.
+    public async Task<IReadOnlyList<string>> ListRecentBaseRefsAsync() {
+        var (scope, repoPath, remote) = (BaseRefMemory.ScopeFor(SelectedMachine, RemoteMachineSelected), SelectedRepoPath, RemoteMachineSelected);
+        var state = await _state.LoadAsync();
+        return BaseRefMemory.Lookup(state.BaseRefsByRepo, scope, repoPath, PathComparerFor(remote));
+    }
+
+    /// The selected repository's branches. On a remote machine they are asked of the repository a
+    /// session there ran in, so a folder with no such session lists none. Null when nothing could be read.
+    public async Task<BranchListing?> ListBranchesAsync(CancellationToken ct) {
+        var (repoPath, remote, machine) = (SelectedRepoPath, RemoteMachineSelected, SelectedMachine);
+        if (_branches is not { } branches || repoPath.Length == 0) return null;
+        if (!remote) return await branches.ListLocalAsync(repoPath, ct);
+
+        var rows = _directory?.Rows.Items ?? [];
+        if (RemoteRepoLocator.OwnerRepoOn(rows, machine, _lastViewerId, repoPath) is not { } ownerRepo) return null;
+        var known = await _knownRepos();
+        var url = await Task.Run(() => RemoteRepoLocator.UrlFor(ownerRepo, known.Select(branches.OriginUrlOf)), ct);
+        return await branches.ListRemoteAsync(url, ct);
+    }
+
+    public Task ForgetBaseRefAsync(string baseRef) =>
+        ForgetBaseRefAsync(SelectedMachine, RemoteMachineSelected, SelectedRepoPath, baseRef);
+
+    Task ForgetBaseRefAsync(string machine, bool remote, string repoPath, string baseRef) =>
+        _state.UpdateAsync(s => s with {
+            BaseRefsByRepo = BaseRefMemory.Forget(
+                s.BaseRefsByRepo, BaseRefMemory.ScopeFor(machine, remote), repoPath, PathComparerFor(remote), baseRef),
+        });
+
+    Task RememberBaseRefAsync(string machine, bool remote, string repoPath, string baseRef) =>
+        _state.UpdateAsync(s => s with {
+            BaseRefsByRepo = BaseRefMemory.Remember(
+                s.BaseRefsByRepo, BaseRefMemory.ScopeFor(machine, remote), repoPath, PathComparerFor(remote), baseRef),
+        });
+
     /// The remote counterpart of SelectRepositoryAsync's restore, against the machine's own harnesses.
     /// Nothing is restored once the machine or repository changed while the store loaded, and a
     /// permission mode picked meanwhile is kept.
     async Task RestoreRemoteChoicesAsync(IReadOnlyList<HarnessOption> harnesses) {
-        var (machine, repoPath, choices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices);
+        var (machine, repoPath, choices, baseRefChoices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices, _baseRefChoices);
         var saved = await _state.LoadAsync();
         if (!RemoteMachineSelected
             || !string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
@@ -1524,6 +1608,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         SetVendor(RemoteRepoVendor(RemoteLookup(saved.HarnessByRemoteRepo, machine, repoPath), harnesses));
         if (_permissionModeChoices == choices)
             SelectedPermissionMode = KnownPermissionMode(RemoteLookup(saved.PermissionModeByRemoteRepo, machine, repoPath));
+        if (_baseRefChoices == baseRefChoices)
+            SelectedBaseRef = KnownBaseRef(RemoteLookup(saved.BaseRefByRemoteRepo, machine, repoPath));
     }
 
     static string KnownPermissionMode(string? token) =>
@@ -1890,13 +1976,15 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         }
 
         var selected = SelectedRepoPath;
-        var permissionModeChoices = _permissionModeChoices;
+        var (permissionModeChoices, baseRefChoices) = (_permissionModeChoices, _baseRefChoices);
         var saved = await _state.LoadAsync();
         // A machine switch or another pick made while the store loaded owns the vendor now.
         if (RemoteMachineSelected || !string.Equals(SelectedRepoPath, selected, StringComparison.Ordinal)) return;
         SetVendor(RepoVendor(Lookup(saved.HarnessByRepo, SelectedRepoPath), Harnesses));
         if (_permissionModeChoices == permissionModeChoices)
             SelectedPermissionMode = KnownPermissionMode(Lookup(saved.PermissionModeByRepo, SelectedRepoPath));
+        if (_baseRefChoices == baseRefChoices)
+            SelectedBaseRef = KnownBaseRef(Lookup(saved.BaseRefByRepo, SelectedRepoPath));
         RevalidateVendor(Harnesses);
     }
 
@@ -2052,6 +2140,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         return new Dictionary<string, IReadOnlyList<ModelChoice>>(merged, StringComparer.OrdinalIgnoreCase) { [chosen.Vendor] = models };
     }
 
+    /// An agent launched with nothing to say sits at its composer and its chat never starts. Staged
+    /// files count: the daemon sends their paths as the first message.
+    internal static bool HasPrompt(string? goal, int stagedFiles) => !string.IsNullOrWhiteSpace(goal) || stagedFiles > 0;
+
     async Task StartAsync() {
         // A pending account captures no draft: sending one would launch under a default nobody chose.
         if (!_accountChooser.IsResolved) {
@@ -2070,10 +2162,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, GoalToSend(), _goalEdits,
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
             CodexPostureFor(SelectedVendor, SelectedCodexSandbox, SelectedCodexApproval),
-            Tray.Snapshot(), Tray.Generation,
+            Tray.Snapshot(), Tray.Generation, SelectedBaseRef,
             _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null,
             ComposerGoal: Goal, Picked: picked);
         var accountLabel = _accountChooser.SelectedLabel;
+
+        if (!HasPrompt(draft.Goal, draft.Files.Count)) return;
 
         if (draft.Files.Count > 0 && !CanAttachFor(draft)) {
             StartError = AttachHintFor(_signedIn, false);
@@ -2085,6 +2179,18 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         if (HarnessErrorFor(draft) is { } harnessError) {
             StartError = harnessError;
             return;
+        }
+
+        // A server without the feature drops the field, and the session would start from HEAD, so a
+        // server that did not answer is not trusted with the ref either.
+        if (draft.BaseRef is not null) {
+            IReadOnlySet<string>? features;
+            try { features = await _launch.GetLaunchFeaturesAsync(_shutdown); }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { return; }
+            if (features is null || !features.Contains(BaseRefLaunchFeature)) {
+                StartError = features is null ? BaseRefSupportUnknown : BaseRefUnsupportedByServer;
+                return;
+            }
         }
 
         // ReactiveCommand.Execute() does not itself gate on CanExecute — a caller that bypasses
@@ -2142,7 +2248,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
         var request = new LaunchRequest(
             draft.Machine, draft.RepoPath, draft.Vendor, draft.Goal, draft.Model, draft.Effort,
-            draft.PermissionMode, attachmentIds, draft.CodexPosture, AccountId: draft.AccountId,
+            draft.PermissionMode, attachmentIds, draft.CodexPosture, BaseRef: draft.BaseRef, AccountId: draft.AccountId,
             NextWorkTargetKey: picked is { IsLaunchTarget: true } ? picked.Key : null);
         // Captured BEFORE the call, never after: the whole point is to notice a navigation that
         // changed WHILE the launch was in flight.
@@ -2190,7 +2296,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         var lane = draft.Remote ? AgentOrigin.Remote : AgentOrigin.Local;
         var opensUnder = new StrongBox<int>(generation);
         var tracked = RecordPendingLaunch(
-            agentId, lane, draft.Files.Count > 0, uploadedAt, draft.RepoPath, opensUnder, draft.Machine);
+            agentId, lane, draft.Files.Count > 0, uploadedAt, draft.RepoPath, opensUnder, draft.BaseRef, draft.Machine);
         if (draft.Remote) {
             if (!tracked) {
                 if (RowId(agentId, AgentOrigin.Remote) is { } rowId)
@@ -2225,7 +2331,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// False when a row or a buffered failure has already settled the launch.
     bool RecordPendingLaunch(
             string agentId, AgentOrigin lane, bool hadAttachments, DateTimeOffset? uploadedAt,
-            string repoPath, StrongBox<int> generation, string machine) {
+            string repoPath, StrongBox<int> generation, string? baseRef, string machine) {
         // A row for this id confirms success, and it can appear on either side of the registration
         // below: the launch may have succeeded before this method ran at all, or the directory's
         // Add may land while it runs — at which point ConfirmPendingRows finds nothing pending yet
@@ -2234,13 +2340,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // takes no lock of its own), keeping the cache→tracking lock order intact.
         if (RowExists(agentId, lane)) {
             ForgetLaunch(agentId);
+            SettleBaseRef(baseRef, machine, lane, repoPath, failure: null);
             return false;
         }
 
         string? bufferedReason = null;
         lock (_launchTrackingLock) {
             _pendingLaunches[agentId] = new PendingLaunch(
-                _time.GetUtcNow(), lane, hadAttachments, uploadedAt, repoPath, generation, machine);
+                _time.GetUtcNow(), lane, hadAttachments, uploadedAt, repoPath, generation, machine, baseRef);
             if (_recentFailures.TryGetValue(agentId, out var recent)) {
                 if (_time.GetUtcNow().UtcDateTime - recent.At <= RecentFailureTtl) {
                     bufferedReason = recent.Reason;
@@ -2251,11 +2358,23 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         }
         if (RowExists(agentId, lane)) {
             ForgetLaunch(agentId);
+            SettleBaseRef(baseRef, machine, lane, repoPath, failure: null);
             return false;
         }
-        if (bufferedReason is not null)
+        if (bufferedReason is not null) {
             ApplyLaunchFailure(agentId, hadAttachments, bufferedReason, repoPath, machine, lane);
+            SettleBaseRef(baseRef, machine, lane, repoPath, bufferedReason);
+        }
         return bufferedReason is null;
+    }
+
+    /// A ref is remembered once a session has started from it, and forgotten when a launch shows it
+    /// no longer resolves; any other failure says nothing about the ref and leaves the list alone.
+    void SettleBaseRef(string? baseRef, string machine, AgentOrigin lane, string repoPath, string? failure) {
+        if (baseRef is null) return;
+        var remote = lane == AgentOrigin.Remote;
+        if (failure is null) _ = RememberBaseRefAsync(machine, remote, repoPath, baseRef);
+        else if (IsMissingBaseRef(failure)) _ = ForgetBaseRefAsync(machine, remote, repoPath, baseRef);
     }
 
     void ForgetLaunch(string agentId) {
@@ -2314,6 +2433,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         if (pending is null) return;
         ApplyLaunchFailure(
             agentId, pending.HadAttachments, failure.Reason, pending.RepoPath, pending.Machine, pending.Lane);
+        SettleBaseRef(pending.BaseRef, pending.Machine, pending.Lane, pending.RepoPath, failure.Reason);
         _directory?.RemovePlaceholder(agentId);
         _launchFailed?.Invoke(agentId);
     }
@@ -2373,6 +2493,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// A remote launch's row is also its auto-open: the remote workspace needs that row to exist.
     void ConfirmPendingRows(IChangeSet<AgentRow, string> changes) {
         List<(string AgentId, StrongBox<int> Generation)>? remoteOpens = null;
+        List<PendingLaunch>? started = null;
         lock (_launchTrackingLock) {
             // A pending row or placeholder is the launch's own stand-in, so only a published row on
             // the launch's own lane settles it. The registry's row can replace a remote placeholder
@@ -2386,8 +2507,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                     if (_retainedDraft?.AgentId == agentId) _retainedDraft = null;
                     if (pending.Lane == AgentOrigin.Remote && !IsExpired(pending))
                         (remoteOpens ??= []).Add((change.Current.Id, pending.Generation));
+                    if (pending.BaseRef is not null) (started ??= []).Add(pending);
                 }
         }
+        if (started is not null)
+            foreach (var pending in started)
+                SettleBaseRef(pending.BaseRef, pending.Machine, pending.Lane, pending.RepoPath, failure: null);
         // Rows publish off the UI thread, and opening swaps the window's workspace.
         if (remoteOpens is not null && _openSessionIfCurrent is { } open)
             RxSchedulers.MainThreadScheduler.Schedule(() => {
@@ -2415,6 +2540,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             return $"{full.Groups["name"].Value} is already running {full.Groups["used"].Value} of {full.Groups["max"].Value} agents. {AtCapacityAdvice}";
         if (reason == WireTokens.LaunchCancelled)
             return "The launch was cancelled.";
+        if (MissingRemoteRef(reason) is { } missing)
+            return $"There's no branch, tag or commit “{missing}” on that machine or its origin.";
+        if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal))
+            return $"“{reason["invalid_base_ref:".Length..].Trim()}” isn't a branch, tag or commit name git accepts.";
+        if (ServerBaseRefRefusal(reason) is { } refused)
+            return refused;
         if (reason.StartsWith(WireTokens.LaunchDeniedByOwnerPrefix, StringComparison.Ordinal))
             return "That machine's consent policy denied the launch. Approve it there, or pre-set a rule with kcap consent.";
         if (reason.StartsWith("attachment_unavailable:", StringComparison.Ordinal))
@@ -2426,6 +2557,43 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         if (GitFailureSentence(reason) is { } git)
             return git;
         return reason;
+    }
+
+    /// The launch feature a server lists once it forwards a base ref to the daemon.
+    internal const string BaseRefLaunchFeature = "base-ref/1";
+
+    internal const string BaseRefSupportUnknown =
+        "Couldn't check whether the server can start a session from a chosen branch. Try again.";
+
+    internal const string BaseRefUnsupportedByServer =
+        "This server can't start a session from a chosen branch yet. Start from the current HEAD instead.";
+
+    /// A launch that failed because its base ref resolves nowhere, so the ref is not worth offering again.
+    internal static bool IsMissingBaseRef(string reason) =>
+        reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal) || MissingRemoteRef(reason) is not null;
+
+    /// The ref named by a fetch origin could not serve: a branch it lacks, or a sha it will not hand out.
+    static string? MissingRemoteRef(string reason) {
+        if (!reason.StartsWith("git fetch ", StringComparison.Ordinal)) return null;
+
+        const string notFound = "couldn't find remote ref ";
+        var at = reason.IndexOf(notFound, StringComparison.OrdinalIgnoreCase);
+        if (at >= 0) return reason[(at + notFound.Length)..].Split('\n', 2)[0].Trim();
+
+        if (!reason.Contains("not our ref", StringComparison.Ordinal)) return null;
+        // "git fetch origin <ref>:<fetched-ref> failed: …" — the ref is the refspec's source.
+        var refspec = reason.Split(' ').FirstOrDefault(word => word.Contains(':') && !word.EndsWith(':'));
+        return refspec?.Split(':')[0];
+    }
+
+    /// The server's base-ref refusals carry a code before their sentence; the sentence is the message.
+    static string? ServerBaseRefRefusal(string reason) {
+        foreach (var code in (ReadOnlySpan<string>) ["base_ref_invalid:", "base_ref_unsupported:", "base_ref_not_allowed:"])
+            if (reason.StartsWith(code, StringComparison.Ordinal)) {
+                var sentence = reason[code.Length..].Trim();
+                return sentence.Length == 0 ? reason : char.ToUpperInvariant(sentence[0]) + sentence[1..];
+            }
+        return null;
     }
 
     internal const string AtCapacityAdvice = "Stop one, or wait for one to finish, to start another.";

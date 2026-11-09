@@ -402,6 +402,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
                 Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"),
                 laneStatus: Observable.Return(new ServerLaneStatus(ServerLaneState.Connected)));
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("box", isLocal: false);
             await Assert.That(vm.SelectedRepoPath).IsEqualTo("/w/repo");
@@ -623,6 +624,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             vm.SelectedModel = "claude-fable-5";
@@ -637,8 +639,31 @@ public class HomeViewModelTests {
             await Assert.That(vm.SelectedModel).IsEqualTo("");
             await Assert.That(vm.SelectedEffort).IsEqualTo("high");
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.Model).IsEqualTo("");
+        });
+    }
+
+    /// A blank goal disables Start and its tip says why, and Execute() past CanExecute still sends nothing.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Start_needs_a_prompt() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var vm = Build(out var launch, out _, path);
+            await vm.SelectRepositoryAsync("/repo/a");
+
+            await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
+            await Assert.That(vm.StartButtonTip).IsEqualTo(HomeViewModel.NeedsPromptTip);
+            vm.Goal = "  \n ";
+            await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+
+            vm.Goal = "go";
+            await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+            await Assert.That(vm.StartButtonTip).IsEqualTo("Start");
         });
     }
 
@@ -650,6 +675,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
@@ -667,6 +693,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             vm.SelectedPermissionMode = "bypassPermissions";
@@ -674,10 +701,12 @@ public class HomeViewModelTests {
             await Assert.That(launch.Last!.PermissionMode).IsEqualTo("bypassPermissions");
 
             await vm.ChooseHarnessAsync("codex");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.PermissionMode).IsNull();
 
             await vm.ChooseHarnessAsync("claude");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.PermissionMode).IsEqualTo("bypassPermissions");
         });
@@ -690,6 +719,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseHarnessAsync("codex");
@@ -705,6 +735,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseHarnessAsync("codex");
@@ -713,10 +744,12 @@ public class HomeViewModelTests {
             await Assert.That(launch.Last!.CodexPosture).IsEqualTo(new CodexLaunchPosture("workspace-write", "never"));
 
             vm.SelectedCodexSandbox = "read-only";
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.CodexPosture).IsEqualTo(new CodexLaunchPosture("read-only", "never"));
 
             await vm.ChooseHarnessAsync("claude");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.CodexPosture).IsNull();
         });
@@ -730,6 +763,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseHarnessAsync("codex");
@@ -747,6 +781,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
             launch.Next = new LaunchOutcome(false, null, "Daemon 'kcap-dev' is at capacity.");
 
             await vm.SelectRepositoryAsync("/repo/a");
@@ -1070,6 +1105,7 @@ public class HomeViewModelTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync("/repo/a");
 
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
@@ -1090,6 +1126,7 @@ public class HomeViewModelTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync("/repo/a");
             Connect(daemon);
             var progress = new BehaviorSubject<(bool, string?)>((true, "Reconnecting the daemon to the server…"));
@@ -1119,6 +1156,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
                 Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"),
                 laneStatus: Observable.Return(new ServerLaneStatus(ServerLaneState.Connected)));
+            vm.Goal = "go";
             vm.AttachUpdateProgress(new BehaviorSubject<(bool, string?)>((true, "Starting the local server…")));
 
             await vm.SelectMachineAsync("box", isLocal: false);
@@ -1135,6 +1173,7 @@ public class HomeViewModelTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync("/repo/a");
             Connect(daemon);
 
@@ -1237,6 +1276,7 @@ public class HomeViewModelTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+            vm.Goal = "go";
 
             Connect(daemon);
             await vm.SelectRepositoryAsync("/repo/a");
@@ -1928,6 +1968,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status);
+            vm.Goal = "go";
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             await vm.SelectMachineAsync("home-pc", isLocal: false);
@@ -1995,6 +2036,7 @@ public class HomeViewModelTests {
             var signInRequests = 0;
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, requestSignIn: () => signInRequests++);
+            vm.Goal = "go";
             Connect(daemon);
             await vm.SelectRepositoryAsync("/repo/a");
             launch.Next = new LaunchOutcome(
@@ -2048,6 +2090,7 @@ public class HomeViewModelTests {
             var vm = Build(out var launch, out _, path);
             launch.Next = new LaunchOutcome(false, null, "boom");
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             launch.Next = new LaunchOutcome(true, SecondLaunchedId, null);
@@ -2373,6 +2416,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2403,6 +2447,7 @@ public class HomeViewModelTests {
                 daemon, new AppStateStore(Tmp.PathTo("app-state.json")), launch, Known(), TimeProvider.System,
                 launchFailures: failures, directory: directory,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status);
+            vm.Goal = "go";
             await vm.SelectMachineAsync("home-pc", isLocal: false);
 
             await vm.StartCommand.Execute();
@@ -2411,6 +2456,7 @@ public class HomeViewModelTests {
             await Assert.That(vm.StartError).IsNull();
 
             launch.Next = new LaunchOutcome(true, "agent-10", null);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure("agent-10", "launch_denied_by_owner: default"));
             await Assert.That(vm.StartError).Contains("consent policy denied");
@@ -2454,6 +2500,7 @@ public class HomeViewModelTests {
             using var directory = new FakeAgentDirectory();
             var opened = new List<(string AgentId, AgentOrigin Origin, int Generation)>();
             using var vm = RemoteLauncher(path, directory, opened);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2473,6 +2520,7 @@ public class HomeViewModelTests {
             using var directory = new FakeAgentDirectory();
             var opened = new List<(string AgentId, AgentOrigin Origin, int Generation)>();
             using var vm = RemoteLauncher(path, directory, opened);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2500,7 +2548,10 @@ public class HomeViewModelTests {
             using var vm = RemoteLauncher(path, directory, opened, launch, navigation);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNotNull();
+            await Assert.That(navigation.Value).IsEqualTo(8);
             directory.Rows.AddOrUpdate(RemoteRow(LaunchedId));
 
             await Assert.That(opened).IsEmpty();
@@ -2539,6 +2590,7 @@ public class HomeViewModelTests {
                     RxSchedulers.MainThreadScheduler = ui;
                     try { directory.Rows.AddOrUpdate(RemoteRow(LaunchedId)); } finally { RxSchedulers.MainThreadScheduler = prior; }
                 });
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2559,6 +2611,7 @@ public class HomeViewModelTests {
             var opened = new List<(string AgentId, AgentOrigin Origin, int Generation)>();
             var dashed = Guid.ParseExact(LaunchedId, "N").ToString("D");
             using var vm = RemoteLauncher(path, directory, opened, new RecordingLaunchClient { Next = new LaunchOutcome(true, dashed, null) });
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2577,6 +2630,7 @@ public class HomeViewModelTests {
             directory.Rows.AddOrUpdate(RemoteRow(LaunchedId));
             var opened = new List<(string AgentId, AgentOrigin Origin, int Generation)>();
             using var vm = RemoteLauncher(path, directory, opened);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2594,6 +2648,7 @@ public class HomeViewModelTests {
             using var directory = new FakeAgentDirectory();
             var opened = new List<(string AgentId, AgentOrigin Origin, int Generation)>();
             using var vm = RemoteLauncher(path, directory, opened);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await vm.StartCommand.Execute();
@@ -2617,6 +2672,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System,
                 openSessionIfCurrent: (id, origin, generation) => opened.Add((id, origin, generation)));
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -2670,6 +2726,7 @@ public class HomeViewModelTests {
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status, directory: directory);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(directory.Placeholders).IsEmpty();
@@ -2688,6 +2745,7 @@ public class HomeViewModelTests {
             using var directory = new FakeAgentDirectory();
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures, directory: directory);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -2715,6 +2773,7 @@ public class HomeViewModelTests {
             }));
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures, directory: directory);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -2739,6 +2798,7 @@ public class HomeViewModelTests {
             using var directory = new FakeAgentDirectory();
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures, directory: directory);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -2800,6 +2860,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
@@ -2855,6 +2916,7 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status);
+            vm.Goal = "go";
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
@@ -3021,6 +3083,7 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var vm = Build(out var launch, out _, path);
+            vm.Goal = "go";
             launch.Next = new LaunchOutcome(false, null, "git commit -m Initial snapshot failed:");
 
             await vm.SelectRepositoryAsync("/repo/a");
@@ -3054,6 +3117,7 @@ public class HomeViewModelTests {
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectRepositoryAsync("/repo/b");
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3082,6 +3146,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3113,6 +3178,7 @@ public class HomeViewModelTests {
                 localMachineId: "local-machine");
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3135,6 +3201,7 @@ public class HomeViewModelTests {
             var failures = new Subject<LaunchFailure>();
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -3157,6 +3224,7 @@ public class HomeViewModelTests {
             };
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -3178,6 +3246,7 @@ public class HomeViewModelTests {
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure("other-id", "launch_denied_by_owner: default"));
 
@@ -3202,6 +3271,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             daemon.Agents.AddOrUpdate(Agent("agent-9", "/repo/a"));
@@ -3225,6 +3295,7 @@ public class HomeViewModelTests {
             var failures = new Subject<LaunchFailure>();
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
+            vm.Goal = "go";
 
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
@@ -3254,6 +3325,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             daemon.Agents.AddOrUpdate(Agent(dashed, "/repo/a"));
@@ -3294,6 +3366,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure("agent-9", "launch_denied_by_owner: default"));
 
@@ -3322,6 +3395,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(dashed, "launch_denied_by_owner: default"));
 
@@ -3367,6 +3441,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(vm.StartError).IsNull();
@@ -3445,6 +3520,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(vm.StartError).IsNull();

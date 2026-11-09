@@ -232,6 +232,7 @@ public class HomeAttachmentsTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             using var rig = new Rig();
             var vm = rig.Start(path, capabilities: ["input/1"]);
+            vm.Goal = "go";
 
             await Assert.That(vm.CanAttach).IsFalse();
             await Assert.That(vm.AttachHint).IsEqualTo("attachments need the daemon updated");
