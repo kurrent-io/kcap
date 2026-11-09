@@ -191,7 +191,8 @@ public sealed partial class WatcherManager(
             OutcomeOf(answers.Select(answer => (answer.Daemon, answer.Answer.Outcome)).ToList()),
             AgentLive: answers.Any(answer => answer.Answer.AgentLive),
             OtherServer: answers.FirstOrDefault(answer => HadTheSession(answer.Daemon, answer.Answer) && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
-            Unreadable: keys is null || known is null);
+            Unreadable: keys is null || known is null,
+            DaemonUnmarked: answers.Any(answer => answer.Answer.MarkFailed));
     }
 
     // A claim, a stop it made or an agent it hosts: a daemon under another config root has no claim here, and its answer is

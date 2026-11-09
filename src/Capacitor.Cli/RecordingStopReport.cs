@@ -9,8 +9,11 @@ namespace Capacitor.Cli;
 /// <param name="Unreadable">The directory of claims, pid files or daemons couldn't be read, so nothing here knows what
 /// records the session.</param>
 /// <param name="WatcherLeft">A watcher of the session outlived the attempt to stop it.</param>
+/// <param name="DaemonUnmarked">A daemon could not mark the session disabled where it and its agents' hooks read, so they
+/// can record it again.</param>
 public sealed record RecordingStopReport(
-    RecordingStopOutcome Outcome, bool AgentLive = false, string? OtherServer = null, bool Unreadable = false, bool WatcherLeft = false) {
+    RecordingStopOutcome Outcome, bool AgentLive = false, string? OtherServer = null, bool Unreadable = false, bool WatcherLeft = false,
+    bool DaemonUnmarked = false) {
     /// <summary>Everything that could be recording this session is known to have stopped.</summary>
-    public bool Confirmed => this is { Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false };
+    public bool Confirmed => this is { Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false, DaemonUnmarked: false };
 }

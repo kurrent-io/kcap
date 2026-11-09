@@ -75,13 +75,15 @@ public static class RecordingIpc {
              || JsonSerializer.Deserialize(json, RecordingIpcJsonContext.Default.DisableSessionAckDto) is not { } ack)
                 return new(RecordingDisable.Silent);
 
-            return ack.Status switch {
-                Stopped       => new(RecordingDisable.Stopped, ack.AgentLive, ack.Server),
-                SendInFlight  => new(RecordingDisable.SendInFlight, ack.AgentLive, ack.Server),
-                StillStopping => new(RecordingDisable.StillStopping, ack.AgentLive, ack.Server),
-                NotHeld       => new(RecordingDisable.NotHeld, ack.AgentLive, ack.Server),
-                _             => new(RecordingDisable.Silent),
+            RecordingDisable? outcome = ack.Status switch {
+                Stopped       => RecordingDisable.Stopped,
+                SendInFlight  => RecordingDisable.SendInFlight,
+                StillStopping => RecordingDisable.StillStopping,
+                NotHeld       => RecordingDisable.NotHeld,
+                _             => null,
             };
+
+            return outcome is { } known ? new(known, ack.AgentLive, ack.Server, ack.MarkFailed) : new(RecordingDisable.Silent);
         } catch (SocketException) {
             // Only the connect throws this: nothing listens on the socket.
             return new(RecordingDisable.NoSocket);

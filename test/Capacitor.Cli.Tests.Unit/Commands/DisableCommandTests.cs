@@ -677,6 +677,20 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("could not mark");
     }
 
+    /// <summary>A daemon's agents' hooks read the daemon's own marker, so one it couldn't write leaves them free to record
+    /// the session again, behind the deletion.</summary>
+    [Test]
+    public async Task A_daemon_that_could_not_mark_the_session_is_not_a_clean_stop() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.Stopped, MarkFailed: true);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("A kcap daemon could not mark this session disabled");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+    }
+
     /// <summary>Every line ahead of the caveat, in every state the server can leave.</summary>
     [Test]
     [Arguments("deleted")]

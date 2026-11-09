@@ -140,8 +140,8 @@ public class RecordingIpcTests {
         await Assert.That(await finish).IsFalse();
     }
 
-    static string Ack(string status, bool agentLive = false, string? server = null) =>
-        JsonSerializer.Serialize(new DisableSessionAckDto(status, agentLive, server), RecordingIpcJsonContext.Default.DisableSessionAckDto);
+    static string Ack(string status, bool agentLive = false, string? server = null, bool markFailed = false) =>
+        JsonSerializer.Serialize(new DisableSessionAckDto(status, agentLive, server, markFailed), RecordingIpcJsonContext.Default.DisableSessionAckDto);
 
     [Test]
     [Arguments(RecordingIpc.Stopped, RecordingDisable.Stopped)]
@@ -163,6 +163,23 @@ public class RecordingIpcTests {
         daemon.Answer = Ack(RecordingIpc.NotHeld, agentLive: true, server: "https://other.example");
 
         await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example"));
+    }
+
+    /// <summary>The command can't call the stop confirmed when the daemon's agents can record the session again.</summary>
+    [Test]
+    public async Task A_disable_carries_a_mark_the_daemon_could_not_make() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = Ack(RecordingIpc.Stopped, markFailed: true);
+
+        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, MarkFailed: true));
+    }
+
+    [Test]
+    public async Task An_answer_with_no_word_of_the_mark_says_it_was_made() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = """{"status":"stopped","agent_live":false,"server":null}""";
+
+        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped));
     }
 
     /// <summary>The command tells a person what this says, so an answer it can't read says nothing, from a daemon that is
