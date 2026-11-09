@@ -9,7 +9,8 @@ namespace Capacitor.Cli;
 /// kcap's config hook (git 2.54+) in the global git config, which an older git ignores. Leaves
 /// <c>hook.kcap.enabled</c>, the user's off switch, as it finds it.
 /// </summary>
-sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = null) {
+/// <param name="gitTimeout">Caps each git call; a test on a loaded runner passes a longer one.</param>
+sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = null, TimeSpan? gitTimeout = null) {
     // Not reference-transaction: when that hook fails, git refuses the commit. post-commit also fires
     // for amend, rebase and cherry-pick, and a merge commit fires only post-merge.
     static readonly string[] Events = ["post-commit", "post-merge"];
@@ -104,9 +105,9 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
     // By name, since --global follows $HOME rather than the home kcap was given. Under GIT_CONFIG_GLOBAL
     // git never reads it, and then no watcher relies on the hook.
-    string? Git(params string[] arguments) => RunGit(["config", "--file", ConfigFile(), ..arguments]);
+    string? Git(params string[] arguments) => RunGit(["config", "--file", ConfigFile(), ..arguments], gitTimeout);
 
-    static string? RunGit(string[] arguments) {
+    static string? RunGit(string[] arguments, TimeSpan? timeout = null) {
         try {
             var start = new ProcessStartInfo("git") {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -119,7 +120,7 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
             if (git is null) return null;
 
-            if (!git.WaitForExit(GitTimeout)) {
+            if (!git.WaitForExit(timeout ?? GitTimeout)) {
                 git.Kill();
 
                 return null;
