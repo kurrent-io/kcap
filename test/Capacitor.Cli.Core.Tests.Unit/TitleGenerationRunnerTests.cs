@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Setup;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
@@ -19,8 +20,8 @@ public class TitleGenerationRunnerTests {
 
     TempDirHandle Bin => _bin ??= Tmp.CreateDir("bin");
 
-    void FakeClaude(string delay = "0") =>
-        Bin.CreateExecutable("claude", $"#!/bin/sh\nsleep {delay}\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
+    void FakeClaude() =>
+        Bin.CreateExecutable("claude", $"#!/bin/sh\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
 
     void FakePi(string body) => Bin.CreateExecutable("pi", $"#!/bin/sh\n{body}\n");
 
@@ -37,9 +38,17 @@ public class TitleGenerationRunnerTests {
         FakePi($"cat > /dev/null\necho '{reply}'");
     }
 
-    Task<ClaudeCliResult?> Generate(string vendor, CancellationToken ct = default) =>
-        TitleGeneration.GenerateAsync("Fix the login timeout", "Done.", TimeProvider.System, _ => { }, null,
-            TestHarnesses.Under(Home.Home, BinaryProbe.Searching(Bin.Path)), Config.Root, vendor, ct);
+    Task<ClaudeCliResult?> Generate(string vendor, TimeProvider? time = null) =>
+        TitleGeneration.GenerateAsync("Fix the login timeout", "Done.", time ?? TimeProvider.System, _ => { }, null,
+            TestHarnesses.Under(Home.Home, BinaryProbe.Searching(Bin.Path)), Config.Root, vendor);
+
+    static async Task Started(string marker) {
+        var giveUp = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!File.Exists(marker)) {
+            if (DateTime.UtcNow > giveUp) throw new TimeoutException($"'{marker}' never appeared");
+            await Task.Delay(20);
+        }
+    }
 
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_pi_session_is_titled_by_pi() {
@@ -68,16 +77,24 @@ public class TitleGenerationRunnerTests {
         await Assert.That((await Generate("pi"))?.Result).IsEqualTo(ClaudeTitle);
     }
 
-    /// <summary>A watcher shutting down waits <see cref="TitleGeneration.Budget"/> for a title, then cancels it. The worst
-    /// case must still fit: a pi that hangs and leaves an orphan holding its output, so its cleanup runs to the limit,
-    /// then a claude that answers late but inside its own timeout.</summary>
+    /// <summary>A watcher shutting down waits <see cref="TitleGeneration.Budget"/> for a title. A pi that hangs past its
+    /// allowance is killed and claude starts with less than its own timeout left: the deadline, not claude's timeout,
+    /// ends it.</summary>
     [Test, ExcludeOn(OS.Windows)]
-    public async Task A_hanging_pi_and_a_slow_claude_still_title_within_the_budget() {
-        FakeClaude(delay: "13.5");
-        FakePi("cat > /dev/null\n( sleep 40 & )\nsleep 120");
-        using var caller = new CancellationTokenSource(TitleGeneration.Budget);
+    public async Task The_claude_fallback_ends_at_the_budget_not_at_its_own_timeout() {
+        var clock         = new FakeTimeProvider();
+        var piStarted     = Tmp.PathTo("pi-started");
+        var claudeStarted = Tmp.PathTo("claude-started");
+        FakePi($"cat > /dev/null\ntouch '{piStarted}'\nsleep 120");
+        Bin.CreateExecutable("claude", $"#!/bin/sh\ntouch '{claudeStarted}'\nsleep 120\n");
 
-        await Assert.That((await Generate("pi", caller.Token))?.Result).IsEqualTo(ClaudeTitle);
+        var title = Generate("pi", clock);
+        await Started(piStarted);
+        clock.Advance(TitleGeneration.Budget - TimeSpan.FromSeconds(5));
+        await Started(claudeStarted);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        await Assert.That(await title.WaitAsync(TimeSpan.FromSeconds(10))).IsNull();
     }
 
     [Test, ExcludeOn(OS.Windows)]
