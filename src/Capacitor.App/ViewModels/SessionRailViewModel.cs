@@ -213,6 +213,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly ObservableCollectionExtended<RailGroupViewModel> _groupsSource = new();
     public ReadOnlyObservableCollection<RailGroupViewModel> Groups { get; }
 
+    readonly ObservableAsPropertyHelper<(int Count, int Failed)> _attention;
+    /// Independent of display filters: a hidden row can still need the user.
+    public (int Count, int Failed) Attention => _attention.Value;
+
     public SessionRailViewModel(
             IAgentDirectory directory,
             Action<string> openLocalSession, Action<string> openRemoteSession, TimeProvider time,
@@ -276,6 +280,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
         var answering = (agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
+        var attentionFilter = pending.CombineLatest(answering, (permissions, answers) =>
+            (Func<AgentRow, bool>)(row => SessionStatusDots.NeedsAttention(row) || permissions.Contains(row.Id) || answers.Contains(row.Id)));
+        _attention = directory.Rows.Connect()
+            .Filter(attentionFilter)
+            .QueryWhenChanged(rows => (Count: rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
+            .DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .ToProperty(this, x => x.Attention, initialValue: (0, 0))
+            .DisposeWith(_disposables);
         // Marshaled once here, like `pending` above, so every nested OAPH downstream sees it on
         // the UI thread without its own ObserveOn.
         var stale = directory.RemoteStale.ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();

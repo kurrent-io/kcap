@@ -114,7 +114,20 @@
                 <StackPanel x:Name="WindowControls" Orientation="Horizontal"
                             HorizontalAlignment="Left" VerticalAlignment="Top">
                     <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon" Click="OnRailToggleClick">
-                        <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Panel Width="16" Height="16">
+                            <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                            <Panel x:Name="RailAttentionMark" IsVisible="False" IsHitTestVisible="False">
+                                <Border Width="6" Height="6" CornerRadius="3" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                        Margin="0,0,-2,-2" Background="{Binding RailAttentionBrush}"
+                                        IsVisible="{Binding !RailAttention.HasSessionCount}" />
+                                <Border MinWidth="12" Height="12" CornerRadius="6" Padding="2,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                        Margin="0,0,-4,-4" Background="{Binding RailAttentionBrush}"
+                                        IsVisible="{Binding RailAttention.HasSessionCount}">
+                                    <TextBlock Text="{Binding RailAttention.CountText}" FontSize="9" FontWeight="SemiBold"
+                                               Foreground="{StaticResource KcapOnPrimaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                </Border>
+                            </Panel>
+                        </Panel>
                     </Button>
                     <Button x:Name="BackButton" Classes="kcapGhost kcapIcon" Command="{Binding GoBackCommand}"
                             ToolTip.Tip="{x:Static views:ShortcutLabels.BackTip}" AutomationProperties.Name="Back">

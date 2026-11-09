@@ -68,10 +68,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
-        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
-        ToolTip.SetTip(RailToggleButton, $"{tip} ({ShortcutLabels.ToggleSidebar})");
-        AutomationProperties.SetName(RailToggleButton, tip);
+        ApplyRailAttention();
         ApplyRailClearance();
+    }
+
+    void ApplyRailAttention() {
+        var collapsed = Panes.RailCollapsed;
+        var attention = ViewModel?.RailAttention ?? RailAttentionSummary.None;
+        RailAttentionMark.IsVisible = collapsed && attention.HasAttention;
+        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
+        var summary = collapsed && attention.HasAttention ? attention.Text : null;
+        ToolTip.SetTip(RailToggleButton, summary is null
+            ? (object)$"{tip} ({ShortcutLabels.ToggleSidebar})"
+            : new TextBlock { Text = $"{summary}\n{tip} ({ShortcutLabels.ToggleSidebar})", MaxWidth = 360, TextWrapping = TextWrapping.Wrap });
+        AutomationProperties.SetName(RailToggleButton, summary is null ? tip : $"{tip}: {summary}");
     }
 
     void LimitRail() =>
@@ -242,6 +252,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
         var switchCover = new WorkspaceSwitchCover(ContentPane, SwitchCover, SwitchCoverStill);
         this.WhenActivated(disposables => {
+            Observable.Switch(this.WhenAnyValue(x => x.ViewModel)
+                    .Select(vm => vm is null ? Observable.Return(RailAttentionSummary.None) : vm.WhenAnyValue(x => x.RailAttention)))
+                .Subscribe(_ => ApplyRailAttention())
+                .DisposeWith(disposables);
             var coverTracking = new SerialDisposable().DisposeWith(disposables);
             this.WhenAnyValue(x => x.ViewModel)
                 .Subscribe(vm => coverTracking.Disposable = vm is null ? null : switchCover.Track(vm))
