@@ -2173,7 +2173,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // A server without the feature drops the field, and the session would start from HEAD, so a
         // server that did not answer is not trusted with the ref either.
         if (draft.BaseRef is not null) {
-            var features = await _launch.GetLaunchFeaturesAsync(_shutdown);
+            IReadOnlySet<string>? features;
+            try { features = await _launch.GetLaunchFeaturesAsync(_shutdown); }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { return; }
             if (features is null || !features.Contains(BaseRefLaunchFeature)) {
                 StartError = features is null ? BaseRefSupportUnknown : BaseRefUnsupportedByServer;
                 return;
