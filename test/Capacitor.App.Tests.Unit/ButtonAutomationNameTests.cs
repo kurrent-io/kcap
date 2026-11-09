@@ -47,9 +47,11 @@ public class ButtonAutomationNameTests {
         return names;
     }
 
-    HomeViewModel Home(FakeDaemonClientService service) =>
-        new(service, new AppStateStore(Tmp.PathTo("app-state.json")), new NeverLaunch(),
-            () => Task.FromResult(new[] { "/repos/alpha" }), TimeProvider.System);
+    HomeViewModel Home(FakeDaemonClientService service) {
+        var alpha = Tmp.CreateDir("repos", "alpha").Path;
+        return new(service, new AppStateStore(Tmp.PathTo("app-state.json")), new NeverLaunch(),
+            () => Task.FromResult(new[] { alpha }), TimeProvider.System);
+    }
 
     static void Settle(Window window) {
         Dispatcher.UIThread.RunJobs();
