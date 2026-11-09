@@ -122,7 +122,8 @@ public class ServerRecorderTransportTests {
         await transport.DetachAsync(B, CancellationToken.None).WithinDeadlineAsync("B's detach");
         await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop");
 
-        await Assert.That(transport.IsConnected).IsFalse();
+        // The server can see the close before the client's own state settles.
+        await WaitHarness.PollUntilAsync(() => !transport.IsConnected);
     }
 
     /// <summary>The source left while the connection was down, so nothing but the connection itself is left to come back.</summary>
