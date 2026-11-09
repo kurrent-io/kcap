@@ -398,6 +398,35 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(resumed, "test:claude"));
     }
 
+    /// <summary>The resumed run can end while the run it went on from is still alive: its own SessionEnd closes the
+    /// session, and the run already followed away from is never followed back to. One end in all, the resumed run's.</summary>
+    [Test]
+    public async Task A_resumed_runs_end_beside_the_live_run_it_left_closes_the_session_once() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source  = Terminal(Transcript(Prompt, Reply));
+        var resumed = new ProcessIncarnation(4343, "test:claude");
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        ClaimNote(4242);
+        ClaimNote(4343);
+        await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the left run's finish");
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, resumed, CancellationToken.None).WithinDeadlineAsync("the resumed run's finish")).IsTrue();
+
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, resumed, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Yours);
+        SessionEndRecord.MarkPosted(Paths, Session, resumed, time.GetUtcNow());
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+
+        Exited.Add(4242);
+        Exited.Add(4343);
+        recorder.FinishExitedProcesses();
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
     /// <summary>The claim went to another daemon while the end waited, so the resumed run is that daemon's to record, and
     /// this one neither follows it nor posts an end.</summary>
     [Test]

@@ -812,10 +812,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     // The session is running in a live process its hooks claimed, which may be another than the one this source follows.
     // A process ending now still has its note, and the first live note read can be its own: one named in besides is
-    // passed over, so any other claimant is found.
+    // passed over, so any other claimant is found. So is a run whose end is settled: it was followed away from, and
+    // following it back would settle the run that left it too, with neither left to post the end.
     ProcessIncarnation? LiveClaimant(RecordedSource source, ProcessIncarnation? besides = null) =>
         SessionId.Parse(source.SessionId) is { } session
-            ? new AgentSessionNotes(_config.ConfigRoot).LiveClaimant(session, (pid, token) => new ProcessIncarnation(pid, token) is var note && (note == besides || _processExited(note)))
+            ? new AgentSessionNotes(_config.ConfigRoot).LiveClaimant(session, (pid, token) =>
+                new ProcessIncarnation(pid, token) is var note
+             && (note == besides || _processExited(note) || SessionEndRecord.IsSettled(_paths, source.SessionId, note)))
             : null;
 
     /// <summary>Posts a terminal session's end once its process has gone and the grace has passed with no SessionEnd hook,
