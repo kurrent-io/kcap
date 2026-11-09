@@ -970,6 +970,20 @@ public class DaemonRecorderTests {
         await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.SendInFlight);
     }
 
+    /// <summary>A run of the command that never got to delete leaves the next one nothing to stop, and a batch the first
+    /// left on its way that lost its answer is still the doubt it was.</summary>
+    [Test]
+    public async Task A_later_disable_after_a_send_lost_its_answer_says_it_may_have_landed() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        Transport.SilenceAnswer = Task.FromResult(false);
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the first disable");
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the later disable")).IsEqualTo(RecordingDisable.SendInFlight);
+    }
+
     /// <summary>The lane behind a key's gate can hold it for a minute, and the command only waits seconds.</summary>
     [Test]
     public async Task A_disable_does_not_wait_for_the_gate_of_a_key_being_picked_up() {

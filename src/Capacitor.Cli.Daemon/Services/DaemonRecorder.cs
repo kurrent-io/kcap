@@ -395,15 +395,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    /// <summary>A later run of the command, with nothing left here to stop: what an earlier one left on its way has settled,
-    /// however it did, by the time this answers <see cref="RecordingDisable.NotHeld"/>, so the deletion after it covers it.</summary>
+    /// <summary>A later run of the command, with nothing left here to stop: what an earlier one left on its way has had its
+    /// answer by the time this answers <see cref="RecordingDisable.NotHeld"/>, so the deletion after it covers it. One that
+    /// lost its answer stays a send that may have landed.</summary>
     async Task<RecordingDisable> SettledAsync(string session, CancellationToken ct) {
         if (!_host.IsValueCreated) return RecordingDisable.NotHeld;
 
         try {
-            await _transport!.SilenceAsync(session).WaitAsync(DisableBound, _time, ct);
-
-            return RecordingDisable.NotHeld;
+            // The transport keeps the session's silence, so a send that lost its answer is still known as one.
+            return await _transport!.SilenceAsync(session).WaitAsync(DisableBound, _time, ct) ? RecordingDisable.NotHeld : RecordingDisable.SendInFlight;
         } catch (TimeoutException) {
             return RecordingDisable.SendInFlight;
         }
