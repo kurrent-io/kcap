@@ -164,12 +164,16 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     readonly CompositeDisposable _disposables = new();
 
     string _selectedRepoPath = ScratchRepoPath;
+    // Every assignment counts, the same path included: a task's pick of no repository leaves the
+    // selection reading as it did, and default discovery must still yield to it.
+    int _repoPicks;
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
     public string SelectedRepoPath {
         get => _selectedRepoPath;
         set {
+            Interlocked.Increment(ref _repoPicks);
             // Same rule as SameLaunchTarget and the picker, so a refusal clears exactly when they see a new folder.
             var changed = !PathComparerFor(RemoteMachineSelected).Equals(_selectedRepoPath, value);
             this.RaiseAndSetIfChanged(ref _selectedRepoPath, value);
@@ -1950,11 +1954,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     public async Task EnsureDefaultRepositoryAsync() {
         bool Held() => RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
         if (Held()) return;
+        var picks = Volatile.Read(ref _repoPicks);
         var selected = SelectedRepoPath;
         if (selected.Length > 0 && await FirstExistingAsync([selected]) is not null) return;
         var recent = await PreferRecentRepositoryAsync();
         // Both awaits are file I/O — a pick or a machine switch made while they ran must win.
-        if (Held() || !string.Equals(SelectedRepoPath, selected, StringComparison.Ordinal)) return;
+        if (Held() || Volatile.Read(ref _repoPicks) != picks) return;
         if (recent is not null) await SelectRepositoryAsync(recent);
         else if (selected.Length > 0) await SelectRepositoryAsync(ScratchRepoPath);
     }
