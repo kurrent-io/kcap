@@ -285,9 +285,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false })
                 .Select(source => source.Key).ToArray();
 
-            foreach (var key in keys) {
-                if (_sources.TryGetValue(key, out var tracked)) tracked.AgentFinished = true;
-            }
+            foreach (var tracked in keys.Select(key => _sources.GetValueOrDefault(key)).OfType<Tracked>()) tracked.AgentFinished = true;
 
             finishing = [.. keys.Select(key => FinishQuietlyAsync(key, CancellationToken.None))];
         }
@@ -436,9 +434,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         var stuck = _host.Value.ActiveKeys.ToHashSet(StringComparer.Ordinal);
 
-        foreach (var tracked in _sources.Values) {
-            if (stuck.Contains(tracked.Source.Key) || !tracked.Running) continue;
-
+        foreach (var tracked in _sources.Values.Where(tracked => tracked.Running && !stuck.Contains(tracked.Source.Key))) {
             if (keeps(tracked.Source.AgentId)) {
                 if (tracked.Drained) _list.TryAdd(tracked.Source with { Drained = true });
                 tracked.Settled.TrySetResult();

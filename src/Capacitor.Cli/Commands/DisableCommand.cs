@@ -87,10 +87,8 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         if (earlier) caveats.Add(EarlierDeletion);
 
         // This run's own lines already name the servers it found.
-        foreach (var server in elsewhere) {
-            if (!stopped.OtherServers.Any(found => DisabledSessions.SameServer(server, found)))
-                caveats.Add($"An earlier kcap disable found a daemon sending this session to {server}. This command can't delete data there; run kcap disable under the profile for that server.");
-        }
+        foreach (var server in elsewhere.Where(server => !stopped.OtherServers.Any(found => DisabledSessions.SameServer(server, found))))
+            caveats.Add($"An earlier kcap disable found a daemon sending this session to {server}. This command can't delete data there; run kcap disable under the profile for that server.");
 
         foreach (var caveat in caveats) await stdout.WriteLineAsync(caveat);
 

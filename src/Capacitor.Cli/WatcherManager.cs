@@ -190,10 +190,8 @@ public sealed partial class WatcherManager(
 
         var (ended, unanswered) = (true, false);
 
-        foreach (var dir in SpoolDirectories) {
-            // A pass under way made its directory.
-            if (!Directory.Exists(dir)) continue;
-
+        // A pass under way made its directory.
+        foreach (var dir in SpoolDirectories.Where(Directory.Exists)) {
             SpoolDrainLease? lease = null;
 
             while (ended && (lease = SpoolDrainLease.TryTake(dir)) is null) {
@@ -227,9 +225,10 @@ public sealed partial class WatcherManager(
 
         var asked = claims.GroupBy(claim => claim.Holder).Select(holder => new AskedDaemon(holder.Key, true, holder.Any(claim => claim.Fresh))).ToList();
 
-        foreach (var name in (known ?? []).Prepend(DaemonNameResolver.Resolve([], profiles.DaemonName)).Distinct()) {
-            if (asked.All(daemon => daemon.Name != name)) asked.Add(new AskedDaemon(name, Held: false, Fresh: false));
-        }
+        asked.AddRange((known ?? []).Prepend(DaemonNameResolver.Resolve([], profiles.DaemonName)).Distinct()
+            .Where(name => asked.All(daemon => daemon.Name != name))
+            .Select(name => new AskedDaemon(name, Held: false, Fresh: false))
+            .ToList());
 
         // A daemon finishing a stop needs longer than one that holds nothing, and a person waits on the slowest.
         using var budget = new CancellationTokenSource(claims.Length > 0 || keys is null ? DisableBudget : HandOffBudget, time);
