@@ -1,3 +1,4 @@
+using System.Text;
 using Capacitor.Cli.Core.Auth;
 
 namespace Capacitor.Cli.Core;
@@ -41,7 +42,8 @@ public static class DisabledSessions {
         Directory.CreateDirectory(dir);
 
         try {
-            new FileStream(path, FileMode.CreateNew, FileAccess.Write).Dispose();
+            // Shared, or on Windows a run recording its deletion beside this one is refused while this is open.
+            new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete).Dispose();
         } catch (IOException) when (File.Exists(path)) {
             // Another run's marker, which stays as it is.
         }
@@ -67,12 +69,14 @@ public static class DisabledSessions {
     public static void MarkDeletedUnconfirmed(string sessionId, ConfigRoot config) {
         var dir = GetDisabledDir(config);
         Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, sessionId), DeletedUnconfirmed);
+
+        using var marker = new FileStream(Path.Combine(dir, sessionId), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        marker.Write(Encoding.UTF8.GetBytes(DeletedUnconfirmed));
     }
 
     public static bool WasDeletedUnconfirmed(string sessionId, ConfigRoot config) {
         try {
-            return File.ReadAllText(Path.Combine(GetDisabledDir(config), sessionId)) == DeletedUnconfirmed;
+            return File.ReadAllTextShared(Path.Combine(GetDisabledDir(config), sessionId)) == DeletedUnconfirmed;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return false;
         }
