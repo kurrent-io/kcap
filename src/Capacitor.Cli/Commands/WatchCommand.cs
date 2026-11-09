@@ -2941,8 +2941,9 @@ partial class WatchCommand(
             var newLineNumbers = drainRead.LineNumbers;
             var newLines       = captured.Lines;
             // The server drops a line numbered at or below one it took, so a shorter file never
-            // lowers the cursor; only a reconnect rewind does. kcap import repairs lines written
-            // below it.
+            // lowers the cursor; only a reconnect rewind does. Lines written below it after a shrink
+            // are never sent, and the log line below is all that says so: kcap import resumes from
+            // the server's cursor too.
             var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
 
             if (drainRead.NextPosition < state.LinesProcessed) {
