@@ -47,6 +47,10 @@ public sealed record AppState(
     // local maps: the same path can exist on this machine and on each remote.
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? HarnessByRemoteRepo = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? PermissionModeByRemoteRepo = null,
+    // The "Branch from" choice, keyed like PermissionModeByRepo and PermissionModeByRemoteRepo;
+    // "" is the checkout's current HEAD.
+    IReadOnlyDictionary<string, string>? BaseRefByRepo = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? BaseRefByRemoteRepo = null,
     // A setup attempt is unverified until its command and recording check both succeed.
     IReadOnlyList<string>? UnverifiedHarnessSetups = null);
 

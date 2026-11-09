@@ -249,6 +249,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     string _selectedPermissionMode = DefaultPermissionMode;
     // Bumped by every user pick, so a repository restore that loaded before it leaves the pick alone.
     int _permissionModeChoices;
+    // Same role as _permissionModeChoices, for the base ref.
+    int _baseRefChoices;
     /// A ClaudePermissionModes token, remembered per repository like the harness and kept across
     /// vendor changes; PermissionModeFor decides whether it rides a given launch.
     public string SelectedPermissionMode {
@@ -1468,18 +1470,30 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         await _state.UpdateAsync(s => s with { PermissionModeByRepo = WithEntry(s.PermissionModeByRepo, repoPath, mode) });
     }
 
-    /// Blank chooses the current HEAD. Returns why a typed name was refused, or null once chosen.
-    public string? ChooseBaseRef(string? input) {
+    /// Blank chooses the current HEAD. Returns why a typed name was refused, or null once chosen;
+    /// a choice is remembered for the repository like the permission mode.
+    public async Task<string?> ChooseBaseRefAsync(string? input) {
         var name = input?.Trim();
-        if (string.IsNullOrEmpty(name)) {
-            SelectedBaseRef = null;
-            return null;
-        }
-        if (BaseRefName.Problem(name) is { } problem) return problem;
+        if (string.IsNullOrEmpty(name)) name = null;
+        else if (BaseRefName.Problem(name) is { } problem) return problem;
 
+        _baseRefChoices++;
         SelectedBaseRef = name;
+
+        var (repoPath, stored) = (SelectedRepoPath, name ?? "");
+        if (RemoteMachineSelected) {
+            var machine = SelectedMachine;
+            await _state.UpdateAsync(s => s with {
+                BaseRefByRemoteRepo = WithRemoteEntry(s.BaseRefByRemoteRepo, machine, repoPath, stored) });
+        } else {
+            await _state.UpdateAsync(s => s with { BaseRefByRepo = WithEntry(s.BaseRefByRepo, repoPath, stored) });
+        }
         return null;
     }
+
+    /// A stored "" or a value the name rules now refuse restores the current HEAD.
+    static string? KnownBaseRef(string? stored) =>
+        string.IsNullOrEmpty(stored) || BaseRefName.Problem(stored) is not null ? null : stored;
 
     /// The refs sessions on the selected machine and repository recently started from, newest first.
     public async Task<IReadOnlyList<string>> ListRecentBaseRefsAsync() {
@@ -1521,7 +1535,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Nothing is restored once the machine or repository changed while the store loaded, and a
     /// permission mode picked meanwhile is kept.
     async Task RestoreRemoteChoicesAsync(IReadOnlyList<HarnessOption> harnesses) {
-        var (machine, repoPath, choices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices);
+        var (machine, repoPath, choices, baseRefChoices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices, _baseRefChoices);
         var saved = await _state.LoadAsync();
         if (!RemoteMachineSelected
             || !string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
@@ -1530,6 +1544,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         SetVendor(RemoteRepoVendor(RemoteLookup(saved.HarnessByRemoteRepo, machine, repoPath), harnesses));
         if (_permissionModeChoices == choices)
             SelectedPermissionMode = KnownPermissionMode(RemoteLookup(saved.PermissionModeByRemoteRepo, machine, repoPath));
+        if (_baseRefChoices == baseRefChoices)
+            SelectedBaseRef = KnownBaseRef(RemoteLookup(saved.BaseRefByRemoteRepo, machine, repoPath));
     }
 
     static string KnownPermissionMode(string? token) =>
@@ -1894,13 +1910,15 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         }
 
         var selected = SelectedRepoPath;
-        var permissionModeChoices = _permissionModeChoices;
+        var (permissionModeChoices, baseRefChoices) = (_permissionModeChoices, _baseRefChoices);
         var saved = await _state.LoadAsync();
         // A machine switch or another pick made while the store loaded owns the vendor now.
         if (RemoteMachineSelected || !string.Equals(SelectedRepoPath, selected, StringComparison.Ordinal)) return;
         SetVendor(RepoVendor(Lookup(saved.HarnessByRepo, SelectedRepoPath), Harnesses));
         if (_permissionModeChoices == permissionModeChoices)
             SelectedPermissionMode = KnownPermissionMode(Lookup(saved.PermissionModeByRepo, SelectedRepoPath));
+        if (_baseRefChoices == baseRefChoices)
+            SelectedBaseRef = KnownBaseRef(Lookup(saved.BaseRefByRepo, SelectedRepoPath));
         RevalidateVendor(Harnesses);
     }
 

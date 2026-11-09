@@ -362,8 +362,8 @@ public partial class LauncherPaneView : UserControl {
         rows.Children.Add(field);
         var flyout = ChoiceMenus.PanelFlyout(rows, minWidth: 300);
 
-        void Choose(string? baseRef) {
-            var problem = vm.ChooseBaseRef(baseRef);
+        async void Choose(string? baseRef) {
+            var problem = await vm.ChooseBaseRefAsync(baseRef);
             error.Text = problem;
             error.IsVisible = problem is not null;
             if (problem is null) flyout.Hide();

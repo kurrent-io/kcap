@@ -68,11 +68,11 @@ public class HomeViewModelBaseRefTests {
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
 
-            await Assert.That(vm.ChooseBaseRef("  feature/x ")).IsNull();
+            await Assert.That(await vm.ChooseBaseRefAsync("  feature/x ")).IsNull();
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.BaseRef).IsEqualTo("feature/x");
 
-            await Assert.That(vm.ChooseBaseRef("   ")).IsNull();
+            await Assert.That(await vm.ChooseBaseRefAsync("   ")).IsNull();
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.BaseRef).IsNull();
         });
@@ -85,27 +85,57 @@ public class HomeViewModelBaseRefTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
-            vm.ChooseBaseRef("main");
+            await vm.ChooseBaseRefAsync("main");
 
-            await Assert.That(vm.ChooseBaseRef("bad name")).IsNotNull();
+            await Assert.That(await vm.ChooseBaseRefAsync("bad name")).IsNotNull();
             await Assert.That(vm.SelectedBaseRef).IsEqualTo("main");
         });
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Picking_another_repository_returns_to_head() {
+    public async Task Each_repository_keeps_its_own_choice_across_a_restart() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
-            using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System);
-            await vm.SelectRepositoryAsync("/repo/a");
-            vm.ChooseBaseRef("main");
+            using (var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System)) {
+                await vm.SelectRepositoryAsync("/repo/a");
+                await vm.ChooseBaseRefAsync("main");
+                await vm.SelectRepositoryAsync("/repo/b");
+                await Assert.That(vm.SelectedBaseRef).IsNull();
+                await vm.ChooseBaseRefAsync("develop");
+                await vm.ChooseBaseRefAsync(null);
+            }
 
-            await vm.SelectRepositoryAsync("/repo/a");
-            await Assert.That(vm.SelectedBaseRef).IsEqualTo("main");
+            using var restarted = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System);
+            await restarted.SelectRepositoryAsync("/repo/a");
+            await Assert.That(restarted.SelectedBaseRef).IsEqualTo("main");
+            await restarted.SelectRepositoryAsync("/repo/b");
+            await Assert.That(restarted.SelectedBaseRef).IsNull();
+        });
+    }
 
-            await vm.SelectRepositoryAsync("/repo/b");
+    /// A local repository and a remote one at the same path are different repositories.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_repository_keeps_its_choice_apart_from_the_same_local_path() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var daemons = new BehaviorSubject<IReadOnlyList<DaemonInfo>>([new DaemonInfo {
+                Name = "box", OwnerUserId = "me", Connected = true, RepoPaths = ["/repo/a"], SupportedVendors = ["claude"],
+            }]);
+            using var vm = new HomeViewModel(
+                ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System,
+                daemons: daemons, viewerId: _ => Task.FromResult<string?>("me"));
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.ChooseBaseRefAsync("release/2");
+
+            await vm.SelectMachineAsync("daemon-a", isLocal: true);
+            await vm.SelectRepositoryAsync("/repo/a");
             await Assert.That(vm.SelectedBaseRef).IsNull();
+
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/repo/a");
+            await Assert.That(vm.SelectedBaseRef).IsEqualTo("release/2");
         });
     }
 
@@ -118,7 +148,7 @@ public class HomeViewModelBaseRefTests {
             var launch = new LaunchClient { Features = FrozenSet<string>.Empty };
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
-            vm.ChooseBaseRef("main");
+            await vm.ChooseBaseRefAsync("main");
 
             await vm.StartCommand.Execute();
 
@@ -140,7 +170,7 @@ public class HomeViewModelBaseRefTests {
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System, directory: directory);
             await vm.SelectRepositoryAsync("/repo/a");
-            vm.ChooseBaseRef("feature/x");
+            await vm.ChooseBaseRefAsync("feature/x");
 
             await vm.StartCommand.Execute();
 
@@ -163,7 +193,7 @@ public class HomeViewModelBaseRefTests {
             using var vm = new HomeViewModel(
                 ConnectedDaemon(), store, new LaunchClient(), NoKnownRepos(), TimeProvider.System, launchFailures: failures);
             await vm.SelectRepositoryAsync("/repo/a");
-            vm.ChooseBaseRef("gone");
+            await vm.ChooseBaseRefAsync("gone");
 
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(AgentId,
