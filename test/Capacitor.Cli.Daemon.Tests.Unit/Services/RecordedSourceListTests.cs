@@ -32,4 +32,28 @@ public class RecordedSourceListTests {
 
         await Assert.That(new RecordedSourceList(state, NullLogger.Instance).Load()).IsEmpty();
     }
+
+    /// <summary>An update the disk refused leaves the source listed as it was, and a later write keeps it: dropping it
+    /// would lose a source that is still running to the next hard restart.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task An_update_the_disk_refused_keeps_the_source_as_it_was() {
+        var state  = Tmp.CreateDir("state");
+        var list   = new RecordedSourceList(state, NullLogger.Instance);
+        var source = new RecordedSource("agent-1", Session, null, Tmp.PathTo("t.jsonl"), "claude", null, false);
+        var other  = source with { SessionId = "fedcba9876543210fedcba9876543210" };
+        list.TryAdd(source);
+
+        File.SetUnixFileMode(state, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await Assert.That(list.TryAdd(source with { AgentId = "agent-2" })).IsFalse();
+        } finally {
+            File.SetUnixFileMode(state, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        list.TryAdd(other);
+
+        await Assert.That(new RecordedSourceList(state, NullLogger.Instance).Load()).IsEquivalentTo([source, other]);
+    }
 }

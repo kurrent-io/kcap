@@ -33,15 +33,18 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
     }
 
     /// <summary>Whether <paramref name="source"/> is on disk now. Nothing would pick up a source that isn't, so a
-    /// caller holding a claim for one lets it go.</summary>
+    /// caller holding a claim for one lets it go. An update the disk refused keeps the entry it would have replaced, which
+    /// is still a source being recorded.</summary>
     public bool TryAdd(RecordedSource source) {
         lock (_gate) {
             Read();
+            var listed = _sources.GetValueOrDefault(source.Key);
             _sources[source.Key] = source;
 
             if (Write()) return true;
 
-            _sources.Remove(source.Key);
+            if (listed is null) _sources.Remove(source.Key);
+            else _sources[source.Key] = listed;
 
             return false;
         }
