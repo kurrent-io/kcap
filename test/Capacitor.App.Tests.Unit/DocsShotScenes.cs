@@ -36,7 +36,7 @@ static partial class DocsShotScenes {
         "desktop-settings-notifications", "desktop-settings-accounts", "desktop-settings-profiles", "desktop-settings-search",
         "desktop-launch-approvals", "desktop-consent-prompt", "desktop-wizard-agents", "desktop-wizard-visibility",
         "desktop-settings-privacy", "desktop-wizard-usage-data", "desktop-settings-usage-data", "desktop-settings-harnesses",
-            "desktop-settings-about"];
+            "desktop-settings-about", "desktop-launcher-next-work", "desktop-launcher-next-work-filled"];
 
     const string ServerUrl = "https://northwind.kcap.ai";
     const string PaymentsRepo = "/Users/maya/dev/northwind/payments-api";
@@ -161,11 +161,11 @@ static partial class DocsShotScenes {
             Action<FeedbackCategory>? openFeedback = null, Action? requestSetup = null,
             bool openSession = true, bool localServerDown = false, WorkContextRead? workContext = null,
             SessionPlansRead? plan = null, bool moreSessions = false, bool remoteMachine = false,
-            Func<MainWindowViewModel, Task>? arrange = null) {
+            Func<MainWindowViewModel, Task>? arrange = null, ViewModels.NextWork.NextWorkBandViewModel? nextWork = null) {
         var scene = new DocsShotScene();
         try {
             var vm = await BuildMainWindowAsync(scene, pendingIds, permissionRequests, openFeedback, requestSetup, openSession,
-                localServerDown, workContext ?? PaymentsWorkContext(), plan, moreSessions, remoteMachine);
+                localServerDown, workContext ?? PaymentsWorkContext(), plan, moreSessions, remoteMachine, nextWork);
             if (arrange is not null) await arrange(vm);
             return scene;
         } catch {
@@ -218,7 +218,7 @@ static partial class DocsShotScenes {
     static async Task<MainWindowViewModel> BuildMainWindowAsync(DocsShotScene scene, IReadOnlySet<string>? pendingIds,
             IReadOnlyList<PendingPermissionRequest>? permissionRequests, Action<FeedbackCategory>? openFeedback,
             Action? requestSetup, bool openSession, bool localServerDown, WorkContextRead workContextRead,
-            SessionPlansRead? plan, bool moreSessions, bool remoteMachine) {
+            SessionPlansRead? plan, bool moreSessions, bool remoteMachine, ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
         var transcript = openSession ? scene.Own(new TempDir()) : null;
         var homeState = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
         var service = new FakeDaemonClientService();
@@ -238,7 +238,7 @@ static partial class DocsShotScenes {
             : [];
         var home = scene.Own(new HomeViewModel(service, new AppStateStore(homeStatePath), new NoLaunch(),
             () => Task.FromResult<string[]>([PaymentsRepo, StorefrontRepo]), clock,
-            daemons: Observable.Return(machines), viewerId: _ => Task.FromResult<string?>("maya")));
+            daemons: Observable.Return(machines), viewerId: _ => Task.FromResult<string?>("maya")) { NextWork = nextWork });
         BehaviorSubject<ServerLaneStatus>? lane = null;
         if (localServerDown) {
             service.SnapshotsSubject.OnNext(Snap(daemon: "maya-mbp", version: "1.4.0", serverUrl: ServerUrl, connection: "disconnected", active: 2, max: 5));
