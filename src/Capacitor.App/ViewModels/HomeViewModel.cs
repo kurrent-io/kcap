@@ -2103,11 +2103,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             return;
         }
 
-        // A server without the feature drops the field, and the session would start from HEAD.
-        if (draft.BaseRef is not null && await _launch.GetLaunchFeaturesAsync(_shutdown) is { } features
-            && !features.Contains(BaseRefLaunchFeature)) {
-            StartError = BaseRefUnsupportedByServer;
-            return;
+        // A server without the feature drops the field, and the session would start from HEAD, so a
+        // server that did not answer is not trusted with the ref either.
+        if (draft.BaseRef is not null) {
+            var features = await _launch.GetLaunchFeaturesAsync(_shutdown);
+            if (features is null || !features.Contains(BaseRefLaunchFeature)) {
+                StartError = features is null ? BaseRefSupportUnknown : BaseRefUnsupportedByServer;
+                return;
+            }
         }
 
         // ReactiveCommand.Execute() does not itself gate on CanExecute — a caller that bypasses
@@ -2472,6 +2475,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// The launch feature a server lists once it forwards a base ref to the daemon.
     internal const string BaseRefLaunchFeature = "base-ref/1";
+
+    internal const string BaseRefSupportUnknown =
+        "Couldn't check whether the server can start a session from a chosen branch. Try again.";
 
     internal const string BaseRefUnsupportedByServer =
         "This server can't start a session from a chosen branch yet. Start from the current HEAD instead.";

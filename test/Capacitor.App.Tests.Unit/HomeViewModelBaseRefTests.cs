@@ -139,13 +139,16 @@ public class HomeViewModelBaseRefTests {
         });
     }
 
-    /// A server that does not forward the field would start the session from HEAD while the chip says otherwise.
+    /// A server that does not forward the field would start the session from HEAD while the chip
+    /// says otherwise; one whose features could not be read is given the same distrust.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_server_without_the_feature_refuses_before_launching() {
+    [Arguments(false, HomeViewModel.BaseRefUnsupportedByServer)]
+    [Arguments(true, HomeViewModel.BaseRefSupportUnknown)]
+    public async Task A_server_not_known_to_have_the_feature_refuses_before_launching(bool unanswered, string expected) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
-            var launch = new LaunchClient { Features = FrozenSet<string>.Empty };
+            var launch = new LaunchClient { Features = unanswered ? null : FrozenSet<string>.Empty };
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("main");
@@ -153,7 +156,7 @@ public class HomeViewModelBaseRefTests {
             await vm.StartCommand.Execute();
 
             await Assert.That(launch.Last).IsNull();
-            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.BaseRefUnsupportedByServer);
+            await Assert.That(vm.StartError).IsEqualTo(expected);
         });
     }
 

@@ -350,6 +350,8 @@ public partial class LauncherPaneView : UserControl {
         var input = new TextBox { PlaceholderText = "Branch, tag or commit", MinWidth = 280, Text = vm.SelectedBaseRef };
         input.Classes.Add("kcapField");
         AutomationProperties.SetName(input, "Branch, tag or commit to start from");
+        // Typing while the lists load must still narrow them, so this is the text before any await.
+        var initial = input.Text;
         var error = new TextBlock {
             FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 280,
@@ -422,7 +424,6 @@ public partial class LauncherPaneView : UserControl {
             listing = null;
         }
 
-        var initial = input.Text;
         void Render() {
             branchSection.Children.Clear();
             if (listing is null) {
