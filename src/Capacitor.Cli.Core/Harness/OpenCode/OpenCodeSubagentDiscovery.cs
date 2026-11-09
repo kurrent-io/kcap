@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// canonical agentId (= childSid) → <c>AgentSubsession-{parent}-{childSid}</c>, which lines
 /// up with the agentId the server surfaced from the parent's <c>task</c> tool call.
 ///
-/// Shared by the live watcher (<c>WatchCommand</c>) and the session-end teardown so both
+/// Shared by the live scan (<c>OpenCodeSubagentScan</c>) and the session-end teardown so both
 /// speak one wire contract. The <c>/hooks/subagent-{start,stop}</c> bodies are the
 /// vendor-agnostic shape the server's shared handlers accept.
 /// </summary>

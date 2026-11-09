@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Core;
 /// Session-title generation via a headless local agent CLI. Shared by the CLI's watcher and
 /// import paths and by the daemon's title resolution.
 /// </summary>
-static partial class TitleGeneration {
+public static partial class TitleGeneration {
     internal static readonly string TitlePromptTemplate = EmbeddedResources.Load("prompt-title.txt");
 
     /// <summary>
@@ -62,7 +62,7 @@ static partial class TitleGeneration {
     /// Returns the cleaned title string, or null on failure (including when the
     /// model produced a refusal rather than a title).
     /// </summary>
-    internal static async Task<ClaudeCliResult?> GenerateAsync(
+    public static async Task<ClaudeCliResult?> GenerateAsync(
             string            userText,
             string?           assistantText,
             TimeProvider      time,

@@ -6,11 +6,13 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
+using Capacitor.Cli.Recording.Harness.Cursor;
 using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
@@ -898,7 +900,7 @@ public sealed class CursorHookCommand(
     /// in <see cref="HandleSubagentChildEventAsync"/>.
     ///
     /// Quarantine is keyed on <paramref name="parentSessionId"/>, not the child: the runtime
-    /// rewrite guard (<see cref="CursorRewriteGuard"/>) and <c>WatchCommand.RunWatch</c> both
+    /// rewrite guard (<see cref="CursorRewriteGuard"/>) and <c>TranscriptRecorder</c> both
     /// construct their guard/quarantine identity from the watcher process's own
     /// <c>sessionId</c> argument, which — for a child watcher spawned with
     /// <c>sessionIdOverride: parentSessionId</c> — resolves to the PARENT id

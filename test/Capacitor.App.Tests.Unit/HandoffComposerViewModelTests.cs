@@ -1531,7 +1531,8 @@ public class HandoffComposerViewModelTests {
             : new HandoffProbeReplyDto(HandoffRefusals.RepoNotAllowed, null, null, null, null);
         rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
         var vm = await rig.ReadyAsync();
-        await vm.Choices.WhenAnyValue(x => x.AccountPendingText).Where(t => t is null).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
+        // The memory loads on a pool thread here, so wait on the flag Start gates on: the text clears first.
+        await vm.ChoicesForTesting.WhenAnyValue(x => x.AccountPending).Where(p => !p).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
         await Assert.That(vm.Choices.SelectedAccountLabel).IsNull();
 
         await vm.StartCommand.Execute();

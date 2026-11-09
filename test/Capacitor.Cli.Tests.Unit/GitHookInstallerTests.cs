@@ -6,7 +6,8 @@ public class GitHookInstallerTests {
 
     const string Command = """'/opt/kcap'\''s/kcap' git-hook""";
 
-    GitHookInstaller Installer => field ??= new(Home.Home, () => "/opt/kcap's/kcap");
+    // The production cap is shorter than a loaded Windows runner can take to start git.
+    GitHookInstaller Installer => field ??= new(Home.Home, () => "/opt/kcap's/kcap", gitTimeout: TimeSpan.FromMinutes(1));
 
     string? Entry(string key, string file = ".gitconfig") {
         var git = GitRepo.At(Home.Path).Try("config", "--file", Path.Combine(Home.Path, file), "--get-all", key);

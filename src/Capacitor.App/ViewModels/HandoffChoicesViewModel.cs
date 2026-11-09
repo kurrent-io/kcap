@@ -328,15 +328,16 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             : options.FirstOrDefault(o => o.Available)?.Vendor ?? HomeViewModel.DefaultVendor);
     }
 
+    /// AccountPending goes last, so whatever resumes when it clears sees the whole choice published.
     void PublishAccountChoice() {
         AccountSection = _accounts.ShowsSection;
         AccountRows = _accounts.Rows;
         AccountPendingText = _accounts.PendingText;
         SelectedAccountLabel = _accounts.SelectedLabel;
-        AccountPending = _accounts.State == AccountSelectionState.Pending;
         this.RaisePropertyChanged(nameof(AccountRefusal));
         _accountCatalogKey.OnNext(_accounts.State is AccountSelectionState.ExplicitValid or AccountSelectionState.ExplicitInvalid
             ? (SelectedVendor, _accounts.SelectedAccountId!) : null);
+        AccountPending = _accounts.State == AccountSelectionState.Pending;
     }
 
     /// Written in call order: the chooser also forgets an entry from inside its recompute.

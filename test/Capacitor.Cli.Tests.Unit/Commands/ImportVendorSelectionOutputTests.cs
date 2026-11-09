@@ -1,7 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using WireMock.Server;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 

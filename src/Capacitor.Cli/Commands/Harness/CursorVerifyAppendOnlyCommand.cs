@@ -1,5 +1,5 @@
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Harness.Cursor;
+using Capacitor.Cli.Recording.Harness.Cursor;
 
 namespace Capacitor.Cli.Commands.Harness;
 

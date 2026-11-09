@@ -6,7 +6,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Grok;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 

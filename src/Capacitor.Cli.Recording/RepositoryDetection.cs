@@ -1,0 +1,442 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Recording.PrDetection;
+
+namespace Capacitor.Cli.Recording;
+
+public static class RepositoryDetection {
+    // Bump whenever the cached shape or derivation changes, so older entries are derived again.
+    internal const int CacheSchemaVersion = 4;
+
+    public static CommandRunner DefaultRunner(TimeProvider time) =>
+        (cmd, arguments, cwd, timeout) => RunCommandAsync(cmd, arguments, cwd, time, timeout);
+
+    public static async Task<string> EnrichWithRepositoryInfo(
+            GitProviderRouter router,
+            ConfigRoot config, string json, TimeProvider time, TimeSpan? budget = null,
+            bool detectPullRequest = true, CommandRunner? run = null) {
+        try {
+            var node = JsonNode.Parse(json);
+
+            if (node is not JsonObject obj) {
+                return json;
+            }
+
+            var cwd = obj["cwd"]?.GetValue<string>();
+
+            if (cwd is null) {
+                return json;
+            }
+
+            var repo = await DetectRepositoryAsync(router, config, cwd, time, budget, detectPullRequest, run);
+
+            if (repo is null) {
+                return json;
+            }
+
+            // Skip enrichment if repo info hasn't changed since last emit for this cwd
+            var lastEmitted = LoadLastEmitted(config, cwd);
+
+            if (lastEmitted is not null && RepoPayloadEquals(repo, lastEmitted)) {
+                return json;
+            }
+
+            obj["repository"] = BuildRepositoryNode(repo);
+
+            SaveLastEmitted(config, cwd, repo);
+
+            return obj.ToJsonString();
+        } catch {
+            return json; // on any error, forward original payload
+        }
+    }
+
+    /// <summary>
+    /// cwd-explicit enrichment. Same as <see cref="EnrichWithRepositoryInfo"/> but the
+    /// working directory is supplied by the caller rather than read from a <c>cwd</c> field —
+    /// used by the Cursor hook path, whose payloads carry <c>workspace_roots</c> instead of
+    /// <c>cwd</c>. Always attaches when a repo is detected (no last-emitted dedup): callers use
+    /// this for session-start, where each session needs its own RepositoryDetected event.
+    /// Fail-open: forwards the original payload unchanged on any error or non-git dir.
+    /// </summary>
+    public static async Task<string> EnrichWithRepositoryInfoFromCwd(
+            GitProviderRouter router, ConfigRoot config, string json, string cwd, TimeProvider time,
+            TimeSpan? budget = null) {
+        try {
+            if (string.IsNullOrEmpty(cwd)) return json;
+            if (JsonNode.Parse(json) is not JsonObject obj) return json;
+
+            var repo = await DetectRepositoryAsync(router, config, cwd, time, budget);
+            if (repo is null) return json;
+
+            obj["repository"] = BuildRepositoryNode(repo);
+            return obj.ToJsonString();
+        } catch {
+            return json;
+        }
+    }
+
+    /// <summary>
+    /// Builds the <c>repository</c> JSON node from a detected payload. Only non-null fields are
+    /// emitted so the server-side <c>RepositoryInfoPayload</c> deserialises cleanly. Shared by
+    /// <see cref="EnrichWithRepositoryInfo"/> and <see cref="EnrichWithRepositoryInfoFromCwd"/>,
+    /// and reused by the Cursor import path.
+    /// </summary>
+    public static JsonObject BuildRepositoryNode(RepositoryPayload repo) {
+        var repoNode = new JsonObject();
+
+#pragma warning disable IDE0011
+        if (repo.UserName is not null) repoNode["user_name"]    = repo.UserName;
+        if (repo.UserEmail is not null) repoNode["user_email"]  = repo.UserEmail;
+        if (repo.RemoteUrl is not null) repoNode["remote_url"]  = repo.RemoteUrl;
+        if (repo.Host is not null) repoNode["host"]             = repo.Host;
+        if (repo.Owner is not null) repoNode["owner"]           = repo.Owner;
+        if (repo.RepoName is not null) repoNode["repo_name"]    = repo.RepoName;
+        if (repo.Branch is not null) repoNode["branch"]         = repo.Branch;
+        if (repo.PrNumber is not null) repoNode["pr_number"]    = repo.PrNumber;
+        if (repo.PrTitle is not null) repoNode["pr_title"]      = repo.PrTitle;
+        if (repo.PrUrl is not null) repoNode["pr_url"]          = repo.PrUrl;
+        if (repo.PrHeadRef is not null) repoNode["pr_head_ref"] = repo.PrHeadRef;
+#pragma warning restore IDE0011
+
+        return repoNode;
+    }
+
+    static bool RepoPayloadEquals(RepositoryPayload a, RepositoryPayload b) =>
+        a.Owner     == b.Owner
+     && a.RepoName  == b.RepoName
+     && a.Host      == b.Host
+     && a.Branch    == b.Branch
+     && a.PrNumber  == b.PrNumber
+     && a.PrUrl     == b.PrUrl
+     && a.PrTitle   == b.PrTitle
+     && a.UserName  == b.UserName
+     && a.UserEmail == b.UserEmail;
+
+    // detectPullRequest=false skips the live PR/MR provider detection (the `gh pr view` / `glab api`
+    // round-trip) while still resolving base repo info (owner/repo/user/branch/host). Bulk import
+    // passes false: it never emits PR fields, so that per-cwd round-trip is pure wasted latency.
+    public static async Task<RepositoryPayload?> DetectRepositoryAsync(
+            GitProviderRouter router,
+            ConfigRoot config, string cwd, TimeProvider time, TimeSpan? budget = null,
+            bool detectPullRequest = true, CommandRunner? run = null) {
+        if (budget is { } b0 && b0 <= TimeSpan.Zero) return null;
+        var probesInjected = run is not null;
+        run ??= DefaultRunner(time);
+        try {
+            // Bound the git/gh probes by the remaining hook budget so a slow repo never
+            // overruns the deadline. With no budget, the caps are 5s and 2s.
+            var started = time.GetTimestamp();
+            var gitCap = budget is { } b
+                ? TimeSpan.FromSeconds(Math.Min(5, Math.Max(0, b.TotalSeconds)))
+                : TimeSpan.FromSeconds(5);
+
+            // Try loading cached base info
+            var cache = LoadCache(config, cwd, time);
+
+            string? userName, userEmail, remoteUrl, owner, repoName, branch, host;
+
+            // Always detect branch fresh — it changes frequently during a session. On a cache hit it is
+            // the only probe left, so it comes from HEAD where that answers as git would: a git process
+            // costs every hook about 0.4 s on Windows.
+            var branchTask = cache is not null && !probesInjected && GitRepository.ShowCurrentBranch(cwd) is { } headBranch
+                ? Task.FromResult<string?>(headBranch)
+                : run("git", "branch --show-current", cwd, gitCap);
+
+            if (cache is not null) {
+                userName  = cache.UserName;
+                userEmail = cache.UserEmail;
+                remoteUrl = cache.RemoteUrl;
+                owner     = cache.Owner;
+                repoName  = cache.RepoName;
+                host      = cache.Host;
+                branch    = await branchTask;
+
+                // The servers can change within the cache's life, and one that does not store a local identity must
+                // not be sent one.
+                if (LocalRepository.IsLocal(owner) && !await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment()))
+                    (owner, repoName) = (null, null);
+            } else {
+                // Run git commands in parallel
+                var userNameTask  = run("git", "config user.name", cwd, gitCap);
+                var userEmailTask = run("git", "config user.email", cwd, gitCap);
+                var remoteUrlTask = run("git", "remote get-url origin", cwd, gitCap);
+
+                await Task.WhenAll(userNameTask, userEmailTask, remoteUrlTask, branchTask);
+
+                userName  = userNameTask.Result;
+                userEmail = userEmailTask.Result;
+                remoteUrl = remoteUrlTask.Result;
+                branch    = branchTask.Result;
+
+                // git may be missing from this process's PATH, or refuse a repository another account owns.
+                branch    ??= GitRepository.ShowCurrentBranch(cwd);
+                remoteUrl ??= GitRepository.OriginUrl(cwd);
+
+                // Not a git repo if we can't get branch or remote
+                if (branch is null && remoteUrl is null) {
+                    return null;
+                }
+
+                (owner, repoName) = GitUrlParser.ParseRemoteUrl(remoteUrl);
+                host = remoteUrl is null ? null : RemoteMatcher.ExtractHost(remoteUrl);
+
+                // An origin that names no owner — none at all, or a path — is not a hosting service's, and its
+                // URL can be a private path, so neither leaves the machine. Only a server known to store a local
+                // identity is given one: an older one would link it to GitHub and ask GitHub about it.
+                if ((owner is null || repoName is null)
+                 && await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment())
+                 && LocalRepository.Of(config, cwd) is { } local) {
+                    (owner, repoName) = local;
+                    remoteUrl         = null;
+                    host              = null;
+                }
+
+                // Save to cache (without branch — it's always detected fresh)
+                SaveCache(
+                    config,
+                    cwd,
+                    new() {
+                        UserName      = userName,
+                        UserEmail     = userEmail,
+                        RemoteUrl     = remoteUrl,
+                        Owner         = owner,
+                        RepoName      = repoName,
+                        Host          = host,
+                        SchemaVersion = CacheSchemaVersion,
+                        CachedAt      = time.GetUtcNow()
+                    }
+                );
+            }
+
+            // Always try fresh PR detection (not cached). Bound by whatever budget remains after
+            // the git probes; skip entirely if the budget is already exhausted.
+            int?    prNumber = null;
+            string? prTitle  = null, prUrl = null, prHeadRef = null;
+
+            var ghCap = TimeSpan.FromSeconds(2);
+            if (budget is { } bgh) {
+                var remainingBudget = bgh - time.GetElapsedTime(started);
+                ghCap = TimeSpan.FromSeconds(Math.Min(2, Math.Max(0, remainingBudget.TotalSeconds)));
+            }
+
+            // Effective provider budget: the post-git remainder when the caller passed a budget,
+            // else the 2s cap. Covers probe + detector.
+            var providerCap = ghCap;
+
+            // Import passes detectPullRequest:false: it discards PR fields, so the round-trip is
+            // wasted latency. ResolveAndDetectPrAsync owns the split of providerCap across probes.
+            if (detectPullRequest && providerCap > TimeSpan.Zero && host is not null) {
+                var pr = await ResolveAndDetectPrAsync(router, host, owner, repoName, branch, cwd, providerCap, run, time);
+
+                if (pr is not null) {
+                    prNumber  = pr.Number;
+                    prTitle   = pr.Title;
+                    prUrl     = pr.Url;
+                    prHeadRef = pr.HeadRef;
+                }
+            }
+
+            return new() {
+                UserName  = userName,
+                UserEmail = userEmail,
+                RemoteUrl = remoteUrl,
+                Host      = host,
+                Owner     = owner,
+                RepoName  = repoName,
+                Branch    = branch,
+                PrNumber  = prNumber,
+                PrTitle   = prTitle,
+                PrUrl     = prUrl,
+                PrHeadRef = prHeadRef
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the git provider for <paramref name="host"/> and detects the current PR/MR within one
+    /// <paramref name="providerCap"/> ceiling shared by the probe, the detector and the tracked-branch
+    /// fallback: each gets only what the ones before it left, never the full cap.
+    /// </summary>
+    internal static async Task<PrInfo?> ResolveAndDetectPrAsync(
+            GitProviderRouter router,
+            string        host,
+            string?       owner,
+            string?       repoName,
+            string?       branch,
+            string        cwd,
+            TimeSpan      providerCap,
+            CommandRunner run,
+            TimeProvider  time) {
+        if (providerCap <= TimeSpan.Zero) return null;
+
+        var start = time.GetTimestamp();
+        var kind  = await router.ResolveAsync(host, cwd, providerCap, run);
+
+        var detectCap = Remaining();
+        if (detectCap <= TimeSpan.Zero) return null;
+
+        return kind switch {
+            GitProviderKind.GitHub => await GitHubPrDetector.DetectAsync(cwd, detectCap, run)
+                                   ?? await DetectTrackedGitHubPrAsync(host, owner, repoName, branch, cwd, Remaining, run)
+                                   ?? (owner is not null && repoName is not null
+                                          ? await GitHubPrDetector.DetectForHistoryAsync(host, owner, repoName, cwd, Remaining, run)
+                                          : null),
+            GitProviderKind.GitLab when owner is not null && repoName is not null
+                => await GitLabPrDetector.DetectAsync(host, owner, repoName, branch, cwd, detectCap, run),
+            _ => null
+        };
+
+        // What is left of providerCap, so every probe after the first draws on one deadline. Elapsed
+        // clamps at zero so a non-monotonic timestamp seam can never raise it past providerCap.
+        TimeSpan Remaining() {
+            var elapsed = time.GetElapsedTime(start);
+            return providerCap - (elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed);
+        }
+    }
+
+    // `gh pr view` finds the current branch's head through push.default: under the default `simple`,
+    // an upstream of another name has no push destination and gh queries the local name instead.
+    static async Task<PrInfo?> DetectTrackedGitHubPrAsync(
+            string host, string? owner, string? repoName, string? branch, string cwd, Func<TimeSpan> remaining,
+            CommandRunner run) {
+        if (owner is null || repoName is null) return null;
+
+        var tracked = await TrackedBranch.ResolveAsync(branch, host, owner, repoName, cwd, remaining, run);
+        if (tracked is null) return null;
+
+        var cap = remaining();
+
+        return cap > TimeSpan.Zero
+            ? await GitHubPrDetector.DetectForBranchAsync(host, owner, repoName, tracked, cwd, cap, run)
+            : null;
+    }
+
+    static async Task<string?> RunCommandAsync(
+            string cmd, string arguments, string cwd, TimeProvider time, TimeSpan timeout) {
+        Process? process = null;
+        try {
+            var psi = new ProcessStartInfo(cmd, arguments) {
+                WorkingDirectory       = cwd,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            };
+            process = Process.Start(psi);
+
+            if (process is null) {
+                return null;
+            }
+
+            using var cts    = new CancellationTokenSource(timeout, time);
+            var       output = await process.StandardOutput.ReadToEndAsync(cts.Token);
+            await process.WaitForExitAsync(cts.Token);
+
+            return process.ExitCode == 0 ? output.Trim() : null;
+        } catch {
+            // Timed out or failed — kill the child (and its tree) so a slow git/gh probe doesn't
+            // outlive the hook and accumulate across repeated invocations. Disposing alone only
+            // releases handles; it does not stop the process.
+            try { if (process is { HasExited: false }) ProcessTree.Kill(process); } catch { }
+            return null;
+        } finally {
+            process?.Dispose();
+        }
+    }
+
+    static string GetCachePath(ConfigRoot config, string cwd) {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(cwd)))[..16];
+
+        return Path.Combine(config.Path("cache"), $"{hash}.json");
+    }
+
+    static GitCacheEntry? LoadCache(ConfigRoot config, string cwd, TimeProvider time) {
+        try {
+            var path = GetCachePath(config, cwd);
+
+            if (!File.Exists(path)) {
+                return null;
+            }
+
+            var json  = File.ReadAllText(path);
+            var entry = JsonSerializer.Deserialize(json, RepositoryCacheJsonContext.Default.GitCacheEntry);
+
+            if (entry is null || entry.SchemaVersion != CacheSchemaVersion) {
+                return null;
+            }
+
+            // 1-hour TTL
+            return time.GetUtcNow() - entry.CachedAt > TimeSpan.FromHours(1) ? null : entry;
+        } catch {
+            return null;
+        }
+    }
+
+    static void SaveCache(ConfigRoot config, string cwd, GitCacheEntry entry) {
+        try {
+            var path = GetCachePath(config, cwd);
+            var dir  = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(path, JsonSerializer.Serialize(entry, RepositoryCacheJsonContext.Default.GitCacheEntry));
+        } catch {
+            // Cache write failure is non-critical
+        }
+    }
+
+    static string GetLastEmittedPath(ConfigRoot config, string cwd) {
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(cwd)))[..16];
+
+        return Path.Combine(config.Path("cache"), $"{hash}.repo-emitted.json");
+    }
+
+    static RepositoryPayload? LoadLastEmitted(ConfigRoot config, string cwd) {
+        try {
+            var path = GetLastEmittedPath(config, cwd);
+
+            if (!File.Exists(path)) {
+                return null;
+            }
+
+            var json = File.ReadAllText(path);
+
+            return JsonSerializer.Deserialize(json, RepositoryCacheJsonContext.Default.RepositoryPayload);
+        } catch {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Clear the last-emitted cache for a cwd so the next enrichment always includes repo info.
+    /// Must be called on session-start — each new session needs its own RepositoryDetected event.
+    /// </summary>
+    public static void ClearLastEmitted(ConfigRoot config, string cwd) {
+        try {
+            var path = GetLastEmittedPath(config, cwd);
+
+            if (File.Exists(path)) {
+                File.Delete(path);
+            }
+        } catch {
+            // Non-critical
+        }
+    }
+
+    static void SaveLastEmitted(ConfigRoot config, string cwd, RepositoryPayload payload) {
+        try {
+            var path = GetLastEmittedPath(config, cwd);
+            var dir  = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(path, JsonSerializer.Serialize(payload, RepositoryCacheJsonContext.Default.RepositoryPayload));
+        } catch {
+            // Cache write failure is non-critical
+        }
+    }
+}

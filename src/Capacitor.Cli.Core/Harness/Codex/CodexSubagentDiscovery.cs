@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Core.Harness.Codex;
 /// <c>agent_nickname</c>. TRAP: in a child's <c>session_meta</c> the <c>session_id</c> field
 /// holds the PARENT's id — the child's own id lives in <c>id</c> (and the filename suffix).
 ///
-/// Shared by the live watcher (<c>WatchCommand.ScanCodexSubagents</c>), the parent-exit
+/// Shared by the live scan (<c>CodexSubagentScan</c>), the parent-exit
 /// teardown (<c>CodexSubagentTeardown</c>) and the historical import
 /// (<c>SessionImporter.ImportSessionAsync</c>), so all three speak one wire contract —
 /// mirroring <c>GeminiSubagentDiscovery</c> / <c>OpenCodeSubagentDiscovery</c>.

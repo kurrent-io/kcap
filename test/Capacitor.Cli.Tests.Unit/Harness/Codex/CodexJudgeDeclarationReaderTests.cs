@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Harness.Codex;
