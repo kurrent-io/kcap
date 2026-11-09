@@ -1275,6 +1275,7 @@ public partial class App : Application {
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
@@ -1286,7 +1287,7 @@ public partial class App : Application {
             requestSignIn: requestSignIn, signInCompleted: serverClients.SignInCompleted, pullRequests: readers,
             linkGitHub: linkGitHub,
             access: sessionAccess, localDaemonOnAppServer: directory.LocalDaemonOnAppServer, directory: directory, plans: plans, planArtifacts: planArtifacts,
-            commands: commands, drafts: drafts, inputSending: attention.ReplySending,
+            commands: commands, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
             resumeLedger: id => ResumeLedgerStore.For(_daemonStore, service.DaemonName).TryRead(id),
             pullRequestSnapshots: pullRequestSnapshots, transcripts: transcripts,
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
@@ -1301,7 +1302,7 @@ public partial class App : Application {
                 ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
                     () => new XtermTerminalSurface(80, 24, PtyDumpPath), planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
-                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
+                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
@@ -1338,7 +1339,7 @@ public partial class App : Application {
                 ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
                     surfaceFactory: null, planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
-                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
+                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
