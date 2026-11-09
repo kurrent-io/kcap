@@ -358,15 +358,17 @@ public class HomeViewModelTests {
             using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(), Known(), TimeProvider.System);
             daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["codex", "pi"]));
             daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
-            await vm.SelectRepositoryAsync("/repo/a");
+            var a = Tmp.CreateDir("a").Path;
+            var b = Tmp.CreateDir("b").Path;
+            await vm.SelectRepositoryAsync(a);
             await vm.ChooseHarnessAsync("pi");
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/b"));
+            daemon.Agents.AddOrUpdate(Agent("x", b));
 
             var repos = await vm.ListRepositoriesAsync();
-            await Assert.That(repos.Single(r => r.RepoPath == "/repo/a").Vendor).IsEqualTo("pi");
-            await Assert.That(repos.Single(r => r.RepoPath == "/repo/b").Vendor).IsEqualTo("pi");
+            await Assert.That(repos.Single(r => r.RepoPath == a).Vendor).IsEqualTo("pi");
+            await Assert.That(repos.Single(r => r.RepoPath == b).Vendor).IsEqualTo("pi");
 
-            await vm.SelectRepositoryAsync("/repo/b");
+            await vm.SelectRepositoryAsync(b);
             await Assert.That(vm.SelectedVendor).IsEqualTo("pi");
         });
     }
@@ -828,14 +830,16 @@ public class HomeViewModelTests {
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
 
-            await vm.SelectRepositoryAsync("/repo/a");
+            var aPath = Tmp.CreateDir("a").Path;
+            var bPath = Tmp.CreateDir("b").Path;
+            await vm.SelectRepositoryAsync(aPath);
             await vm.ChooseHarnessAsync("codex");
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/b"));
+            daemon.Agents.AddOrUpdate(Agent("x", bPath));
 
             var repos = await vm.ListRepositoriesAsync();
 
-            var a = repos.Single(r => r.RepoPath == "/repo/a");
-            var b = repos.Single(r => r.RepoPath == "/repo/b");
+            var a = repos.Single(r => r.RepoPath == aPath);
+            var b = repos.Single(r => r.RepoPath == bPath);
             await Assert.That(a.Vendor).IsEqualTo("codex");
             await Assert.That(b.Vendor).IsEqualTo(HomeViewModel.DefaultVendor);
             await Assert.That(a.Selected).IsTrue();
@@ -854,16 +858,19 @@ public class HomeViewModelTests {
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
 
-            await vm.SelectRepositoryAsync("/repo/Alpha");
+            // On a case-insensitive filesystem the second is the first again.
+            var upper = Tmp.CreateDir("Alpha").Path;
+            var lower = Tmp.CreateDir("alpha").Path;
+            await vm.SelectRepositoryAsync(upper);
             await vm.ChooseHarnessAsync("codex");
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/alpha"));
+            daemon.Agents.AddOrUpdate(Agent("x", lower));
 
             var repos = (await vm.ListRepositoriesAsync()).Where(r => r.RepoPath.Length > 0).ToList();
 
             var expected = OperatingSystem.IsLinux() ? 2 : 1;
             await Assert.That(repos.Count).IsEqualTo(expected);
             // The remembered key is the one the user picked, so its casing is the one displayed.
-            await Assert.That(repos.Any(r => r.RepoPath == "/repo/Alpha")).IsTrue();
+            await Assert.That(repos.Any(r => r.RepoPath == upper)).IsTrue();
         });
     }
 
@@ -875,17 +882,19 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
+            var repo = Tmp.CreateDir("kcap-cli").Path;
+            var spelled = repo + Path.DirectorySeparatorChar;
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), new RecordingLaunchClient(),
-                () => Task.FromResult(new[] { "/repo/kcap-cli/" }), TimeProvider.System);
+                () => Task.FromResult(new[] { spelled }), TimeProvider.System);
 
-            await vm.SelectRepositoryAsync("/repo/kcap-cli");
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/kcap-cli/"));
+            await vm.SelectRepositoryAsync(repo);
+            daemon.Agents.AddOrUpdate(Agent("x", spelled));
 
             var repos = (await vm.ListRepositoriesAsync()).Where(r => r.RepoPath.Length > 0).ToList();
 
             await Assert.That(repos.Count).IsEqualTo(1);
-            await Assert.That(repos[0].RepoPath).IsEqualTo("/repo/kcap-cli");
+            await Assert.That(repos[0].RepoPath).IsEqualTo(repo);
             await Assert.That(repos[0].Selected).IsTrue();
         });
     }
@@ -902,12 +911,13 @@ public class HomeViewModelTests {
             await Assert.That(empty.Count).IsEqualTo(1);
             await Assert.That(empty[0].RepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
 
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/b"));
+            var b = Tmp.CreateDir("b").Path;
+            daemon.Agents.AddOrUpdate(Agent("x", b));
             var withRepo = await vm.ListRepositoriesAsync();
 
             await Assert.That(withRepo.Any(r => r.RepoPath.Length == 0)).IsFalse();
-            await Assert.That(withRepo.Single(r => r.RepoPath == "/repo/b").Selected).IsTrue();
-            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/repo/b");
+            await Assert.That(withRepo.Single(r => r.RepoPath == b).Selected).IsTrue();
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(b);
         });
     }
 
@@ -917,17 +927,92 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
+            var newer = Tmp.CreateDir("newer").Path;
+            var older = Tmp.CreateDir("older").Path;
             // GetSortedPathsAsync is last-used first — index 0 is the most recent.
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), new RecordingLaunchClient(),
-                Known("/repo/newer", "/repo/older"), TimeProvider.System);
+                Known(newer, older), TimeProvider.System);
 
             await vm.EnsureDefaultRepositoryAsync();
 
-            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/repo/newer");
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(newer);
             var repos = await vm.ListRepositoriesAsync();
             await Assert.That(repos.Any(r => r.RepoPath.Length == 0)).IsFalse();
-            await Assert.That(repos.Single(r => r.RepoPath == "/repo/newer").Selected).IsTrue();
+            await Assert.That(repos.Single(r => r.RepoPath == newer).Selected).IsTrue();
+        });
+    }
+
+    /// Deleting a clone touches none of the menu's sources — repos.json, the remembered harness, an
+    /// ended agent — so each would offer it forever unless the menu checks the disk itself.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_deleted_repository_leaves_the_menu_whichever_source_names_it() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            var kept = Tmp.CreateDir("kept").Path;
+            var remembered = Tmp.CreateDir("remembered").Path;
+            var agentRepo = Tmp.CreateDir("agent").Path;
+            var known = Tmp.PathTo("known");
+            using var vm = new HomeViewModel(
+                daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(kept, known), TimeProvider.System);
+            await vm.SelectRepositoryAsync(remembered);
+            await vm.ChooseHarnessAsync("codex");
+            await vm.SelectRepositoryAsync(kept);
+            daemon.Agents.AddOrUpdate(Agent("x", agentRepo));
+
+            Directory.Delete(remembered);
+            Directory.Delete(agentRepo);
+            var repos = await vm.ListRepositoriesAsync();
+
+            await Assert.That(repos.Select(r => r.RepoPath)).IsEquivalentTo(new[] { kept });
+            var local = (await vm.ListMachinesAsync()).Single(m => m.IsLocal);
+            await Assert.That(local.RepoPaths).IsEquivalentTo(new[] { kept });
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Empty_selection_skips_a_deleted_most_recent_repository() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var older = Tmp.CreateDir("older").Path;
+            using var vm = new HomeViewModel(
+                new FakeDaemonClientService(), new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(Tmp.PathTo("deleted"), older), TimeProvider.System);
+
+            await vm.EnsureDefaultRepositoryAsync();
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(older);
+        });
+    }
+
+    /// The launcher can sit on a repository while its clone is deleted; the next menu open moves it
+    /// to one that exists, or to no repository when none does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_selection_whose_directory_was_deleted_is_replaced() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var other = Tmp.CreateDir("other").Path;
+            var picked = Tmp.CreateDir("picked").Path;
+            var known = new List<string> { other };
+            using var vm = new HomeViewModel(
+                new FakeDaemonClientService(), new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                () => Task.FromResult(known.ToArray()), TimeProvider.System);
+            await vm.SelectRepositoryAsync(picked);
+
+            Directory.Delete(picked);
+            var repos = await vm.ListRepositoriesAsync();
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(other);
+            await Assert.That(repos.Single(r => r.RepoPath == other).Selected).IsTrue();
+
+            known.Clear();
+            Directory.Delete(other);
+            repos = await vm.ListRepositoriesAsync();
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+            await Assert.That(repos.Single().Selected).IsTrue();
         });
     }
 
@@ -981,11 +1066,12 @@ public class HomeViewModelTests {
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
 
-            await vm.SelectRepositoryAsync("/repo/fresh");
+            var picked = Tmp.CreateDir("fresh").Path;
+            await vm.SelectRepositoryAsync(picked);
 
             var repos = await vm.ListRepositoriesAsync();
 
-            var fresh = repos.Single(r => r.RepoPath == "/repo/fresh");
+            var fresh = repos.Single(r => r.RepoPath == picked);
             await Assert.That(fresh.Vendor).IsEqualTo(HomeViewModel.DefaultVendor);
         });
     }
@@ -998,13 +1084,15 @@ public class HomeViewModelTests {
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
 
-            daemon.Agents.AddOrUpdate(Agent("x", "/x/bravo"));
-            daemon.Agents.AddOrUpdate(Agent("y", "/y/alpha"));
+            var bravo = Tmp.CreateDir("x", "bravo").Path;
+            var alpha = Tmp.CreateDir("y", "alpha").Path;
+            daemon.Agents.AddOrUpdate(Agent("x", bravo));
+            daemon.Agents.AddOrUpdate(Agent("y", alpha));
 
             var repos = await vm.ListRepositoriesAsync();
 
-            await Assert.That(repos[0].RepoPath).IsEqualTo("/y/alpha");
-            await Assert.That(repos[1].RepoPath).IsEqualTo("/x/bravo");
+            await Assert.That(repos[0].RepoPath).IsEqualTo(alpha);
+            await Assert.That(repos[1].RepoPath).IsEqualTo(bravo);
         });
     }
 
@@ -1018,11 +1106,12 @@ public class HomeViewModelTests {
             var daemon = new FakeDaemonClientService();
             using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
 
-            daemon.Agents.AddOrUpdate(Agent("x", "/repo/a/.claude/worktrees/leafy"));
+            var repo = Tmp.CreateDir("a").Path;
+            daemon.Agents.AddOrUpdate(Agent("x", Path.Combine(repo, ".claude", "worktrees", "leafy")));
 
             var repos = await vm.ListRepositoriesAsync();
 
-            await Assert.That(repos.Any(r => r.RepoPath == "/repo/a")).IsTrue();
+            await Assert.That(repos.Any(r => r.RepoPath == repo)).IsTrue();
             await Assert.That(repos.Any(r => r.RepoPath.Contains("worktrees"))).IsFalse();
         });
     }
@@ -1035,13 +1124,14 @@ public class HomeViewModelTests {
     public async Task The_repository_list_includes_the_daemons_persisted_known_repos() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var recorded = Tmp.CreateDir("recorded").Path;
             using var vm = new HomeViewModel(
                 new FakeDaemonClientService(), new AppStateStore(path), new RecordingLaunchClient(),
-                Known("/repo/recorded"), TimeProvider.System);
+                Known(recorded), TimeProvider.System);
 
             var repos = await vm.ListRepositoriesAsync();
 
-            var known = repos.Single(r => r.RepoPath == "/repo/recorded");
+            var known = repos.Single(r => r.RepoPath == recorded);
             await Assert.That(known.Vendor).IsEqualTo(HomeViewModel.DefaultVendor);
         });
     }
@@ -1052,21 +1142,25 @@ public class HomeViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var daemon = new FakeDaemonClientService();
+            // On a case-insensitive filesystem the second is the first again.
+            var upper = Tmp.CreateDir("Alpha").Path;
+            var lower = Tmp.CreateDir("alpha").Path;
+            var beta = Tmp.CreateDir("beta").Path;
             using var vm = new HomeViewModel(
                 daemon, new AppStateStore(path), new RecordingLaunchClient(),
-                Known("/repo/alpha", "/repo/beta"), TimeProvider.System);
+                Known(lower, beta), TimeProvider.System);
 
-            await vm.SelectRepositoryAsync("/repo/Alpha");
+            await vm.SelectRepositoryAsync(upper);
             await vm.ChooseHarnessAsync("codex");
 
             var repos = (await vm.ListRepositoriesAsync()).Where(r => r.RepoPath.Length > 0).ToList();
 
             // beta only exists in the store, so it proves the source is wired; alpha collides
             // with the remembered key wherever the filesystem says they are one repository.
-            await Assert.That(repos.Any(r => r.RepoPath == "/repo/beta")).IsTrue();
+            await Assert.That(repos.Any(r => r.RepoPath == beta)).IsTrue();
             var expected = OperatingSystem.IsLinux() ? 3 : 2;
             await Assert.That(repos.Count).IsEqualTo(expected);
-            await Assert.That(repos.Any(r => r.RepoPath == "/repo/Alpha")).IsTrue();
+            await Assert.That(repos.Any(r => r.RepoPath == upper)).IsTrue();
         });
     }
 
@@ -2953,8 +3047,9 @@ public class HomeViewModelTests {
                     RepoPaths = ["/w/repo"], SupportedVendors = ["codex"],
                 },
             ]);
+            var local = Tmp.CreateDir("local").Path;
             using var vm = new HomeViewModel(
-                daemon, store, new RecordingLaunchClient(), Known("/repo/local"), TimeProvider.System,
+                daemon, store, new RecordingLaunchClient(), Known(local), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
@@ -2967,7 +3062,7 @@ public class HomeViewModelTests {
             await Assert.That(vm.RemoteMachineSelected).IsFalse();
             // The existing local flow (EnsureDefaultRepositoryAsync) adopts the known repo —
             // never the remote machine's path.
-            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/repo/local");
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(local);
             var repos = await vm.ListRepositoriesAsync();
             await Assert.That(repos.Any(r => r.RepoPath == "/w/repo")).IsFalse();
             // codex isn't in the local daemon's advertised set ("kiro") — revalidated, not left at
@@ -2992,9 +3087,13 @@ public class HomeViewModelTests {
                     RepoPaths = ["/w/repo"], SupportedVendors = ["claude", "codex"],
                 },
             ]);
+            var local = Tmp.CreateDir("local").Path;
             using var vm = new HomeViewModel(
-                daemon, store, new RecordingLaunchClient(), Known("/repo/local"), TimeProvider.System,
+                daemon, store, new RecordingLaunchClient(), Known(local), TimeProvider.System,
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+            // The existence check runs off the UI thread; the adoption must be parked on the held
+            // load before the remote pick, or this test proves nothing.
+            await WaitUntilAsync(() => vm.SelectedRepoPath == local, "the local default adopted");
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await Assert.That(vm.SelectedVendor).IsEqualTo("codex");

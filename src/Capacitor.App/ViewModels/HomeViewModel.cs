@@ -1735,32 +1735,45 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// The path-gathering half of ListRepositoriesAsync's local branch, split out so
     /// ListMachinesAsync can reuse it for the local MachineOption's RepoPaths without a second
     /// AppStateStore read of the same file.
+    /// A path that is not a directory now is left out, whichever source names it: the stores keep a
+    /// deleted clone, so a remounted volume's repositories come back on their own.
     async Task<(IReadOnlyDictionary<string, string>? ByRepo, List<string> Paths)> GatherLocalRepoDataAsync() {
         var byRepo = (await _state.LoadAsync()).HarnessByRepo;
         var known = await _knownRepos();
+        var agentPaths = AgentRepoPaths();
+        var selected = SelectedRepoPath;
 
-        var seen = new HashSet<string>(PathComparer);
-        var paths = new List<string>();
-        void Add(string? path) {
-            if (string.IsNullOrEmpty(path)) return;
-            var normalized = PlatformPaths.Normalize(path);
-            if (seen.Add(normalized)) paths.Add(normalized);
-        }
+        var paths = await Task.Run(() => {
+            var seen = new HashSet<string>(PathComparer);
+            var found = new List<string>();
+            void Add(string? path) {
+                if (string.IsNullOrEmpty(path)) return;
+                var normalized = PlatformPaths.Normalize(path);
+                if (seen.Add(normalized) && Directory.Exists(normalized)) found.Add(normalized);
+            }
 
-        foreach (var key in byRepo?.Keys ?? [])
-            Add(key);
-        // An agent's RepoPath can be a worktree checkout (review flows launch into the
-        // requester's worktree) — the menu offers the repository, never the checkout.
-        var agentPaths = _daemon.Agents.Items.Select(agent => agent.RepoPath)
-            .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
-        var roots = await Task.Run(() => agentPaths.Select(GitRepository.ResolveMainRepoRoot).ToArray());
-        foreach (var root in roots) Add(root);
-        foreach (var repo in known)
-            Add(repo);
-        Add(SelectedRepoPath);
+            foreach (var key in byRepo?.Keys ?? [])
+                Add(key);
+            // An agent's RepoPath can be a worktree checkout (review flows launch into the
+            // requester's worktree) — the menu offers the repository, never the checkout.
+            foreach (var path in agentPaths)
+                Add(GitRepository.ResolveMainRepoRoot(path));
+            foreach (var repo in known)
+                Add(repo);
+            Add(selected);
+            return found;
+        });
 
         return (byRepo, paths);
     }
+
+    string[] AgentRepoPaths() => _daemon.Agents.Items.Select(agent => agent.RepoPath)
+        .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
+
+    /// The first of these that is a directory now, normalized; null when none is. Off the UI thread,
+    /// since a stat on a dropped network volume can stall.
+    static Task<string?> FirstExistingAsync(IEnumerable<string> paths) =>
+        Task.Run(() => paths.Select(PlatformPaths.Normalize).FirstOrDefault(path => path.Length > 0 && Directory.Exists(path)));
 
     /// The launcher's machine chip menu: local first, always, then the viewer's own connected
     /// remote daemons — filtered through the one ownership definition (OwnDaemonsAsync), so a row
@@ -1929,35 +1942,27 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         return machine is { Connected: true } ? LaunchAvailability.Ready : LaunchAvailability.DaemonUnavailable;
     }
 
-    /// When nothing is selected, adopt the most recently used known repository (then a remembered
-    /// harness key, then an agent root). No-op when a selection already exists or nothing is known,
-    /// for a remote machine, which these local paths do not describe, and while a picked task waits
-    /// for its own checkout: the empty selection is how Start knows to refuse, not a gap to fill.
+    /// When nothing is selected, or the selected directory has been deleted, adopt the most recently
+    /// used known repository that still exists (then a remembered harness key, then an agent root),
+    /// or no repository when none does. No-op while the selection exists, for a remote machine,
+    /// which these local paths do not describe, and while a picked task waits for its own checkout:
+    /// the empty selection is how Start knows to refuse, not a gap to fill.
     public async Task EnsureDefaultRepositoryAsync() {
-        bool Settled() => SelectedRepoPath.Length > 0 || RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
-        if (Settled()) return;
-        if (await PreferRecentRepositoryAsync() is not { Length: > 0 } recent) return;
-        // PreferRecent can await file I/O — a pick or a machine switch made while that ran must win.
-        if (Settled()) return;
-        await SelectRepositoryAsync(recent);
+        bool Held() => RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
+        if (Held()) return;
+        var selected = SelectedRepoPath;
+        if (selected.Length > 0 && await FirstExistingAsync([selected]) is not null) return;
+        var recent = await PreferRecentRepositoryAsync();
+        // Both awaits are file I/O — a pick or a machine switch made while they ran must win.
+        if (Held() || !string.Equals(SelectedRepoPath, selected, StringComparison.Ordinal)) return;
+        if (recent is not null) await SelectRepositoryAsync(recent);
+        else if (selected.Length > 0) await SelectRepositoryAsync(ScratchRepoPath);
     }
 
-    async Task<string?> PreferRecentRepositoryAsync() {
-        foreach (var path in await _knownRepos()) {
-            var normalized = PlatformPaths.Normalize(path);
-            if (normalized.Length > 0) return normalized;
-        }
-
-        foreach (var key in (await _state.LoadAsync()).HarnessByRepo?.Keys ?? []) {
-            var normalized = PlatformPaths.Normalize(key);
-            if (normalized.Length > 0) return normalized;
-        }
-
-        var agentPaths = _daemon.Agents.Items.Select(agent => agent.RepoPath)
-            .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
-        return await Task.Run(() => agentPaths.Select(path => PlatformPaths.Normalize(GitRepository.ResolveMainRepoRoot(path)))
-            .FirstOrDefault(path => path.Length > 0));
-    }
+    async Task<string?> PreferRecentRepositoryAsync() =>
+        await FirstExistingAsync(await _knownRepos())
+        ?? await FirstExistingAsync((await _state.LoadAsync()).HarnessByRepo?.Keys ?? [])
+        ?? await FirstExistingAsync(AgentRepoPaths().Select(GitRepository.ResolveMainRepoRoot));
 
     /// Sets the repository and restores that repository's remembered harness, or DefaultVendor
     /// when none — never the vendor a DIFFERENT repository had selected while DefaultVendor is
