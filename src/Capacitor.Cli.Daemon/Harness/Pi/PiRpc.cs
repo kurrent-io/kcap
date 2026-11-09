@@ -214,8 +214,8 @@ internal static class PiRpc {
                 Model: model,
                 ContextUsedTokens: usage.Num("input")));
 
-            // Pi's input excludes both cache tiers, and the envelope carries gross input. A failed
-            // turn reports all zeros, which is no usage at all.
+            // Pi's input excludes both cache tiers, and the envelope carries gross input. A failed turn's
+            // partial usage still counts, as it does from the session file; all zeros is nothing to send.
             var cacheRead  = usage.Num("cacheRead") ?? 0;
             var cacheWrite = usage.Num("cacheWrite") ?? 0;
             var input      = (usage.Num("input") ?? 0) + cacheRead + cacheWrite;
