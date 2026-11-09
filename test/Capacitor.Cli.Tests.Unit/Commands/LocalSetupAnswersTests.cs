@@ -32,6 +32,17 @@ public class LocalSetupAnswersTests {
             .IsEqualTo(new LocalSetupAnswers("fedcba9876543210fedcba9876543210"));
     }
 
+    /// <summary>Setup uses a remembered visibility without checking it again, so one it would refuse as a flag reads as none
+    /// while the other answers stand.</summary>
+    [Test]
+    public async Task An_unknown_visibility_reads_as_none() {
+        Directory.CreateDirectory(Config.Directory);
+        File.WriteAllText(Config.Path(LocalSetupAnswers.FileName),
+            $$"""{"installation_id":"{{Installation}}","harnesses":false,"visibility":"everyone"}""");
+
+        await Assert.That(LocalSetupAnswers.For(Config, Installation)).IsEqualTo(new LocalSetupAnswers(Installation, Harnesses: false));
+    }
+
     [Test]
     [Arguments(null)]
     [Arguments("not json")]

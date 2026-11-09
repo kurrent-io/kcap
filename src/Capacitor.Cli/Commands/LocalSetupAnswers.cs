@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Skills;
 
 namespace Capacitor.Cli.Commands;
@@ -52,7 +53,9 @@ sealed partial record LocalSetupAnswers(string InstallationId, bool? Harnesses =
 
         var leftOut = wire.LeftOut is null ? null : new ImportSkip(repos, [.. (wire.LeftOut.Folders ?? []).OfType<string>().Where(f => f.Length > 0)]);
 
-        return new(installationId, wire.Harnesses, leftOut, wire.Visibility is { Length: > 0 } v ? v : null);
+        var visibility = wire.Visibility?.ToLowerInvariant();
+
+        return new(installationId, wire.Harnesses, leftOut, visibility is not null && AppConfig.ValidVisibilities.Contains(visibility) ? visibility : null);
     }
 
     Wire ToWire() =>
