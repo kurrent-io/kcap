@@ -61,11 +61,16 @@ public sealed record RecordingSource(string SessionId, string? AgentId, string T
     public string Key => AgentId is null ? SessionId : $"{SessionId}-{AgentId}";
 }
 public interface IRecorderTransport {
+    bool IsConnected { get; }
     Task<int> ConnectAsync(RecordingSource source, CancellationToken ct);       // WatcherConnect
-    Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct);      // SendTranscriptBatchAcked, returns next line
+    Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct);      // Cursor: SendTranscriptBatchAcked, which returns the next line. The rest: SendTranscriptBatch2
+    Task SendTitleAsync(string sessionId, string title, CancellationToken ct);  // SendTitle
+    Task UpdateTitleAsync(string sessionId, string title, string? model, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens, CancellationToken ct); // UpdateTitle
     Task DrainCompleteAsync(RecordingSource source, CancellationToken ct);      // WatcherDrainComplete
     event Func<string, string, Task> StopRequested;                             // key, reason
+    event Func<Task> Reconnected;                                               // each recorder re-registers and rewinds
 }
+public sealed record RecorderContext(CapacitorServer Server, IRecorderHousekeeping Housekeeping, TimeProvider RedactionClock, Action<string> Log, Action Beat);
 public interface IRowStamper {
     LineStamp? StampFor(int lineNumber, string rawLine);
     void Acknowledged(int throughLine);
@@ -162,7 +167,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Files:**
 - Create: `src/Capacitor.Cli.Recording/Capacitor.Cli.Recording.csproj`, `test/Capacitor.Cli.Recording.Tests.Unit/`
-- Move: `src/Capacitor.Cli/Capture/*` to `src/Capacitor.Cli.Recording/Capture/`, `src/Capacitor.Cli/Commands/TranscriptBatchBuffer.cs` to `src/Capacitor.Cli.Recording/`, with their tests
+- Move: `src/Capacitor.Cli/Capture/*` to `src/Capacitor.Cli.Recording/Capture/`, and `src/Capacitor.Cli/Commands/TranscriptBatchBuffer.cs`, `src/Capacitor.Cli/SecretRedactor.cs` and `src/Capacitor.Cli/SecretPatterns.cs` to `src/Capacitor.Cli.Recording/`, with their tests. `Capture` and the redactor depend on each other, so they move together
+- Move: the shared part of `test/Capacitor.Cli.Tests.Unit/WatcherPatternWarmup.cs` to `test/Capacitor.Tests.Helpers/`, because both test assemblies redact and each needs its own `[Before(Assembly)]` hook
 - Modify: `src/Capacitor.Cli/Capacitor.Cli.csproj`, `Capacitor.slnx`
 
 **Interfaces:**
@@ -176,14 +182,15 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 ### Task 5: Extract the per-source recorder
 
 **Files:**
-- Create: `src/Capacitor.Cli.Recording/TranscriptRecorder.cs`, `RecordingSource.cs`, `IRecorderTransport.cs`, `IRowStamper.cs`, `NoStamps.cs`
+- Create: `src/Capacitor.Cli.Recording/TranscriptRecorder.cs`, `RecordingSource.cs`, `RecorderContext.cs`, `IRecorderTransport.cs`, `IRecorderHousekeeping.cs`, `IRowStamper.cs`, `NoStamps.cs`
 - Create: `src/Capacitor.Cli/Commands/HubRecorderTransport.cs`
 - Modify: `src/Capacitor.Cli/Commands/WatchCommand.cs`
+- Move: `CursorRewriteGuard`, and the pure line helpers `TitleGenerator.IsCodexInjectedUserPrelude`, `TitleGenerator.ExtractCodexBlockText`, `GeminiImportSource.IsImportRelevantLine` and `CopilotFinalizeDrainCommand.IsShutdownLine`, so the line extractors move whole and `IRecorderHousekeeping` starts small
 - Move: the tests that exercise the moved logic
 
 **Interfaces:**
 - Consumes: Task 4.
-- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and it reaches the wire in Task 11.
+- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. Every recorder has a full context: there is no reduced mode without one, and a test builds one from a `TempDir`. `IRecorderHousekeeping` holds what stays in `kcap` for now, with housekeeping behind four coarse calls, `PrepareAsync`, `BeforeDrainAsync`, `AfterDrainAsync` and `AfterFinalDrainAsync`, and Task 6 shrinks it. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and it reaches the wire in Task 11.
 
 - [ ] **Tests:** the existing `WatchCommandTests`, `LiveWatchHardeningAcceptanceTests` and `CursorTailingWatcherTests` pass against the new shape. Add `A_recorder_runs_against_a_fake_transport`, asserting batches, line numbers and the drain-complete call.
 - [ ] **Implement:** move the loop. `WatchState` is already in `Capacitor.Cli.Core` and stays there. Vendor code stays reachable through an interface for now, so this task can land without Task 6. Process concerns stay in `WatchCommand`: parent-pid watch, pid file, signals, heartbeat.
@@ -198,10 +205,11 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: Task 5's seam.
-- Produces: `TranscriptRecorder` with no reference to the `kcap` exe.
+- Produces: `RecorderHousekeeping : IRecorderHousekeeping` in the recording assembly, holding repository and pull request detection, harness titles and subagent scans, so a daemon can use the same code. What only a host can do goes through one interface, `IRecorderHost`, in the recording assembly, with `WatchRecorderHost` in `src/Capacitor.Cli/Commands/` as `kcap`'s implementation: arming its process watches on connect, stopping the run synchronously, handing a title off, starting and stopping a child source and finishing a Grok child, opening a SQLite-backed title store, reading Antigravity usage, and the two commit coverage probes. A host that can't do one returns null or false. `WatchCommand` stops implementing `IRecorderHousekeeping`, and its per-run `null!` fields go.
+- SQLite stays out of this assembly: `AntigravityGenMetadataDb`, `AntigravitySummaryTitle` and `CursorComposerTitle` stay in `kcap`, because the AOT daemon references this assembly and the SQLite native bundle must never reach it. `GitHook`, `AgentSessions`, `GrokSubagentTeardown` and `ImportHarnessTitle` stay in `kcap` too.
 
 - [ ] **Tests:** moved tests pass. Add `The_recording_assembly_does_not_reference_kcap` as an assembly-reference assertion.
-- [ ] **Implement:** one vendor per commit. Import sources and hook teardown stay in `Capacitor.Cli` unless the recorder calls them. Namespaces follow directories.
+- [ ] **Implement:** one vendor per commit. Import sources and hook teardown stay in `Capacitor.Cli` unless the recorder calls them. Namespaces follow directories. Behaviour doesn't change: `KcapWatchHubTests` keeps passing.
 - [ ] **Verify:** the suites and the AOT publish check.
 - [ ] **Commit, per vendor:** `Move <Vendor> recording code into the recording assembly`
 
@@ -213,15 +221,23 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: `TranscriptRecorder`.
-- Produces: `RecorderHost(IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, TimeProvider time)` with `bool TryAdd(RecordingSource source)`, `Task FinishAsync(string key, CancellationToken ct)`, `IReadOnlyCollection<string> ActiveKeys`.
+- Produces: `RecorderHost(IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time)` with `bool TryAdd(RecordingSource source)`, `Task FinishAsync(string key, CancellationToken ct)`, `IReadOnlyCollection<string> ActiveKeys`.
 
 - [ ] **Tests:**
   - `A_redaction_hold_stalls_only_its_own_source`: one source held, the other's lines still arrive.
   - `A_throwing_source_does_not_stop_the_others`.
   - `Finishing_a_source_leaves_the_others_running`: finish the child key, and the parent stays in `ActiveKeys`.
   - `Adding_a_key_twice_is_refused`.
-  - `Fifty_idle_sources_read_a_bounded_amount_on_a_tick`: under 8 KiB per source per tick. The index's tail compare is what catches a rewrite, so an idle tick isn't zero.
-- [ ] **Implement:** one loop per source, with one failure isolated by a per-source catch that logs and retries as the watcher does. No shared mutable state beyond the transport.
+  - `Fifty_idle_sources_read_a_bounded_amount_on_a_tick`: under 8 KiB per source per tick, and above a lower bound, because the index's tail compare is what catches a rewrite, so an idle tick isn't zero. It includes a root source past its threshold.
+  - `A_failed_source_is_recorded_again_after_a_backoff`: it stays in `ActiveKeys` and `TryAdd` stays refused meanwhile.
+  - `A_source_that_ends_cleanly_is_not_retried`.
+  - `Finishing_a_source_that_never_connected_still_drains_it`.
+  - `Finishing_during_a_backoff_drains_once`.
+  - `A_source_that_cannot_connect_at_finish_is_marked_for_import`.
+  - `A_connect_that_never_returns_at_finish_is_marked_for_import`.
+  - `Backoff_doubles_to_its_cap_and_resets_after_a_long_run`: delays of 1, 2, 4, 8, 16, 30, 30.
+  - `Cancelling_a_finish_ends_the_wait_and_not_the_drain`.
+- [ ] **Implement:** one loop per source, with failures isolated per source and no shared mutable state beyond the transport. A watcher has no retry, because an exception kills it and the next hook respawns it. No hook does that for a source the daemon holds, so the host retries: it keeps the entry, builds a fresh recorder, context and stamper for each attempt, and waits 1 second doubling to 30 seconds on `TimeProvider`, resetting once an attempt has connected and run past the cap. A clean return from `RunAsync` finishes the source and never retries. The retry has no ceiling here, because the daemon finishes a hosted source when its agent exits. A source that didn't connect is finished by one fresh recorder through `TranscriptRecorder.DrainOnceAsync(CancellationToken ct)`, which prepares, connects and makes the final drain without entering the loop. `RunAsync` keeps its early exit on a stop before connecting, so `kcap watch` doesn't change. That connect is bounded to 30 seconds on `TimeProvider`, because a transport can retry forever and the mark must still be reached. If it fails or times out, the source is marked for import, never dropped silently, and nothing is cut short, because nothing has been read yet. `FinishAsync`'s `ct` bounds the caller's wait only: it never cuts a final drain short, because a drain cut short loses its tail with no spool and no mark.
 - [ ] **Verify:** the class passes.
 - [ ] **Commit:** `Run many transcript recorders in one process`
 
@@ -233,7 +249,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Files:**
 - Create: `src/Capacitor.Cli.Core/RecorderClaims.cs`
-- Modify: `src/Capacitor.Cli/WatcherManager.cs` (`EnsureWatcherRunning` :309, `KillWatcher` :77, `InlineDrainAsync` :493)
+- Modify: `src/Capacitor.Cli/WatcherManager.cs` (`EnsureWatcherRunning` :309, `KillWatcher` :77, `InlineDrainAsync` :493), `src/Capacitor.Cli.Recording/RecorderHost.cs`
 - Test: `test/Capacitor.Cli.Core.Tests.Unit/RecorderClaimsTests.cs`, `test/Capacitor.Cli.Tests.Unit/WatcherManagerClaimTests.cs`
 
 **Interfaces:**
@@ -249,7 +265,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `The_claim_never_touches_the_pid_file`: assert `KillWatcher` can't reach the daemon's pid.
   - `EnsureWatcherRunning_spawns_nothing_for_a_fresh_claim`.
   - `A_recorder_that_lost_its_claim_stops_sending` (Review Focus 2): a recorder holding a claim taken by a hook stops at its next tick.
-- [ ] **Implement:** claim-awareness lives inside `WatcherManager`, so no vendor call site changes. Add `IDaemonRecordingClient` with `Task<bool> FinishSourceAsync(string key, CancellationToken ct)`; until Task 15 it answers false. `TranscriptRecorder` takes an optional trailing `RecorderClaims? claims = null` and checks its claim each tick when given one.
+- [ ] **Implement:** claim-awareness lives inside `WatcherManager`, so no vendor call site changes. A source in `RecorderHost`'s backoff keeps beating its claim, so a hosted source stays owned. Task 15 decides this for terminal sources, where not beating would let a hook take a source the daemon can't reach. Add `IDaemonRecordingClient` with `Task<bool> FinishSourceAsync(string key, CancellationToken ct)`; until Task 15 it answers false. `TranscriptRecorder` takes an optional trailing `RecorderClaims? claims = null` and checks its claim each tick when given one.
 - [ ] **Verify:** both classes, plus the Claude, Gemini, Codex, Grok, OpenCode, Pi and Copilot hook suites.
 - [ ] **Commit:** `Make watcher stop and drain paths honour recorder claims`
 
@@ -272,7 +288,20 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `A_hard_killed_daemon_resumes_from_WatcherConnect`: resume from the persisted list, with no line lost and none resent past the server's position.
   - `A_restart_skips_a_session_a_live_watcher_holds`.
   - `Stop_with_a_key_stops_only_that_source`, on the server: two keys on one connection.
-- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only.
+- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only. The daemon implements `IRecorderHost`. Move `GitHook`'s probing down here, taking `isClaimed` and the hook command from the host: a hosted session is claimed by definition, and the command comes from `KcapBinaryCommand.ResolveCliSibling()`, because `Resolve()` inside the daemon names the daemon binary and would read every hosted session as uncovered. All recorders share one `GitProviderRouter`, which is one per process by design. Route the `Console.Error` writes in `CursorMarkers.Quarantine` and `TranscriptSpool.MarkNeedsImport` to the recorder's log. Decide what the recorder's idle-window environment read means in a daemon, where it reads the daemon's environment rather than the session's. A clean close from the server ends a watcher rather than reconnecting it, so `ServerRecorderTransport` must not inherit that: a daemon's reconnect is the connection's own.
+- [ ] **What differs in a daemon,** found while moving the code. Each needs an answer here:
+  - `RunWatch` calls `ClaudeJudgeWarmup` and `HostedAgent.FromEnvironment`, so a daemon recorder doesn't get them for free.
+  - `git` and `gh` inherit the daemon's environment and PATH, and a failed start reads as "no repository", silently.
+  - `GitProviderRouter`'s memo has no expiry, and a failed probe stores GitLab. That costs a watcher one session and would cost a daemon its whole lifetime, so give it an expiry.
+  - Child start and title hand-off spawn `Environment.ProcessPath`, which in a daemon is the daemon binary.
+  - `RecorderHost` disposes its recorders, so `DaemonRecorder` can't read `EndedIdle`, `SpawnedChildKeys` or a failure, and `RetireAckCursor` is never called. The host needs an on-ended callback, fired per attempt, or a failed attempt's child keys are lost.
+  - A server stop during a backoff has no subscriber. No lines are lost, because the next `WatcherConnect` redelivers it, but the server waits only 10 seconds for a drain against a backoff of up to 30, so the session end can overtake the tail, and a substantive line then reactivates an ended session (`CapacitorHub.cs:375`). Settle the order.
+  - `ServerRecorderTransport` raises `Reconnected` to every recorder. Raise them with one handler's failure or hang isolated from the rest, because in turn, one stuck `WatcherConnect` stalls every later source's re-registration and N sources cost N round trips.
+  - A send that hangs in a final drain has nothing to end it. A daemon shutdown needs a bound on `RecorderHost`, and it must spool rather than cut a drain short.
+  - `ServerRecorderTransport.ConnectAsync` must honour its token. A running connect that ignores it blocks both the finish and the import mark, because only a drain-once connect has a bound.
+  - A `WatcherConnect` that completes after its attempt was abandoned leaves a registration on the server until the connection drops, which on a daemon's connection is a long time. `StopAndDrainAsync` then waits out its 10 seconds for a source nobody is recording.
+  - An `IOException` in both the final read and the tail read in `TranscriptRecorder` returns normally with lines neither sent, spooled nor marked, and the host's mark isn't reached. `kcap watch` shares this. Close it before the daemon relies on `FinishAsync`, and log `MarkNeedsImport`'s false in `TranscriptRecorder` as `RecorderHost` does.
+  - `RecorderHost` guards a context's `Log` and `Beat`, but `RecorderHousekeeping` takes its own log delegate, so guard that one too.
 - [ ] **Verify:** the suites, then one real hosted Claude session on a VM, comparing its server transcript to today's watcher path.
 - [ ] **Commit:** `Record hosted Claude sessions in the daemon`
 
@@ -400,7 +429,8 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - Test: per-vendor recorder tests
 
 - [ ] **Tests:** for each vendor, `<Vendor>_session_end_finishes_through_the_daemon`, and for vendors with subagents `<Vendor>_subagent_stop_leaves_the_parent_running`.
-- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output.
+- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output. Cursor and Antigravity read SQLite, which must never reach the AOT daemon, so their title stores and Antigravity's usage rows have no daemon reader. Those two stay on the fallback watcher until there's a reader the daemon can carry.
+- [ ] **Before a vendor with subagents moves:** a source that never had a tick gets no `AfterDrainAsync` subagent scan, which matters for Codex, Gemini and OpenCode. A host can't decline by returning false yet. The Gemini, Mistral Vibe, OpenCode, Codex and Grok scans ignore `StartChildAsync`'s result, so false still logs "spawned" and, except for Grok, marks the file seen. False from `FinishGrokChildAsync` means retry, every tick, forever. Copilot: a null parent pid sets `CopilotHostMissing`, which changes idle end, and a daemon has no parent pid to pass. Muse: `MuseHookCommand` decides by pid-file liveness, which a daemon recorder doesn't have, and `KCAP_WATCHER_DIR` must match the hook's.
 - [ ] **Verify:** one real session per vendor on the MacVisor VM.
 - [ ] **Commit, per vendor:** `Record <Vendor> terminal sessions in the daemon`
 

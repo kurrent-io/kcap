@@ -19,7 +19,7 @@ public sealed class WatcherPaths(string directory) {
     public string SpawnLockFile(string key) => Path.Combine(directory, $"{key}.spawnlock");
 
     /// <summary>
-    /// Touched every main-loop iteration by the watcher itself — see <c>WatchCommand.RunWatch</c> —
+    /// Touched every main-loop iteration by the watcher itself — see <c>TranscriptRecorder.RunAsync</c> —
     /// so a probe can tell a wedged watcher from a healthy one.
     /// </summary>
     public string HeartbeatFile(string key) => WatcherHeartbeat.HeartbeatPath(directory, key);

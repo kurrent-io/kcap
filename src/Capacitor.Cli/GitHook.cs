@@ -1,6 +1,7 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Mcp;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli;
 

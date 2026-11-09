@@ -14,7 +14,7 @@ using Microsoft.Extensions.Time.Testing;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
 

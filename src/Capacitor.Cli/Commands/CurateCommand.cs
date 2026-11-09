@@ -1,7 +1,8 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Curation;
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 

@@ -7,6 +7,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.MistralVibe;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
 
 namespace Capacitor.Cli.Harness.MistralVibe;
 

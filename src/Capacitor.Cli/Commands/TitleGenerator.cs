@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Codex;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 
@@ -121,17 +123,17 @@ static class TitleGenerator {
                     var role = payload.Value.Str("role");
 
                     if (userText is null && role == "user") {
-                        var text = ExtractCodexBlockText(payload.Value, "input_text");
+                        var text = CodexLineText.ExtractCodexBlockText(payload.Value, "input_text");
 
                         // Skip codex-injected wrappers that surface as role:"user" messages
                         // before (or interleaved with) real user prompts. Without these
                         // skips, titles get generated from the repo's AGENTS.md content or
                         // an interrupt notice instead of the actual work request.
-                        if (text is not null && !IsCodexInjectedUserPrelude(text)) {
+                        if (text is not null && !CodexLineText.IsCodexInjectedUserPrelude(text)) {
                             userText = text;
                         }
                     } else if (assistantText is null && role == "assistant") {
-                        var text = ExtractCodexBlockText(payload.Value, "output_text");
+                        var text = CodexLineText.ExtractCodexBlockText(payload.Value, "output_text");
 
                         if (text is not null) {
                             assistantText = text.Length > 300 ? text[..300] : text;
@@ -146,35 +148,6 @@ static class TitleGenerator {
         }
 
         return (userText, assistantText);
-    }
-
-    /// <summary>
-    /// Detects role:"user" payload bodies that codex synthesises around the real
-    /// conversation — none of which represent a user prompt and all of which would
-    /// otherwise dominate the title context window. Observed on real rollouts:
-    /// <list type="bullet">
-    ///   <item><c>&lt;environment_context&gt;...</c> — every session gets one.</item>
-    ///   <item><c># AGENTS.md instructions for &lt;path&gt;...</c> — repo context auto-injected
-    ///   when an AGENTS.md is found anywhere up the cwd tree.</item>
-    ///   <item><c>&lt;turn_aborted&gt;...</c> — emitted when the user interrupts a turn,
-    ///   which can land before a follow-up prompt in the same session.</item>
-    /// </list>
-    /// </summary>
-    internal static bool IsCodexInjectedUserPrelude(string text) =>
-        text.StartsWith("<environment_context>",     StringComparison.Ordinal)
-     || text.StartsWith("# AGENTS.md instructions",  StringComparison.Ordinal)
-     || text.StartsWith("<turn_aborted>",            StringComparison.Ordinal);
-
-    internal static string? ExtractCodexBlockText(JsonElement payload, string blockType) {
-        if (payload.Arr("content") is not { } content) return null;
-
-        foreach (var block in content.EnumerateArray()) {
-            if (block.Str("type") == blockType && block.Str("text") is { } text && !string.IsNullOrEmpty(text)) {
-                return text;
-            }
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -232,14 +205,14 @@ static class TitleGenerator {
 
         // message.content can be a string or an array
         if (msg?.Str("content") is { } strContent) {
-            return strContent.StartsWith("<local-command-stdout>") ? null : WatchCommand.StripSystemInstructions(strContent);
+            return strContent.StartsWith("<local-command-stdout>") ? null : TranscriptLineText.StripSystemInstructions(strContent);
         }
 
         if (msg?.Arr("content") is { } arrContent) {
             foreach (var element in arrContent.EnumerateArray()) {
                 if (element.Str("type") == "text" && element.Str("text") is { } text
                  && !text.StartsWith("<local-command-stdout>")) {
-                    return WatchCommand.StripSystemInstructions(text);
+                    return TranscriptLineText.StripSystemInstructions(text);
                 }
             }
         }

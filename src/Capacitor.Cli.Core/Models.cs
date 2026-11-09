@@ -13,7 +13,7 @@ using Capacitor.Cli.Core.Telemetry;
 
 namespace Capacitor.Cli.Core;
 
-record TranscriptBatch {
+public record TranscriptBatch {
     [JsonPropertyName("session_id")]
     public required string SessionId { get; init; }
 
@@ -57,6 +57,10 @@ record TranscriptBatch {
     public bool MoreFollows { get; init; }
 }
 
+/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person
+/// at the terminal.</summary>
+public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
+
 public record ErrorEntry(
         string         SessionId,
         string?        SessionSlug,
@@ -79,7 +83,7 @@ public record RecapEntry(
         DateTimeOffset Timestamp
     );
 
-record RepositoryPayload {
+public record RepositoryPayload {
     [JsonPropertyName("user_name")]
     public string? UserName { get; init; }
 
@@ -114,33 +118,7 @@ record RepositoryPayload {
     public string? PrHeadRef { get; init; }
 }
 
-record GitCacheEntry {
-    [JsonPropertyName("user_name")]
-    public string? UserName { get; init; }
-
-    [JsonPropertyName("user_email")]
-    public string? UserEmail { get; init; }
-
-    [JsonPropertyName("remote_url")]
-    public string? RemoteUrl { get; init; }
-
-    [JsonPropertyName("host")]
-    public string? Host { get; init; }
-
-    [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; init; }
-
-    [JsonPropertyName("owner")]
-    public string? Owner { get; init; }
-
-    [JsonPropertyName("repo_name")]
-    public string? RepoName { get; init; }
-
-    [JsonPropertyName("cached_at")]
-    public DateTimeOffset CachedAt { get; init; }
-}
-
-class WatchState {
+public class WatchState {
     public int                LinesProcessed     { get; set; }
     public RepositoryPayload? Repository         { get; set; }
     public RepositoryPayload? LastSentRepository { get; set; }
@@ -148,7 +126,7 @@ class WatchState {
 
     // Non-null only for a Claude session watcher launched outside any repo; see RepoEvidenceScanner.
     // RepositoryFromEvidence, once true, protects Repository from being cleared by a later null
-    // cwd-based probe (see WatchCommand.ShouldReplaceRepository).
+    // cwd-based probe (see RecorderHousekeeping.ShouldReplaceRepository).
     public RepoEvidenceScanner<RepositoryPayload>? EvidenceScanner        { get; set; }
     public bool                                    RepositoryFromEvidence { get; set; }
 
@@ -213,7 +191,7 @@ class WatchState {
     public bool FinalDrainHeldIncompleteLine { get; set; }
 
     // Last time new transcript content was observed on the rollout file, driving the Codex
-    // idle-timeout fallback (see WatchCommand.ShouldEndOnIdle). Set when the watcher starts and
+    // idle-timeout fallback (see IdleEnd.ShouldEndOnIdle). Set when the watcher starts and
     // advanced in DrainNewLines, so a zero value means the watcher has not started yet.
     public DateTimeOffset LastActivityAt { get; set; }
 
@@ -309,7 +287,7 @@ class WatchState {
     public TranscriptLineIndex LineOffsets { get; } = new();
 
     // poll counter driving the periodic full-prefix re-hash cadence
-    // (WatchCommand.CursorFullPrefixVerifyEveryNPolls). Incremented once per poll for vendor ==
+    // (TranscriptRecorder.CursorFullPrefixVerifyEveryNPolls). Incremented once per poll for vendor ==
     // "cursor" only; a plain counter (not wall-clock time) so the cadence is exact regardless of
     // how long any individual poll takes.
     public int CursorGuardPollCount { get; set; }
@@ -835,7 +813,7 @@ class SessionMetadata {
     public string?         GitBranch      { get; set; }
 }
 
-static partial class GitUrlParser {
+public static partial class GitUrlParser {
     public static (string? Owner, string? RepoName) ParseRemoteUrl(string? url) {
         if (url is null) {
             return (null, null);
@@ -1124,7 +1102,6 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(WorkItems.ViewerIdentityDto))]
 [JsonSerializable(typeof(WorkItems.WorkItemErrorDto))]
 [JsonSerializable(typeof(RepositoryPayload))]
-[JsonSerializable(typeof(GitCacheEntry))]
 [JsonSerializable(typeof(TranscriptBatch))]
 [JsonSerializable(typeof(SessionTitlePayload))]
 [JsonSerializable(typeof(HarnessTitleHook))]

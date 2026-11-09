@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands.Capture.Wire;
 
 namespace Capacitor.Cli.Commands.Capture;
