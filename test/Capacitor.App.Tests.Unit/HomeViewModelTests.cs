@@ -1982,6 +1982,7 @@ public class HomeViewModelTests {
             var vm = Build(out var launch, out _, path);
             launch.Next = new LaunchOutcome(false, null, "boom");
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             launch.Next = new LaunchOutcome(true, SecondLaunchedId, null);
@@ -2439,7 +2440,10 @@ public class HomeViewModelTests {
             using var vm = RemoteLauncher(path, directory, opened, launch, navigation);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNotNull();
+            await Assert.That(navigation.Value).IsEqualTo(8);
             directory.Rows.AddOrUpdate(RemoteRow(LaunchedId));
 
             await Assert.That(opened).IsEmpty();
@@ -2614,6 +2618,7 @@ public class HomeViewModelTests {
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status, directory: directory);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(directory.Placeholders).IsEmpty();
@@ -3004,6 +3009,7 @@ public class HomeViewModelTests {
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectRepositoryAsync("/repo/b");
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3032,6 +3038,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3063,6 +3070,7 @@ public class HomeViewModelTests {
                 localMachineId: "local-machine");
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             failures.OnNext(new LaunchFailure("agent-9", "git commit -m Initial snapshot failed:"));
@@ -3130,6 +3138,7 @@ public class HomeViewModelTests {
                 daemon, new AppStateStore(path), launch, Known(), TimeProvider.System, launchFailures: failures);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure("other-id", "launch_denied_by_owner: default"));
 
@@ -3154,6 +3163,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             daemon.Agents.AddOrUpdate(Agent("agent-9", "/repo/a"));
@@ -3207,6 +3217,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             daemon.Agents.AddOrUpdate(Agent(dashed, "/repo/a"));
@@ -3247,6 +3258,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure("agent-9", "launch_denied_by_owner: default"));
 
@@ -3275,6 +3287,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(dashed, "launch_denied_by_owner: default"));
 
@@ -3320,6 +3333,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(vm.StartError).IsNull();
@@ -3398,6 +3412,7 @@ public class HomeViewModelTests {
                 launchFailures: failures, directory: directory);
 
             await vm.SelectRepositoryAsync("/repo/a");
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(vm.StartError).IsNull();

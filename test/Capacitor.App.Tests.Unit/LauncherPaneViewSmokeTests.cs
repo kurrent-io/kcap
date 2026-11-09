@@ -638,6 +638,7 @@ public class LauncherPaneViewSmokeTests {
             var message = errorText.Text;
 
             launch.Next = new LaunchOutcome(true, SecondLaunchedId, null);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             Dispatcher.UIThread.RunJobs();
             var afterSuccess = errorText.IsVisible;
@@ -1273,6 +1274,7 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(chip.Text).IsEqualTo("Claude Code · Default · work");
 
             rig.Snapshots.OnNext(AccountsSnapshot(2, HomeAccount));
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             Settle(window);
             await Assert.That(Find<TextBlock>(window, "StartErrorText")!.Text)

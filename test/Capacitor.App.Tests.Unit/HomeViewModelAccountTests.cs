@@ -467,6 +467,7 @@ public class HomeViewModelAccountTests {
             await Assert.That(vm.SelectedAccountLabel).IsNull();
             await Assert.That(vm.AccountSection).IsFalse();
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(rig.Launch.Requests.Single().AccountId).IsNull();
             await Assert.That(await Stored(rig.Store, "h1", "claude", Repo)).IsEqualTo("a2");
@@ -511,6 +512,7 @@ public class HomeViewModelAccountTests {
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
             await Assert.That(vm.StartButtonTip).IsEqualTo("Start");
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
         });
@@ -628,6 +630,7 @@ public class HomeViewModelAccountTests {
             await Assert.That(vm.SelectedAccountLabel).IsEqualTo("work");
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
             await Assert.That(vm.StartError).IsNull();
@@ -653,6 +656,7 @@ public class HomeViewModelAccountTests {
 
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work));
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(rig.Launch.Requests.Single().AccountId).IsNull();
         });
@@ -687,6 +691,7 @@ public class HomeViewModelAccountTests {
             await Assert.That(rig.Launch.Requests).IsEmpty();
 
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(rig.Launch.Requests.Single().AccountId).IsNull();
         });
