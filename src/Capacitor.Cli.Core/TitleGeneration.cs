@@ -4,6 +4,8 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Headless;
+using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core;
 
@@ -57,10 +59,10 @@ public static partial class TitleGeneration {
     }
 
     /// <summary>
-    /// Generates a title by calling the headless CLI for the matching vendor —
-    /// <c>claude -p</c> for Claude sessions, <c>codex exec</c> for Codex sessions.
-    /// Returns the cleaned title string, or null on failure (including when the
-    /// model produced a refusal rather than a title).
+    /// Generates a title by calling the headless CLI for the matching vendor: <c>codex exec</c> for Codex sessions,
+    /// <c>pi</c> for Pi sessions with <c>claude -p</c> standing in when it gives no title, and <c>claude -p</c> for
+    /// the rest. Returns the cleaned title, or null on failure (including when the model produced a refusal rather
+    /// than a title).
     /// </summary>
     public static async Task<ClaudeCliResult?> GenerateAsync(
             string            userText,
@@ -69,6 +71,7 @@ public static partial class TitleGeneration {
             Action<string>    log,
             Profile?          profile,
             HarnessRegistry   harnesses,
+            ConfigRoot        config,
             string            vendor = "claude",
             CancellationToken ct     = default
         ) {
@@ -81,14 +84,38 @@ public static partial class TitleGeneration {
 
         var prompt = BuildPrompt(userText, assistantText);
 
-        // Codex sessions go through `codex exec` so a user with only Codex
-        // installed can still backfill, and so the title model matches the
-        // vendor that produced the work being summarised.
+        // A session is titled by the vendor that produced it, so a user with only that vendor signed in still
+        // gets titles.
+        if (vendor == "pi" && await PiTitleAsync(prompt, time, log, harnesses, config, ct) is { } piTitle) return piTitle;
+
         var result = vendor == "codex"
             ? await CodexCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(30), time, log, profile, harnesses, ct: ct)
             : await ClaudeCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(15), time, log, profile, harnesses,
                 systemPrompt: HeadlessSummarizerSystemPrompt, ct: ct);
 
+        return Cleaned(result, log);
+    }
+
+    static async Task<ClaudeCliResult?> PiTitleAsync(
+            string prompt, TimeProvider time, Action<string> log, HarnessRegistry harnesses, ConfigRoot config, CancellationToken ct
+        ) {
+        if (harnesses.ResolveLaunchable(HarnessId.Pi) is not { } executable) {
+            log("pi not found on PATH or in the desktop app, titling with claude");
+
+            return null;
+        }
+
+        var outcome = await PiCliRunner.RunDetailedAsync(prompt, TimeSpan.FromSeconds(30), time, log, new HeadlessRunRoot(config.Directory, "titles"),
+            model: null, jsonSchema: null, systemPrompt: HeadlessSummarizerSystemPrompt, executable, ct);
+
+        if (Cleaned(outcome.Result, log) is { } title) return title;
+
+        log("pi gave no title, titling with claude");
+
+        return null;
+    }
+
+    static ClaudeCliResult? Cleaned(ClaudeCliResult? result, Action<string> log) {
         if (result is null) {
             return null;
         }
