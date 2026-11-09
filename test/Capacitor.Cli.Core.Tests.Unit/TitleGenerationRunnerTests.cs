@@ -19,8 +19,8 @@ public class TitleGenerationRunnerTests {
 
     TempDirHandle Bin => _bin ??= Tmp.CreateDir("bin");
 
-    void FakeClaude() =>
-        Bin.CreateExecutable("claude", $"#!/bin/sh\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
+    void FakeClaude(string delay = "0") =>
+        Bin.CreateExecutable("claude", $"#!/bin/sh\nsleep {delay}\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
 
     void FakePi(string body) => Bin.CreateExecutable("pi", $"#!/bin/sh\n{body}\n");
 
@@ -68,12 +68,13 @@ public class TitleGenerationRunnerTests {
         await Assert.That((await Generate("pi"))?.Result).IsEqualTo(ClaudeTitle);
     }
 
-    /// <summary>A watcher shutting down waits <see cref="TitleGeneration.Budget"/> for a title, then cancels it; a pi
-    /// that hangs must leave the claude fallback room inside that.</summary>
+    /// <summary>A watcher shutting down waits <see cref="TitleGeneration.Budget"/> for a title, then cancels it. The worst
+    /// case must still fit: a pi that hangs and leaves an orphan holding its output, so its cleanup runs to the limit,
+    /// then a claude that answers late but inside its own timeout.</summary>
     [Test, ExcludeOn(OS.Windows)]
-    public async Task A_hanging_pi_still_falls_back_to_claude_within_the_title_budget() {
-        FakeClaude();
-        FakePi("cat > /dev/null\nsleep 120");
+    public async Task A_hanging_pi_and_a_slow_claude_still_title_within_the_budget() {
+        FakeClaude(delay: "13.5");
+        FakePi("cat > /dev/null\n( sleep 40 & )\nsleep 120");
         using var caller = new CancellationTokenSource(TitleGeneration.Budget);
 
         await Assert.That((await Generate("pi", caller.Token))?.Result).IsEqualTo(ClaudeTitle);

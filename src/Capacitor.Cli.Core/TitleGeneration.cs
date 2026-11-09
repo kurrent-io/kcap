@@ -16,6 +16,10 @@ namespace Capacitor.Cli.Core;
 public static partial class TitleGeneration {
     static readonly TimeSpan ClaudeTimeout = TimeSpan.FromSeconds(15);
 
+    // Process start, cleanup overrun and scheduling, which no runner's timeout counts: about 1.3s measured on an idle
+    // machine, more under load.
+    static readonly TimeSpan Slack = TimeSpan.FromSeconds(2);
+
     /// <summary>The longest one title takes, whichever runners it goes through.</summary>
     public static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
 
@@ -87,19 +91,29 @@ public static partial class TitleGeneration {
             return null;
         }
 
-        var prompt = BuildPrompt(userText, assistantText);
+        var prompt  = BuildPrompt(userText, assistantText);
+        var started = time.GetTimestamp();
 
         // A session is titled by the vendor that produced it, so a user with only that vendor signed in still
         // gets titles.
         if (vendor == "pi" && await PiTitleAsync(prompt, time, log, harnesses, config, ct) is { } piTitle) return piTitle;
 
-        var result = vendor == "codex"
-            ? await CodexCliRunner.RunAsync(prompt, Budget, time, log, profile, harnesses, ct: ct)
-            : await ClaudeCliRunner.RunAsync(prompt, ClaudeTimeout, time, log, profile, harnesses,
-                systemPrompt: HeadlessSummarizerSystemPrompt, ct: ct);
+        if (vendor == "codex") return Cleaned(await CodexCliRunner.RunAsync(prompt, Budget, time, log, profile, harnesses, ct: ct), log);
 
-        return Cleaned(result, log);
+        // A claude run after pi gets only what is left of the budget a watcher's shutdown waits for.
+        var claudeTimeout = Min(ClaudeTimeout, Budget - time.GetElapsedTime(started));
+
+        if (claudeTimeout <= TimeSpan.Zero) {
+            log("No time left in the title budget for claude");
+
+            return null;
+        }
+
+        return Cleaned(await ClaudeCliRunner.RunAsync(prompt, claudeTimeout, time, log, profile, harnesses,
+            systemPrompt: HeadlessSummarizerSystemPrompt, ct: ct), log);
     }
+
+    static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 
     static async Task<ClaudeCliResult?> PiTitleAsync(
             string prompt, TimeProvider time, Action<string> log, HarnessRegistry harnesses, ConfigRoot config, CancellationToken ct
@@ -110,10 +124,9 @@ public static partial class TitleGeneration {
             return null;
         }
 
-        // Pi gets only what the claude fallback leaves, so a hung pi cannot push a title past the budget a
-        // watcher's shutdown waits for.
-        var outcome = await PiCliRunner.RunDetailedAsync(prompt, Budget - ClaudeTimeout, time, log, new HeadlessRunRoot(config.Directory, "titles"),
-            model: null, jsonSchema: null, systemPrompt: HeadlessSummarizerSystemPrompt, executable, ct);
+        // Room for the claude fallback, and for killing and reaping a pi that timed out.
+        var outcome = await PiCliRunner.RunDetailedAsync(prompt, Budget - ClaudeTimeout - HeadlessProcess.CleanupLimit - Slack, time, log,
+            new HeadlessRunRoot(config.Directory, "titles"), model: null, jsonSchema: null, systemPrompt: HeadlessSummarizerSystemPrompt, executable, ct);
 
         if (Cleaned(outcome.Result, log) is { } title) return title;
 
