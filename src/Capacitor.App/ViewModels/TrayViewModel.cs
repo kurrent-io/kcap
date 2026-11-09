@@ -71,6 +71,9 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     // coordinator decides which, so this is a plain delegate call like InstallShimCommand.
     public ReactiveCommand<Unit, Unit> UpdateActionCommand { get; }
 
+    // The tray menu's "Finish switching to the app's kcap…" target: CliAdoptionCoordinator.FinishSwitchingAsync.
+    public ReactiveCommand<Unit, Unit> FinishSwitchCommand { get; }
+
     /// <param name="lifecycleAttention">
     /// ILifecycleSurface.Attention repair-affordance text (e.g. a restore-verification failure).
     /// Null (a caller without a live lifecycle controller) means this stream never upgrades the tray state — see Build.
@@ -87,6 +90,10 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     /// DaemonRestartPendingWatcher.Pending. Null (a caller without one) means the header never carries the
     /// suffix.
     /// </param>
+    /// <param name="finishSwitchOffered">
+    /// CliAdoptionCoordinator.FinishOffered — true while "Finish switching to the app's kcap…" should show. Null, or
+    /// no <paramref name="finishSwitch"/>, means the item never shows.
+    /// </param>
     public TrayViewModel(
             IDaemonClientService service, IPauseController pause, AgentActionService actions, IConsentService consent,
             Action? openMainWindow = null, Action? quit = null, Action? openReviewPrompts = null,
@@ -94,7 +101,8 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             Func<Task>? installShim = null, IPermissionService? permissions = null,
             IObservable<RemoteTraySummary>? remote = null,
             IObservable<UpdateMenuItem>? updateMenu = null, Func<Task>? updateAction = null,
-            IObservable<bool>? restartPending = null, Action? openSettings = null, Action? openLaunchApprovals = null) {
+            IObservable<bool>? restartPending = null, Action? openSettings = null, IObservable<bool>? finishSwitchOffered = null,
+            Func<Task>? finishSwitch = null, Action? openLaunchApprovals = null) {
         _pause = pause;
 
         TogglePauseCommand = ReactiveCommand.Create<bool>(pause.RequestToggle);
@@ -119,6 +127,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         ReviewPendingCommand = ReactiveCommand.Create(openReviewPrompts ?? (() => { }));
         InstallShimCommand = ReactiveCommand.CreateFromTask(installShim ?? (() => Task.CompletedTask));
         UpdateActionCommand = ReactiveCommand.CreateFromTask(updateAction ?? (() => Task.CompletedTask));
+        FinishSwitchCommand = ReactiveCommand.CreateFromTask(finishSwitch ?? (() => Task.CompletedTask));
 
         var snapshots = service.Snapshots
             .Select(s => (DaemonStatusDto?)s)
@@ -142,11 +151,13 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
 
         // Kept out of Build: it never affects TrayState/Header/Agents/Pause.
         var withShim = projected.CombineLatest(shim, (model, visible) => model with { ShimInstallVisible = visible });
+        var finish = finishSwitch is null ? Observable.Return(false) : finishSwitchOffered ?? Observable.Return(false);
+        var withFinish = withShim.CombineLatest(finish, (model, visible) => model with { FinishSwitchVisible = visible });
 
         // Same shape as the shim item. Null is Observable.Return(hidden), which seeds and
         // completes like the sources above.
         var update = updateMenu ?? Observable.Return(new UpdateMenuItem(false, ""));
-        var withUpdate = withShim.CombineLatest(update, (model, item) => model with { UpdateItemLabel = item.Visible ? item.Label : null });
+        var withUpdate = withFinish.CombineLatest(update, (model, item) => model with { UpdateItemLabel = item.Visible ? item.Label : null });
 
         // The daemon's own queued restart-after-update, shown only while attached to it: a
         // marker left by a daemon we cannot reach says nothing about the header's subject.
@@ -156,7 +167,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             (model, pending) => pending ? model with { Header = $"{model.Header} · {RestartPendingSuffix}" } : model);
 
         // Status, snapshots (seeded above), pause.State, consent.PendingCount, attention,
-        // pendingSummary, remoteSummary, shim, update, and restartPending are all replay-1-shaped
+        // pendingSummary, remoteSummary, shim, finish, update, and restartPending are all replay-1-shaped
         // (seed on subscribe), so CombineLatest emits synchronously on subscribe — captured here
         // as the OAPH's initial value so MenuModel is never default(TrayMenuModel) (null) before
         // RxSchedulers.MainThreadScheduler delivers the ObserveOn'd copy below. The

@@ -32,6 +32,11 @@ public abstract record RunSignal {
     /// and what was may never say so: a Claude agent paused on its own work gets no notification.
     public sealed record Restarted(DateTimeOffset At) : RunSignal;
 
+    /// The vendor's process came back onto this session, known only from a record the new process wrote
+    /// at At, possibly after starting runs of its own. A run paused before At was the old process's, and
+    /// nothing is left to resume it.
+    public sealed record Reopened(DateTimeOffset At) : RunSignal;
+
     /// The run ended outside its tool result. At least one key is set. A null outcome means the
     /// source knows only that it ended.
     public sealed record Finished(string? CallId, string? AgentId, RunOutcome? Outcome, DateTimeOffset At) : RunSignal;

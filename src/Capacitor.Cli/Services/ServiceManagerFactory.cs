@@ -3,9 +3,10 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Services;
 
 static class ServiceManagerFactory {
+    /// <param name="store">Where a launchd repoint keeps a unit's preimage, which an uninstall then removes too.</param>
     public static IServiceManager ForPlatform(
-            ServicePlatform platform, ConfigRoot config, UserHome home, TimeProvider time) => platform switch {
-        ServicePlatform.Launchd              => new LaunchdServiceManager(home, time),
+            ServicePlatform platform, ConfigRoot config, UserHome home, TimeProvider time, DaemonStore? store = null) => platform switch {
+        ServicePlatform.Launchd              => new LaunchdServiceManager(home, time, store: store),
         ServicePlatform.Systemd              => new SystemdServiceManager(home),
         ServicePlatform.WindowsScheduledTask => new WindowsScheduledTaskServiceManager(config),
         ServicePlatform.WindowsService when OperatingSystem.IsWindows() => new WindowsServiceManager(
@@ -27,14 +28,15 @@ static class ServiceManagerFactory {
     /// Linux without systemd included: every caller reads that as "no service", where a systemd manager
     /// would fail on its first <c>systemctl</c>.</summary>
     /// <param name="systemdRunning">Test seam; production checks <see cref="SystemdRunning"/>.</param>
-    public static IServiceManager ForCurrentOs(ConfigRoot config, UserHome home, TimeProvider time, Func<bool>? systemdRunning = null) {
+    public static IServiceManager ForCurrentOs(
+            ConfigRoot config, UserHome home, TimeProvider time, Func<bool>? systemdRunning = null, DaemonStore? store = null) {
         var platform = CurrentPlatform();
         if (platform == ServicePlatform.Systemd && !(systemdRunning ?? SystemdRunning)())
             throw new PlatformNotSupportedException(
                 "kcap daemon service needs systemd, which is not running on this machine. Start the daemon with "
               + "`kcap daemon start -d`; nothing starts it again after a restart.");
 
-        return ForPlatform(platform, config, home, time);
+        return ForPlatform(platform, config, home, time, store);
     }
 
     /// <summary>systemd's own <c>sd_booted</c> test. A container or sandbox without it often has no

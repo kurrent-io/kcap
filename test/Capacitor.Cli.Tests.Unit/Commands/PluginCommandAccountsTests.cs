@@ -72,7 +72,7 @@ public class PluginCommandAccountsTests {
     public async Task If_installed_upgrade_of_a_pre_registry_install_adopts_and_wraps_the_default() {
         var env = Env();
         SetDefaultStatusLine("echo mine");
-        ClaudePluginWriter.Install(DefaultSettings, PluginDir);
+        ClaudePluginWriter.Install(DefaultSettings, null, PluginDir);
 
         var exit = await new PluginCommand(env, Workdir).HandleAsync(["plugin", "install", "--if-installed"]);
 
@@ -108,7 +108,7 @@ public class PluginCommandAccountsTests {
     public async Task Default_directory_gets_the_wrapper_from_setup_and_plugin_refresh() {
         var env = Env();
         SetDefaultStatusLine("echo mine");
-        ClaudePluginWriter.Install(DefaultSettings, PluginDir);
+        ClaudePluginWriter.Install(DefaultSettings, null, PluginDir);
         var setupOptions = new CodingAgentsStep.Options(SkipClaude: false, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, InstallAgents: true);
 
         new AccountSetupStep(env.Accounts!, env, TimeProvider.System).Run(setupOptions, false, _ => false, _ => { });
@@ -162,7 +162,7 @@ public class PluginCommandAccountsTests {
     [Test]
     public async Task Refresh_of_a_pre_registry_install_adopts_and_refreshes() {
         var env = Env();
-        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), PluginDir);
+        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), null, PluginDir);
         File.WriteAllText(Home.PathTo(".claude", ClaudePluginInstaller.MarkerFileName), "0.0.1");
 
         await new PluginCommand(env, Workdir).HandleAsync(["plugin", "install", "--if-installed"]);
@@ -174,8 +174,8 @@ public class PluginCommandAccountsTests {
     [Test]
     public async Task Refresh_with_a_current_default_marker_still_adopts_and_refreshes_installed_accounts() {
         var env = Env();
-        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), PluginDir);
-        ClaudePluginWriter.Install(Home.PathTo(".claude-work", "settings.json"), PluginDir);
+        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), null, PluginDir);
+        ClaudePluginWriter.Install(Home.PathTo(".claude-work", "settings.json"), null, PluginDir);
         File.WriteAllText(Home.PathTo(".claude-work", ClaudePluginInstaller.MarkerFileName), "0.0.1");
         AccountAdoption.EnsureDefault(env.Accounts!, HarnessId.Claude, Home.PathTo(".claude-work"), TimeProvider.System);
 
@@ -223,7 +223,7 @@ public class PluginCommandAccountsTests {
     [Test]
     public async Task Refresh_with_a_corrupt_registry_still_refreshes_the_default() {
         var env = Env();
-        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), PluginDir);
+        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), null, PluginDir);
         File.WriteAllText(Home.PathTo(".claude", ClaudePluginInstaller.MarkerFileName), "0.0.1");
         Tmp.CreateFile(Path.Combine("accounts", "accounts.json"), "{ not json");
 
@@ -406,7 +406,7 @@ public class PluginCommandAccountsTests {
     [Test]
     public async Task Refresh_does_not_wire_a_registered_account_kcap_was_never_installed_into() {
         var env = Env();
-        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), PluginDir);
+        ClaudePluginWriter.Install(Home.PathTo(".claude", "settings.json"), null, PluginDir);
         Directory.CreateDirectory(Home.PathTo(".claude-work"));
         AccountAdoption.EnsureDefault(env.Accounts!, HarnessId.Claude, Home.PathTo(".claude-work"), TimeProvider.System);
 

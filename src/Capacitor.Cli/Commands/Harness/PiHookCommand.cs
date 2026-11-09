@@ -9,6 +9,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -87,7 +89,10 @@ sealed class PiHookCommand(
         // Mirror the Claude/Codex/Copilot disabled-session fast path: `kcap
         // disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "session-end") DisabledSessions.RemoveExclusion(sessionId, config);
+            if (eventName == "session-end") {
+                // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
+            }
 
             return 0;
         }
@@ -154,6 +159,8 @@ sealed class PiHookCommand(
             DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Scope root: the git root stamped onto `forwarded` when found, else the payload cwd — read
         // back from `enriched` so the fallback matches what the server received. Never process-cwd.
@@ -229,7 +236,12 @@ sealed class PiHookCommand(
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/pi", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        var outcome = await PostHookAsync("session-end/pi", forwarded.ToJsonString());
+
+        // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
+        if (outcome == HookPostOutcome.Posted)
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────

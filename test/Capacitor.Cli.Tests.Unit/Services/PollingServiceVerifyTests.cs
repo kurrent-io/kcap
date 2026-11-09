@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 

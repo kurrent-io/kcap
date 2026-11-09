@@ -125,6 +125,8 @@ public sealed class RunRow : ReactiveObject {
         IsCutOff = false;
     }
 
+    internal DateTimeOffset? WaitedAt => _waitedAt;
+
     /// Ended by a restart rather than by anything the run said.
     internal bool IsCutOff { get; private set; }
 

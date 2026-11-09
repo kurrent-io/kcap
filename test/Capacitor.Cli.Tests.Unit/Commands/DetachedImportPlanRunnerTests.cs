@@ -60,6 +60,21 @@ public class DetachedImportPlanRunnerTests {
         await Assert.That(_seen[0].Level.Repos[0].Slug).IsEqualTo("acme/api");
     }
 
+    /// <summary>Setup reports the child running on this signal, so a rejected plan must never send it.</summary>
+    [Test]
+    public async Task Only_a_usable_plan_signals_accepted_and_before_any_level_runs() {
+        var path = WritePlan(Level(FirstRunImportLevel.Shared, "a", "b"));
+        var seenWhenAccepted = -1;
+
+        await Runner(Resolutions.None(Config.Root)).RunAsync(path, () => seenWhenAccepted = _seen.Count);
+
+        var rejected = false;
+        await Runner(Resolutions.None(Config.Root)).RunAsync(WriteGarbage("import-plan-bad.json"), () => rejected = true);
+
+        await Assert.That(seenWhenAccepted).IsEqualTo(0);
+        await Assert.That(rejected).IsFalse();
+    }
+
     [Test]
     public async Task Each_pass_gets_the_plans_server_not_the_profiles() {
         var path = WritePlan(Level(FirstRunImportLevel.OnlyMe, "a", "b"), Level(FirstRunImportLevel.Shared, "a", "c"));

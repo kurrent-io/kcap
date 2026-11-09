@@ -21,11 +21,15 @@ class RecapCommand(
             return 1;
         }
 
-        var hash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
-
         List<RepoRecapEntry> entries;
 
         try {
+            if (await repositoriesApi.HashForAsync(repo.Owner, repo.RepoName) is not { } hash) {
+                Console.Error.WriteLine(RepositoryHashes.Unresolved);
+
+                return 1;
+            }
+
             entries = await repositoriesApi.GetRecapsAsync(hash, limit);
         } catch (CapacitorApiException ex) {
             Console.Error.WriteLine(ex.Message);
@@ -34,12 +38,12 @@ class RecapCommand(
         }
 
         if (entries.Count == 0) {
-            await Console.Out.WriteLineAsync($"No session summaries found for {repo.Owner}/{repo.RepoName}.");
+            await Console.Out.WriteLineAsync($"No session summaries found for {LocalRepository.Label(repo.Owner, repo.RepoName)}.");
 
             return 0;
         }
 
-        await Console.Out.WriteLineAsync($"# Recent sessions for {repo.Owner}/{repo.RepoName}");
+        await Console.Out.WriteLineAsync($"# Recent sessions for {LocalRepository.Label(repo.Owner, repo.RepoName)}");
         await Console.Out.WriteLineAsync();
 
         foreach (var entry in entries) {

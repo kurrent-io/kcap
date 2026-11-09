@@ -157,6 +157,27 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsTrue(); // session-end still spooled
     }
 
+    /// <summary>An owner's marker an abandoned drain left behind is a loss like any other, and a session flagged
+    /// twice is still reported once.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task delivers_one_needs_import_for_a_session_an_owners_marker_flags(bool alsoShared) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.MarkNeedsImport(Sid, "drain did not finish", owner: 4242);
+        if (alsoShared) tx.MarkNeedsImport(Sid, "shutdown tail: redaction of line 3 timed out");
+
+        var order = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
+            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        await Assert.That(order).IsEquivalentTo([$"L:session-needs-import:{{\"session_id\":\"{Sid}\",\"needs_import\":true}}"]);
+    }
+
     [Test]
     public async Task delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap() {
         using var tmp = new TempDir();

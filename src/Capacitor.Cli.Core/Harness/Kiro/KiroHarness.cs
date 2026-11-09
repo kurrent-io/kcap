@@ -32,6 +32,8 @@ public sealed class KiroHarness : IHarness<KiroHarness> {
     /// <summary>Kiro Crew's layout. Crew runs this same <c>kiro-cli</c>, so it is part of Kiro.</summary>
     public KiroCrewPaths Crew { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.KcapAgentJson, Paths.SettingsMcpJson, Crew.SpawnHookScript];
+
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary) || probe.Finds(IdeBinary),
         UserDataSignal = Paths.HasUserData,

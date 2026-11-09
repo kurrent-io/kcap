@@ -1,17 +1,5 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.Core.Harness.Antigravity;
-using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.Core.Harness.Codex;
-using Capacitor.Cli.Core.Harness.Copilot;
-using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Core.Harness.Gemini;
-using Capacitor.Cli.Core.Harness.Grok;
-using Capacitor.Cli.Core.Harness.Kiro;
-using Capacitor.Cli.Core.Harness.MistralVibe;
-using Capacitor.Cli.Core.Harness.Muse;
-using Capacitor.Cli.Core.Harness.OpenCode;
-using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Tests.Helpers;
@@ -23,6 +11,8 @@ namespace Capacitor.Tests.Helpers;
 public sealed record TestHarness(HarnessId Id, string Label, HarnessSignals Signals) : IHarness {
     /// <summary>Blank — a name nothing resolves — unless a test says otherwise.</summary>
     public string CliBinary { get; init; } = "";
+
+    public IReadOnlyList<string> IntegrationFiles { get; init; } = [];
 }
 
 public static class TestHarnesses {
@@ -41,30 +31,12 @@ public static class TestHarnesses {
     /// own machine cannot leak into a result.
     /// </summary>
     /// <remarks>Cursor takes the host's platform, as its own factory does; a test pinning another
-    /// OS's layout passes its own <see cref="CursorPaths"/>.</remarks>
+    /// OS's layout passes its own <see cref="Capacitor.Cli.Core.Harness.Cursor.CursorPaths"/>.</remarks>
     public static HarnessRegistry Under(UserHome home) => Under(home, TestBinaries.None);
 
     /// <summary>The same layouts, looking for vendor binaries on <paramref name="binaries"/> — what a
     /// test staging a fake CLI on PATH needs, since the hermetic default finds nothing.</summary>
-    public static HarnessRegistry Under(UserHome home, BinaryProbe binaries) {
-        // Antigravity's whole layout hangs off Gemini's root, so it is composed from the SAME
-        // instance, as the production registry does.
-        var gemini = GeminiHarness.Over(new GeminiPaths(home, null));
-
-        return HarnessRegistry.Over(binaries,
-            ClaudeHarness.Over(new ClaudePaths(home, null)),
-            CodexHarness.Over(new CodexPaths(home, null)),
-            CursorHarness.Over(new CursorPaths(home)),
-            CopilotHarness.Over(new CopilotPaths(home, null)),
-            gemini,
-            KiroHarness.Over(new KiroPaths(home, null)),
-            PiHarness.Over(new PiPaths(home, null)),
-            OpenCodeHarness.Over(new OpenCodePaths(home, null, null, null)),
-            AntigravityHarness.Over(gemini),
-            MistralVibeHarness.Over(new MistralVibePaths(home, null)),
-            GrokHarness.Over(new GrokPaths(home, null)),
-            MuseHarness.Over(new MusePaths(home, null, null)));
-    }
+    public static HarnessRegistry Under(UserHome home, BinaryProbe binaries) => HarnessRegistry.AtDefaults(home, binaries);
 
     /// <summary>One harness that answers from the search path alone — no run signal, whatever names
     /// it declares.</summary>

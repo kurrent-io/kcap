@@ -7,7 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.App.Tests.Unit;
 
 public class HandoffDraftsTests {
-    static readonly HandoffDraft Draft = new("carry on", [], "codex", "", null, null, null, null);
+    static readonly HandoffDraft Draft = new("carry on", [], "codex", "", null, null, null, null, null);
 
     /// <summary>A resume that worked never reports back, so its hold, and the prompt text in it, must expire on its own
     /// rather than stay for the app's lifetime.</summary>

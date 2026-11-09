@@ -15,7 +15,7 @@
     <PackageVersion Include="DotNext" Version="6.8.0" />
     <PackageVersion Include="DynamicData" Version="9.4.33" />
     <PackageVersion Include="Eventuous.SignalR.Client" Version="0.17.0" />
-    <PackageVersion Include="Markdig" Version="1.4.0" />
+    <PackageVersion Include="Markdig" Version="1.6.0" />
     <PackageVersion Include="Lucide.Avalonia" Version="0.2.24" />
     <PackageVersion Include="MarkView.Avalonia" Version="12.2.1" />
     <PackageVersion Include="MarkView.Avalonia.SyntaxHighlighting" Version="12.2.1" />
@@ -46,6 +46,6 @@
     <PackageVersion Include="TUnit.Core" Version="1.76.45" />
     <PackageVersion Include="Velopack" Version="1.2.161" />
     <PackageVersion Include="WireMock.Net" Version="2.19.0" />
-    <PackageVersion Include="XTerm.NET" Version="2.0.2" />
+    <PackageVersion Include="XTerm.NET" Version="3.0.2" />
   </ItemGroup>
 </Project>

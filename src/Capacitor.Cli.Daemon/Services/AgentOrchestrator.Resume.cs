@@ -755,6 +755,7 @@ internal partial class AgentOrchestrator {
 
     /// <summary>Guarded by <see cref="_ledgerLock"/>.</summary>
     readonly Dictionary<string, HeldParticipantInput> _heldInput = new(StringComparer.Ordinal);
+    readonly DispatchedInputLedger _dispatchedInputs;
 
     /// <summary>How long after start the server is kept from proving old participants absent while this
     /// daemon resumes its own; every participant still unpublished then is failed.</summary>
@@ -861,9 +862,18 @@ internal partial class AgentOrchestrator {
                 }
             }
 
-            await DeliverSendInputAsync(next);
+            try {
+                await DeliverSendInputAsync(next);
+            } catch (Exception ex) {
+                // Forgotten so the server's resend can deliver it; the rest of the queue still goes.
+                if (next.DispatchId is { } failed) _dispatchedInputs.Forget(failed);
+                LogHeldInputDeliveryFailed(ex, agentId);
+            }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Delivering a held round to agent {AgentId} failed; the server resends it")]
+    partial void LogHeldInputDeliveryFailed(Exception ex, string agentId);
 
     /// <summary>A participant whose resume ended unpublished is gone, which is what each held input is told.</summary>
     async Task DropHeldInputAsync(string agentId) {

@@ -61,6 +61,14 @@ public class ImportScopePromptTests {
         await Assert.That(owners).IsEquivalentTo(new[] { "alexeyzimarev", "EventStore" });
     }
 
+    // A repository with no remote belongs to no organization, and its owner is a hash.
+    [Test]
+    public async Task BuildOrgChoices_offers_no_local_owner() {
+        var owners = ImportScopePrompt.BuildOrgChoices([("EventStore", "kcap"), ("local~0123456789abcdef0123", "demo")]);
+
+        await Assert.That(owners).IsEquivalentTo(new[] { "EventStore" });
+    }
+
     [Test]
     public async Task BuildOrgChoices_deduplicates_case_insensitively() {
         var owners = ImportScopePrompt.BuildOrgChoices(

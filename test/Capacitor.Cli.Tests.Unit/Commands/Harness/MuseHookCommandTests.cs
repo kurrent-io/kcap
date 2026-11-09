@@ -7,6 +7,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -739,6 +740,81 @@ public class MuseHookCommandTests : IDisposable {
 
     /// <summary>A session whose watcher is gone still has a log to drain, so the end is handed to a watcher
     /// armed for it rather than posted from a hook Muse may kill mid-drain.</summary>
+    /// <summary><c>muse exec</c> kills a SessionEnd hook inside a second, so the end is handed to the watcher
+    /// before the session's workspace span is closed, which runs git over the whole tree.</summary>
+    [Test]
+    public async Task SessionEnd_hands_the_end_over_before_closing_the_workspace_span() {
+        StubHooks();
+        StageParentLog();
+        using var repo = GitRepo.CreateWithCommit("muse-span");
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var spool = new WorkspaceSpool(Config.Root, _server.Url!, time);
+        var store = new WorkspaceSpanStore(Config.Root, _server.Url!, spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time), time);
+        await store.OpenAsync(ParentDashless, repo.Path, WorkspaceOpen.Turn, TimeSpan.FromSeconds(30));
+        repo.CreateFile("made.txt", "x");
+
+        await Command(time: time).Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"exit","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        var handed = File.GetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(WatcherPaths.FromEnvironment(Config.Root), ParentDashless));
+        var posted = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/workspace-changes").RequestMessage.DateTime.ToUniversalTime();
+        await Assert.That(handed).IsLessThanOrEqualTo(posted);
+    }
+
+    /// <summary>Ending a disabled session clears its marker, and nothing after that may mistake it for a
+    /// session whose spans are to be posted.</summary>
+    [Test]
+    public async Task A_disabled_sessions_end_sends_and_keeps_none_of_its_spans() {
+        StubHooks();
+        using var repo = GitRepo.CreateWithCommit("muse-disabled");
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var spool = new WorkspaceSpool(Config.Root, _server.Url!, time);
+        var store = new WorkspaceSpanStore(Config.Root, _server.Url!, spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time), time);
+        await store.OpenAsync(ParentDashless, repo.Path, WorkspaceOpen.Turn, TimeSpan.FromSeconds(30));
+        repo.CreateFile("private.txt", "x");
+        Directory.CreateDirectory(Config.Root.Path("disabled"));
+        File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), ParentDashless), "");
+
+        await Command(time: time).Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"exit","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        await Assert.That(HookPosts("/hooks/workspace-changes")).IsEmpty();
+        await Assert.That(spool.HasPending).IsFalse();
+        await Assert.That(Directory.Exists(Path.Combine(store.DirectoryPath, ParentDashless))).IsFalse();
+    }
+
+    /// <summary>A disabled session's end whose span discard cannot take the session lock keeps the disabled
+    /// marker, so neither its own span close nor any later hook ever posts the span.</summary>
+    [Test]
+    public async Task A_disabled_end_that_cannot_discard_its_spans_keeps_them_withheld() {
+        StubHooks();
+        using var repo = GitRepo.CreateWithCommit("muse-locked");
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var spool  = new WorkspaceSpool(Config.Root, _server.Url!, time);
+        var store  = new WorkspaceSpanStore(Config.Root, _server.Url!, spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time), time);
+        await store.OpenAsync(ParentDashless, repo.Path, WorkspaceOpen.Turn, TimeSpan.FromSeconds(30));
+        repo.CreateFile("private.txt", "x");
+        var marker = Path.Combine(Config.Root.Path("disabled"), ParentDashless);
+        Directory.CreateDirectory(Config.Root.Path("disabled"));
+        File.WriteAllText(marker, "");
+
+        using (WorkspaceSpanLock.TryAcquire(Path.Combine(store.DirectoryPath, ParentDashless), TimeSpan.Zero)) {
+            await Command(time: time).Handle(new StringReader(
+                $$"""{"hook_event_name":"SessionEnd","reason":"exit","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+                new StringWriter(), ParentEnv, Today);
+
+            await Assert.That(File.Exists(marker)).IsTrue();
+        }
+
+        // A later hook, the lock now free.
+        await new Capacitor.Cli.Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), time)
+            .CloseAsync(ParentDashless, TimeSpan.FromSeconds(30));
+
+        await Assert.That(HookPosts("/hooks/workspace-changes")).IsEmpty();
+    }
+
     [Test]
     public async Task SessionEnd_without_a_watcher_arms_one_for_the_handed_end_and_posts_nothing() {
         StubHooks();

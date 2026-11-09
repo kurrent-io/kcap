@@ -9,6 +9,7 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Handoff;
@@ -30,8 +31,15 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// under a stale generation and is discarded.
 public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    /// How long a send may go unechoed while the agent is not working before Enter is pressed once
+    /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
+    /// prompt the agent took; running over costs only an Enter in an empty composer.
+    internal static readonly TimeSpan PickupWait = TimeSpan.FromSeconds(5);
     /// First retry gap after a failed withdraw; each further one doubles it.
     internal static readonly TimeSpan WithdrawRetryDelay = TimeSpan.FromSeconds(2);
+    // Answering a card closes its dialog a status snapshot before the screen says so; a dialog
+    // still there past this is one the hook left for the terminal.
+    internal static readonly TimeSpan CoveredDialogGrace = TimeSpan.FromSeconds(2);
     internal const int MaxWithdrawRetries = 3;
 
     readonly ChatInput _input;
@@ -336,6 +344,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public ReactiveCommand<UserAttachment, Unit> OpenAttachmentCommand { get; }
     public ReactiveCommand<string, Unit> RunCodeCommand { get; }
 
+    readonly ObservableAsPropertyHelper<bool> _canSendText;
+    /// Whether text can go to the agent from outside the composer right now.
+    public bool CanSendText => _canSendText.Value;
+
+    /// Sends text through the composer's own path without touching the draft or the tray.
+    /// False means nothing was sent. An unconfirmed send counts as sent: the text may already
+    /// have reached the agent, so a caller must not retry it.
+    public async Task<bool> SendTextAsync(string text) {
+        if (!CanSendText) return false;
+        var outcome = await SendComposerAsync(text, includeTray: false, bypassRecall: true, ownsDraft: false);
+        return outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed;
+    }
+
     // The opener launches whatever it is handed, so only a resolved image path reaches it: a
     // transcript line naming an executable must not run it.
     void OpenAttachment(UserAttachment attachment) {
@@ -351,6 +372,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     TerminalDialogDto? _terminalDialog;
     string? _interruption;
     bool _terminalDialogShown;
+    TerminalDialogDto? _coveredDialog;
+    bool _coverReleasing;
+    int _coverGeneration;
     bool _hasTerminalMenu;
     string _terminalMenuTitle = "";
     string _terminalMenuHeading = "";
@@ -563,7 +587,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     void RefreshActivityNote() {
         var inTurn = SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
-        var working = inTurn && !HasPendingCards;
+        var working = inTurn && !HasPendingCards && !HasTerminalMenu;
         if (!inTurn) {
             _workingSince = null;
             _worked = TimeSpan.Zero;
@@ -595,8 +619,27 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
         this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
+        NoteTurnStarts();
         RefreshQueuedSend();
     }
+
+    /// An attested turn seen once the agent was idle with a row unechoed, whether at the send or after
+    /// the turn a mid-turn send queued behind, began after the send. The turn already running at a
+    /// mid-turn send does not count, and neither does working without attestation: the submit alone
+    /// clears the wait, even when its Enter only became a newline.
+    void NoteTurnStarts() {
+        var working = !_ended && SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
+        var idle = !working || AgentPromptWaits;
+        var attested = working && _turnAttested;
+        foreach (var queued in Tracked) {
+            if (queued.IsForeign || queued.Acknowledged) continue;
+            if (idle) queued.SawIdle = true;
+            else if (attested && queued.SawIdle) queued.TurnSeen = true;
+        }
+    }
+
+    /// The agent's own prompt waits for input; a live subagent does not make it busy.
+    bool AgentPromptWaits => !_ended && _awaitingInput == true;
 
     bool AgentIsIdle => !_ended && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
 
@@ -1064,6 +1107,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }, canRun);
         _disposables.Add(RunCodeCommand);
 
+        _canSendText = Observable.CombineLatest(
+                canRun,
+                this.WhenAnyValue(x => x.HasTerminalMenu),
+                this.WhenAnyValue(x => x.HasSeed),
+                (run, menu, _) => run && !menu && CanSendBeforeSeed)
+            .DistinctUntilChanged()
+            .ToProperty(this, x => x.CanSendText, initialValue: false)
+            .DisposeWith(_disposables);
+
         serverQueue?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(ApplyServerQueue).DisposeWith(_disposables);
     }
 
@@ -1137,6 +1189,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _interruption = info.Interruption;
         if (_ended != info.Ended) {
             _ended = info.Ended;
+            foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
+                call.SessionOver = _ended;
             RaisePhaseNote();
         }
         if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
@@ -1193,14 +1247,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// copy stays out of the way while one is pending.
     void ApplyTerminalMenu(UsageLimitNoticeDto? limit, TerminalDialogDto? dialog) {
         var question = UsageLimitNoticeDto.IsQuestion(limit);
-        var shown = !question && dialog is not null && !HasPendingCards;
+        TrackCoveredDialog(dialog);
+        var shown = !question && dialog is not null && !HasPendingCards && _coveredDialog is null;
         if (Equals(_usageLimit, limit) && Equals(_terminalDialog, dialog) && _terminalDialogShown == shown) return;
         // Cursor redraws and pending cards hiding the dialog do not make a new menu. Keep an
         // answered menu closed until the underlying menu changes or leaves the screen.
         var sameMenu = question
             ? Equals(_usageLimit, limit)
-            : dialog is not null && _terminalDialog is { } previous
-                && previous.Heading == dialog.Heading && previous.Options.SequenceEqual(dialog.Options);
+            : dialog is not null && _terminalDialog is { } previous && SameDialog(previous, dialog);
         if (dialog is not null && _terminalDialog is null) RetireCommandThatOpened();
         _usageLimit = limit;
         _terminalDialog = dialog;
@@ -1243,6 +1297,36 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                     () => ChooseTerminalMenuAsync(choice.Keys),
                     this.WhenAnyValue(x => x.TerminalMenuChoicesOpen))))
             .ToList();
+    }
+
+    static bool SameDialog(TerminalDialogDto a, TerminalDialogDto b) =>
+        a.Heading == b.Heading && a.Options.SequenceEqual(b.Options);
+
+    /// A dialog a card covered stays hidden after the card goes, until it changes, leaves the
+    /// screen, or outlasts the grace.
+    void TrackCoveredDialog(TerminalDialogDto? dialog) {
+        if (_coveredDialog is { } covered && (dialog is null || !SameDialog(covered, dialog))) {
+            _coveredDialog = null;
+            _coverReleasing = false;
+            _coverGeneration++;
+        }
+        if (dialog is null) return;
+        if (HasPendingCards) {
+            _coveredDialog = dialog;
+            if (_coverReleasing) { _coverReleasing = false; _coverGeneration++; }
+        } else if (_coveredDialog is not null && !_coverReleasing) {
+            _coverReleasing = true;
+            _ = ReleaseCoveredDialogAsync(++_coverGeneration);
+        }
+    }
+
+    async Task ReleaseCoveredDialogAsync(int generation) {
+        try { await Task.Delay(CoveredDialogGrace, _time, _lifetimeToken); }
+        catch (OperationCanceledException) { return; }
+        if (generation != _coverGeneration) return;
+        _coveredDialog = null;
+        _coverReleasing = false;
+        ApplyTerminalMenu(_usageLimit, _terminalDialog);
     }
 
     void SetTerminalMenuChoiceTaken(bool taken) {
@@ -1476,6 +1560,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var queued = new QueuedChatMessage(snapshot, ownsDraft ? edits : -1, _inputGeneration, CurrentOffset, chipIds) {
             SendOrder = ++_nextSendOrder,
             SentIdle = AgentIsIdle && _awaitingInput == true && !HasTerminalMenu,
+            SawIdle = AgentIsIdle || AgentPromptWaits,
             SenderIdentity = sender is null ? null : sender with { Ids = sender.Ids.ToArray() },
         };
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
@@ -1522,6 +1607,40 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         return outcome;
     }
 
+    bool _resubmitting;
+
+    /// An idle agent that has not echoed a send may have taken its Enter as a newline, as a large
+    /// paste still arriving does: Enter is pressed once more, then the row is marked not picked up
+    /// rather than left waiting. The clock runs only while the agent is not working, so a send
+    /// queued behind a turn waits for that turn first. A row a turn has started after is left
+    /// waiting: its Enter landed, and another would submit whatever is typed in the terminal.
+    void CheckPickup() {
+        var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
+            && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
+        var now = _time.GetTimestamp();
+        var resubmit = false;
+        foreach (var queued in _queuedMessages) {
+            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp || queued.TurnSeen) continue;
+            if (!idle) { queued.IdleSince = null; continue; }
+            if (queued.IdleSince is not { } since) { queued.IdleSince = now; continue; }
+            if (_time.GetElapsedTime(since, now) < PickupWait) continue;
+            if (queued.Resubmitted) { queued.MarkNotPickedUp(); continue; }
+            queued.Resubmitted = true;
+            queued.IdleSince = now;
+            // Files go through the daemon, which presses its own Enter, not this paste's.
+            resubmit |= queued.AttachmentIds.Count == 0;
+        }
+        if (resubmit && !_resubmitting) _ = ResubmitAsync();
+    }
+
+    async Task ResubmitAsync() {
+        _resubmitting = true;
+        try { await _input.ResubmitAsync(_lifetimeToken); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { LogOnce($"resubmit: {ex.Message}"); }
+        finally { _resubmitting = false; }
+    }
+
     void ConfirmDelivery(QueuedChatMessage queued) {
         if (ReferenceEquals(queued, _lastSent)) _input.ConfirmLastSend();
         ClearSentDraft(queued);
@@ -1556,6 +1675,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         if (_lifetimeToken.IsCancellationRequested) return;
         RefreshActivityNote();
+        CheckPickup();
         _runs.Tick();
         if (_lease is not { } lease) return;
         if (lease.Feed is RemoteTranscriptFeed && Volatile.Read(ref lease.Pending) == 0) return;
@@ -1732,9 +1852,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                             ChatDisplayKind.TaskNotification => SystemNoteItem.TaskNotificationLabel,
                             ChatDisplayKind.CompactSummary   => SystemNoteItem.CompactSummaryLabel,
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
-                            ChatDisplayKind.Trigger          => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
+                            ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;
@@ -1749,7 +1869,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                             : ToolDetail.From(e.ToolInputJson, _root, category);
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
-                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip);
+                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip) { SessionOver = _ended };
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
@@ -1786,7 +1906,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _openGroup = cursor.OpenGroup;
             _openShell = cursor.OpenShell;
             _pendingTools.Clear();
-            foreach (var (id, call) in cursor.Pending) _pendingTools.Add(id, call);
+            foreach (var (id, call) in cursor.Pending) {
+                call.SessionOver = _ended;
+                _pendingTools.Add(id, call);
+            }
             _settledTools.Clear();
             _settledTools.UnionWith(cursor.Settled);
             _questionAsks.Clear();
@@ -1797,6 +1920,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 foreach (var text in projected.SubmittedInputs)
                     _history.Observe(AttachmentTrailer.Strip(text));
             if (cursor.Fresh.Count > 0) {
+                // A session update can land while a historical read projects off the UI thread.
+                // Apply its current verdict here, just before the new rows become visible.
+                foreach (var call in cursor.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
+                    call.SessionOver = _ended;
                 _items.AddRange(cursor.Fresh);
                 _senders?.Track(SenderLabels(cursor.Fresh, candidates));
             }

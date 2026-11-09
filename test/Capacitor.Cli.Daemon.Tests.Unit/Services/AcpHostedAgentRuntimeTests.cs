@@ -577,7 +577,7 @@ public class AcpHostedAgentRuntimeTests {
         var dispatch = Guid.NewGuid();
 
         await h.Runtime.StartAsync("/abs/worktree", "prompt-A", h.Cts.Token).WaitAsync(HangGuard);
-        await h.Runtime.SendDispatchedInputAsync("prompt-B", dispatch, waitForWrite: false).WaitAsync(HangGuard);
+        await h.Runtime.SendDispatchedInputAsync("prompt-B", dispatch).WaitAsync(HangGuard);
 
         var userMessages = new List<AcpEventEnvelope>();
         while (userMessages.Count < 2) {
@@ -586,6 +586,28 @@ public class AcpHostedAgentRuntimeTests {
         }
 
         await Assert.That(userMessages.Select(e => e.DispatchId)).IsEquivalentTo(new Guid?[] { null, dispatch }, CollectionOrdering.Matching);
+    }
+
+    /// <summary>A dispatched prompt queued behind a turn is taken at once, and its write is confirmed only
+    /// when the worker sends it.</summary>
+    [Test]
+    public async Task A_dispatched_prompt_queued_behind_a_turn_is_taken_at_once_and_written_when_its_turn_starts() {
+        await using var h = new Harness();
+        h.StartFakeAgentLoop();
+        h.Fake.HoldPromptResponses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await h.Runtime.StartAsync("/abs/worktree", "prompt-A", h.Cts.Token).WaitAsync(HangGuard);
+
+        var deadline = DateTime.UtcNow + HangGuard;
+        while (h.Fake.ReceivedCalls.All(c => c.Method != "session/prompt") && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+
+        var written = await h.Runtime.SendDispatchedInputAsync("prompt-B", Guid.NewGuid()).WaitAsync(HangGuard);
+        await Task.Delay(50);
+        await Assert.That(written.IsCompleted).IsFalse();
+
+        h.Fake.HoldPromptResponses.TrySetResult();
+
+        await written.WaitAsync(HangGuard);
     }
 
     // ── Test plan item 9: cancellation propagates out of StartAsync ───────────────────
@@ -983,7 +1005,7 @@ public class AcpHostedAgentRuntimeTests {
     }
 
     [Test]
-    public async Task Full_pending_turns_queue_refuses_with_input_not_admitted_on_both_send_paths() {
+    public async Task Full_pending_turns_queue_refuses_with_input_not_admitted_on_every_send_path() {
         await using var h = new Harness(pendingTurnsCapacity: 1);
         h.StartFakeAgentLoop();
         h.Fake.HoldPromptResponses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1001,6 +1023,7 @@ public class AcpHostedAgentRuntimeTests {
 
         await Assert.That(() => h.Runtime.SendUserInputAsync("refused")).Throws<InputNotAdmittedException>();
         await Assert.That(async () => await h.Runtime.SendUserInputAndWaitForWriteAsync("refused-ack")).Throws<InputNotAdmittedException>();
+        await Assert.That(async () => await h.Runtime.SendDispatchedInputAsync("refused-dispatch", Guid.NewGuid())).Throws<InputNotAdmittedException>();
 
         h.Fake.HoldPromptResponses.TrySetResult();
     }

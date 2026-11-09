@@ -40,4 +40,5 @@ public static class ToolCategoryIcons {
     public static LucideIconKind QuestionIcon => ForCategory(ToolCategory.Question);
     public static LucideIconKind AgentMessageIcon => LucideIconKind.BotMessageSquare;
     public static LucideIconKind ThinkingIcon => LucideIconKind.Sparkles;
+    public static LucideIconKind CompactIcon => LucideIconKind.Shrink;
 }

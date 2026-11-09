@@ -170,6 +170,11 @@ if (isHook && args.Contains("--claude")) {
         return titled;
     }
 
+    // Every prompt waits on this hook, so a session never armed leaves before the profile's git probes.
+    if (args.Contains(ClaudePassNotices.Flag)
+     && (ClaudePassNotices.SessionIdOf(claudeHookBody) is not { } promptSession || !new PassNoticeSessions(config).IsArmed(promptSession)))
+        return 0;
+
     ClaudeSessionEnv.Persist(claudeHookBody, Environment.GetEnvironmentVariable(ClaudeSessionEnv.EnvFileVar), Console.Error);
 
     if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && SessionEndFence.ShouldHold(HostedAgent.FromEnvironment(), ClaudeSessionEndHandoff.SessionIdOf(claudeHookBody)))
@@ -316,7 +321,7 @@ var offlineDiscover = command == "import" && args.Contains("--discover");
 if (command == "import" && detachedImport is not null
  && Environment.GetEnvironmentVariable(ImportPlan.EnvVar) is { Length: > 0 } importPlanPath) {
     try {
-        return await Run<DetachedImportPlanRunner>().RunAsync(importPlanPath);
+        return await Run<DetachedImportPlanRunner>().RunAsync(importPlanPath, DetachedImportLog.SignalAccepted);
     } finally {
         detachedImportLog?.Dispose();
     }
@@ -562,7 +567,7 @@ switch (command) {
     }
     case "mcp": {
         if (args.Length < 2) {
-            Console.Error.WriteLine("Usage: kcap mcp review|judge|sessions|flows|flow-result|memory|workitems|plans|analytics|pages|knowledge …");
+            Console.Error.WriteLine("Usage: kcap mcp review|judge|sessions|flows|flow-result|memory|workitems|plans|analytics|pages|knowledge|pass …");
             Console.Error.WriteLine("  kcap mcp review [--owner <owner> --repo <repo> --pr <number>]");
             Console.Error.WriteLine("  kcap mcp judge --session <sessionId>");
             Console.Error.WriteLine("  kcap mcp sessions");
@@ -574,6 +579,7 @@ switch (command) {
             Console.Error.WriteLine("  kcap mcp analytics");
             Console.Error.WriteLine("  kcap mcp pages");
             Console.Error.WriteLine("  kcap mcp knowledge");
+            Console.Error.WriteLine("  kcap mcp pass");
 
             return 1;
         }
@@ -626,6 +632,8 @@ switch (command) {
                 return await Run<McpArtefactsServer>().RunAsync();
             case "knowledge":
                 return await Run<McpKnowledgeServer>().RunAsync();
+            case "pass":
+                return await Run<McpPassServer>().RunAsync(config, telemetryStartup);
             default:
                 Console.Error.WriteLine($"Unknown mcp subcommand: {args[1]}");
 
@@ -662,6 +670,11 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+    // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
+    case "pass":
+        return await Run<PassCommand>().HandleAsync(args);
+    case "message":
+        return await Run<MessageCommand>().HandleAsync(args);
     case "cleanup":
         return await Run<CleanupCommand>().HandleCleanup();
     case "uninstall":
@@ -819,6 +832,8 @@ switch (command) {
 
         // The detached import already opened its log, redirected output and detached at startup
         // (before this potentially slow resolution) so a parent exit can't truncate it.
+        if (detachedImport is not null) DetachedImportLog.SignalAccepted();
+
         try {
             ImportCommand.ImportRunOutcome? outcome = null;
 
@@ -962,6 +977,12 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
+        if (args.Contains("--claude") && args.Contains(ClaudeWorkspaceSpanEvent.Flag)) {
+            return await Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!));
+        }
+        if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
+            return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
+        }
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 
         if (args.Contains("--claude") && baseUrl is not null) {
@@ -984,54 +1005,65 @@ switch (command) {
                 sessionId: null);
             HookTiming.Mark("global-spool-drain");
         }
-        if (args.Contains("--claude")) {
-            var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!));
-            HookTiming.Mark("handled");
+        var vendorExit = await DispatchVendorHookAsync();
 
-            return handled;
-        }
-        if (args.Contains("--codex")) {
-            var codexExit = await Run<CodexHookCommand>().Handle(Console.In);
-            new HookActivity(config, time).Stamp(HarnessId.Codex.VendorId);
+        // After the vendor's own work, so a session end is handed off or posted before any workspace span.
+        if (!args.Contains("--codex") && baseUrl is not null)
+            await new AgentHookPoster(config, profiles, sp.GetRequiredService<ICapacitorHttpClient>(), sp.GetRequiredService<WatcherManager>(), time)
+                .DrainWorkspaceAsync(clock.Elapsed);
 
-            return codexExit;
+        return vendorExit;
+
+        async Task<int> DispatchVendorHookAsync() {
+            if (args.Contains("--claude")) {
+                var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
+                HookTiming.Mark("handled");
+
+                return handled;
+            }
+            if (args.Contains("--codex")) {
+                var codexExit = await Run<CodexHookCommand>().Handle(Console.In);
+                new HookActivity(config, time).Stamp(HarnessId.Codex.VendorId);
+
+                return codexExit;
+            }
+            if (args.Contains("--cursor")) {
+                // Not Console.In: it reads synchronously inside ReadToEndAsync, so a held-open stdin would block
+                // before the hook's deadline race starts. A stream-backed reader awaits off the calling thread.
+                using var cursorStdin = new StreamReader(Console.OpenStandardInput(), Console.InputEncoding);
+                return await Run<CursorHookCommand>().Handle(cursorStdin);
+            }
+            if (args.Contains("--copilot")) {
+                return await Run<CopilotHookCommand>().Handle(Console.In, args);
+            }
+            if (args.Contains("--gemini")) {
+                return await Run<GeminiHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--kiro")) {
+                return await Run<KiroHookCommand>().Handle(Console.In, args);
+            }
+            if (args.Contains("--pi")) {
+                return await Run<PiHookCommand>().Handle(args, Console.Out);
+            }
+            if (args.Contains("--opencode")) {
+                return await Run<OpenCodeHookCommand>().Handle(args);
+            }
+            if (args.Contains("--antigravity")) {
+                return await Run<AntigravityHookCommand>().Handle(args);
+            }
+            if (args.Contains("--mistral-vibe")) {
+                return await Run<MistralVibeHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--grok")) {
+                return await Run<GrokHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--muse")) {
+                return await Run<MuseHookCommand>().Handle(Console.In);
+            }
+            Console.Error.WriteLine("kcap hook requires a vendor flag (for example --claude)");
+            Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse");
+            return 1;
         }
-        if (args.Contains("--cursor")) {
-            // Not Console.In: it reads synchronously inside ReadToEndAsync, so a held-open stdin would block
-            // before the hook's deadline race starts. A stream-backed reader awaits off the calling thread.
-            using var cursorStdin = new StreamReader(Console.OpenStandardInput(), Console.InputEncoding);
-            return await Run<CursorHookCommand>().Handle(cursorStdin);
-        }
-        if (args.Contains("--copilot")) {
-            return await Run<CopilotHookCommand>().Handle(Console.In, args);
-        }
-        if (args.Contains("--gemini")) {
-            return await Run<GeminiHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--kiro")) {
-            return await Run<KiroHookCommand>().Handle(Console.In, args);
-        }
-        if (args.Contains("--pi")) {
-            return await Run<PiHookCommand>().Handle(args, Console.Out);
-        }
-        if (args.Contains("--opencode")) {
-            return await Run<OpenCodeHookCommand>().Handle(args);
-        }
-        if (args.Contains("--antigravity")) {
-            return await Run<AntigravityHookCommand>().Handle(args);
-        }
-        if (args.Contains("--mistral-vibe")) {
-            return await Run<MistralVibeHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--grok")) {
-            return await Run<GrokHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--muse")) {
-            return await Run<MuseHookCommand>().Handle(Console.In);
-        }
-        Console.Error.WriteLine("kcap hook requires a vendor flag (for example --claude)");
-        Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse");
-        return 1;
     }
     case "cursor":
         await Console.Error.WriteLineAsync(
@@ -1044,9 +1076,7 @@ switch (command) {
         return await CursorVerifyAppendOnlyCommand.RunAsync(args, time);
 }
 
-Console.Error.WriteLine($"Unknown command: {command}");
-
-return 1;
+return UnknownCommand.Write(Console.Error, command);
 } catch (UnusableServerUrlException ex) {
     // Returned, not exited: every finally, the telemetry flush and each vendor's fail-open catch
     // still run. Not a crash either — the repair is a config edit, so a crash report would file a

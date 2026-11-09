@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using TUnit.Assertions.Enums;
 using System.Collections.Frozen;
 using System.Reactive.Concurrency;
@@ -78,6 +79,158 @@ public class HomeViewModelTests {
             await Assert.That(vm.ModelChoicesFor("gemini").Select(m => m.Slug)).Contains("gemini-3-pro");
             await Assert.That(vm.ModelChoicesFor("claude").Select(m => m.Slug)).Contains("claude-opus-5");
             await Assert.That(vm.ModelChoicesFor("cursor")).IsEmpty();
+        });
+    }
+
+    /// A picked next-work task launches from an empty composer with its line and the server's context, and what is
+    /// typed goes between them; the composer's placeholder says so, and a launch that sends the task unpicks it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_task_sends_its_line_what_is_typed_and_its_context_then_unpicks() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
+
+            await Assert.That(vm.Goal).IsEqualTo("");
+            await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.PickedGoalPlaceholder);
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nRecorded context");
+            await Assert.That(vm.NextWorkSource).IsNull();
+            await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.DefaultGoalPlaceholder);
+
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
+            vm.Goal = "Keep the public API as it is";
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nKeep the public API as it is\n\nRecorded context");
+            await Assert.That(launch.Last!.NextWorkTargetKey).IsEqualTo("wi:a");
+        });
+    }
+
+    /// A pull request to review is no next-work launch target: the server claims and attaches only work items and loose ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_review_launches_without_a_next_work_target() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.FillFromNextWorkAsync(new("pr:o/r#9", "#9 Retry", "Review pull request #9 Retry.", null, true, Tmp.Path));
+            await vm.StartCommand.Execute();
+
+            await Assert.That(launch.Last!.NextWorkTargetKey).IsNull();
+        });
+    }
+
+    /// A task whose repository has no known checkout clears a repository chosen for something else, and Start refuses
+    /// until its own is picked, so the task never runs in an unrelated checkout.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_task_without_a_checkout_clears_the_chosen_repository_and_waits_for_its_own() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            var unrelated = Tmp.CreateDir("unrelated");
+            await vm.SelectRepositoryAsync(unrelated);
+
+            await vm.FillFromNextWorkAsync(new("le:b", "Document B", "Document B", null, true, null, "Recorded context", AwaitsCheckout: true));
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
+        });
+    }
+
+    /// A task on a machine the launcher cannot switch to (not yet listed as the viewer's) never takes that machine's path
+    /// as a local one: it waits for its checkout.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_machine_switch_leaves_the_task_waiting_for_its_checkout() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.SelectRepositoryAsync(Tmp.CreateDir("unrelated"));
+
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", "studio", false, "/home/maya/payments", "Recorded context"));
+
+            await Assert.That(vm.RemoteMachineSelected).IsFalse();
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+            await Assert.That(vm.NextWorkSource!.AwaitsCheckout).IsTrue();
+        });
+    }
+
+    /// Default discovery, at startup or when the repository menu opens, never fills the empty selection a task waiting
+    /// for its checkout holds: Start keeps refusing until the person picks one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Default_discovery_leaves_a_task_waiting_for_its_checkout() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var launch = new RecordingLaunchClient();
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), launch,
+                Known(Tmp.CreateDir("recent")), TimeProvider.System);
+
+            await vm.FillFromNextWorkAsync(new("le:b", "Document B", "Document B", null, true, null, "Recorded context", AwaitsCheckout: true));
+            await vm.EnsureDefaultRepositoryAsync();
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
+        });
+    }
+
+    /// Emptying the composer leaves the task picked; only its chip unpicks it.
+    [Test]
+    public async Task Emptying_the_composer_keeps_the_task_picked() {
+        using var vm = Build(out _, out _, Tmp.PathTo("state.json"));
+        await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, null, "Recorded context"));
+        vm.Goal = "x";
+        vm.Goal = "";
+        await Assert.That(vm.NextWorkSource).IsNotNull();
+
+        vm.ClearNextWorkSource();
+        await Assert.That(vm.NextWorkSource).IsNull();
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Folder_access_recovery_preserves_the_draft_and_clears_only_after_access() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.SelectRepositoryAsync(Tmp.Path);
+            vm.Goal = "Keep this draft";
+            launch.Next = new(false, null, $"Access to the path '{Tmp.Path}' is denied.");
+            await vm.StartCommand.Execute();
+            await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
+            await AvaloniaSession.DispatchAsync(() => {
+                var view = new Capacitor.App.Views.LauncherPaneView { DataContext = vm };
+                var window = new Avalonia.Controls.Window { Content = view, Width = 1000, Height = 720 };
+                try {
+                    window.Show();
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                    if (!view.FindControl<Avalonia.Controls.Button>("RequestRepositoryAccessButton")!.IsVisible)
+                        throw new InvalidOperationException("Folder recovery action is hidden");
+                    if (Environment.GetEnvironmentVariable("KCAP_ACCESS_SHOT") is { } shot) {
+                        Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        using var frame = Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window)!;
+                        frame.Save(shot, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                    }
+                } finally { window.Close(); }
+            });
+            await vm.RequestRepositoryAccessAsync(_ => Task.FromResult(false));
+            await Assert.That(vm.StartError).IsNotNull();
+            await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
+            var vendor = vm.SelectedVendor;
+            var model = vm.SelectedModel;
+            var mode = vm.SelectedPermissionMode;
+            await vm.RequestRepositoryAccessAsync(_ => throw new UnauthorizedAccessException());
+            await Assert.That(vm.StartError).IsNotNull();
+            await vm.RequestRepositoryAccessAsync(_ => Task.FromResult(true));
+            await Assert.That(vm.StartError).IsNull();
+            await Assert.That(vm.SelectedVendor).IsEqualTo(vendor);
+            await Assert.That(vm.SelectedModel).IsEqualTo(model);
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(mode);
+            await Assert.That(vm.Goal).IsEqualTo("Keep this draft");
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(Tmp.Path);
         });
     }
 
@@ -2828,6 +2981,23 @@ public class HomeViewModelTests {
             .Contains("consent policy denied");
 
     [Test]
+    public async Task A_full_daemon_reads_as_a_notice_without_the_hub_lead() {
+        var text = HomeViewModel.FriendlyLaunchFailure(
+            "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: "
+            + "Daemon 'sbx-claude-ai_cloud' is full (10 of 10 in use). Stop an agent or wait for one to finish.");
+
+        await Assert.That(text).IsEqualTo(
+            "sbx-claude-ai_cloud is already running 10 of 10 agents. Stop one, or wait for one to finish, to start another.");
+        await Assert.That(HomeViewModel.IsAtCapacityNotice(text)).IsTrue();
+    }
+
+    [Test]
+    public async Task Any_hub_refusal_loses_the_transport_lead() =>
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(
+                "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: Machine is offline."))
+            .IsEqualTo("Machine is offline.");
+
+    [Test]
     public async Task A_cancelled_launch_reads_as_cancelled() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled)).IsEqualTo("The launch was cancelled.");
 
@@ -3355,6 +3525,80 @@ public class HomeViewModelTests {
                 PermissionModeByRepo = new Dictionary<string, string> { ["/repo/a"] = "yolo" } });
 
             await vm.SelectRepositoryAsync("/repo/a");
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
+        });
+    }
+
+    static HomeViewModel BuildWithBox(string statePath, out FakeDaemonClientService daemon) {
+        daemon = new FakeDaemonClientService();
+        Connect(daemon);
+        var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([Box("u1")]);
+        return new HomeViewModel(daemon, new AppStateStore(statePath), new RecordingLaunchClient(),
+            Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Permission_mode_is_remembered_per_remote_repository_across_launchers() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var path = Tmp.PathTo("app-state.json");
+            using var vm = BuildWithBox(path, out _);
+
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChoosePermissionModeAsync(ClaudePermissionModes.BypassPermissions);
+            await vm.EnterRemoteRepositoryAsync("/srv/A");
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
+
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(ClaudePermissionModes.BypassPermissions);
+
+            using var fresh = BuildWithBox(path, out _);
+            await fresh.SelectMachineAsync("box", isLocal: false);
+            await fresh.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(fresh.SelectedPermissionMode).IsEqualTo(ClaudePermissionModes.BypassPermissions);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Harness_is_remembered_per_remote_repository_across_launchers() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var path = Tmp.PathTo("app-state.json");
+            using var vm = BuildWithBox(path, out _);
+
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChooseHarnessAsync("pi");
+            await vm.EnterRemoteRepositoryAsync("/srv/b");
+            await vm.ChooseHarnessAsync("claude");
+
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(vm.SelectedVendor).IsEqualTo("pi");
+            var listed = await vm.ListRepositoriesAsync();
+            await Assert.That(listed.Single(o => o.RepoPath == "/srv/a").Vendor).IsEqualTo("pi");
+
+            using var fresh = BuildWithBox(path, out _);
+            await fresh.SelectMachineAsync("box", isLocal: false);
+            await fresh.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(fresh.SelectedVendor).IsEqualTo("pi");
+        });
+    }
+
+    /// The same path on this machine and on a remote names two different repositories.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_permission_mode_never_restores_for_the_same_local_path() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = BuildWithBox(Tmp.PathTo("app-state.json"), out var daemon);
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChoosePermissionModeAsync(ClaudePermissionModes.BypassPermissions);
+
+            await vm.SelectMachineAsync(daemon.DaemonName, isLocal: true);
+            await vm.SelectRepositoryAsync("/srv/a");
+
             await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
         });
     }
