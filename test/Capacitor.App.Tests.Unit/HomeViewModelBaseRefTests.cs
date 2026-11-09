@@ -154,8 +154,8 @@ public class HomeViewModelBaseRefTests {
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("main");
-
             vm.Goal = "go";
+
             await vm.StartCommand.Execute();
 
             await Assert.That(launch.Last).IsNull();
@@ -177,8 +177,8 @@ public class HomeViewModelBaseRefTests {
                 daemon, new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System, directory: directory);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("feature/x");
-
             vm.Goal = "go";
+
             await vm.StartCommand.Execute();
 
             await Assert.That(await vm.ListRecentBaseRefsAsync()).IsEquivalentTo(new[] { "feature/x" });
@@ -201,8 +201,8 @@ public class HomeViewModelBaseRefTests {
                 ConnectedDaemon(), store, new LaunchClient(), NoKnownRepos(), TimeProvider.System, launchFailures: failures);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("gone");
-
             vm.Goal = "go";
+
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(AgentId,
                 "git fetch origin gone:refs/kcap/fetched/agent-1 failed: fatal: couldn't find remote ref gone"));

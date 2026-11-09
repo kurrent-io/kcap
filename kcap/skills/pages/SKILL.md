@@ -34,6 +34,15 @@ artifact" — which you honor as asked.
 - To ask the readers something, declare a `response_schema`; then
   `await_page_responses` and `get_page_results` read what they answered.
 
+## A page people answer
+
+Call `get_page_guide` before you write one, and build the page to it. The
+page cannot submit a `<form>` or call `fetch`: it sends every answer to the
+viewer with `window.parent.postMessage`, in the messages the guide lists. A
+page built any other way looks fine, and every answer is lost without an
+error. The guide comes from the kcap server, so it matches the rules that
+server checks answers against.
+
 ## Reading a page
 
 `get_page` reads any page you can open, yours or one someone shared, by its id
