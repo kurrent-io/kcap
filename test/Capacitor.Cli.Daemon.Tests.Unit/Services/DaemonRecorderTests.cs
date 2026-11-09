@@ -304,10 +304,13 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
-    /// <summary>The agent can end while its restored source moves to its path, and its session's end goes to the server
-    /// once its finish returns, so nothing may be left recording for it: no replacement on the new path, and no claim.</summary>
-    [Test]
-    public async Task An_agent_that_ends_while_its_source_moves_leaves_nothing_recording() {
+    const string ResumedReply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Resumed elsewhere."}]}}""";
+
+    bool SentResumedReply => Transport.Batches.Any(batch => batch.Lines.Any(line => line.Contains("Resumed elsewhere.")));
+
+    /// <summary>A source the last daemon left, now the resumed agent's, with every final drain held until the test
+    /// releases it.</summary>
+    async Task<(DaemonRecorder Recorder, RecordedSource Resumed, TaskCompletionSource Release)> RestoredForResumedAgentAsync() {
         var source = Source(Transcript(Prompt));
         List.TryAdd(source);
         Directory.CreateDirectory(Paths.Directory);
@@ -316,27 +319,57 @@ public class DaemonRecorderTests {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Transport.OnDrainComplete = _ => release.Task;
 
-        await using var recorder = NewRecorder();
+        var recorder = NewRecorder();
         await recorder.RestoreAsync(InScope, CancellationToken.None);
         await WaitHarness.PollUntilAsync(() => Transport.Connects == 1);
 
-        var resumed = source with { AgentId = "agent-2", TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{Reply}\n") };
-        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
-        recorder.StartForAgent(resumed);
+        return (recorder, source with { AgentId = "agent-2" }, release);
+    }
+
+    async Task AssertNothingLeftRecordingAsync(DaemonRecorder recorder, string key) {
+        await Assert.That(SentResumedReply).IsTrue();
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Claims.Read(key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>The agent can end while its restored source moves to its path. Its session's end goes to the server once
+    /// its finish returns, so by then the new path's tail has gone and nothing is left recording for it.</summary>
+    [Test]
+    public async Task An_agent_that_ends_while_its_source_moves_sends_the_new_tail_and_leaves_nothing_recording() {
+        var (recorder, resumed, release) = await RestoredForResumedAgentAsync();
+        await using var _ = recorder;
+
+        var moved = resumed with { TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{ResumedReply}\n") };
+        await Assert.That(await recorder.ClaimAsync(moved, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(moved);
         await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
 
         var finish = recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30));
         release.TrySetResult();
         await finish.WithinDeadlineAsync("the agent's finish");
 
-        // A replacement would be connecting within moments of the old source's settling.
-        var settle = DateTime.UtcNow + TimeSpan.FromSeconds(1);
-        while (Transport.ConnectAttempts < 2 && DateTime.UtcNow < settle) await Task.Delay(10);
+        await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
+    }
 
-        await Assert.That(Transport.ConnectAttempts).IsEqualTo(1);
-        await Assert.That(recorder.ActiveKeys).IsEmpty();
-        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
-        await Assert.That(List.Load()).IsEmpty();
+    /// <summary>The agent's finish can take its source before a move to another path does, and that path's tail still
+    /// goes, with nothing left recording behind it.</summary>
+    [Test]
+    public async Task A_move_behind_its_agents_finish_sends_the_new_tail_and_leaves_nothing_recording() {
+        var (recorder, resumed, release) = await RestoredForResumedAgentAsync();
+        await using var _ = recorder;
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(resumed);
+
+        var finish = recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30));
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+        File.Delete(resumed.TranscriptPath);
+        var move = recorder.ObserveTranscriptAsync(resumed with { TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{ResumedReply}\n") });
+        release.TrySetResult();
+        await finish.WithinDeadlineAsync("the agent's finish");
+        await move.WithinDeadlineAsync("the move");
+
+        await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
     }
 
     /// <summary>Recording was turned off with sources left. A hosted claim nobody comes back for would keep a resumed
