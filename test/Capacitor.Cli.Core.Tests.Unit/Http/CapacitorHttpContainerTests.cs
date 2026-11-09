@@ -275,6 +275,9 @@ public class CapacitorHttpContainerTests : IDisposable {
         const string dead = "http://127.0.0.1:1";
 
         var time = new FakeTimeProvider();
+        // Provider discovery's connect runs on real time, and Windows takes about two seconds to refuse
+        // a loopback port. Stamped on the fake clock, the one the cache is read against.
+        AuthProviderCache.Set(dead, AuthProvider.None, Config.Root, time);
         using var sp  = Container(dead, time);
         var       api = sp.GetRequiredService<ISessionsApi>();
 
