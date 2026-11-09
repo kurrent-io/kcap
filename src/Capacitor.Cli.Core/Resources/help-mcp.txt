@@ -285,13 +285,17 @@ mcp analytics:
       # needs an absolute path (e.g. /opt/homebrew/bin/kcap)
 
 mcp pages:
-  Exposes seven tools for an agent to publish a self-contained HTML page (a plan,
+  Exposes nine tools for an agent to publish a self-contained HTML page (a plan,
   a report, a comparison), hand back a link, wait for people to answer it, and
   read a page someone shared.
 
     publish_page               Publish a page and get its URL. `update_id`
                                revises an existing page without changing
                                that URL; `response_schema` makes it answerable.
+    get_page_guide             How a page people answer sends its answers:
+                               the postMessage protocol, the answer rules,
+                               and a worked example. Read it before
+                               publishing with a response_schema.
     await_page_responses       Block until min_respondents people have answered
                                the version, or it closes, or the timeout
                                elapses. A timeout returns what there is — it is
