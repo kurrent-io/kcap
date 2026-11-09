@@ -196,7 +196,8 @@ public class CliAdoptionCoordinatorTests {
             return world.Found();
         };
         world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
-        await entered.Task;
+        await Task.WhenAny(entered.Task, launch.Settled);
+        await Assert.That(entered.Task.IsCompleted).IsTrue().Because("the idle report starts a retry that reads evidence");
         var held = launch.Settled;
 
         world.Activity.OnNext(null);
