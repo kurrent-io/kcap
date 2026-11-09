@@ -4,6 +4,8 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Headless;
+using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core;
 
@@ -12,6 +14,16 @@ namespace Capacitor.Cli.Core;
 /// import paths and by the daemon's title resolution.
 /// </summary>
 public static partial class TitleGeneration {
+    static readonly TimeSpan ClaudeTimeout = TimeSpan.FromSeconds(15);
+
+    // The claude fallback's process start, which its timeout does not count, and a pi cleanup running past its limit:
+    // about 0.4s together measured on an idle machine. Pi stops this much sooner so the fallback keeps its whole
+    // timeout before the deadline.
+    static readonly TimeSpan Slack = TimeSpan.FromSeconds(1);
+
+    /// <summary>The longest one title takes, whichever runners it goes through.</summary>
+    public static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
+
     internal static readonly string TitlePromptTemplate = EmbeddedResources.Load("prompt-title.txt");
 
     /// <summary>
@@ -57,10 +69,10 @@ public static partial class TitleGeneration {
     }
 
     /// <summary>
-    /// Generates a title by calling the headless CLI for the matching vendor —
-    /// <c>claude -p</c> for Claude sessions, <c>codex exec</c> for Codex sessions.
-    /// Returns the cleaned title string, or null on failure (including when the
-    /// model produced a refusal rather than a title).
+    /// Generates a title by calling the headless CLI for the matching vendor: <c>codex exec</c> for Codex sessions,
+    /// <c>pi</c> for Pi sessions with <c>claude -p</c> standing in when it gives no title, and <c>claude -p</c> for
+    /// the rest. Returns the cleaned title, or null on failure (including when the model produced a refusal rather
+    /// than a title).
     /// </summary>
     public static async Task<ClaudeCliResult?> GenerateAsync(
             string            userText,
@@ -69,6 +81,7 @@ public static partial class TitleGeneration {
             Action<string>    log,
             Profile?          profile,
             HarnessRegistry   harnesses,
+            ConfigRoot        config,
             string            vendor = "claude",
             CancellationToken ct     = default
         ) {
@@ -81,14 +94,56 @@ public static partial class TitleGeneration {
 
         var prompt = BuildPrompt(userText, assistantText);
 
-        // Codex sessions go through `codex exec` so a user with only Codex
-        // installed can still backfill, and so the title model matches the
-        // vendor that produced the work being summarised.
+        // Both runners take one deadline, so nothing outlives the budget a watcher's shutdown waits for.
+        using var deadline = new CancellationTokenSource(Budget, time);
+        using var bounded  = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
+
+        try {
+            return await RunAsync(prompt, vendor, time, log, profile, harnesses, config, bounded.Token);
+        } catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested) {
+            log($"Title generation ran out of its {Budget.TotalSeconds:0}s budget");
+
+            return null;
+        }
+    }
+
+    static async Task<ClaudeCliResult?> RunAsync(
+            string prompt, string vendor, TimeProvider time, Action<string> log, Profile? profile, HarnessRegistry harnesses,
+            ConfigRoot config, CancellationToken ct
+        ) {
+        // A session is titled by the vendor that produced it, so a user with only that vendor signed in still
+        // gets titles.
+        if (vendor == "pi" && await PiTitleAsync(prompt, time, log, harnesses, config, ct) is { } piTitle) return piTitle;
+
         var result = vendor == "codex"
-            ? await CodexCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(30), time, log, profile, harnesses, ct: ct)
-            : await ClaudeCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(15), time, log, profile, harnesses,
+            ? await CodexCliRunner.RunAsync(prompt, Budget, time, log, profile, harnesses, ct: ct)
+            : await ClaudeCliRunner.RunAsync(prompt, ClaudeTimeout, time, log, profile, harnesses,
                 systemPrompt: HeadlessSummarizerSystemPrompt, ct: ct);
 
+        return Cleaned(result, log);
+    }
+
+    static async Task<ClaudeCliResult?> PiTitleAsync(
+            string prompt, TimeProvider time, Action<string> log, HarnessRegistry harnesses, ConfigRoot config, CancellationToken ct
+        ) {
+        if (harnesses.ResolveLaunchable(HarnessId.Pi) is not { } executable) {
+            log("pi not found on PATH or in the desktop app, titling with claude");
+
+            return null;
+        }
+
+        // Leaves the claude fallback its whole timeout, after killing and reaping a pi that timed out.
+        var outcome = await PiCliRunner.RunDetailedAsync(prompt, Budget - ClaudeTimeout - HeadlessProcess.CleanupLimit - Slack, time, log,
+            new HeadlessRunRoot(config.Directory, "titles"), model: null, jsonSchema: null, systemPrompt: HeadlessSummarizerSystemPrompt, executable, ct);
+
+        if (Cleaned(outcome.Result, log) is { } title) return title;
+
+        log("pi gave no title, titling with claude");
+
+        return null;
+    }
+
+    static ClaudeCliResult? Cleaned(ClaudeCliResult? result, Action<string> log) {
         if (result is null) {
             return null;
         }

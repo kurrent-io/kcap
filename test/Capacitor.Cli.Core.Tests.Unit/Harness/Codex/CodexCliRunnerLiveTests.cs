@@ -24,6 +24,7 @@ public class CodexCliRunnerLiveTests {
     static readonly TimeSpan Deadline = TimeSpan.FromSeconds(120);
 
     [TempHome] public required TempHome Home { get; init; }
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     static string RealCodex() {
         Skip.Unless(Environment.GetEnvironmentVariable(LiveGateEnvVar) == "1",
@@ -162,7 +163,7 @@ public class CodexCliRunnerLiveTests {
 
         var result = await TitleGeneration.GenerateAsync(
             "Fix the login timeout in the auth service", "I raised the token refresh window and added a retry.",
-            TimeProvider.System, _ => { }, null, Real(), vendor: "codex");
+            TimeProvider.System, _ => { }, null, Real(), Config.Root, vendor: "codex");
 
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.Result).IsNotEmpty();
