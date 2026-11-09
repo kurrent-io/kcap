@@ -20,7 +20,7 @@ public class TitleGenerationRunnerTests {
     TempDirHandle Bin => _bin ??= Tmp.CreateDir("bin");
 
     void FakeClaude() =>
-        Bin.CreateExecutable("claude", $"#!/bin/sh\ncat > /dev/null\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
+        Bin.CreateExecutable("claude", $"#!/bin/sh\necho '{{\"result\":\"{ClaudeTitle}\"}}'\n");
 
     void FakePi(string body) => Bin.CreateExecutable("pi", $"#!/bin/sh\n{body}\n");
 
@@ -37,9 +37,9 @@ public class TitleGenerationRunnerTests {
         FakePi($"cat > /dev/null\necho '{reply}'");
     }
 
-    Task<ClaudeCliResult?> Generate(string vendor) =>
+    Task<ClaudeCliResult?> Generate(string vendor, CancellationToken ct = default) =>
         TitleGeneration.GenerateAsync("Fix the login timeout", "Done.", TimeProvider.System, _ => { }, null,
-            TestHarnesses.Under(Home.Home, BinaryProbe.Searching(Bin.Path)), Config.Root, vendor);
+            TestHarnesses.Under(Home.Home, BinaryProbe.Searching(Bin.Path)), Config.Root, vendor, ct);
 
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_pi_session_is_titled_by_pi() {
@@ -66,6 +66,17 @@ public class TitleGenerationRunnerTests {
         }
 
         await Assert.That((await Generate("pi"))?.Result).IsEqualTo(ClaudeTitle);
+    }
+
+    /// <summary>A watcher shutting down waits <see cref="TitleGeneration.Budget"/> for a title, then cancels it; a pi
+    /// that hangs must leave the claude fallback room inside that.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_hanging_pi_still_falls_back_to_claude_within_the_title_budget() {
+        FakeClaude();
+        FakePi("cat > /dev/null\nsleep 120");
+        using var caller = new CancellationTokenSource(TitleGeneration.Budget);
+
+        await Assert.That((await Generate("pi", caller.Token))?.Result).IsEqualTo(ClaudeTitle);
     }
 
     [Test, ExcludeOn(OS.Windows)]

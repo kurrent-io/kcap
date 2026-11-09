@@ -15,7 +15,7 @@ public class AgentOrchestratorTitleGenerationTests {
 
     async Task<string?> Generate(string vendor) {
         var bin = Tmp.CreateDir("bin");
-        bin.CreateExecutable("claude", $"#!/bin/sh\ncat > /dev/null\necho '{ClaudeReply}'\n");
+        bin.CreateExecutable("claude", $"#!/bin/sh\necho '{ClaudeReply}'\n");
         bin.CreateExecutable("pi", $"#!/bin/sh\ncat > /dev/null\necho '{PiReply}'\n");
 
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(

@@ -14,6 +14,11 @@ namespace Capacitor.Cli.Core;
 /// import paths and by the daemon's title resolution.
 /// </summary>
 public static partial class TitleGeneration {
+    static readonly TimeSpan ClaudeTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>The longest one title takes, whichever runners it goes through.</summary>
+    public static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
+
     internal static readonly string TitlePromptTemplate = EmbeddedResources.Load("prompt-title.txt");
 
     /// <summary>
@@ -89,8 +94,8 @@ public static partial class TitleGeneration {
         if (vendor == "pi" && await PiTitleAsync(prompt, time, log, harnesses, config, ct) is { } piTitle) return piTitle;
 
         var result = vendor == "codex"
-            ? await CodexCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(30), time, log, profile, harnesses, ct: ct)
-            : await ClaudeCliRunner.RunAsync(prompt, TimeSpan.FromSeconds(15), time, log, profile, harnesses,
+            ? await CodexCliRunner.RunAsync(prompt, Budget, time, log, profile, harnesses, ct: ct)
+            : await ClaudeCliRunner.RunAsync(prompt, ClaudeTimeout, time, log, profile, harnesses,
                 systemPrompt: HeadlessSummarizerSystemPrompt, ct: ct);
 
         return Cleaned(result, log);
@@ -105,7 +110,9 @@ public static partial class TitleGeneration {
             return null;
         }
 
-        var outcome = await PiCliRunner.RunDetailedAsync(prompt, TimeSpan.FromSeconds(30), time, log, new HeadlessRunRoot(config.Directory, "titles"),
+        // Pi gets only what the claude fallback leaves, so a hung pi cannot push a title past the budget a
+        // watcher's shutdown waits for.
+        var outcome = await PiCliRunner.RunDetailedAsync(prompt, Budget - ClaudeTimeout, time, log, new HeadlessRunRoot(config.Directory, "titles"),
             model: null, jsonSchema: null, systemPrompt: HeadlessSummarizerSystemPrompt, executable, ct);
 
         if (Cleaned(outcome.Result, log) is { } title) return title;
