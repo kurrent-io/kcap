@@ -442,6 +442,7 @@ public class WorkspaceNavigationTests {
             using var home = NewHome(nav, launch, path);
 
             await home.SelectRepositoryAsync("/repo/myproj");
+            home.Goal = "go";
             var start = home.StartCommand.Execute().ToTask(); // generation captured before the launch
 
             nav.Vm.CloseWorkspace(); // stands in for the coordinator's close-to-hide: bumps
