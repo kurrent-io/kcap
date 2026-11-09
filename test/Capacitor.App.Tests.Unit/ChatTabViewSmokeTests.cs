@@ -1380,6 +1380,63 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Returning_from_tool_details_by_keyboard_reveals_the_collapse_toggle_without_following_new_messages() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var output = string.Join("\n", Enumerable.Repeat("recorded output", 800));
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var result = ToolResultLine.Replace("\"ok\"", encoded);
+                var path = Tmp.CreateFile("return-from-output.jsonl",
+                    [.. Enumerable.Repeat(UserLine, 4), ToolCallLine, result, .. Enumerable.Repeat(UserLine, 30)]);
+                await host.LoadAsync(path);
+                WheelUp(host);
+                host.Settle();
+                var row = ToolRows(host.View).Single();
+                var toggle = row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle");
+                Click(host, toggle);
+                var body = row.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolInspection");
+                var inner = body.GetVisualDescendants().OfType<ScrollViewer>().Single();
+                toggle.Focus(NavigationMethod.Tab);
+                host.Press(PhysicalKey.PageDown);
+                host.Settle();
+                var hiddenTop = toggle.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(hiddenTop + toggle.Bounds.Height).IsLessThan(0);
+                var pagedOffset = host.Scroll.Offset.Y;
+
+                inner.Focus(NavigationMethod.Pointer);
+                toggle.Focus(NavigationMethod.Pointer);
+                host.Settle();
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(pagedOffset);
+
+                inner.Focus(NavigationMethod.Tab);
+                host.Press(PhysicalKey.PageDown);
+                host.Settle();
+                var outputOffset = inner.Offset.Y;
+                await Assert.That(outputOffset).IsGreaterThan(0);
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(pagedOffset);
+                host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+                host.Settle();
+
+                await Assert.That(toggle.IsFocused).IsTrue();
+                var visibleTop = toggle.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(visibleTop).IsGreaterThanOrEqualTo(0);
+                await Assert.That(visibleTop + toggle.Bounds.Height).IsLessThanOrEqualTo(host.Scroll.Viewport.Height);
+                await Assert.That(inner.Offset.Y).IsEqualTo(outputOffset);
+                var focusedOffset = host.Scroll.Offset.Y;
+                await host.AppendAndTickAsync(path, 5);
+                host.Settle();
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(focusedOffset);
+                await Assert.That(host.AtBottom()).IsFalse();
+                host.Press(PhysicalKey.Enter);
+                host.Settle();
+                await Assert.That(body.IsEffectivelyVisible).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
     /// A click on a tool row opens what its call recorded — status, command and output, each
     /// selectable — and a second click closes it.
     [Test]

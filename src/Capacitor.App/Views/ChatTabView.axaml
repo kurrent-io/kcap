@@ -420,6 +420,7 @@
                                  and the opened body below is where the text is copied from. -->
                             <Button x:Name="ToolRowToggle" Classes="toolSummary toolRow"
                                     Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
+                                    GotFocus="OnToolRowGotFocus"
                                     AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
