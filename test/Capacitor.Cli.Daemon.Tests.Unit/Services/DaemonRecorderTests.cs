@@ -352,10 +352,11 @@ public class DaemonRecorderTests {
         await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
     }
 
-    /// <summary>The agent's finish can take its source before a move to another path does, and that path's tail still
-    /// goes, with nothing left recording behind it.</summary>
+    /// <summary>The agent's finish can take its source before a move to another path does. The session's end goes to the
+    /// server once the finish returns, so the finish includes that move: by then the path's tail has gone and nothing is
+    /// left recording behind it, with no wait on the move itself.</summary>
     [Test]
-    public async Task A_move_behind_its_agents_finish_sends_the_new_tail_and_leaves_nothing_recording() {
+    public async Task A_move_behind_its_agents_finish_is_over_when_the_finish_is() {
         var (recorder, resumed, release) = await RestoredForResumedAgentAsync();
         await using var _ = recorder;
         await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
@@ -367,9 +368,9 @@ public class DaemonRecorderTests {
         var move = recorder.ObserveTranscriptAsync(resumed with { TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{ResumedReply}\n") });
         release.TrySetResult();
         await finish.WithinDeadlineAsync("the agent's finish");
-        await move.WithinDeadlineAsync("the move");
 
         await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
+        await move.WithinDeadlineAsync("the move");
     }
 
     /// <summary>Recording was turned off with sources left. A hosted claim nobody comes back for would keep a resumed

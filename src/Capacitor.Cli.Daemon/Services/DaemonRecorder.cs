@@ -66,6 +66,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly KeyedAsyncGate _keys = new();
     readonly ConcurrentDictionary<string, Tracked> _sources = new(StringComparer.Ordinal);
     readonly KeyedAsyncGate _agentGates = new();
+    readonly ConcurrentDictionary<Task, string> _moves = new();
     readonly ConcurrentQueue<(RecordedSource Source, bool MayImport)> _letGo = new();
     readonly CancellationTokenSource _closing = new();
     readonly Lazy<RecorderHost> _host;
@@ -225,18 +226,26 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     // One restart, and the server's position carries the source on from where it was. Under the agent's gate, which its
     // finish takes too, so the two never interleave: an agent finished by the time the replacement is up has that tail
-    // drained, and nothing of it goes on recording.
+    // drained, and nothing of it goes on recording. Known to the agent's finish from before the gate, which waits for it.
     async Task MoveAsync(Tracked from, RecordedSource to) {
-        using var gate = await _agentGates.EnterAsync(to.AgentId, CancellationToken.None);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _moves[done.Task] = to.AgentId;
 
-        LogTranscriptMoved(to.Key, to.TranscriptPath);
-        await FinishAsync(to.Key, CancellationToken.None);
+        try {
+            using var gate = await _agentGates.EnterAsync(to.AgentId, CancellationToken.None);
 
-        if (!await TryRecordAsync(to, CancellationToken.None) || !from.AgentFinished) return;
+            LogTranscriptMoved(to.Key, to.TranscriptPath);
+            await FinishAsync(to.Key, CancellationToken.None);
 
-        if (_sources.TryGetValue(to.Key, out var replacement) && replacement.Source.AgentId == to.AgentId) {
-            replacement.AgentFinished = true;
-            await FinishQuietlyAsync(to.Key, CancellationToken.None);
+            if (!await TryRecordAsync(to, CancellationToken.None) || !from.AgentFinished) return;
+
+            if (_sources.TryGetValue(to.Key, out var replacement) && replacement.Source.AgentId == to.AgentId) {
+                replacement.AgentFinished = true;
+                await FinishQuietlyAsync(to.Key, CancellationToken.None);
+            }
+        } finally {
+            _moves.TryRemove(done.Task, out var _);
+            done.SetResult();
         }
     }
 
@@ -284,6 +293,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
 
         await Task.WhenAll(finishing);
+
+        // A move admitted behind this waits for the same old source and then drains its replacement's tail, and the
+        // session's end follows this finish.
+        while (_moves.Where(move => move.Value == agentId).Select(move => move.Key).ToArray() is { Length: > 0 } moving) await Task.WhenAll(moving);
     }
 
     /// <summary>Picks up what the last daemon left: each source from the line the server answers with, unless a live
