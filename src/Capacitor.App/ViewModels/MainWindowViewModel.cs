@@ -84,10 +84,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The alert's tone. The text carries the status, so it is painted rather than given a dot.
     public IBrush StatusBrush => _statusBrush?.Value ?? Paint(StatusColors.Unavailable);
 
-    ObservableAsPropertyHelper<System.Windows.Input.ICommand?>? _alertActionCommand;
-    /// The command behind the alert's recovery action; null when the alert offers none.
-    public System.Windows.Input.ICommand? AlertActionCommand => _alertActionCommand?.Value;
-
     ObservableAsPropertyHelper<bool>? _showsConnected;
     /// A healthy stack still says so: without it, a working footer looks the same as one whose
     /// status has not arrived yet.
@@ -647,14 +643,14 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DistinctUntilChanged();
 
             var localServer = Home?.LocalServer is { } recovery
-                ? recovery.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.StartOffered, x => x.Condition,
-                    (down, starting, offered, condition) => (Down: down, Starting: starting, Offered: offered, Condition: condition))
-                : Observable.Return((Down: false, Starting: false, Offered: false, Condition: (LocalServerCondition?)null));
+                ? recovery.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.Condition,
+                    (down, starting, condition) => (Down: down, Starting: starting, Condition: condition))
+                : Observable.Return((Down: false, Starting: false, Condition: (LocalServerCondition?)null));
             var updateFailed = (LocalStack ?? Home?.LocalStack) is { } localStack
                 ? localStack.WhenAnyValue(x => x.Attention)
                 : Observable.Return(false);
             var localAlert = localServer.CombineLatest(updateFailed,
-                    (server, update) => LocalServerAlertFor(update, server.Starting, server.Down, server.Offered, server.Condition))
+                    (server, update) => LocalServerAlertFor(update, server.Starting, server.Down, server.Condition))
                 .DistinctUntilChanged();
             var moving = (movingToWindowsService ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
 
@@ -664,10 +660,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                     (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
                 .DistinctUntilChanged();
             var alert = status
-                .CombineLatest(daemonConnection, alertSignedOut, failed, signInVisible, moving,
-                    (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
+                .CombineLatest(daemonConnection, alertSignedOut, failed, moving,
+                    (st, connection, expired, broken, isMoving) => (st, connection, expired, broken, isMoving))
                 .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
-                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
+                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.isMoving,
                         local, other, pending, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
@@ -675,9 +671,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DisposeWith(disposables);
             _statusBrush = alert.Select(a => Paint(a?.Tone ?? StatusColors.Unavailable))
                 .ToProperty(this, x => x.StatusBrush, Paint(StatusColors.Unavailable))
-                .DisposeWith(disposables);
-            _alertActionCommand = alert.Select(a => CommandFor(a?.Recovery ?? RailRecovery.None))
-                .ToProperty(this, x => x.AlertActionCommand, (System.Windows.Input.ICommand?)null)
                 .DisposeWith(disposables);
             _showsConnected = status.CombineLatest(daemonConnection, alert, ShowsConnectedFor)
                 .DistinctUntilChanged()
@@ -1405,20 +1398,20 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// outranks the app's own copy it could not replace: every restart starts that copy again.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
-            bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
+            bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
             DaemonRestartWait restartPending = DaemonRestartWait.None, string? otherServerNotice = null) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
-        if (signedOut) return new(SignInRequiredText, needsUser, canSignIn ? RailRecovery.SignIn : RailRecovery.None);
+        if (signedOut) return new(SignInRequiredText, needsUser);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
         if (status.State == AttachState.Unreachable)
             return status.Reason switch {
-                IncompatibleReason => new(DaemonMismatchText, StatusColors.Disrupted, RailRecovery.Reconnect,
-                    HomeViewModel.DaemonIncompatibleNotice),
+                IncompatibleReason => new(DaemonMismatchText, StatusColors.Disrupted,
+                    Detail: HomeViewModel.DaemonIncompatibleNotice),
                 ExpectedDaemonRestart.Reason => new(DaemonRestartingText, StatusColors.Pending, Detail: HomeViewModel.DaemonRestartingNotice),
                 ExpectedDaemonRestart.StartingReason => new(DaemonStartingText, StatusColors.Pending, Detail: HomeViewModel.DaemonStartingNotice),
                 UnreachableReason when moving => new(DaemonRestartingText, StatusColors.Pending),
-                UnreachableReason => new(DaemonStoppedText, needsUser, RailRecovery.StartDaemon, HomeViewModel.DaemonDownNotice),
-                _ => new(DaemonUnreachableText, needsUser, RailRecovery.Reconnect),
+                UnreachableReason => new(DaemonStoppedText, needsUser, HomeViewModel.DaemonDownNotice),
+                _ => new(DaemonUnreachableText, needsUser),
             };
         if (local is not null) return local;
         // Its hub word describes the other server, so nothing below it speaks for this app.
@@ -1451,9 +1444,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         alert is null && status.State == AttachState.Connected && daemonConnection == "connected";
 
     /// The local server's alert: null when it runs, or when there is no local server at all.
-    /// <param name="canStart">The launcher's Start is offered: an installation that exists and nothing else owns.</param>
     /// <param name="condition">What the local root's files say; null until they have been read.</param>
-    internal static RailAlert? LocalServerAlertFor(bool updateFailed, bool starting, bool stopped, bool canStart,
+    internal static RailAlert? LocalServerAlertFor(bool updateFailed, bool starting, bool stopped,
             LocalServerCondition? condition = null) =>
         updateFailed ? new(LocalUpdateFailedText, StatusColors.Disrupted)
         : starting   ? new(LocalStartingText, StatusColors.Pending)
@@ -1467,16 +1459,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             LocalServerCondition.FilesMissing => new(LocalNeedsAttentionText, StatusColors.Disrupted, Detail: condition.Value.Explanation),
             LocalServerCondition.Interrupted or LocalServerCondition.Unreadable
                 => new(LocalNeedsAttentionText, StatusColors.InProgress, Detail: condition.Value.Explanation),
-            _ => new(LocalStoppedText, StatusColors.InProgress, canStart ? RailRecovery.StartLocalServer : RailRecovery.None),
+            _ => new(LocalStoppedText, StatusColors.InProgress),
         };
 
-    System.Windows.Input.ICommand? CommandFor(RailRecovery recovery) => recovery switch {
-        RailRecovery.SignIn           => SignInCommand,
-        RailRecovery.StartDaemon      => StartDaemonCommand,
-        RailRecovery.Reconnect        => RetryCommand,
-        RailRecovery.StartLocalServer => Home?.LocalServer?.StartCommand,
-        _                             => null,
-    };
 
     async Task InvokeStartAsync(Func<CancellationToken, Task> start, CancellationToken ct) {
         StartMessage = StartingMessage;

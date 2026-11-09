@@ -47,15 +47,12 @@ public class DaemonSignInTests {
             service.StatusSubject.OnNext(Attached);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
-            await Assert.That(vm.Alert.Recovery).IsEqualTo(RailRecovery.SignIn);
             // A signed-out daemon needs the user, as the launcher's card shows it too.
             await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse(StatusColors.InProgress));
             await Assert.That(vm.SignInVisible).IsTrue();
 
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "old"));
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
-            await Assert.That(vm.Alert.Recovery).IsEqualTo(RailRecovery.None)
-                .Because("signing the app in leaves another profile's daemon signed out");
             await Assert.That(vm.SignInVisible).IsFalse().Because("signing the app in leaves another profile's daemon signed out");
 
             service.SnapshotsSubject.OnNext(Snap(connection: "connected", profile: "old"));

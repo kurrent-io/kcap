@@ -1759,7 +1759,7 @@ public class MainWindowSmokeTests {
     });
 
     /// A healthy footer says Connected beside the org and no alert. A stopped daemon swaps Connected
-    /// for the alert with its long copy on hover, and its Start runs the same start as the launcher's.
+    /// for the alert with its long copy on hover; the alert opens the launcher, whose banner has the repair.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
@@ -1786,7 +1786,6 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var text = rail.FindControl<TextBlock>("RailAlertText")!;
-            var action = rail.FindControl<Button>("RailAlertActionButton")!;
             var result = (
                 HealthyRow: healthyRow,
                 HealthyConnected: healthyConnected,
@@ -1794,11 +1793,8 @@ public class MainWindowSmokeTests {
                 HealthyTexts: healthyTexts,
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
-                ActionVisible: action.IsEffectivelyVisible,
-                ActionLabel: action.Content as string,
-                Starts: 0);
-            ClickFlyoutButton(action);
-            result.Starts = service.StartDaemonCallCount;
+                Buttons: row.GetVisualDescendants().OfType<Button>().Count(b => b.IsEffectivelyVisible),
+                OpensLauncher: ReferenceEquals(rail.FindControl<Button>("RailAlertLink")!.Command, vm.NewSessionCommand));
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1813,9 +1809,8 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);
-        await Assert.That(shown.ActionVisible).IsTrue();
-        await Assert.That(shown.ActionLabel).IsEqualTo("Start daemon");
-        await Assert.That(shown.Starts).IsEqualTo(1);
+        await Assert.That(shown.Buttons).IsEqualTo(1).Because("the alert is its only control; the launcher's banner owns the repair");
+        await Assert.That(shown.OpensLauncher).IsTrue();
     }
 
     /// Signed-out is a rail diagnosis; the launcher's Sign in is on the other pane and hidden
