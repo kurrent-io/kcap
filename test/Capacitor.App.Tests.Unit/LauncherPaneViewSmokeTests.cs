@@ -471,7 +471,7 @@ public class LauncherPaneViewSmokeTests {
 
         await Assert.That(showOnDisabled).IsTrue();
         await Assert.That(tipBefore).IsEqualTo("Select a repository to start");
-        await Assert.That(tipAfter).IsEqualTo("Start");
+        await Assert.That(tipAfter).IsEqualTo(HomeViewModel.NeedsPromptTip);
     }
 
     [Test]
@@ -622,6 +622,7 @@ public class LauncherPaneViewSmokeTests {
         var (visibleBefore, visibleAfterFailure, errorMessage, visibleAfterSuccess) = await AvaloniaSession.DispatchAsync(async () => {
             var (vm, _, launch, tmp) = Build();
             using var _tmp = tmp;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm } };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -856,6 +857,7 @@ public class LauncherPaneViewSmokeTests {
             var held = new TaskCompletionSource<UploadOutcome>();
             var (vm, tmp) = BuildAttachable(new ScriptedUploader { Pending = held });
             using var _tmp = tmp;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 600 };
             window.Show();
             Settle(window);
@@ -873,7 +875,7 @@ public class LauncherPaneViewSmokeTests {
             held.SetResult(new UploadOutcome(UploadKind.Uploaded, ["u1"], null));
             await launching;
             Settle(window);
-            await Assert.That(ToolTip.GetTip(startButton) as string).IsEqualTo("Start");
+            await Assert.That(ToolTip.GetTip(startButton) as string).IsEqualTo(HomeViewModel.NeedsPromptTip);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1251,6 +1253,7 @@ public class LauncherPaneViewSmokeTests {
             using var rig = new AccountRig(Tmp.PathTo("app-state.json"));
             await rig.ResolveAsync();
             var vm = rig.Vm;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 700 };
             window.Show();
             Settle(window);

@@ -914,6 +914,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // An update still bringing this machine's local server and daemon back holds local launches until it settles.
         var updateHolds = _updateFinishing.CombineLatest(_machineSelectionChanges, (finishing, sel) => finishing && !sel.Remote)
             .DistinctUntilChanged();
+        var hasPrompt = this.WhenAnyValue(x => x.Goal).CombineLatest(stagedCount, HasPrompt).DistinctUntilChanged();
         var canLaunch = selectedAvailability.Select(a => a == LaunchAvailability.Ready)
             .CombineLatest(
                 stagedCount.CombineLatest(canAttach, (count, attach) => count == 0 || attach),
@@ -921,7 +922,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                 noHarnesses,
                 _accountPending.DistinctUntilChanged(),
                 updateHolds,
-                (ready, attachable, uploading, none, pending, held) => ready && attachable && !uploading && !none && !pending && !held);
+                hasPrompt,
+                (ready, attachable, uploading, none, pending, held, prompted) =>
+                    ready && attachable && !uploading && !none && !pending && !held && prompted);
 
         // Explicit ObserveOn: ReactiveCommand does NOT reschedule the supplied canExecute, and a
         // Status event arrives on the daemon client's pump thread (MainWindowViewModel's canStart
@@ -1067,9 +1070,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
 
         _startButtonTip = _selectedRepoPathChanges
-            .CombineLatest(notices, _accountTip, updateHolds,
-                (repo, notice, account, held) => TipFor(repo, held ? FinishingUpdateNotice : notice, account))
-            .ToProperty(this, x => x.StartButtonTip, TipFor(SelectedRepoPath, ConnectingNotice, null))
+            .CombineLatest(notices, _accountTip, updateHolds, hasPrompt,
+                (repo, notice, account, held, prompted) => TipFor(repo, held ? FinishingUpdateNotice : notice, account, prompted))
+            .ToProperty(this, x => x.StartButtonTip, TipFor(SelectedRepoPath, ConnectingNotice, null, prompted: false))
             .DisposeWith(_disposables);
 
         SignInCommand = ReactiveCommand.Create(() => { _requestSignIn?.Invoke(); });
@@ -1363,9 +1366,11 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// Repo gate first (IsEnabled), then the connection/sign-in notice StartCommand also gates on,
     /// then an account still resolving.
-    internal static string TipFor(string? repoPath, string? connectionNotice, string? accountNotice) =>
+    internal const string NeedsPromptTip = "Enter an initial prompt";
+
+    internal static string TipFor(string? repoPath, string? connectionNotice, string? accountNotice, bool prompted) =>
         string.IsNullOrEmpty(repoPath) ? "Select a repository to start"
-        : connectionNotice ?? accountNotice ?? "Start";
+        : connectionNotice ?? accountNotice ?? (prompted ? "Start" : NeedsPromptTip);
 
     // Constructor-scoped (like TrayViewModel/ActivityViewModel), not WhenActivated — the OAPH and
     // the Agents subscription above run for this object's whole lifetime, not a window's.
@@ -1991,6 +1996,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         return new Dictionary<string, IReadOnlyList<ModelChoice>>(merged, StringComparer.OrdinalIgnoreCase) { [chosen.Vendor] = models };
     }
 
+    /// An agent launched with nothing to say sits at its composer and its chat never starts. Staged
+    /// files count: the daemon sends their paths as the first message.
+    internal static bool HasPrompt(string? goal, int stagedFiles) => !string.IsNullOrWhiteSpace(goal) || stagedFiles > 0;
+
     async Task StartAsync() {
         // A pending account captures no draft: sending one would launch under a default nobody chose.
         if (!_accountChooser.IsResolved) {
@@ -2007,6 +2016,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             Tray.Snapshot(), Tray.Generation,
             _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null);
         var accountLabel = _accountChooser.SelectedLabel;
+
+        if (!HasPrompt(draft.Goal, draft.Files.Count)) return;
 
         if (draft.Files.Count > 0 && !CanAttachFor(draft)) {
             StartError = AttachHintFor(_signedIn, false);

@@ -211,6 +211,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.LocalAsync(Snapshot("h1", 0));
+            vm.Goal = "go";
 
             await Assert.That(vm.AccountSection).IsFalse();
             await Assert.That(vm.AccountPendingText).IsNull();
@@ -229,6 +230,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.StartAsync();
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync(Repo);
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work, Account("p1", "pi-work", "/u/.pi", "pi")));
 
@@ -304,6 +306,7 @@ public class HomeViewModelAccountTests {
                 ("h1", "claude", Repo, "a2"), ("h1", "claude", "/repo/b", "a3"), ("h1", "codex", "/repo/b", "c2"),
                 ("h2", "codex", "/w/repo", "d2"),
             ]);
+            vm.Goal = "go";
             rig.Remote.ListingSubject.OnNext(Answered(1, Listed(LocalName), box));
             await vm.SelectRepositoryAsync(Repo);
 
@@ -519,6 +522,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.StartAsync();
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync(Repo);
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work));
 
@@ -542,6 +546,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.LocalAsync(Snapshot("h1", 1, Home, Work));
+            vm.Goal = "go";
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
 
             rig.Remote.ListingSubject.OnNext(new DaemonListing(null, 2, false));
@@ -695,6 +700,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.StartAsync(viewerId: _ => Task.FromResult<string?>(null));
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync(Repo);
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work));
 
@@ -721,6 +727,7 @@ public class HomeViewModelAccountTests {
             var viewer = new TaskCompletionSource<string?>();
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.StartAsync(viewerId: _ => viewer.Task);
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync(Repo);
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work));
             rig.Remote.ListingSubject.OnNext(Answered(1, Listed(LocalName)));
@@ -814,6 +821,7 @@ public class HomeViewModelAccountTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var rig = new Rig(Tmp.PathTo("app-state.json"));
             var vm = await rig.StartAsync(localMachineId: "m1");
+            vm.Goal = "go";
             await vm.SelectRepositoryAsync(Repo);
             rig.LocalAccounts.OnNext(Snapshot("h1", 1, Home, Work));
 
