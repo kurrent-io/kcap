@@ -92,7 +92,8 @@ public static class HttpClientExtensions {
     internal static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>A caller's guard on a request: a handler about to send it again within one attempt, as
-    /// <c>UnauthorizedRecoveryHandler</c> does after a 401, sends it only when this says so.</summary>
+    /// <c>UnauthorizedRecoveryHandler</c> does after a 401 and <c>LocalDestinationHandler</c> does for a redirect hop,
+    /// sends it only when this says so.</summary>
     internal static readonly HttpRequestOptionsKey<Func<bool>> MayResend = new("kcap.may-resend");
 
     static HttpRequestMessage Guarded(HttpRequestMessage request, Func<bool> mayAttempt) {

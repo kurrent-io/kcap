@@ -764,15 +764,36 @@ public class WatcherManagerClaimTests : IDisposable {
         };
     }
 
+    /// <summary>The client chain the container builds, against the stub server. Only the credential source stands in, and
+    /// the transport under the chain when one is given.</summary>
+    ServiceProvider Container(ProfileContext profiles, ICredentialSource credentials, HttpMessageHandler? transport = null) {
+        var services = new ServiceCollection();
+        services.AddSingleton(Config.Root);
+        services.AddSingleton(profiles);
+        services.AddSingleton(new CapacitorServer(_server.Url!, Config.Root, profiles));
+        services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
+        services.AddSingleton(credentials);
+        if (transport is not null) services.AddHttpClient(CapacitorClients.Default).ConfigurePrimaryHttpMessageHandler(() => transport);
+
+        return services.BuildServiceProvider();
+    }
+
+    void StubLastLine() =>
+        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number": -1}"""));
+
+    int PostsTo(string path) => _server.LogEntries.Count(e => e.RequestMessage.Path == path);
+
     /// <summary>A chunk whose post failed is posted again after a backoff, and a disable can land inside it: the attempt
     /// after it sends nothing.</summary>
     [Test]
     public async Task A_disable_landing_in_a_retry_backoff_stops_the_next_attempt() {
         StubServer();
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
         using var transport = new FirstTranscriptPostDrops();
+        await using var container = Container(profiles, new NoCredential(), transport);
         using var deadline  = new CancellationTokenSource(BoundedWait.Deadline);
-        var       drain     = Manager(Resolutions.At(_server.Url!, Config.Root), http: new FixedCapacitorHttpClient(background: transport))
-            .InlineDrainAsync(Key, NewTranscript(), agentId: null);
+        var       drain     = Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
 
         // The backoff runs on the fake clock, so the next attempt waits for this.
         while (transport.Attempts == 0 && !drain.IsCompleted) await Task.Delay(20, deadline.Token);
@@ -789,30 +810,52 @@ public class WatcherManagerClaimTests : IDisposable {
     }
 
     /// <summary>The background client's own handler answers a 401 by rotating the bearer and sending the same content
-    /// again, inside one attempt of the drain's retry loop. A disable landing during that rotation stops the resend. Driven
-    /// through the client chain the container builds, with only the credential source standing in.</summary>
+    /// again, inside one attempt of the drain's retry loop. A disable landing during that rotation stops the resend.</summary>
     [Test]
     public async Task A_disable_landing_while_a_refused_bearer_rotates_stops_the_resend() {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
-        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
-            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number": -1}"""));
+        StubLastLine();
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer refused"))
             .RespondWith(Response.Create().WithStatusCode(401));
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer rotated"))
             .RespondWith(Response.Create().WithStatusCode(200));
-
-        var services = new ServiceCollection();
-        services.AddSingleton(Config.Root);
-        services.AddSingleton(profiles);
-        services.AddSingleton(new CapacitorServer(_server.Url!, Config.Root, profiles));
-        services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
-        services.AddSingleton<ICredentialSource>(new RotatingCredentials(() => DisabledSessions.Mark(Key, Config.Root)));
-        await using var container = services.BuildServiceProvider();
+        await using var container = Container(profiles, new RotatingCredentials(() => DisabledSessions.Mark(Key, Config.Root)));
 
         await Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
 
         await Assert.That(_server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript").Select(e => e.RequestMessage.Headers!["Authorization"].Single()))
             .IsEquivalentTo(["Bearer refused"]);
+    }
+
+    /// <summary>The background client follows a 307 itself, sending the POST again to the hop within one attempt. A disable
+    /// landing while the server answers the first send leaves the hop unsent.</summary>
+    [Test]
+    public async Task A_disable_landing_before_a_redirected_post_leaves_the_hop_unsent() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        StubLastLine();
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                DisabledSessions.Mark(Key, Config.Root);
+
+                var moved = new WireMock.ResponseMessage { StatusCode = 307 };
+                moved.AddHeader("Location", $"{_server.Url}/hooks/transcript-moved");
+
+                return moved;
+            }));
+        _server.Given(Request.Create().WithPath("/hooks/transcript-moved").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        await using var container = Container(profiles, new NoCredential());
+
+        await Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(PostsTo("/hooks/transcript")).IsEqualTo(1);
+        await Assert.That(PostsTo("/hooks/transcript-moved")).IsEqualTo(0);
+    }
+
+    /// <summary>A server that takes no sign-in.</summary>
+    sealed class NoCredential : ICredentialSource {
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) => Task.FromResult(new CredentialState(null, AuthStatus.NoAuthRequired));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) => ResolveAsync(ct);
     }
 
     /// <summary>A bearer the server refuses, rotated to one it takes; <paramref name="rotating"/> runs during the rotation.</summary>
