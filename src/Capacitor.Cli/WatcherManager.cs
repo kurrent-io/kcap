@@ -187,10 +187,17 @@ public sealed partial class WatcherManager(
         // Whatever was said: a recorder with no claim stops at its next tick, a daemon's that can't answer included.
         foreach (var claim in claims) _claims.Release(claim.Key);
 
+        var otherServers = new List<string>();
+
+        foreach (var (daemon, answer) in answers) {
+            if (HadTheSession(daemon, answer) && answer.Server is { } server && IsAnotherServer(server) && !otherServers.Any(known => DisabledSessions.SameServer(known, server)))
+                otherServers.Add(server);
+        }
+
         return new RecordingStopReport(
             OutcomeOf(answers.Select(answer => (answer.Daemon, answer.Answer.Outcome)).ToList()),
+            otherServers,
             AgentLive: answers.Any(answer => answer.Answer.AgentLive),
-            OtherServer: answers.FirstOrDefault(answer => HadTheSession(answer.Daemon, answer.Answer) && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
             Unreadable: keys is null || known is null,
             DaemonUnmarked: answers.Any(answer => answer.Answer.MarkFailed));
     }

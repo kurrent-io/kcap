@@ -545,6 +545,23 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
     }
 
+    /// <summary>Each daemon's server holds a copy this deletion never reaches, so every one is named and kept for later
+    /// runs, and one server two daemons spell differently is named once.</summary>
+    [Test]
+    public async Task Every_other_server_the_daemons_name_is_said_and_kept() {
+        _daemon.Names = ["daemon-b", "daemon-c", "daemon-d"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Stopped, Server: "https://b.example");
+        _daemon.Answers["daemon-c"] = new(RecordingDisable.NotHeld, AgentLive: true, Server: "https://c.example");
+        _daemon.Answers["daemon-d"] = new(RecordingDisable.Stopped, Server: "HTTPS://B.EXAMPLE:443/");
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
+        await Assert.That(Printed).Contains("sends to https://c.example, and nothing was deleted there");
+        await Assert.That(Printed.Split("nothing was deleted there").Length - 1).IsEqualTo(2);
+        await Assert.That(DisabledSessions.OtherServers(Session, Config.Root)).IsEquivalentTo(["https://b.example", "https://c.example"]);
+    }
+
     const string OtherServer = "https://other.example";
 
     const string FoundEarlier = $"An earlier kcap disable found a daemon sending this session to {OtherServer}. This command can't delete data there";

@@ -31,12 +31,14 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
 
         // "Recording stopped" is earned: everything that could record answered, nothing's output goes on, and no other
         // server holds what this deletion can't reach.
-        var sure    = confirmed && !live && stopped.OtherServer is null;
+        var sure    = confirmed && !live && stopped.OtherServers.Count == 0;
         var caveats = Caveats(stopped, markFailed);
         var exit    = 0;
 
-        if (stopped.OtherServer is { } other && Failure(() => DisabledSessions.MarkOnOtherServer(sessionId, other, config)) is { } unkept)
-            caveats.Add($"kcap could not record that a daemon sends this session to {other} ({unkept}), so a later kcap disable won't name that server.");
+        foreach (var other in stopped.OtherServers) {
+            if (Failure(() => DisabledSessions.MarkOnOtherServer(sessionId, other, config)) is { } unkept)
+                caveats.Add($"kcap could not record that a daemon sends this session to {other} ({unkept}), so a later kcap disable won't name that server.");
+        }
 
         try {
             switch (await sessions().DeleteSessionAsync(sessionId)) {
@@ -72,9 +74,9 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
 
         if (earlier) caveats.Add(EarlierDeletion);
 
-        // This run's own line already names the server it found.
+        // This run's own lines already name the servers it found.
         foreach (var server in elsewhere) {
-            if (stopped.OtherServer is not { } found || !DisabledSessions.SameServer(server, found))
+            if (!stopped.OtherServers.Any(found => DisabledSessions.SameServer(server, found)))
                 caveats.Add($"An earlier kcap disable found a daemon sending this session to {server}. This command can't delete data there; run kcap disable under the profile for that server.");
         }
 
@@ -116,7 +118,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
             _                                      => [],
         });
 
-        if (stopped.OtherServer is { } other)
+        foreach (var other in stopped.OtherServers)
             caveats.Add($"A daemon that recorded this session or hosts its agent sends to {other}, and nothing was deleted there. Run kcap disable under the profile for that server.");
 
         return caveats;
