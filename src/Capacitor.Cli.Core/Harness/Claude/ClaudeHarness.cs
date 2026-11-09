@@ -20,6 +20,8 @@ public sealed class ClaudeHarness : IHarness<ClaudeHarness> {
     /// override a second time.</summary>
     public ClaudePaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.UserSettings, Paths.UserConfigJson];
+
     // The desktop app runs a Claude Code it downloads under its own data dir, never on PATH.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),

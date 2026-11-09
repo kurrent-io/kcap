@@ -22,6 +22,10 @@ public class HandoffDecisionTests {
     [Test] public async Task Row3_empty_known_candidates_is_no_new_sessions_whatever_the_background() =>
         await Assert.That(Decide(O(selected: 0, succeeded: 0, candidates: 0), bg: BackgroundImportStatus.Running).Reason).IsEqualTo(HandoffSuppressedReason.NoNewSessions);
 
+    /// An unconfirmed child may still be importing, so it is no proof the import failed.
+    [Test] public async Task An_unconfirmed_background_with_nothing_landed_is_not_import_failed() =>
+        await Assert.That(Decide(O(succeeded: 0, failed: 5), bg: BackgroundImportStatus.Unconfirmed).Reason).IsNotEqualTo(HandoffSuppressedReason.ImportFailed);
+
     [Test] public async Task Row4_all_skipped_with_nothing_left_is_nothing_landed() =>
         await Assert.That(Decide(O(succeeded: 0, skipped: 5, remainder: false), bg: BackgroundImportStatus.NotNeeded).Reason).IsEqualTo(HandoffSuppressedReason.NothingLanded);
 

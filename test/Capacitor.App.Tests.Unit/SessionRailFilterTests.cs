@@ -27,7 +27,7 @@ public class SessionRailFilterTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Dot_shows_when_any_control_differs_from_the_defaults() {
+    public async Task Settings_differ_when_any_control_differs_from_the_defaults() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             using var rail = Build(directory);
@@ -66,7 +66,7 @@ public class SessionRailFilterTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Locked_scope_with_defaults_shows_no_dot() {
+    public async Task Locked_scope_with_defaults_has_no_custom_settings() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             using var rail = Build(directory, scopeLocked: true, preferences: RailPreferences.Default with { Scope = RailScope.Team });

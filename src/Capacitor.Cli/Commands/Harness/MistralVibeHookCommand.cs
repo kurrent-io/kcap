@@ -9,6 +9,8 @@ using Capacitor.Cli.Harness.MistralVibe;
 using Capacitor.Cli.Recording.Harness.MistralVibe;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -125,6 +127,8 @@ sealed class MistralVibeHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         var spool   = new HookSpool(config, clock.Time, Url);
         var outcome = await _poster.PostOrSpoolAsync("session-start/mistral-vibe", enriched, "mistral-vibe-hook",

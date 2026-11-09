@@ -430,6 +430,10 @@
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
                                                 Background="{StaticResource KcapWarningBrush}" />
+                                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
+                                                IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
+                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" />
                                         <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
                                                        IsVisible="{Binding IsAwaitingPermission}"
                                                        Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />

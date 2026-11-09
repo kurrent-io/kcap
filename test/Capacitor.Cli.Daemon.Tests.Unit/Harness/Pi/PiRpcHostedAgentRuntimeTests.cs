@@ -226,7 +226,7 @@ public class PiRpcHostedAgentRuntimeTests {
         var dispatch = Guid.NewGuid();
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
-        await rt.SendDispatchedInputAsync("do the thing", dispatch, waitForWrite: false).WaitAsync(HangGuard);
+        await rt.SendDispatchedInputAsync("do the thing", dispatch).WaitAsync(HangGuard);
         proc.Push(UserMessage("do the thing"));
         proc.Push(AssistantText("on it"));
 

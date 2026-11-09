@@ -34,6 +34,8 @@ public sealed class SessionRuns(TimeProvider time) {
     int _runningBackground;
     /// The latest restart heard, for a line that lands behind it.
     DateTimeOffset? _restartedAt;
+    /// The latest reopen heard, for a wait that lands behind it.
+    DateTimeOffset? _reopenedAt;
     bool _sessionOver;
     bool _opensSubagents = true;
 
@@ -100,7 +102,9 @@ public sealed class SessionRuns(TimeProvider time) {
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:
-                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.Waited(waiting.At);
+                    if (Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId) is not { } paused) break;
+                    paused.Waited(waiting.At);
+                    if (waiting.At < _reopenedAt) paused.CutOff(_reopenedAt.Value);
                     break;
                 case RunSignal.Stopped stopped:
                     if (!_reported.Contains(stopped.AgentId)) SoleRun(stopped)?.Stop(stopped.At);
@@ -114,6 +118,11 @@ public sealed class SessionRuns(TimeProvider time) {
                     if (!(_restartedAt > restarted.At)) _restartedAt = restarted.At;
                     // The server hears a resume from a hook, which can land after the new process's own lines.
                     foreach (var row in _rows.Where(r => r.StartedAt < restarted.At)) row.CutOff(restarted.At);
+                    DropHeldIfACandidateEnded();
+                    break;
+                case RunSignal.Reopened reopened:
+                    if (!(_reopenedAt > reopened.At)) _reopenedAt = reopened.At;
+                    foreach (var row in _rows.Where(r => r.WaitedAt < reopened.At)) row.CutOff(reopened.At);
                     DropHeldIfACandidateEnded();
                     break;
                 case RunSignal.Identified identified:
@@ -143,6 +152,7 @@ public sealed class SessionRuns(TimeProvider time) {
         _earlyByCall.Clear();
         _earlyUnpaired.Clear();
         _restartedAt = null;
+        _reopenedAt = null;
         Refresh();
     }
 

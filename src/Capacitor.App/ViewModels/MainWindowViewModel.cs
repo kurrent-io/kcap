@@ -820,6 +820,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             return;
         }
         Search?.Reset();
+        Search?.Refresh();
         IsSearchOpen = true;
         _navigation.Bump();
     }
@@ -1463,7 +1464,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             LocalServerCondition.PortTaken => new(LocalPortTakenText, StatusColors.InProgress, Detail: condition.Value.Explanation),
             LocalServerCondition.Uninstalled or LocalServerCondition.Purged or LocalServerCondition.NotInstalled
                 => new(LocalRemovedText, StatusColors.InProgress, Detail: condition.Value.Explanation),
-            LocalServerCondition.FilesMissing or LocalServerCondition.Interrupted or LocalServerCondition.Unreadable
+            LocalServerCondition.FilesMissing => new(LocalNeedsAttentionText, StatusColors.Disrupted, Detail: condition.Value.Explanation),
+            LocalServerCondition.Interrupted or LocalServerCondition.Unreadable
                 => new(LocalNeedsAttentionText, StatusColors.InProgress, Detail: condition.Value.Explanation),
             _ => new(LocalStoppedText, StatusColors.InProgress, canStart ? RailRecovery.StartLocalServer : RailRecovery.None),
         };

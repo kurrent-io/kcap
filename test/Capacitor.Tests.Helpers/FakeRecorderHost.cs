@@ -67,4 +67,12 @@ public sealed class FakeRecorderHost : IRecorderHost {
         Task.FromResult<CommitObservation>(new CommitObservation.Uncovered());
 
     public Task<bool> CoversCommitsAsync(string sessionId, string? cwd) => Task.FromResult(false);
+
+    public int WorkspaceDrains { get; private set; }
+
+    public Task DrainWorkspaceAsync() {
+        WorkspaceDrains++;
+
+        return Task.CompletedTask;
+    }
 }

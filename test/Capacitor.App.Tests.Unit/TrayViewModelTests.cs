@@ -1218,6 +1218,29 @@ public class TrayViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task FinishSwitchOffered_drives_FinishSwitchVisible_and_the_command_runs_the_switch() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var offered = new BehaviorSubject<bool>(false);
+            var runs = 0;
+            using var vm = new TrayViewModel(service, new FakePauseController(), NewActions(service), new FakeConsentService(),
+                finishSwitchOffered: offered, finishSwitch: () => {
+                    runs++;
+                    return Task.CompletedTask;
+                });
+
+            await Assert.That(vm.MenuModel.FinishSwitchVisible).IsFalse();
+
+            offered.OnNext(true);
+
+            await Assert.That(vm.MenuModel.FinishSwitchVisible).IsTrue();
+            await vm.FinishSwitchCommand.Execute();
+            await Assert.That(runs).IsEqualTo(1);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task UpdateMenu_drives_MenuModel_UpdateItemLabel() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();

@@ -3,11 +3,7 @@ using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Services;
 
-/// <summary>
-/// PID-file owner, live identity-validated via the daemon's start token
-/// (spec §3.4 <c>daemon_pid</c>). Extracted from <c>DaemonCommands</c>'
-/// stop path, which used this exact check before killing a PID.
-/// </summary>
+/// <summary>PID-file owner, live identity-validated via the daemon's start token.</summary>
 public static class DaemonPidProbe {
     internal readonly record struct PidEntry(int Pid, string? StartToken);
 
@@ -79,6 +75,9 @@ public static class DaemonPidProbe {
             return string.Equals(process.ProcessName, ourName, StringComparison.OrdinalIgnoreCase);
         } catch (ArgumentException) {
             return false; // process doesn't exist
+        } catch (InvalidOperationException) {
+            // It exited after the lookup: `daemon stop` polls this while the daemon goes away.
+            return false;
         }
     }
 }

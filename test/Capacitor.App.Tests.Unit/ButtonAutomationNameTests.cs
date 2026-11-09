@@ -115,7 +115,7 @@ public class ButtonAutomationNameTests {
         }]) };
         var artefacts = new FakePlanArtifactSource { Default = Ready(Doc("docs/x-design.md")) };
         var vm = new WorkContextViewModel(presence, source, time, opener, runs, plans: plans, planActivity: activity,
-            artefacts: new ArtefactsTabViewModel(artefacts, activity, time));
+            artefacts: new ArtefactsTabViewModel(artefacts, activity, time), canSendToAgent: () => true);
         var prs = pullRequestCard ? new PullRequestContextViewModel(presence, new FakePullRequestSource(time), time, opener, () => { }) : null;
         if (prs is not null) {
             vm.PullRequests = prs;
@@ -138,7 +138,8 @@ public class ButtonAutomationNameTests {
             ],
             SessionCount = 2,
         };
-        var summary = new SessionSummaryDto { SessionId = SessionA, PrNumber = 7, PrTitle = "Fix", PrUrl = "https://github.com/o/r/pull/7" };
+        var summary = new SessionSummaryDto { SessionId = SessionA, PrNumber = 7, PrTitle = "Fix", PrUrl = "https://github.com/o/r/pull/7",
+            Stats = new SessionStatsDto { CurrentContextTokens = 85_000, CurrentContextWindow = 100_000 } };
         source.Enqueue(new WorkContextRead(WorkContextReadKind.Ready, [assignment], assignment, item, null, summary, false, false, false, null));
         runs.Apply(new ChatProjectionResult([], [], [new RunSignal.Started("c1", "Explore", "Map the UI", time.GetUtcNow())]));
 
@@ -170,10 +171,10 @@ public class ButtonAutomationNameTests {
 
             var names = folded.Concat(opened).ToHashSet();
             string[] expected = ["Parts, 1 open", "Parts, 0 of 1", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents",
-                                 "Usage, expanded", "Usage, collapsed", "Checkout, collapsed", "Checkout, expanded",
+                                 "Usage, expanded", "Usage, collapsed", "Compact context", "Checkout, collapsed", "Checkout, expanded",
                                  "Session, collapsed", "Session, expanded",
                                  "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",
-                                 .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1" }];
+                                 .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1: Title not available" }];
             await Assert.That(expected.Where(n => !names.Contains(n))).IsEmpty();
         } finally {
             window.Close();

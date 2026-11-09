@@ -17,6 +17,10 @@ public interface IHarness {
     /// declares no <see cref="HarnessSignals.LaunchSignal"/> at all yet spawns <c>cursor-agent</c>.</summary>
     string CliBinary { get; }
 
+    /// <summary>The user-scope files kcap's integration with this vendor writes: its settings, hooks, plugin and
+    /// MCP registrations. Any of them can name a kcap binary or plugin folder by absolute path.</summary>
+    IReadOnlyList<string> IntegrationFiles { get; }
+
     string VendorId => Id.VendorId;
 }
 

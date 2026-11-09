@@ -619,7 +619,11 @@ internal sealed class PiRpcHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscr
 
     public Task SendUserInputAsync(string text) => SendAsync(text, dispatchId: null);
 
-    public Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) => SendAsync(text, dispatchId);
+    public async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        await SendAsync(text, dispatchId).ConfigureAwait(false);
+
+        return Task.CompletedTask;
+    }
 
     // Pi's echo of a prompt it was sent is dropped, so the envelope emitted here is the one that carries the dispatch.
     async Task SendAsync(string text, Guid? dispatchId) {

@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Services;
 using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 
@@ -386,8 +387,8 @@ public class ServiceVerifyStartTests {
     const string GatedServerUrl = "https://s.example";
 
     /// <summary>Minimal launchd plist whose <c>&lt;array&gt;</c> (ProgramArguments) and baked
-    /// <c>KCAP_CONSENT_SEED_DEFAULT</c> are exactly what <see cref="LaunchdUnit.BinaryFromPlist"/>/
-    /// <see cref="LaunchdUnit.EnvFromPlist"/> read — real launchd never sees this content, only the
+    /// <c>KCAP_CONSENT_SEED_DEFAULT</c> are exactly what <see cref="LaunchdPrint.Binary"/>/
+    /// <see cref="LaunchdPrint.Environment"/> read — real launchd never sees this content, only the
     /// gate's re-parse of it does. <paramref name="expectServerUrl"/>, when non-null, bakes BOTH
     /// <c>KCAP_URL</c> and <c>KCAP_EXPECT_SERVER_URL</c> with that value — the identity gate now
     /// fails closed on either being absent (spec §3.4(b)), so any test that needs Phase A's identity
@@ -536,7 +537,7 @@ public class ServiceVerifyStartTests {
             Task.FromResult(new HelloProbeResult(true, 1, "1.2.3", "kcap-daemon"));
 
         // A truncated/malformed plist — exactly the foreign-writer race Phase B's own re-check
-        // defends against — makes LaunchdUnit.EnvFromPlist/BinaryFromPlist throw XmlException.
+        // defends against — makes LaunchdPrint.Environment/BinaryFromPlist throw XmlException.
         // That must land as EvidenceUnreadable (28), not escape StartVerifiedAsync to a
         // generic, uncoded exit 1.
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, Hello, Stopped(),
@@ -559,7 +560,7 @@ public class ServiceVerifyStartTests {
             Task.FromResult(new HelloProbeResult(true, 1, "1.2.3", "kcap-daemon"));
 
         // A duplicate EnvironmentVariables key — never written by LaunchdUnit.Plist itself, so
-        // this can only be a foreign/corrupt writer. LaunchdUnit.EnvFromPlist throws
+        // this can only be a foreign/corrupt writer. LaunchdPrint.Environment throws
         // InvalidDataException rather than last-win; that must land as EvidenceUnreadable (28),
         // not escape StartVerifiedAsync to a generic, uncoded exit 1.
         const string duplicateKeyPlist = """

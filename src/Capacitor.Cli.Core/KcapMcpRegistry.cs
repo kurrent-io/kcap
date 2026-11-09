@@ -35,6 +35,7 @@ public static class KcapMcpRegistry {
         // Stored flow definitions may still name the server `kcap-artefacts`.
         ["kcap-artefacts"] = Pages,
         ["kcap-knowledge"] = new("kcap-knowledge", ["mcp", "knowledge"], false),
+        ["kcap-pass"]      = new("kcap-pass",      ["mcp", "pass"],      false),
     };
 
     /// <summary>Every registered id. Exposed so a conformance test can compare this list against the

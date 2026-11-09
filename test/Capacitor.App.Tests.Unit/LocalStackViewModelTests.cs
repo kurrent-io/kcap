@@ -543,6 +543,7 @@ public class LocalStackViewModelTests {
             await h.RunAsync(1, UpgradeScript.Failed(LocalInstallFailureCode.ServerMissing.Wire(), "The local server's files are not installed.", false));
 
             await Assert.That(vm.TryAgainVisible).IsFalse();
+            await Assert.That(vm.Attention).IsTrue().Because("the card and the rail show it as failed, in red");
             await Assert.That(vm.ReinstallVisible).IsTrue();
             await Assert.That(h.Vm.ReinstallVisible).IsFalse().Because("there is no setup to open without the action");
 

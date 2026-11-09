@@ -6,8 +6,10 @@ namespace Capacitor.App.ViewModels;
 /// and never from the live properties: an upload takes time the user can spend re-pointing the
 /// launcher, and a file must reach the machine the composer was aimed at. GoalEdits and
 /// TrayGeneration are what the composer looked like at capture, so a launch only clears what it
-/// actually sent.
+/// actually sent. Goal is what is sent; with a next-work task picked that is the task's line, the typed
+/// text and the server's context, so ComposerGoal and Picked are what a restored draft puts back.
 public sealed record LaunchDraft(
     string Machine, bool Remote, string RepoPath, string Vendor, string Goal, int GoalEdits,
     string Model, string? Effort, string? PermissionMode, CodexLaunchPosture? CodexPosture,
-    IReadOnlyList<StagedAttachment> Files, int TrayGeneration, string? AccountId = null);
+    IReadOnlyList<StagedAttachment> Files, int TrayGeneration, string? AccountId = null,
+    string? ComposerGoal = null, NextWork.NextWorkFill? Picked = null);

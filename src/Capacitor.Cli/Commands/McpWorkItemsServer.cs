@@ -59,7 +59,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, repository.GetHashAsync);
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, () => repository.GetHashAsync(client, baseUrl));
             } catch (Exception ex) {
                 // Unexpected: log the detail to stderr (not to the client, which could leak local
                 // paths from IO errors) and return a generic tool error, keeping the loop alive.

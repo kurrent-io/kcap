@@ -199,7 +199,9 @@ public class UpdateChannelQueryTests : IDisposable {
     }
 
     /// <summary>A well-formed answer that names no version has not failed. Arming the backoff here
-    /// would suppress the next hour of checks over a reply the registry actually gave us.</summary>
+    /// would suppress the next hour of checks over a reply the registry actually gave us. Read off the
+    /// cache file, not the stub's log: WireMock logs a request only once it has built the reply, so a
+    /// fetch an earlier timed-out check abandoned can be logged after the reset.</summary>
     [Test, NotInParallel("UpdateCommand_RegistryBaseUrl")]
     public async Task A_reply_naming_no_version_does_not_arm_the_backoff() {
         const string channel = "test-no-version";
@@ -211,11 +213,11 @@ public class UpdateChannelQueryTests : IDisposable {
         await Assert.That(first.Latest).IsNull();
         await Assert.That(first.FromCache).IsFalse();
 
-        await UpdateCommand.CheckForUpdateAsync(forceCheck: false, channel, Config.Root, Npm, time: TimeProvider.System);
+        var path   = UpdateCommand.CachePathFor(channel, Config.Root);
+        var record = File.Exists(path) ? UpdateCommand.UpdateCacheRecord.Parse(await File.ReadAllTextAsync(path)) : null;
 
-        var hits = _server.FindLogEntries(Request.Create().WithPath($"/@kurrent/kcap/{channel}").UsingGet());
-        await Assert.That(hits.Count).IsEqualTo(2)
-            .Because("a backoff armed on this answer would have skipped the second check");
+        await Assert.That(record?.Failed ?? false).IsFalse()
+            .Because("a backoff record keeps every passive check inside its window off the network");
     }
 
     /// <summary>A body that will not parse is a failure whatever the status line said: no version

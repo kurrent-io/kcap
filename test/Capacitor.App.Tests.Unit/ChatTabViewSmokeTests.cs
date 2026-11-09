@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -230,6 +231,34 @@ public class ChatTabViewSmokeTests {
             await Terminal.TeardownAsync();
         }
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_renders_a_neutral_status_when_its_session_ends() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var path = Tmp.CreateFile("unresolved.jsonl", [ToolCallLine]);
+            await host.LoadAsync(path);
+            var call = OnlyGroup(host).Calls.Single();
+            call.Toggle();
+            host.Settle();
+            var running = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolRunning"));
+            await Assert.That(running.IsEffectivelyVisible).IsTrue();
+
+            host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
+            host.Settle();
+
+            await Assert.That(running.IsEffectivelyVisible).IsFalse();
+            await Assert.That(PulseClock.GetIsActive(running)).IsFalse();
+            var neutral = host.View.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "ToolUnknownStatusPill");
+            await Assert.That(neutral).IsNotNull();
+            await Assert.That(neutral!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(neutral.Background).IsEqualTo((IBrush)host.View.FindResource("KcapMutedBrush")!);
+            var text = host.View.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            await Assert.That(text).Contains("Outcome unknown");
+            await Assert.That(text).Contains("No result was recorded");
+        } finally { await host.CloseAsync(); }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -694,6 +723,41 @@ public class ChatTabViewSmokeTests {
                 await host.AppendAndTickAsync(path, 10);
                 host.Settle();
                 await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drag_from_a_messages_left_margin_selects_text(bool user, bool rowPadding) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var line = user ? UserLine.Replace("hello", "hello world")
+                    : """{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}""";
+                var path = Tmp.CreateFile("margin-selection.jsonl", [line]);
+                await host.LoadAsync(path);
+                var markdown = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.Text == "hello world");
+                PresentAndLocate(host, markdown);
+                var block = MarkdownViewHarness.Paragraphs(markdown).Single();
+                var first = block.TextLayout.HitTestTextPosition(0);
+                var last = block.TextLayout.HitTestTextPosition(10);
+                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
+                var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+                host.Window.MouseUp(end, MouseButton.Left);
+                host.Settle();
+                await Assert.That(markdown.HasSelection).IsTrue();
+                await Assert.That(markdown.IsSelecting).IsFalse();
+                await markdown.CopySelectionAsync();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("hello worl");
             } finally { await host.CloseAsync(); }
         });
     }
@@ -2424,6 +2488,36 @@ public class ChatTabViewSmokeTests {
 
             await Assert.That(host.AtBottom()).IsFalse();
             await Assert.That(host.Scroll.Offset.Y).IsLessThan(start - host.Scroll.Viewport.Height / 2);
+            await host.CloseAsync();
+        });
+    }
+
+    /// Page Up and Page Down typed in the composer page the transcript and leave focus in the
+    /// composer; paging back down to the end resumes following.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Paging_from_the_composer_scrolls_the_transcript() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.LoadAsync(Tmp.CreateFile("page-composer.jsonl", Enumerable.Repeat(UserLine, 60).ToArray()));
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
+            var start = host.Scroll.Offset.Y;
+
+            host.Composer.Focus();
+            Dispatcher.UIThread.RunJobs();
+            host.Press(PhysicalKey.PageUp);
+            host.Settle();
+            host.Settle();
+
+            await Assert.That(host.AtBottom()).IsFalse();
+            await Assert.That(host.Scroll.Offset.Y).IsLessThan(start - host.Scroll.Viewport.Height / 2);
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+
+            host.Press(PhysicalKey.PageDown);
+            host.Settle();
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
             await host.CloseAsync();
         });
     }

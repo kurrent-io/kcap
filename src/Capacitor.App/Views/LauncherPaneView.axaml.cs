@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -53,6 +54,19 @@ public partial class LauncherPaneView : UserControl {
     }
 
     internal bool IsNudgingForTesting => GoalNudgeRing.Classes.Contains("on");
+
+    IDisposable? _fills;
+
+    protected override void OnDataContextChanged(EventArgs e) {
+        base.OnDataContextChanged(e);
+        _fills?.Dispose();
+        _fills = (DataContext as HomeViewModel)?.ComposerFills.Subscribe(_ => Dispatcher.UIThread.Post(Nudge));
+    }
+
+    void OnClearNextWorkSource(object? sender, RoutedEventArgs e) {
+        (DataContext as HomeViewModel)?.ClearNextWorkSource();
+        FocusComposer();
+    }
 
     internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
 
@@ -267,6 +281,35 @@ public partial class LauncherPaneView : UserControl {
 
         await vm.SelectRepositoryAsync(path);
     }
+
+    async void OnRequestRepositoryAccessClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is not HomeViewModel vm ||
+            TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
+        if (sender is Control button) button.IsEnabled = false;
+        try {
+            await vm.RequestRepositoryAccessAsync(async path => {
+                var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions {
+                    Title = "Allow access to " + RepoLabel.Leaf(path),
+                    AllowMultiple = false,
+                    SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(path),
+                });
+                if (folders is not [{ } folder]) return false;
+                using (folder) {
+                    return folder.TryGetLocalPath() is { } selected
+                        && await Task.Run(() => IsSameRepositoryFolder(selected, path));
+                }
+            });
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: request repository access failed: {ex}");
+        } finally {
+            if (sender is Control control) control.IsEnabled = true;
+        }
+    }
+
+    // NSOpenPanel can return /tmp for a repository selected through /private/tmp (or a
+    // resolved target for another symlink). Compare physical folders without changing the draft.
+    internal static bool IsSameRepositoryFolder(string selected, string repository) =>
+        PlatformPaths.Comparer.Equals(CanonicalPath.Resolve(selected), CanonicalPath.Resolve(repository));
 
     void ShowRemotePathEntry(HomeViewModel vm, Control anchor) {
         var input = new TextBox { PlaceholderText = "/path/to/repository", MinWidth = 320 };

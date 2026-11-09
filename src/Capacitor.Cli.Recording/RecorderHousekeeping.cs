@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.Harness.Antigravity;
 using Capacitor.Cli.Recording.Harness.Codex;
 using Capacitor.Cli.Recording.Harness.Gemini;
@@ -60,6 +61,8 @@ public sealed class RecorderHousekeeping(
 
     // The parent is the only process that knows these exist, so its teardown must stop them.
     readonly HashSet<string> _spawnedChildWatcherKeys = new(StringComparer.Ordinal);
+
+    DateTimeOffset _nextWorkspaceDrain = DateTimeOffset.MinValue;
 
     // The end the Muse SessionEnd hook handed over, posted after the final drain in place of the
     // parent-exit synthesis.
@@ -250,6 +253,13 @@ public sealed class RecorderHousekeeping(
             } else {
                 _codexStopNextAttemptAt = time.GetUtcNow() + CodexSubagentScan.CodexSubagentStopRetryInterval;
             }
+        }
+
+        // Codex reads a hook's answer only when its process exits, so its hooks never post a workspace span, and a
+        // session may run no other hook: the session's recorder delivers the workspace spool too.
+        if (agentId is null && time.GetUtcNow() >= _nextWorkspaceDrain) {
+            _nextWorkspaceDrain = time.GetUtcNow() + WorkspaceSpool.DrainThrottle;
+            await host.DrainWorkspaceAsync();
         }
     }
 

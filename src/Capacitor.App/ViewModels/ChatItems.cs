@@ -91,11 +91,13 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     const int PeekLength = 80;
 
     readonly string? _peek;
+    readonly LucideIconKind? _icon;
     bool _isExpanded;
 
-    public SystemNoteItem(string text, string label = NoteLabel) {
+    public SystemNoteItem(string text, string label = NoteLabel, LucideIconKind? icon = null) {
         Text = text;
         Label = label;
+        _icon = icon;
         // A compaction summary restates the whole conversation above it, and a subagent's report
         // can run to pages, so both start folded. A report of one line has nothing to fold.
         if (label is AgentReportLabel or TaskNotificationLabel) {
@@ -116,7 +118,7 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     public bool ShowsBody => _isExpanded && !string.IsNullOrWhiteSpace(Text);
 
     public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
-    public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
+    public LucideIconKind IconKind => _icon ?? ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
     public bool IsExpanded {
@@ -305,6 +307,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
             this.RaisePropertyChanged(nameof(IsError));
             this.RaisePropertyChanged(nameof(IsSettled));
             this.RaisePropertyChanged(nameof(IsRunning));
+            this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
             InvalidateInspection();
         }
     }
@@ -324,12 +327,27 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     bool _isAwaitingPermission;
     /// Owned by the permission cache, not the transcript: the two arrive in either order.
     public bool IsAwaitingPermission {
-        get => _isAwaitingPermission;
+        get => _isAwaitingPermission && !_sessionOver;
         set {
             if (_isAwaitingPermission == value) return;
             _isAwaitingPermission = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsRunning));
+            InvalidateInspection();
+        }
+    }
+
+    bool _sessionOver;
+    /// The session's end changes presentation, not the recorded outcome. An absent result
+    /// stays pending so a late transcript result can still settle this same row.
+    internal bool SessionOver {
+        get => _sessionOver;
+        set {
+            if (_sessionOver == value) return;
+            _sessionOver = value;
+            this.RaisePropertyChanged(nameof(IsRunning));
+            this.RaisePropertyChanged(nameof(IsAwaitingPermission));
+            this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
             InvalidateInspection();
         }
     }
@@ -359,7 +377,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     ToolInspection? _inspection;
     /// Built only while the row is open, from what the item holds at that moment.
     public ToolInspection? Inspection =>
-        _isExpanded ? _inspection ??= ToolInspection.Build(Name, InputJson, _result, _outcome, _isAwaitingPermission) : null;
+        _isExpanded ? _inspection ??= ToolInspection.Build(Name, InputJson, _result, _outcome, IsAwaitingPermission, _sessionOver) : null;
 
     void InvalidateInspection() {
         if (!_isExpanded && _inspection is null) return;
@@ -369,9 +387,10 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
 
     public bool IsSettled => _outcome != ToolOutcome.Running;
     public bool IsError => _outcome == ToolOutcome.Error;
+    public bool IsOutcomeUnknown => _sessionOver && !IsSettled;
     /// True while the call is in flight and not waiting on a permission prompt — drives the
     /// pulsing status pill so a live row is never blank.
-    public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission;
+    public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission && !_sessionOver;
 
     string? _previewPath;
     public string? PreviewPath {

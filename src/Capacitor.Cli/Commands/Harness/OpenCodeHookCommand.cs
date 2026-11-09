@@ -7,6 +7,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -140,6 +142,8 @@ sealed class OpenCodeHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Scope root: the git root stamped onto `forwarded` above when one was found, else the payload
         // cwd. Read back from `enriched` so the fallback matches exactly what the server received.
