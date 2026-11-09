@@ -52,7 +52,9 @@ public sealed record AppState(
     IReadOnlyDictionary<string, string>? BaseRefByRepo = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? BaseRefByRemoteRepo = null,
     // A setup attempt is unverified until its command and recording check both succeed.
-    IReadOnlyList<string>? UnverifiedHarnessSetups = null);
+    IReadOnlyList<string>? UnverifiedHarnessSetups = null,
+    // Server URL -> the next-work target keys the launcher's band last showed, so a row can say it is new.
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

@@ -407,6 +407,63 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// The usage-data disclosure, shown on the launcher until it is acknowledged.
     public UsageDataNotice? UsageNotice { get; init; }
 
+    /// The web Home's "What to do next" band under the composer; null without a server.
+    public NextWork.NextWorkBandViewModel? NextWork { get; init; }
+
+    NextWork.NextWorkFill? _nextWorkSource;
+    readonly System.Reactive.Subjects.Subject<Unit> _composerFills = new();
+
+    /// The next-work task picked for the next launch, named on the chip above the goal; null once it is cleared or
+    /// launched. While one is picked the composer is for anything to add to it, and may stay empty.
+    public NextWork.NextWorkFill? NextWorkSource {
+        get => _nextWorkSource;
+        private set {
+            if (ReferenceEquals(_nextWorkSource, value)) return;
+            this.RaiseAndSetIfChanged(ref _nextWorkSource, value);
+            this.RaisePropertyChanged(nameof(GoalPlaceholder));
+            NextWork?.MarkFilled(value?.Key);
+        }
+    }
+
+    public const string DefaultGoalPlaceholder = "What should we build? Type a goal or paste an issue, PR, or work-item URL…";
+
+    /// The chip names the picked task, so the placeholder does not again.
+    public string GoalPlaceholder => NextWorkSource is not null ? PickedGoalPlaceholder : DefaultGoalPlaceholder;
+
+    public const string PickedGoalPlaceholder = "Add context or requests for this task (optional)…";
+
+    public const string PickTaskRepository = "Pick this task's repository before you start: no checkout of it is known on your machines.";
+
+    /// Raised after a band row filled the composer, so the view can draw the eye to it.
+    public IObservable<Unit> ComposerFills => _composerFills;
+
+    /// With a task picked: its line, then whatever the composer adds, then the context the server wrote for it. The
+    /// task's line comes first, so it names the session. Without one, the goal as typed.
+    string GoalToSend() {
+        if (NextWorkSource is not { } picked) return Goal;
+        string?[] parts = [picked.Goal, Goal.Trim(), picked.Context];
+        return string.Join("\n\n", parts.Where(p => p is { Length: > 0 }));
+    }
+
+    /// Drops the picked task; what the composer holds stays.
+    public void ClearNextWorkSource() => NextWorkSource = null;
+
+    /// Picks a next-work task for the next launch, on the machine and in the checkout it names when it names one. The
+    /// composer keeps what it holds, as context for the task.
+    public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
+        bool OnTasksMachine() => fill.Machine is not { } want
+            || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
+        if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
+        // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
+        // path names nothing: the task waits for its checkout instead.
+        if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
+        if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
+        // A repository already chosen for something else is not this task's: left selected, Start would run it there.
+        else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
+        NextWorkSource = fill;
+        _composerFills.OnNext(Unit.Default);
+    }
+
     readonly ObservableAsPropertyHelper<bool> _bannerBusy;
     /// True while the banner is an in-flight connect/finish line — a loader, not Sign in.
     public bool BannerBusy => _bannerBusy.Value;
@@ -1390,6 +1447,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     public void Dispose() {
         _disposed = true;
         _disposables.Dispose();
+        NextWork?.Dispose();
+        _composerFills.Dispose();
         Notices.Dispose();
         _daemonStartMessageFeed.Dispose();
         _daemonStartVisibleFeed.Dispose();
@@ -1867,12 +1926,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// When nothing is selected, adopt the most recently used known repository (then a remembered
     /// harness key, then an agent root). No-op when a selection already exists or nothing is known,
-    /// and for a remote machine, which these local paths do not describe.
+    /// for a remote machine, which these local paths do not describe, and while a picked task waits
+    /// for its own checkout: the empty selection is how Start knows to refuse, not a gap to fill.
     public async Task EnsureDefaultRepositoryAsync() {
-        if (SelectedRepoPath.Length > 0 || RemoteMachineSelected) return;
+        bool Settled() => SelectedRepoPath.Length > 0 || RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
+        if (Settled()) return;
         if (await PreferRecentRepositoryAsync() is not { Length: > 0 } recent) return;
         // PreferRecent can await file I/O — a pick or a machine switch made while that ran must win.
-        if (SelectedRepoPath.Length > 0 || RemoteMachineSelected) return;
+        if (Settled()) return;
         await SelectRepositoryAsync(recent);
     }
 
@@ -2083,12 +2144,18 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
+        var picked = NextWorkSource;
+        if (picked is { AwaitsCheckout: true } && string.IsNullOrEmpty(SelectedRepoPath)) {
+            StartError = PickTaskRepository;
+            return;
+        }
         var draft = new LaunchDraft(
-            SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, Goal, _goalEdits,
+            SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, GoalToSend(), _goalEdits,
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
             CodexPostureFor(SelectedVendor, SelectedCodexSandbox, SelectedCodexApproval),
             Tray.Snapshot(), Tray.Generation, SelectedBaseRef,
-            _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null);
+            _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null,
+            ComposerGoal: Goal, Picked: picked);
         var accountLabel = _accountChooser.SelectedLabel;
 
         if (draft.Files.Count > 0 && !CanAttachFor(draft)) {
@@ -2168,7 +2235,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
         var request = new LaunchRequest(
             draft.Machine, draft.RepoPath, draft.Vendor, draft.Goal, draft.Model, draft.Effort,
-            draft.PermissionMode, attachmentIds, draft.CodexPosture, BaseRef: draft.BaseRef, AccountId: draft.AccountId);
+            draft.PermissionMode, attachmentIds, draft.CodexPosture, BaseRef: draft.BaseRef, AccountId: draft.AccountId,
+            NextWorkTargetKey: picked is { IsLaunchTarget: true } ? picked.Key : null);
         // Captured BEFORE the call, never after: the whole point is to notice a navigation that
         // changed WHILE the launch was in flight.
         var generation = _navigationGeneration?.Invoke() ?? 0;
@@ -2191,6 +2259,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // typed into since, and chips staged since, belong to the next one.
         var clearedGoal = _goalEdits == draft.GoalEdits;
         if (clearedGoal) Goal = "";
+        if (picked is not null && ReferenceEquals(NextWorkSource, picked)) NextWorkSource = null;
         var trayUntouched = Tray.Generation == draft.TrayGeneration;
         Tray.RemoveAll([.. draft.Files.Select(f => f.Id)]);
         var clearedTray = trayUntouched && Tray.Count == 0;
@@ -2379,7 +2448,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         }
 
         if (retained is not null && IsRestorable(retained)) {
-            Goal = retained.Draft.Goal;
+            // What the person typed, and the task it was for: never the composed text the agent was sent.
+            Goal = retained.Draft.ComposerGoal ?? retained.Draft.Goal;
+            if (retained.Draft.Picked is { } picked) NextWorkSource = picked;
             Tray.Restore(retained.Draft.Files);
             StartError = friendly + " — your draft is back";
             return;
@@ -2393,8 +2464,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         && string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
         && RemoteMachineSelected == remote;
 
+    /// A task picked since the launch is part of the composer too: restoring would put the failed launch's task back over it.
     bool IsRestorable(RetainedDraft retained) =>
-        retained.ClearedGoal && _goalEdits == retained.GoalEditsAfterClear
+        NextWorkSource is null
+        && retained.ClearedGoal && _goalEdits == retained.GoalEditsAfterClear
         && retained.ClearedTray && Tray.Generation == retained.TrayGenerationAfterClear
         && retained.Draft.Machine == SelectedMachine
         && retained.Draft.Remote == RemoteMachineSelected

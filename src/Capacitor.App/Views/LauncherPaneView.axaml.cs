@@ -56,6 +56,19 @@ public partial class LauncherPaneView : UserControl {
 
     internal bool IsNudgingForTesting => GoalNudgeRing.Classes.Contains("on");
 
+    IDisposable? _fills;
+
+    protected override void OnDataContextChanged(EventArgs e) {
+        base.OnDataContextChanged(e);
+        _fills?.Dispose();
+        _fills = (DataContext as HomeViewModel)?.ComposerFills.Subscribe(_ => Dispatcher.UIThread.Post(Nudge));
+    }
+
+    void OnClearNextWorkSource(object? sender, RoutedEventArgs e) {
+        (DataContext as HomeViewModel)?.ClearNextWorkSource();
+        FocusComposer();
+    }
+
     internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
 
     internal Flyout? OpenMenuForTesting => _openMenu;

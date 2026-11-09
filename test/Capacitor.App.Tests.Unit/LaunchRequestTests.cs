@@ -173,6 +173,14 @@ public class LaunchRequestTests {
     }
 
     [Test]
+    public async Task A_picked_next_work_task_carries_its_target_block_snake_case() {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", NextWorkTargetKey: "le:abc"));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo([.. TwelveKeys, "next_work"]);
+        await Assert.That(json.GetProperty("next_work").GetRawText()).IsEqualTo("""{"target_key":"le:abc"}""");
+    }
+
+    [Test]
     public async Task A_blank_account_id_is_sent_as_no_key() {
         var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", AccountId: "  "));
         var keys = json.EnumerateObject().Select(p => p.Name).ToArray();
