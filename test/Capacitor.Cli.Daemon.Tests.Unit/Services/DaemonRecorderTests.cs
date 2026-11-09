@@ -316,6 +316,35 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load()).IsEmpty();
     }
 
+    /// <summary>A take reads the claim and writes it under the key's spawn lock, so a release reads and deletes under it
+    /// too: otherwise the claim it deletes can be one another daemon has just taken.</summary>
+    [Test]
+    public async Task A_release_waits_out_a_take_in_progress_and_leaves_what_it_took() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        await using var taking = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+
+        await using var recorder = NewRecorder(time: time);
+        var restore = recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo(Name);
+
+        var later = new FakeTimeProvider(DateTimeOffset.UtcNow + RecorderClaims.Grace * 2);
+        await Assert.That(new RecorderClaims(Paths.Directory, later).TryTake(source.Key, "another-daemon", isHosted: true)).IsTrue();
+        await taking.DisposeAsync();
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromMilliseconds(50));
+
+            return restore.IsCompleted;
+        });
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("another-daemon");
+    }
+
     [Test]
     public async Task A_restart_under_a_profile_that_scopes_capture_keeps_another_daemons_claim() {
         var source = Source(Transcript(Prompt));

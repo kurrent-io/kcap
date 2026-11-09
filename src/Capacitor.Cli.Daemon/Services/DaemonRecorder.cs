@@ -452,10 +452,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         try {
             await _liveness.WithSpawnLock(key, () => {
-                // Any live pid, a wedged one's too: a claim would stop a hook from reaping it, and it could still send.
+                // Any live pid, a wedged one's too: a claim would stop a hook from reaping it or stopping it, and it could
+                // still send. One this daemon left from before goes here, while nothing can take the key in between.
                 outcome = _liveness.PidAlive(key) ? ClaimOutcome.HeldByWatcher
                     : _claims.TryTake(key, _config.Name, isHosted: true) ? ClaimOutcome.Taken
                     : ClaimOutcome.Contended;
+
+                if (outcome is ClaimOutcome.HeldByWatcher) _claims.ReleaseIfHeldBy(key, _config.Name);
 
                 return Task.CompletedTask;
             });
@@ -474,12 +477,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.ContainsKey(source.Key)) return;
 
         if (IsDisabled(source)) {
-            ForgetDisabled(source);
+            await ForgetDisabledAsync(source, ct);
 
             return;
         }
 
-        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        await LetGoOfOwnClaimAsync(source.Key, ct);
 
         if (scope.Readable) _letGo.Enqueue((source, scope.MayImport(source.Cwd)));
         else LogScopeUnreadable(source.Key);
@@ -492,7 +495,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.ContainsKey(source.Key)) return;
 
         if (IsDisabled(source)) {
-            ForgetDisabled(source);
+            await ForgetDisabledAsync(source, CancellationToken.None);
 
             return;
         }
@@ -503,12 +506,36 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     // Nothing of it is left to pick up: no mark, which would ask for what the person deleted to be sent again.
-    void ForgetDisabled(RecordedSource source) {
+    async Task ForgetDisabledAsync(RecordedSource source, CancellationToken ct) {
         LogDisabled(source.Key);
 
-        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        await LetGoOfOwnClaimAsync(source.Key, ct);
         _list.Remove(source.Key);
         DiscardSpool(source.SessionId);
+    }
+
+    // Read and deleted under the spawn lock a take holds, or the claim deleted can be one another daemon has just taken.
+    // A lock still held after the retries leaves the claim: nothing here beats it, so it goes stale and a hook takes it.
+    async Task LetGoOfOwnClaimAsync(string key, CancellationToken ct) {
+        for (var attempt = 1; attempt <= TakeAttempts; attempt++) {
+            var locked = false;
+
+            try {
+                await _liveness.WithSpawnLock(key, () => {
+                    locked = true;
+                    _claims.ReleaseIfHeldBy(key, _config.Name);
+
+                    return Task.CompletedTask;
+                });
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                LogClaimFailed(ex, key);
+
+                return;
+            }
+
+            if (locked) return;
+            if (attempt < TakeAttempts) await Task.Delay(TakeRetryGap, _time, ct);
+        }
     }
 
     bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabledByPerson(source.SessionId, _config.ConfigRoot);
@@ -554,7 +581,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             var outcome = await TakeOnceAsync(source);
 
             if (outcome is ClaimOutcome.Disabled) {
-                ForgetDisabled(source);
+                await ForgetDisabledAsync(source, ct);
 
                 return;
             }
@@ -572,9 +599,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             if (outcome is ClaimOutcome.HeldByWatcher || _time.GetElapsedTime(started) >= RestoreWindow) {
                 LogNotRestored(source.Key, outcome);
 
-                // A claim left beside a live watcher would keep every hook from stopping it, and with no entry nothing
-                // would beat it.
-                _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+                // With no entry nothing would beat it.
+                await LetGoOfOwnClaimAsync(source.Key, ct);
                 _list.Remove(source.Key);
 
                 return;
@@ -653,7 +679,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             // that knows none, the marker is all a recorder heard, and what the frame would have cleared is still here.
             if (tracked.Disabled || IsDisabled(tracked.Source)) {
                 Silence(tracked.Source.SessionId);
-                ForgetDisabled(tracked.Source);
+                await ForgetDisabledAsync(tracked.Source, CancellationToken.None);
             }
 
             if (lostClaim) {
