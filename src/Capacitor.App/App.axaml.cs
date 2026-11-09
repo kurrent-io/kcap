@@ -2328,6 +2328,7 @@ public partial class App : Application {
             modelCatalog: modelCatalog, uploader: uploader, appServerUrl: appServerUrl,
             listing: remoteAgents?.Listing, daemonAccounts: remoteAgents?.DaemonAccounts, localAccounts: localAccounts,
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
+            branches: new GitBranchReader(new ProcessRunner(time), time),
             launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);

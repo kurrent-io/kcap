@@ -11,5 +11,5 @@ namespace Capacitor.App.ViewModels;
 public sealed record LaunchDraft(
     string Machine, bool Remote, string RepoPath, string Vendor, string Goal, int GoalEdits,
     string Model, string? Effort, string? PermissionMode, CodexLaunchPosture? CodexPosture,
-    IReadOnlyList<StagedAttachment> Files, int TrayGeneration, string? AccountId = null,
+    IReadOnlyList<StagedAttachment> Files, int TrayGeneration, string? BaseRef = null, string? AccountId = null,
     string? ComposerGoal = null, NextWork.NextWorkFill? Picked = null);
