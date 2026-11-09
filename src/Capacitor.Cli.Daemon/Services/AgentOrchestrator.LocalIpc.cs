@@ -543,7 +543,8 @@ internal partial class AgentOrchestrator {
     /// private agent — a composer typing at its own local agent would otherwise be acked for a stop
     /// that never happened.</summary>
     async Task<SendTextAckDto> AnswerSendTextCoreAsync(string agentId, string text, string[]? attachmentIds) {
-        if (string.IsNullOrWhiteSpace(text)) return Refuse(SendTextReasons.TextEmpty, "text is empty");
+        if (string.IsNullOrWhiteSpace(text) && attachmentIds is not { Length: > 0 })
+            return Refuse(SendTextReasons.TextEmpty, "text is empty");
         if (Encoding.UTF8.GetByteCount(text) > InputWire.MaxTextBytes)
             return Refuse(SendTextReasons.TooLarge, $"text exceeds {InputWire.MaxTextBytes} bytes");
         if (!_agents.TryGetValue(agentId, out var agent)) return Refuse(SendTextReasons.NoSuchAgent, $"no agent {agentId}");

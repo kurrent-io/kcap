@@ -133,6 +133,32 @@ public class ChatAttachmentsTests {
         });
     }
 
+    /// Staged files are enough to send: the button opens without text and closes again once the
+    /// tray is empty.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Send_opens_for_staged_files_with_no_text() {
+        await RunOnUiAsync(async () => {
+            var h = Hosted();
+            await RunningAsync(h);
+            await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+
+            var send = h.Begin("", "a.png");
+            h.Release(new UploadOutcome(UploadKind.Uploaded, ["A"], null));
+            await WaitUntilAsync(() => h.Input.Sends.Count == 1, what: "the files-only send");
+
+            await Assert.That(h.Input.Sends.Single().Text).IsEqualTo("");
+            await Assert.That(h.Input.Sends.Single().Ids).IsEquivalentTo(new[] { "A" });
+
+            h.Input.Pending!.SetResult(ChatSendOutcome.Accepted);
+            await send;
+
+            await Assert.That(h.Chat.Tray.HasAttachments).IsFalse();
+            await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
     /// Pins the code block's gate against the upload window: the channel still reports it can take
     /// text there, because the send has not reached it, and a second send over the same tray would
     /// leave one of the two prompts refused with the other holding the chips.
