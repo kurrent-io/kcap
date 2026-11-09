@@ -26,6 +26,7 @@ public class TranscriptImportLedgerTests {
 
         var confirming = ledger.ConfirmAsync(http, time, CancellationToken.None);
         await handler.Stalling.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await WaitUntilSavedAsync(ledger, Late);
         time.Advance(TimeSpan.FromSeconds(30));
         await confirming.WaitAsync(TimeSpan.FromSeconds(10));
 
@@ -33,6 +34,16 @@ public class TranscriptImportLedgerTests {
         var saved = TranscriptImportLedger.Load(Config.Root);
         await Assert.That(saved.ResumeFrom(Server, Late, 3)).IsEqualTo(6);
         await Assert.That(saved.ResumeFrom(Server, Stalled, 3)).IsNull();
+    }
+
+    /// <summary>The budget cancels a probe still reading its answer, so time may only move once the mark is taken.</summary>
+    async Task WaitUntilSavedAsync(TranscriptImportLedger ledger, string sessionId) {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true) {
+            ledger.Save();
+            if (TranscriptImportLedger.Load(Config.Root).ResumeFrom(Server, sessionId, 3) is not null) return;
+            await Task.Delay(10, deadline.Token);
+        }
     }
 
     sealed class HidingThenStallingHandler : HttpMessageHandler {
