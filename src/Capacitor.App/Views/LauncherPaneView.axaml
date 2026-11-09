@@ -78,7 +78,7 @@
                     AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <views:AppIcon Classes="noticeIcon" Classes.kcapSpinning="{Binding Running}" Size="16"
-                                   Kind="{Binding Icon}" Foreground="{StaticResource KcapMutedBrush}" />
+                                   Kind="{Binding Icon}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Top" />
                     <StackPanel Grid.Column="1" Spacing="4">
                         <!-- Every state measures against the longest headline at the current width and font size. -->
                         <Panel>
