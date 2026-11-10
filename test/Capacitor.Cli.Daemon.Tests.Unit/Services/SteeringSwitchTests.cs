@@ -234,6 +234,31 @@ public class SteeringSwitchTests {
         await steering.StopAsync(CancellationToken.None);
     }
 
+    /// <summary>A rebind can fail, here on a directory standing where the socket goes, and the endpoint is then unbound.
+    /// The switch is still on, so the next round tries again.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_rebind_that_fails_is_tried_again_while_the_switch_is_on() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var socket = Daemons.Store.SteeringSocketPath(Name);
+        await using var endpoint = Endpoint();
+        using var steering = new SteeringSwitch(Consent(), endpoint, offered: true, time: time);
+        await steering.StartAsync(CancellationToken.None);
+        await AskAsync(steering, SteeringIpc.On);
+
+        File.Delete(socket);
+        Directory.CreateDirectory(socket);
+        time.Advance(SteeringSwitch.RebindInterval);
+        await Assert.That(endpoint.IsBound).IsFalse();
+
+        Directory.Delete(socket);
+        time.Advance(SteeringSwitch.RebindInterval);
+
+        await Assert.That(endpoint.IsBound).IsTrue();
+        await Assert.That(File.Exists(socket)).IsTrue();
+        await steering.StopAsync(CancellationToken.None);
+    }
+
     /// <summary>Switching off waits for requests already on the socket, and one of them can be a poll whose handover the
     /// server answers meanwhile, too late for the answer to be written. The attachments end first, so that handover finds
     /// its attachment gone and is reported back at once, rather than recorded as the mod's when no mod has it.</summary>

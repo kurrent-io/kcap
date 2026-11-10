@@ -23,6 +23,10 @@ internal sealed class SteeringSwitch(
     readonly bool _offered = offered ?? SteeringIpc.Offered;
     ITimer? _rebind;
 
+    // Whether the socket has bound since the switch came on; read and written in the lane. The endpoint's IsBound can't
+    // stand in for it: a rebind that fails leaves the endpoint unbound, and the next round would skip it.
+    bool _served;
+
     /// <summary>Binds the socket when the switch was left on. One that won't bind stays on, and the next
     /// <see cref="SteeringIpc.On"/> tries again.</summary>
     public async Task StartAsync(CancellationToken ct) {
@@ -31,7 +35,7 @@ internal sealed class SteeringSwitch(
         await _lane.WaitAsync(ct);
 
         try {
-            if (store.SteeringOn) endpoint.TryBind(out _);
+            if (store.SteeringOn) _served = endpoint.TryBind(out _);
         } finally {
             _lane.Release();
         }
@@ -45,7 +49,7 @@ internal sealed class SteeringSwitch(
             if (!_lane.Wait(0)) return;
 
             try {
-                if (store.SteeringOn && endpoint.IsBound) endpoint.TryBind(out _);
+                if (store.SteeringOn && _served) endpoint.TryBind(out _);
             } catch {
                 // The next round tries again.
             } finally {
@@ -94,6 +98,8 @@ internal sealed class SteeringSwitch(
 
                     return Refused(SteeringIpc.Unwritable, unwritable);
                 }
+
+                _served = true;
             } else {
                 if (!store.TrySetSteering(false, out var unwritable)) return Refused(SteeringIpc.Unwritable, unwritable);
 
@@ -101,6 +107,7 @@ internal sealed class SteeringSwitch(
                 // attachment gone, and is reported back rather than given to a mod.
                 attachments?.EndAll();
                 await endpoint.UnbindAsync();
+                _served = false;
             }
 
             return new(true, null, State);
