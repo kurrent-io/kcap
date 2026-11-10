@@ -875,8 +875,8 @@ internal partial class AgentOrchestrator {
     IEnumerable<string> ClaudeHomes() {
         yield return ClaudePathsFor(null).Home;
 
-        foreach (var account in _config.Accounts?.TryLoad()?.Accounts ?? [])
-            if (account.Vendor == HarnessId.Claude) yield return AccountLayouts.Claude(_config.Home, account.Directory).Home;
+        foreach (var account in (_config.Accounts?.TryLoad()?.Accounts ?? []).Where(registered => registered.Vendor == HarnessId.Claude))
+            yield return AccountLayouts.Claude(_config.Home, account.Directory).Home;
     }
 
     static bool SameDirectory(string hook, string own) =>

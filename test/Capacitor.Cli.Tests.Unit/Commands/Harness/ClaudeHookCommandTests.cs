@@ -232,11 +232,10 @@ public class ClaudeHookCommandTests {
             new LocalDaemonRecording(daemons.Store, HostedAgent.Terminal, daemonName: null,
                 new TerminalHandOff("daemon-a", "default", "http://127.0.0.1:1", Config.Root.Directory, paths.Directory, _ => Home.Path, _ => new ProcessIncarnation(4242, "test:claude")), time),
             HostedAgent.Terminal);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","transcript_path":"/t/{{Sid}}.jsonl","cwd":"/tmp"}""");
 
         var exit = await new ClaudeHookCommand(Config.Root, profiles, clock, Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-            .HandleWithDeps(fx.Spool, new StringReader(
-                $$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","transcript_path":"/t/{{Sid}}.jsonl","cwd":"/tmp"}"""),
-                () => Task.FromException<AuthAttempt>(new HttpRequestException("auth is down")))
+            .HandleWithDeps(fx.Spool, input, () => Task.FromException<AuthAttempt>(new HttpRequestException("auth is down")))
             .WithinDeadlineAsync("the degraded arm");
 
         await Assert.That(exit).IsEqualTo(0);
@@ -397,11 +396,10 @@ public class ClaudeHookCommandTests {
         using var fx = new Fixture(Config.Root);
         SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
         SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
 
         var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => Claude)
-            .HandleWithDeps(fx.Spool, new StringReader(
-                $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}"""),
-                () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+            .HandleWithDeps(fx.Spool, input, () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(fx.SpoolFiles).IsEmpty();

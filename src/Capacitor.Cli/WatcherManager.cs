@@ -428,8 +428,7 @@ public sealed partial class WatcherManager(
 
         var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
 
-        if (_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key))
-            if (!SessionEndRecord.Exists(paths, sessionId, process)) return true;
+        if ((_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key)) && !SessionEndRecord.Exists(paths, sessionId, process)) return true;
 
         return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow()) is SessionEndTurn.Yours;
     }
