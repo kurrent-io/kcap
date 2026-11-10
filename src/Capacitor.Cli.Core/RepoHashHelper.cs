@@ -15,7 +15,8 @@ public static partial class RepoHashHelper {
     /// <summary>Accepts the two shapes a caller may name a repo by: <c>owner/name</c>, split on the
     /// last slash so a nested-group owner (e.g. GitLab subgroups) keeps its own slashes, hashed here,
     /// or a 16-character lowercase hex hash, passed through. Uppercase hex is rejected rather than
-    /// folded so a hash copied from the wrong place fails loudly.</summary>
+    /// folded so a hash copied from the wrong place fails loudly. A repository with no remote is
+    /// rejected by name: it is stored under an owner the server binds, which only the server can hash.</summary>
     public static bool TryParseRepoRef(string value, out string repoHash) {
         repoHash = "";
 
@@ -36,12 +37,15 @@ public static partial class RepoHashHelper {
         var owner = value[..lastSlash];
         var name  = value[(lastSlash + 1)..];
 
-        if (owner.Split('/').Any(segment => segment.Length == 0)) return false;
+        if (owner.Split('/').Any(segment => segment.Length == 0) || LocalRepository.IsLocal(owner)) return false;
 
         repoHash = ComputeRepoHash(owner, name);
 
         return true;
     }
+
+    /// <summary>Whether <paramref name="value"/> has the shape every repository hash has, 16 lowercase hex characters.</summary>
+    public static bool IsRepoHash(string? value) => value is not null && Hash().IsMatch(value);
 
     [GeneratedRegex("^[0-9a-f]{16}$")]
     private static partial Regex Hash();

@@ -34,6 +34,7 @@ public sealed record LifecyclePrompt(
     public const string KindReloadService = "reload-service";
     public const string KindRename        = "rename";
     public const string KindRemoveProfile = "remove-profile";
+    public const string KindRemoveSharedInstall = "remove-shared-install";
     public const string KindSetup         = "setup";
     public const string KindUninstall     = "uninstall";
     public const string KindWindowsService       = "windows-service";

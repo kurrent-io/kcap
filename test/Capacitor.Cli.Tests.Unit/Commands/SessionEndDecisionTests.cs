@@ -35,4 +35,14 @@ public class SessionEndDecisionTests {
 
         await Assert.That(decision).IsEqualTo(WatchCommand.SessionEndAction.RunsOnElsewhere);
     }
+
+    [Test]
+    [Arguments("parent_exited", null, false, true)]
+    [Arguments("idle_timeout", null, false, true)]
+    [Arguments("parent_exited", "agent-1", false, false)]
+    [Arguments(null, null, false, false)]
+    [Arguments("idle_timeout", null, true, false)]
+    public async Task The_watcher_ends_its_session_whatever_the_session_holds(string? endReason, string? agentId, bool cursorSuppresses, bool expected) {
+        await Assert.That(WatchCommand.PostsOwnSessionEnd(endReason, agentId, cursorSuppresses)).IsEqualTo(expected);
+    }
 }

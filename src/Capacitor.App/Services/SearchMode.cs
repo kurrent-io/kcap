@@ -1,6 +1,7 @@
 namespace Capacitor.App.Services;
 
-public enum SearchMode { Sessions, Transcripts }
+/// Sidebar never reaches the wire: it matches the titles of the rows the rail already holds.
+public enum SearchMode { Sessions, Transcripts, Sidebar }
 
 public static class SearchModeExtensions {
     public static string ToWire(this SearchMode mode) => mode switch {

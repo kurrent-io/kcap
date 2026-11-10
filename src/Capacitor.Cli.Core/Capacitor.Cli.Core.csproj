@@ -13,6 +13,7 @@
         <InternalsVisibleTo Include="kcap-daemon" />
         <InternalsVisibleTo Include="Capacitor.Cli.Tests.Unit" />
         <InternalsVisibleTo Include="Capacitor.Cli.Core.Tests.Unit" />
+        <InternalsVisibleTo Include="Capacitor.Cli.Recording.Tests.Unit" />
         <InternalsVisibleTo Include="Capacitor.Cli.Daemon.Tests.Unit" />
         <InternalsVisibleTo Include="Capacitor.Cli.Tests.Integration" />
         <InternalsVisibleTo Include="Capacitor.App.Tests.Unit" />

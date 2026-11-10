@@ -18,8 +18,7 @@ namespace Capacitor.Cli;
 internal static class DisabledSessions {
     static string GetDisabledDir(ConfigRoot config) => config.Path("disabled");
 
-    internal static bool IsDisabled(string sessionId, ConfigRoot config) =>
-        File.Exists(Path.Combine(GetDisabledDir(config), sessionId));
+    internal static bool IsDisabled(string sessionId, ConfigRoot config) => DisabledSessionMarker.IsSet(config, sessionId);
 
     internal static void Mark(string sessionId, ConfigRoot config) {
         var dir = GetDisabledDir(config);

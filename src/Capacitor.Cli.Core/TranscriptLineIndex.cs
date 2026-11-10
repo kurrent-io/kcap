@@ -12,7 +12,7 @@ namespace Capacitor.Cli.Core;
 /// unnoticed, which the line cursor already relies on never happening — a transcript is appended
 /// to, never edited. One reader at a time.
 /// </remarks>
-sealed class TranscriptLineIndex {
+public sealed class TranscriptLineIndex {
     const int TailLength = 4096;
 
     // _starts[i] is where line i starts; the last entry is the end of the last indexed line.

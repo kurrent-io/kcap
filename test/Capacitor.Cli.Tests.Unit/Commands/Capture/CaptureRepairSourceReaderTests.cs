@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands.Capture;
 using Capacitor.Cli.Commands.Capture.Wire;
 

@@ -9,7 +9,7 @@ using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 
@@ -54,7 +54,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(), machineId);
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl), machineId);
             } catch (Exception ex) {
                 // Unexpected: log the detail to stderr (not to the client, which could leak local
                 // paths from IO errors) and return a generic tool error, keeping the loop alive.

@@ -1,10 +1,11 @@
+using Capacitor.Cli.Recording;
 using System.Collections.Frozen;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;

@@ -4,6 +4,7 @@ using System.Collections.Frozen;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -16,6 +17,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
@@ -24,6 +26,7 @@ using Capacitor.App.Services.Update;
 using Capacitor.App.Services.Voice;
 using Capacitor.Cli.Core.Install;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
 using ReactiveUI.Reactive;
 using Capacitor.App.Views;
@@ -182,6 +185,13 @@ public partial class App : Application {
     ShimOfferCoordinator? _shimOffer;
     // The wizard's PATH link, which can outlive the wizard; the shim offer waits on it.
     Task<string?> _wizardPathLink = Task.FromResult<string?>(null);
+    // Built before the graph, whose shim offer waits for its first look.
+    CliAdoptionCoordinator? _adoption;
+    // The daemon the takeover moves onto the bundle, once the graph has one.
+    AdoptionDaemon? _adoptionDaemon;
+    ILifecycleSurface? _lifecycleSurface;
+    // The main window's notifier while that window is on screen; the takeover's notices wait for it.
+    readonly BehaviorSubject<IAppNotifier?> _noticeWindow = new(null);
     // No disposal needed — its Status subscription dies with _service's own subject disposal below.
     ConsentFlipCoordinator? _consentFlip;
     // Inert outside a packed bundle (CreateUpdater degrades a construction failure the same way);
@@ -401,6 +411,7 @@ public partial class App : Application {
                 _ => new OneShotObservation(_daemonStore, _time, OneShotProbeTimeout),
                 _time);
             _lane = lane;
+            _adoption = BuildCliAdoption(lane, laneRunner, laneProbe);
 
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
             await RunWizardThenBuildGraphAsync(
@@ -408,9 +419,11 @@ public partial class App : Application {
                 (current, currentProfiles) => RunWizardModeAsync(desktop, lane, channel, laneRunner, laneProbe, currentProfiles,
                     alreadyAuthenticated: current is GateResult.Complete),
                 () => ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token),
-                (current, currentProfiles, laneQuiesced) => BuildDaemonGraph(desktop, lane, channel, current, currentProfiles, laneQuiesced),
+                (current, currentProfiles, laneQuiesced) => BuildDaemonGraph(desktop, lane, channel, laneProbe, current, currentProfiles, laneQuiesced),
                 () => LocalSetupState.Pending(_localRoot), _shutdown.Token, () => LocalSetupCannotRetry(_localInstall));
 
+            // After the wizard, so a service it installs is already the app's; off the UI thread.
+            _adoption?.Start(_wizardPathLink);
             // Integration repair must not delay the main window or prevent access to the app.
             if (OperatingSystem.IsMacOS() && !_shutdown.IsCancellationRequested) {
                 // Let Loaded attach the notification overlay before an immediate repair failure.
@@ -448,7 +461,8 @@ public partial class App : Application {
                 desktop, ex, _service, _shutdown,
                 [_tray, _trayVm, _voice, _voiceInterpreters, _kokoro, _voiceSettings, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
-                    _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart],
+                    _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
+                    _adoption],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
             await DisposeServerClientsAsync(); // after _home above
             // all already disposed above — never let a later OnShutdownRequested (e.g. Cmd+Q
@@ -459,6 +473,7 @@ public partial class App : Application {
             _localUpgrade = null;
             _localSearch = null;
             _shimOffer = null; // no disposal of its own (see field comment) — just drop the reference
+            _adoption = null;
             _consentFlip = null; // same — no disposal of its own
             _tray = null;
             _trayVm = null;
@@ -705,10 +720,10 @@ public partial class App : Application {
         }
         Func<Task>? prepare = prepareApp ? () => PrepareAppForUninstallAsync(previous) : null;
         var run = OperatingSystem.IsMacOS()
-            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, root), cli, () => Quit(0), prepare: prepare)
+            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare)
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
-                    install => new LinuxAppRemoval(runner, _userHome, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
+                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
                 : OperatingSystem.IsWindows()
                     ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
                     : null;
@@ -779,7 +794,7 @@ public partial class App : Application {
         ApplicationsMover Mover(string apps) => new(runner, ApplicationsMover.PromoteExclusive, apps,
             swap: ApplicationsMover.SwapAtomic, isRunning: InstalledAppRunning,
             quitRunning: QuitInstalledAppAsync,
-            migrateReferences: () => new ApplicationReferences(runner, _userHome, _daemonStore, _time),
+            migrateReferences: () => new ApplicationReferences(runner, _userHome, _daemonStore, _time, _config),
             activate: async (target, ct) => {
                 new ApplicationIntegrationRefresh(_config, runner).Schedule(target);
                 RecordInstallerHandover(plan, replacedVersion);
@@ -959,7 +974,7 @@ public partial class App : Application {
 
     // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
     void BuildDaemonGraph(
-            IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel,
+            IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
         var service = DaemonClientService.CreateResolved(_daemonStore, profiles?.Resolution, _time, lane.RunAsync);
 
@@ -1003,10 +1018,14 @@ public partial class App : Application {
                 lock (lifecycleStatus) if (ReferenceEquals(lifecycleStatus.Value, message)) lifecycleStatus.OnNext(null);
                 lock (lifecycleAttention) if (ReferenceEquals(lifecycleAttention.Value, message)) lifecycleAttention.OnNext(null);
             },
-            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync);
+            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync, probe);
         lifecycle.RestartExpected = () => expectedRestart.Expected;
         lifecycle.Start();
         _lifecycle = lifecycle;
+        _ = MutationRequestFactory.TryBuild(MutationVerb.Repoint, ValidProfileName(profiles?.Resolution), profiles?.Resolution.ServerUrl,
+            service.DaemonName, out var repoint);
+        _adoptionDaemon = new AdoptionDaemon(repoint, () => lifecycle.LatestActivity, expectedRestart, service.RestartLoopAsync);
+        _adoption?.FollowDaemon(lifecycle.Activity);
         // Subscribe-before-run doesn't matter here (Offerable replays); always started so manual install keeps working in Incomplete mode — autoOfferSuppressed skips only the dialog.
         shimOffer.Start();
         _shimOffer = shimOffer;
@@ -1262,8 +1281,10 @@ public partial class App : Application {
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
-        var inAppPages = new InAppPagesSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName);
+        var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
+        var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
@@ -1275,7 +1296,7 @@ public partial class App : Application {
             requestSignIn: requestSignIn, signInCompleted: serverClients.SignInCompleted, pullRequests: readers,
             linkGitHub: linkGitHub,
             access: sessionAccess, localDaemonOnAppServer: directory.LocalDaemonOnAppServer, directory: directory, plans: plans, planArtifacts: planArtifacts,
-            commands: commands, drafts: drafts, inputSending: attention.ReplySending,
+            commands: commands, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
             resumeLedger: id => ResumeLedgerStore.For(_daemonStore, service.DaemonName).TryRead(id),
             pullRequestSnapshots: pullRequestSnapshots, transcripts: transcripts,
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
@@ -1290,7 +1311,7 @@ public partial class App : Application {
                 ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
                     () => new XtermTerminalSurface(80, 24, PtyDumpPath), planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
-                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
+                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
@@ -1320,14 +1341,14 @@ public partial class App : Application {
                 OpenWindow() is { } window ? window.ReopenServerSessionAsync(sessionId, presentation) : Task.FromResult(false),
             notifier: notifier, appServerUrl: profiles?.Resolution.ServerUrl,
             modelCatalog: modelCatalog.Catalog, onUnauthorized: serverLane.ParkSignedOut, time: _time,
-            localMachineId: () => localMachine.Id, shutdown: _shutdown.Token);
+            localMachineId: () => localMachine.Id, accounts: readings, accountMemory: _appState, shutdown: _shutdown.Token);
         // A session the server lists with no daemon behind it: read-only, so no terminal surface.
         RemoteSessionViewModel? BuildServer(string sessionId) =>
             directory.Rows.Lookup($"server:{sessionId}") is { HasValue: true, Value: var row }
                 ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
                     surfaceFactory: null, planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
-                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
+                    signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
@@ -1355,7 +1376,7 @@ public partial class App : Application {
         }
 
         _coordinator = new MainWindowCoordinator(
-            () => TrackViewedAgent(BuildAndShowMainWindow(
+            () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
                 _shutdown.Token, activity, launch, _time, lifecycle.StartActionAsync,
                 lifecycleStatus, _navigation, _workspaceTeardown.Track, BuildWorkspace,
@@ -1390,7 +1411,9 @@ public partial class App : Application {
                 web: webWorkspace, openLaunchApprovals: launchApprovals.Show,
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
                 voice: _voice is { } voice && _voiceSettings is { } voicePreferences ? new VoiceIndicatorViewModel(voice.Status, voicePreferences, voice.Levels) : null,
-                harnessesSettingsAction: _openHarnessesSettings)),
+                harnessesSettingsAction: _openHarnessesSettings,
+                nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
+                openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
@@ -1505,7 +1528,9 @@ public partial class App : Application {
                     .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
                 PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
-            restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
+            restartPending: restartPending.Pending, openSettings: openSettings,
+            finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
+            openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }
@@ -1560,7 +1585,7 @@ public partial class App : Application {
         Time: _time,
         Log: Console.Error,
         PathProfiles: () => OperatingSystem.IsMacOS()
-            ? ShellProfile.Removable(_userHome, new KcapLinkRemover(KcapLinkFolders.For(_userHome), Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
+            ? ShellProfile.Removable(_userHome, KcapLinkRemover.For(_userHome, _config, Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
             : [],
         UserPathFolder: OperatingSystem.IsWindows()
             ? () => Platform.Windows.WindowsAppRemoval.FolderOnUserPath(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName))
@@ -2276,7 +2301,8 @@ public partial class App : Application {
             RailPreferencesStore? railPreferences = null, AccountReadings? readings = null,
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
-            IObservable<Action?>? harnessesSettingsAction = null, VoiceIndicatorViewModel? voice = null) {
+            IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            Func<bool>? nextWorkEnabled = null, VoiceIndicatorViewModel? voice = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2303,9 +2329,29 @@ public partial class App : Application {
             UsageClock.Create(time));
 
         MainWindowViewModel? vm = null;
+        HomeViewModel? homeRef = null;
+        var knownRepos = new RepoPathStore(config, time).GetSortedPathsAsync;
+        var enabled = nextWorkEnabled ?? (() => false);
+        var checkouts = new LocalRepoCheckouts(knownRepos, new RepoIdentityResolver());
+        var nextWorkBand = nextWork is null ? null : new NextWorkBandViewModel(
+            nextWork, time, appServerUrl is { Length: > 0 } seenServer ? new NextWorkSeenStore(appState, seenServer) : null,
+            openUrl: openUrl, openSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server), notify: notifier.Notify,
+            launched: _ => notifier.Notify("Agent starting. It shows in the sidebar once its daemon picks it up."),
+            localDaemon: service.DaemonName, enabled: enabled,
+            fill: fill => homeRef?.FillFromNextWorkAsync(fill) ?? Task.CompletedTask,
+            localCheckout: checkouts.FindAsync, preferredVendor: () => homeRef?.SelectedVendor);
+        // Connecting is when the snapshot first becomes readable; the interval keeps an idle launcher current, as a
+        // web Home tab is kept current by its live nudges. The switch is read every few seconds, which costs a stat,
+        // so turning it on or off in Settings shows or hides the band without a restart.
+        nextWorkBand?.WatchRefreshes(Observable.Merge(
+                (lane?.Status ?? Observable.Never<ServerLaneStatus>()).Select(s => s.State).DistinctUntilChanged()
+                    .Where(s => s == ServerLaneState.Connected).Select(_ => Unit.Default),
+                Observable.Interval(TimeSpan.FromMinutes(2)).Select(_ => Unit.Default),
+                Observable.Interval(TimeSpan.FromSeconds(3)).Select(_ => enabled()).DistinctUntilChanged().Skip(1).Select(_ => Unit.Default))
+            .ObserveOn(RxSchedulers.MainThreadScheduler));
         var home = new HomeViewModel(
             service, appState,
-            launch, new RepoPathStore(config, time).GetSortedPathsAsync, time, shutdownToken,
+            launch, knownRepos, time, shutdownToken,
             navigationGeneration: () => vm?.NavigationGeneration ?? 0,
             openSessionIfCurrent: (agentId, origin, generation) => vm?.OpenSessionIfCurrent(agentId, origin, generation),
             requestSignIn: requestSignIn,
@@ -2314,7 +2360,9 @@ public partial class App : Application {
             modelCatalog: modelCatalog, uploader: uploader, appServerUrl: appServerUrl,
             listing: remoteAgents?.Listing, daemonAccounts: remoteAgents?.DaemonAccounts, localAccounts: localAccounts,
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice };
+            branches: new GitBranchReader(new ProcessRunner(time), time),
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+        homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
         if (repairDaemon is not null && repairOffer is not null) home.AttachServiceRepair(repairDaemon, repairOffer, shutdownToken);
@@ -2353,7 +2401,9 @@ public partial class App : Application {
                 search,
                 sessions.Identity.ObserveOn(RxSchedulers.MainThreadScheduler),
                 (lane?.SessionAccessChanged ?? Observable.Never<string>()).ObserveOn(RxSchedulers.MainThreadScheduler),
-                time, RxSchedulers.MainThreadScheduler, open);
+                time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
+                openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
+                viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2415,23 +2465,23 @@ public partial class App : Application {
         return window;
     }
 
-    // Wires the CLI facade and PATH probe (a broken override is "no CLI"); also builds the shim/consent-flip coordinators, sharing rather than re-resolving them.
+    // Wires the CLI facade over the lane's PATH probe (a broken override is "no CLI"); also builds the shim/consent-flip coordinators, sharing rather than re-resolving them.
     (DaemonLifecycleController Lifecycle, ShimOfferCoordinator ShimOffer, ConsentFlipCoordinator ConsentFlip,
             ILifecycleSurface Surface, ILoginShellProbe Probe, IKcapCli Cli) BuildLifecycleController(
             DaemonClientService service, ILocalControlOps ops, bool autoActionsPermanentlyClosed,
             Action<string> setLifecycleStatus, Action<string> setLifecycleAttention, Action<string> withdrawLifecycleAttention,
             Func<MutationRequest, CancellationToken, Task<MutationOutcome>> runMutation,
             ResolvedProfile? profile, Func<bool> requiresAppRestart,
-            Func<MutationRequest, CancellationToken, Task<string?>> replacementCliVersion) {
+            Func<MutationRequest, CancellationToken, Task<string?>> replacementCliVersion, ILoginShellProbe probe) {
         var cliPath = CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory);
         var runner  = new ProcessRunner(_time);
-        var probe   = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
         var canonicalServer = ServerIdentity.Canonicalize(profile?.ServerUrl);
-        // Shared with the probe above (not re-resolved) — the PATH overlay on `install`
+        // Shared with the lane's probe (not re-resolved) — the PATH overlay on `install`
         // must reflect the SAME probe outcome that the controller's preconditions/PathDegraded see.
         var cli     = new KcapCli(runner, cliPath, service.DaemonName, profile?.ProfileName ?? "default", probe.TerminalPathAsync,
             canonicalServer: canonicalServer);
         var surface = new LifecycleSurface(setLifecycleStatus, setLifecycleAttention, ConfirmLifecyclePromptAsync, withdrawLifecycleAttention);
+        _lifecycleSurface = surface;
 
         var lifecycle = new DaemonLifecycleController(
             service, cli, probe, surface, () => Task.FromResult(ValidProfileName(profile)), _time,
@@ -2444,8 +2494,8 @@ public partial class App : Application {
         var shimTarget = ShimTargetFor(cliPath, Program.Host.CliOutlivesApp);
         // autoOfferSuppressed: Start() always runs — Offerable/manual install must keep working in Incomplete mode; only the once-ever auto-offer dialog is skipped.
         var shimOffer = new ShimOfferCoordinator(
-            Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
-            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink);
+            Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task, _adoption?.FirstLook ?? Task.CompletedTask), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
+            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true);
 
         // The delegate below and the claims store must share one root: TryConsume takes the config
         // lock this delegate then reads under.
@@ -2454,6 +2504,47 @@ public partial class App : Application {
             () => ResolveConsentFlipIdentity(_config, _localRoot), surface, _appState, _shutdown.Token);
 
         return (lifecycle, shimOffer, consentFlip, surface, probe, cli);
+    }
+
+    // Through the lifecycle surface once there is one, so the takeover's dialog never opens over another lifecycle prompt.
+    Task<bool> ConfirmAdoptionAsync(LifecyclePrompt prompt, CancellationToken ct) =>
+        _lifecycleSurface is { } surface ? surface.ConfirmAsync(prompt, ct) : ConfirmLifecyclePromptAsync(prompt, ct);
+
+    // Only an installed bundle on macOS takes over another install; anywhere else the coordinator just releases the
+    // shim offer's wait.
+    CliAdoptionCoordinator BuildCliAdoption(DaemonMutationLane lane, IProcessRunner runner, ILoginShellProbe probe) {
+        var root = InstallLocation.BundleRoot(Environment.ProcessPath);
+        var kind = InstallLocation.Classify(root, _userHome.Path);
+        if (!OperatingSystem.IsMacOS() || root is null || kind is not (InstallLocationKind.Applications or InstallLocationKind.UserApplications)
+         || CliPathInstallers.Create(probe, _userHome) is not { } shim)
+            return new CliAdoptionCoordinator(null, _time, LifecycleLog.Write, _shutdown.Token);
+
+        var bundle    = new AdoptionBundle(root, Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName),
+            CapacitorVersion.CurrentDisplay(), kind == InstallLocationKind.Applications);
+        var store     = new AdoptionRecordStore(_config);
+        var harnesses = HarnessRegistry.FromEnvironment(_userHome);
+        var folders   = KcapLinkFolders.For(_userHome);
+        var machine   = new AdoptionMachine(new AdoptionEvidenceReader(runner, probe, _daemonStore, _userHome, root), runner, lane,
+            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore), _time);
+        var batch     = new AdoptionBatch(machine, store, new AsideRetirement(_config, "cli-adoption-retire"),
+            new AdoptionIntegrations(new ApplicationIntegrationRefresh(_config, runner), bundle.Cli, store, _time),
+            new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
+            new AdoptionNotices(_noticeWindow, store), harnesses, bundle, folders, WritableFolder.Check,
+            new PrivilegedSwap(runner, store, _time), ConfirmAdoptionAsync, _config.Directory,
+            AdoptionReferenceSites.HomeSites(_userHome, harnesses), LifecycleLog.Write);
+        return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
+    }
+
+    // A hidden window shows no toast, and its toast overlay exists only once it has loaded.
+    MainWindow TrackNoticeWindow(IAppNotifier notifier, MainWindow window) {
+        void Publish() => _noticeWindow.OnNext(window.IsVisible && window.IsLoaded ? notifier : null);
+        var visible = window.GetObservable(Visual.IsVisibleProperty).Subscribe(_ => Publish());
+        window.Loaded += (_, _) => Publish();
+        window.Closed += (_, _) => {
+            visible.Dispose();
+            _noticeWindow.OnNext(null);
+        };
+        return window;
     }
 
     /// A link needs an absolute path that is still there once the app exits.
@@ -3078,6 +3169,7 @@ public partial class App : Application {
                     _tray, _trayVm, _voice, _voiceInterpreters, _kokoro, _voiceSettings, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
+                    _adoption,
                 ];
                 if (shutdown) {
                     await DisposeUiThenConfirmShutdownAsync(ui,

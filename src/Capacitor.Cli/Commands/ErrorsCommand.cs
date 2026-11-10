@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;

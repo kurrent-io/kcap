@@ -22,6 +22,8 @@ public sealed class CursorHarness : IHarness<CursorHarness> {
     /// override a second time.</summary>
     public CursorPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.UserHooksJson, Paths.UserMcpJson];
+
     // No name to probe: Cursor ships as an editor, so its own state is the only signal.
     public HarnessSignals Signals => new() {
         UserDataSignal = Paths.HasUserData,

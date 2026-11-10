@@ -1,7 +1,7 @@
-using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Recording.Harness.Copilot;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -137,7 +137,7 @@ sealed class CopilotFinalizeDrainCommand(
     /// </summary>
     internal static bool LastLineIsShutdown(string transcriptPath) {
         try {
-            return ReadLastLine(transcriptPath) is { } last && IsShutdownLine(last);
+            return ReadLastLine(transcriptPath) is { } last && CopilotShutdown.IsShutdownLine(last);
         } catch {
             return false;
         }
@@ -147,7 +147,7 @@ sealed class CopilotFinalizeDrainCommand(
     /// it proves nothing, so a caller that already saw a shutdown keeps that answer.</summary>
     internal static bool MovedPastShutdown(string transcriptPath) {
         try {
-            return ReadLastLine(transcriptPath) is { } last && !IsShutdownLine(last);
+            return ReadLastLine(transcriptPath) is { } last && !CopilotShutdown.IsShutdownLine(last);
         } catch {
             return false;
         }
@@ -166,19 +166,6 @@ sealed class CopilotFinalizeDrainCommand(
         }
 
         return lastNonBlank;
-    }
-
-    /// <summary>Whether a transcript line is a <c>session.shutdown</c> envelope, rather than one quoting it.</summary>
-    internal static bool IsShutdownLine(string line) {
-        if (!line.Contains("session.shutdown", StringComparison.Ordinal)) return false;
-
-        try {
-            using var doc = JsonDocument.Parse(line);
-
-            return doc.RootElement.Str("type") == "session.shutdown";
-        } catch (JsonException) {
-            return false;
-        }
     }
 
     void Log(string message) =>

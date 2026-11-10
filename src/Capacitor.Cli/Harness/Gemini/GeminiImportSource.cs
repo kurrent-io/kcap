@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Capacitor.Cli.Recording.Harness.Gemini;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
@@ -509,51 +510,12 @@ internal sealed class GeminiImportSource : IImportSource {
                 lastIdx = lineIdx;
                 count++;
 
-                if (IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
+                if (GeminiLines.IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
             }
             lineIdx++;
         }
 
         return (lastIdx, lastRelevantIdx, count);
-    }
-
-    /// <summary>
-    /// True when the line maps to at least one canonical event under the
-    /// server's GeminiTranscriptNormalizer: a <c>gemini</c> message (always
-    /// emits thinking/text/tool events), or a <c>user</c> message carrying real
-    /// text (NOT the <c>&lt;session_context&gt;</c> bootstrap and NOT a
-    /// <c>functionResponse</c>-only tool-result echo). Header records and
-    /// <c>$set</c> mutation ops are skipped server-side and can never advance
-    /// the watermark — keep this in sync with the normalizer.
-    /// </summary>
-    internal static bool IsImportRelevantLine(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Obj("$set") is not null) return false;
-
-            var type = root.Str("type");
-            if (type == "gemini") return true;
-            if (type != "user") return false; // header (no type) or unknown
-
-            if (root.Str("content") is { } direct) {
-                return direct.Length > 0 && !direct.StartsWith("<session_context>", StringComparison.Ordinal);
-            }
-
-            if (root.Arr("content") is { } parts) {
-                foreach (var part in parts.EnumerateArray()) {
-                    if (part.Str("text") is { Length: > 0 } txt
-                     && !txt.StartsWith("<session_context>", StringComparison.Ordinal)) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        } catch {
-            return false;
-        }
     }
 
     async Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, CancellationToken ct) {

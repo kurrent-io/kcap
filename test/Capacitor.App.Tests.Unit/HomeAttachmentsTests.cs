@@ -232,6 +232,7 @@ public class HomeAttachmentsTests {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             using var rig = new Rig();
             var vm = rig.Start(path, capabilities: ["input/1"]);
+            vm.Goal = "go";
 
             await Assert.That(vm.CanAttach).IsFalse();
             await Assert.That(vm.AttachHint).IsEqualTo("attachments need the daemon updated");
@@ -427,6 +428,47 @@ public class HomeAttachmentsTests {
             await Assert.That(vm.StartError).IsEqualTo("boom — your draft is back");
             await Assert.That(vm.Goal).IsEqualTo("g");
             await Assert.That(vm.Tray.Items.Single().Id).IsEqualTo(chip.Id);
+        });
+    }
+
+    /// <summary>A failed launch of a picked next-work task gives back what was typed and the task, never the composed
+    /// text the agent was sent, so a retry carries the task's target again.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Delayed_failure_restores_the_typed_goal_and_the_picked_task() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var rig = new Rig();
+            await LaunchWithDraftAsync(rig, path, beforeStart: vm =>
+                vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, "/repo/a", "Recorded context")));
+            var vm = rig.Vm;
+            await Assert.That(vm.NextWorkSource).IsNull();
+
+            rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
+
+            await Assert.That(vm.Goal).IsEqualTo("g");
+            await Assert.That(vm.NextWorkSource!.Key).IsEqualTo("wi:a");
+        });
+    }
+
+    /// <summary>A task picked after the launch went out is the composer's now: a late failure hands the files back as a
+    /// re-attach line and leaves the newer pick, so the next Start cannot relaunch the failed task.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Delayed_failure_keeps_a_task_picked_since() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var rig = new Rig();
+            await LaunchWithDraftAsync(rig, path, beforeStart: vm =>
+                vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, "/repo/a", "Recorded context")));
+            var vm = rig.Vm;
+            await vm.FillFromNextWorkAsync(new("wi:b", "B-2 Other", "B-2 Other", null, true, "/repo/a", "Other context"));
+
+            rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
+
+            await Assert.That(vm.NextWorkSource!.Key).IsEqualTo("wi:b");
+            await Assert.That(vm.Goal).IsEqualTo("");
+            await Assert.That(vm.StartError).EndsWith("re-attach the files to send them again");
         });
     }
 

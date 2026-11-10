@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Capacitor.Cli.Commands;
 
 /// <summary>The detached child's contract with setup: where to write, and which visibility to stamp.
@@ -5,6 +7,10 @@ namespace Capacitor.Cli.Commands;
 internal sealed record DetachedImportLog(string LogPath, string? DefaultVisibility) {
     public const string EnvVar           = "KCAP_IMPORT_DETACHED_LOG";
     public const string VisibilityEnvVar = "KCAP_IMPORT_DEFAULT_VISIBILITY";
+
+    /// <summary>The line the child writes to its original stdout once it has taken on its work; setup
+    /// reports the import running on this line, never on the child merely being alive.</summary>
+    public const string AcceptedLine = "kcap-import-accepted";
 
     public static DetachedImportLog? FromEnvironment(Func<string, string?> getEnv) {
         var log = getEnv(EnvVar);
@@ -19,5 +25,15 @@ internal sealed record DetachedImportLog(string LogPath, string? DefaultVisibili
         var stream = new FileStream(LogPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
         stream.Seek(0, SeekOrigin.End);
         return new StreamWriter(stream) { AutoFlush = true };
+    }
+
+    /// <summary>Writes <see cref="AcceptedLine"/> to the process's own stdout, which <see cref="Console.Out"/>
+    /// no longer reaches once it points at the log. A parent that already stopped listening is no error.</summary>
+    public static void SignalAccepted() {
+        try {
+            using var stdout = Console.OpenStandardOutput();
+            stdout.Write(Encoding.UTF8.GetBytes(AcceptedLine + "\n"));
+            stdout.Flush();
+        } catch (IOException) { }
     }
 }

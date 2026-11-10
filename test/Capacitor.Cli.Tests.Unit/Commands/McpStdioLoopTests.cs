@@ -255,4 +255,46 @@ public class McpStdioLoopTests {
         await Assert.That(only["id"]!.GetValue<string>()).IsEqualTo("a");
         await Assert.That(only["result"]!["method"]).IsNull();
     }
+
+    /// Input fed one line at a time, so a test can answer what the loop wrote.
+    sealed class Lines : TextReader {
+        readonly System.Threading.Channels.Channel<string> _lines = System.Threading.Channels.Channel.CreateUnbounded<string>();
+
+        public void Add(string line) => _lines.Writer.TryWrite(line);
+
+        public void End() => _lines.Writer.TryComplete();
+
+        public override async Task<string?> ReadLineAsync() =>
+            await _lines.Reader.WaitToReadAsync() && _lines.Reader.TryRead(out var line) ? line : null;
+    }
+
+    /// <summary>A request the server sends mid-call goes out on the same writer, and the client's answer to it reaches
+    /// the waiting call instead of being answered back.</summary>
+    [Test]
+    public async Task A_client_answer_completes_the_request_the_server_sent() {
+        using var output = new Responses();
+        var input  = new Lines();
+        var client = new McpClientRequests();
+
+        var loop = McpStdioLoop.RunAsync(input, output, [], async (id, _) => {
+            var answer = await client.SendAsync("elicitation/create", new JsonObject { ["message"] = "Share?" }, CancellationToken.None);
+
+            return Answer(id, answer?["action"]?.GetValue<string>());
+        }, (id, method, _) => Answer(id, method), "test", client: client);
+
+        input.Add(Call(1, "ask"));
+        await output.WaitForAsync(1);
+
+        var sent = output.All[0];
+        await Assert.That(sent["method"]!.GetValue<string>()).IsEqualTo("elicitation/create");
+
+        input.Add(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = sent["id"]!.DeepClone(), ["result"] = new JsonObject { ["action"] = "accept" } }.ToJsonString());
+        await output.WaitForAsync(2);
+        input.End();
+        await loop;
+
+        await Assert.That(output.All.Count).IsEqualTo(2);
+        await Assert.That(output.All[1]["id"]!.GetValue<int>()).IsEqualTo(1);
+        await Assert.That(output.All[1]["result"]!["method"]!.GetValue<string>()).IsEqualTo("accept");
+    }
 }

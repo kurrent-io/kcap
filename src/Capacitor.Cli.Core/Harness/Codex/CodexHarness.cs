@@ -19,6 +19,8 @@ public sealed class CodexHarness : IHarness<CodexHarness> {
     /// override a second time.</summary>
     public CodexPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.UserHooksJson, Paths.ConfigToml];
+
     // ChatGPT's desktop app bundles Codex inside itself, never on PATH.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),

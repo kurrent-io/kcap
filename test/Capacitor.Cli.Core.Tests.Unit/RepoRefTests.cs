@@ -27,6 +27,8 @@ public class RepoRefTests {
     [Arguments("a//b")]
     [Arguments("owner/")]
     [Arguments("")]
+    [Arguments("local~0123456789abcdef0123/demo")] // stored under an owner only the server can bind
+    [Arguments("LOCAL~0123456789abcdef0123/demo")]
     public async Task Other_shapes_are_rejected(string value) {
         await Assert.That(RepoHashHelper.TryParseRepoRef(value, out _)).IsFalse();
     }

@@ -380,7 +380,11 @@ public static class ClaudeCliRunner {
                 log("Skipping transcript fallback: --json-schema was required and not satisfied");
             }
 
-            return ClassifyFailure(stdout, nonZeroExit);
+            var failure = ClassifyFailure(stdout, nonZeroExit);
+            if (failure.Failure == ClaudeCliFailure.NotSignedIn)
+                log("Claude Code is not signed in; titles and summaries are skipped until you sign in again with `claude`");
+
+            return failure;
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             // External cancellation wins over the internal timeout: kill the
             // subprocess (otherwise the await unblocks but claude keeps
@@ -422,6 +426,7 @@ public static class ClaudeCliRunner {
         string? subtype   = null;
         string? error     = null;
         long?   apiStatus = null;
+        var     plainText = false;
         try {
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
@@ -430,7 +435,9 @@ public static class ClaudeCliRunner {
                 error     = root.Str("result");
                 apiStatus = root.Num("api_error_status");
             }
-        } catch (JsonException) { }
+        } catch (JsonException) {
+            plainText = true;
+        }
 
         var usage = ReportedUsage(stdout);
 
@@ -439,7 +446,9 @@ public static class ClaudeCliRunner {
                                || error.Contains("hit your limit", StringComparison.OrdinalIgnoreCase)))
             return new(null, ClaudeCliFailure.SpendBudget, usage, subtype, error);
 
-        if (apiStatus == 401 || error?.Contains("/login", StringComparison.Ordinal) == true)
+        // An expired sign-in can end the run before any envelope is written: stdout is then the bare message.
+        if (apiStatus == 401 || error?.Contains("/login", StringComparison.Ordinal) == true
+         || plainText && stdout.Contains("Failed to authenticate", StringComparison.OrdinalIgnoreCase))
             return new(null, ClaudeCliFailure.NotSignedIn, usage, subtype, error);
 
         return new(null, nonZeroExit ? ClaudeCliFailure.ProcessFailure : ClaudeCliFailure.OutputUnparseable, usage, subtype, error);
@@ -674,6 +683,9 @@ public static class ClaudeCliRunner {
             }
 
             return BuildResult(root, assistantText);
+        } catch (JsonException) {
+            // Plain-text stdout is an error message with no session to recover; the caller already logged it.
+            return null;
         } catch (Exception ex) {
             log($"Transcript fallback failed: {ex.Message}");
 

@@ -14,10 +14,36 @@ namespace Capacitor.App.Tests.Unit;
 
 /// The search page as drawn: snippet runs, and the signed-out prompt in place of the list.
 public class SessionSearchViewSmokeTests {
+    /// Opens on the sidebar tab; Tab moves to the server's Sessions tab.
     static void OpenWithShortcut(SearchWindowHost host) {
         host.Window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Meta);
         host.Settle();
+        host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        host.Settle();
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Shortcut_opens_on_the_sidebar_tab_and_lists_matching_rail_sessions_without_a_request() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate(RemoteHost.ServerRow("a") with { Title = "Fix the login timeout" });
+        host.Directory.Rows.AddOrUpdate(RemoteHost.ServerRow("b") with { Title = "Tidy README" });
+        host.Settle();
+
+        host.Window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Meta);
+        host.Settle();
+        host.Window.KeyTextInput("THE");
+        host.SettleSearch();
+
+        var titles = host.Named<SessionSearchView>("SearchCover").GetVisualDescendants().OfType<TextBlock>()
+            .Where(t => t.Name == "SearchHitTitle")
+            .Select(t => string.Concat((t.Inlines ?? []).OfType<Run>().Select(r => r.Text)))
+            .ToArray();
+
+        await Assert.That(host.Vm.Search!.Tab).IsEqualTo(SearchMode.Sidebar);
+        await Assert.That(titles).IsEquivalentTo(["Fix the login timeout"]);
+        await Assert.That(host.Requests).IsEmpty();
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -39,7 +65,7 @@ public class SessionSearchViewSmokeTests {
         var runs = (title.Inlines ?? []).OfType<Run>().ToArray();
         var text = string.Concat(runs.Select(r => r.Text));
         var matched = runs.Single(r => r.Text == "auth");
-        var textBrush = (IBrush)Application.Current!.FindResource("KcapTextBrush")!;
+        var matchBrush = (IBrush)Application.Current!.FindResource("KcapInfoBrush")!;
         var rendered = string.Join('\n', host.Named<SessionSearchView>("SearchCover").GetVisualDescendants().OfType<TextBlock>()
             .Select(t => t.Inlines is { Count: > 0 } inlines ? string.Concat(inlines.OfType<Run>().Select(r => r.Text)) : t.Text ?? ""));
 
@@ -52,7 +78,7 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(rendered).DoesNotContain('\u0003');
         await Assert.That(rendered).Contains("#42");
         await Assert.That((int)matched.FontWeight).IsGreaterThanOrEqualTo((int)FontWeight.SemiBold);
-        await Assert.That(matched.Foreground).IsSameReferenceAs(textBrush);
+        await Assert.That(matched.Foreground).IsSameReferenceAs(matchBrush);
         await Assert.That(runs.Where(r => r != matched).All(r => r.FontWeight < FontWeight.SemiBold)).IsTrue();
     });
 

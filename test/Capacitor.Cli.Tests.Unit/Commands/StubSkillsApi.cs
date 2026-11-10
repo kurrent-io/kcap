@@ -35,4 +35,7 @@ sealed class StubSkillsApi(Func<string, string?, string?, SkillsSnapshotResult> 
 
     public Task<CurationResult> GetPromotedCurationAsync(string repoHash, int limit, CancellationToken ct = default) =>
         throw new NotSupportedException();
+
+    public Task<string?> HashForAsync(string owner, string name, CancellationToken ct = default) =>
+        Task.FromResult<string?>(RepoHashHelper.ComputeRepoHash(owner, name));
 }

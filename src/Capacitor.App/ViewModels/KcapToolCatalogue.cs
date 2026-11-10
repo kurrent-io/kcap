@@ -21,6 +21,7 @@ public static class KcapToolCatalogue {
         new("list_my_pages",             ToolCategory.Artefact, "Listed pages",             null),
         new("search_pages",              ToolCategory.Artefact, "Searched pages",           "query"),
         new("get_page",                  ToolCategory.Artefact, "Read page",                null),
+        new("get_page_guide",            ToolCategory.Artefact, "Read the page guide",      null),
         // the same tools under their artefact names, which recorded transcripts still carry
         new("publish_artefact",          ToolCategory.Artefact, "Published page",           "title",  ToolCardKind.Page),
         new("set_artefact_visibility",   ToolCategory.Artefact, "Shared page",              "visibility"),
@@ -89,6 +90,11 @@ public static class KcapToolCatalogue {
         new("schedule_wakeup",           ToolCategory.Flow,     "Scheduled wake-up",        "prompt"),
         new("list_wakeups",              ToolCategory.Flow,     "Listed wake-ups",          null),
         new("cancel_wakeup",             ToolCategory.Flow,     "Cancelled wake-up",        null),
+        // passes; `pass` and `message` are too common to claim by bare name, so they take the server's category
+        new("find_colleague",            ToolCategory.Work,     "Found colleague",          "name"),
+        new("pass_status",               ToolCategory.Work,     "Checked a pass",           null),
+        new("catch_me_up",               ToolCategory.Work,     "Caught up on passes",      null),
+        new("what_else",                 ToolCategory.Work,     "Asked what else to know",  null),
     ];
 
     static readonly FrozenDictionary<string, KcapToolEntry> ByTool =
@@ -107,6 +113,7 @@ public static class KcapToolCatalogue {
         ["kcap-analytics"] = ToolCategory.Session,
         ["kcap-review"]    = ToolCategory.Session,
         ["kcap-flows"]     = ToolCategory.Flow,
+        ["kcap-pass"]      = ToolCategory.Work,
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     public static KcapToolEntry? Match(string? toolName) {

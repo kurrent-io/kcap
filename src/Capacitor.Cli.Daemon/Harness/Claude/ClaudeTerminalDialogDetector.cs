@@ -9,6 +9,10 @@ internal static class ClaudeTerminalDialogDetector {
     const string SelectFooter = "Enter to confirm · Esc to cancel";
     const string FormFooter = "←/→ to change · Enter to continue · Esc to cancel";
     const string ApprovalFooter = "Esc to cancel · Tab to amend";
+    // AskUserQuestion's navigation hint varies with the number of questions; this prefix does not.
+    const string QuestionFooter = "Enter to select · ";
+    // A question's first row under its rule: one header chip, or a tab row across several questions.
+    const string QuestionChips = "☐☒✔←";
     const char   Cursor = '❯';
     // The fullscreen TUI tops a panel (settings, status, usage, pickers) with this edge in place of
     // the prompt box. Every such panel closes with Esc, whatever else its footer offers, and its
@@ -29,8 +33,12 @@ internal static class ClaudeTerminalDialogDetector {
         var footerText = lines[footer].Trim();
         var select = footerText.StartsWith(SelectFooter, StringComparison.Ordinal);
         var approval = footerText.StartsWith(ApprovalFooter, StringComparison.Ordinal);
+        var asked = false;
         string[] region;
-        if (PanelTop(lines, footer) is { } top && (ClosesWithEsc(footerText) || ScrolledPastFooter(footerText))) {
+        if (QuestionRegion(lines, footer, footerText) is { } question) {
+            region = question;
+            select = asked = true;
+        } else if (PanelTop(lines, footer) is { } top && (ClosesWithEsc(footerText) || ScrolledPastFooter(footerText))) {
             // A panel scrolled past its footer still holds the keyboard; its last row is content.
             region = ClosesWithEsc(footerText) ? lines[(top + 1)..footer] : lines[(top + 1)..(footer + 1)];
             select = false;
@@ -47,9 +55,11 @@ internal static class ClaudeTerminalDialogDetector {
         // Forms and amendable approvals use the screen-only fallback; only select menus promise
         // that moving the cursor and pressing Enter is one answer.
         (List<string> options, int selected, int firstRow, bool incomplete) = select
-            ? ReadOptions(region, cols)
+            ? ReadOptions(region, cols, asked)
             : ([], -1, region.Length, false);
         var paragraphs = Paragraphs(region[..firstRow].Select(l => l.Trim()));
+        // The question, not the chip naming it, is what a surface should lead with.
+        if (asked && paragraphs.Count > 1) paragraphs.RemoveAt(0);
         var heading = paragraphs.FirstOrDefault() ?? "";
         var body = string.Join('\n', paragraphs.Skip(1));
         var shown = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
@@ -59,7 +69,9 @@ internal static class ClaudeTerminalDialogDetector {
 
     /// Same-column rows that could wrap are also possible choices. Guessing that boundary can
     /// merge a decline choice into an approval, so ambiguous lists use the screen-only fallback.
-    static (List<string> Options, int Selected, int FirstRow, bool Incomplete) ReadOptions(string[] region, int cols) {
+    /// A question's numbered rows cannot be wrapped text, and the deeper rows under one are its
+    /// description, kept apart from the label.
+    static (List<string> Options, int Selected, int FirstRow, bool Incomplete) ReadOptions(string[] region, int cols, bool asked) {
         var cursorRows = Enumerable.Range(0, region.Length).Where(i => region[i].TrimStart().StartsWith(Cursor)).ToList();
         if (cursorRows.Count != 1) return ([], -1, region.Length, true);
 
@@ -74,13 +86,16 @@ internal static class ClaudeTerminalDialogDetector {
 
         var options  = new List<string>();
         var selected = -1;
+        var described = false;
         for (var i = first; i <= last; i++) {
             var line = i == cursor ? region[i][(mark + 1)..] : region[i];
             if (i != cursor && options.Count > 0 && Indent(line) > column) {
-                options[^1] += " " + line.Trim();
+                options[^1] += (asked && !described ? " — " : " ") + line.Trim();
+                described = asked;
                 continue;
             }
-            if (i != cursor && options.Count > 0 && CouldWrap(region[i - 1], line, cols))
+            described = false;
+            if (!asked && i != cursor && options.Count > 0 && CouldWrap(region[i - 1], line, cols))
                 return ([], -1, first, false);
             if (i == cursor) selected = options.Count;
             options.Add(StripNumber(line.Trim()));
@@ -93,6 +108,32 @@ internal static class ClaudeTerminalDialogDetector {
     static bool CouldWrap(string above, string line, int cols) {
         var word = line.Trim().Split(' ')[0];
         return above.TrimEnd().Length + 1 + word.Length > cols;
+    }
+
+    /// The question's rows from under its rule, with the rule that sets "Chat about this" apart
+    /// dropped so that row stays a choice. The review step closing a series has no footer, so
+    /// without one only the series' tab row and a last row that is a choice make it a question.
+    static string[]? QuestionRegion(string[] lines, int footer, string footerText) {
+        var footed = footerText.StartsWith(QuestionFooter, StringComparison.Ordinal) && ClosesWithEsc(footerText);
+        for (var i = footer - 1; i >= 0; i--) {
+            if (!IsRule(lines[i])) continue;
+            var next = Array.FindIndex(lines, i + 1, l => l.Trim().Length > 0);
+            if (next < 0 || next > footer || IsOptionRow(lines[next])) continue;
+            var chips = lines[next].Trim();
+            if (!QuestionChips.Contains(chips[0])) return null;
+            var series = chips[0] == '←' && chips[^1] == '→';
+            if (!footed && !(series && IsOptionRow(lines[footer]))) return null;
+            return lines[(i + 1)..(footed ? footer : footer + 1)].Where(l => !IsRule(l)).ToArray();
+        }
+        return null;
+    }
+
+    static bool IsOptionRow(string line) {
+        var text = line.TrimStart();
+        if (text.StartsWith(Cursor)) text = text[1..].TrimStart();
+        var digits = 0;
+        while (digits < text.Length && char.IsAsciiDigit(text[digits])) digits++;
+        return digits > 0 && text.AsSpan(digits).StartsWith(". ");
     }
 
     /// The panel edge nearest the footer, unless a prompt box sits between them.

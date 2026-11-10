@@ -3,6 +3,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -25,11 +26,14 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string DaemonNotRunning = "Your local kcap daemon isn't running. Start it to hand off.";
     public const string ContextUnavailable = "Couldn't load this session's details from your kcap server";
     public const string NoRepository = "This session isn't linked to a GitHub repository, so it can't be handed off";
+    public const string NoRemote     = "This session's repository has no remote, so it can't be handed off";
     public const string ProbeFailed = "Your local kcap daemon didn't answer, so the starting point couldn't be checked";
     public const string CheckoutUnreadable = "Your local kcap daemon couldn't read this checkout, so the starting point couldn't be checked";
     public const string CheckingOrigin = "Checking origin…";
     public const string OriginMoved =
         "Origin has moved on since this was checked, so nothing was started. Check where the new session would start and start again.";
+    public const string AccountMoved =
+        "Origin points to another checkout, which uses a different account, so nothing was started. Check the account and start again.";
     public const string OriginSignInNeeded = "Couldn't sign in to origin, so nothing was started. Set up git's sign-in for it on this machine and start again.";
     public const string OriginTimedOut = "Origin didn't answer in time, so nothing was started. Start again to retry.";
     public const string OriginOffline = "Couldn't reach origin, so nothing was started. Check this machine's network and start again.";
@@ -121,6 +125,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     bool _originChecked;
     bool _checkingOrigin;
     CancellationTokenSource? _evaluation;
+    string? _accountError;
 
     /// <param name="candidateRoots">Repositories this machine knows besides the session's own
     /// checkout: the launcher's and the daemon agents' roots.</param>
@@ -134,6 +139,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// launch reaches the daemon through that server.</param>
     /// <param name="onUnauthorized">IServerLane's ParkSignedOut, for a 401 on an upload or a launch.</param>
     /// <param name="localMachineId">This app's machine id, which a session recorded here carries; null offers no Resume.</param>
+    /// <param name="accounts">The local daemon's accounts and usage clock; null offers no account.</param>
+    /// <param name="accountMemory">Where the launcher remembers an account per repository.</param>
     public HandoffComposerViewModel(
             RepoSessionDto session, IDaemonClientService daemon, ILaunchClient launch, IServerSessionsService sessions,
             ILocalControlOps ops, LocalCheckoutFinder finder, Func<CancellationToken, Task<IReadOnlyList<string>>> candidateRoots,
@@ -144,6 +151,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
+            AccountReadings? accounts = null, AppStateStore? accountMemory = null,
             CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
@@ -165,7 +173,16 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _time = time ?? TimeProvider.System;
         _localMachineId = localMachineId;
         _shutdown = shutdown;
-        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog).DisposeWith(_disposables);
+        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        // A pick answers the refusal of the one before it.
+        _choices.WhenAnyValue(x => x.AccountRows)
+            .Skip(1)
+            .Subscribe(_ => {
+                if (_accountError is not null && Error == _accountError) Error = null;
+                _accountError = null;
+            })
+            .DisposeWith(_disposables);
 
         daemon.Status.Subscribe(s => _attach = s).DisposeWith(_disposables);
         daemon.Snapshots.Subscribe(s => _snapshot = s).DisposeWith(_disposables);
@@ -221,7 +238,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             .DisposeWith(_disposables);
 
         var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.StartsFromOrigin, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
-            (start, fromOrigin, reason, launching, resuming) => (start is not null || fromOrigin) && reason is null && !launching && !resuming);
+                (start, fromOrigin, reason, launching, resuming) => (start is not null || fromOrigin) && reason is null && !launching && !resuming)
+            .CombineLatest(_choices.WhenAnyValue(x => x.AccountPending), (ready, pending) => ready && !pending);
         StartCommand = ReactiveCommand.CreateFromTask(StartAsync, canStart);
         var canResume = this.WhenAnyValue(x => x.ResumeOffered, x => x.IsLaunching, x => x.IsResuming,
             (offered, launching, resuming) => offered && !launching && !resuming);
@@ -257,6 +275,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+    internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenStripCommand { get; }
@@ -476,6 +495,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     void Show(Evaluation result) {
         DisabledReason = result.Reason;
         _checkout = result.Checkout;
+        _choices.SetRepository(result.Checkout);
         _plan = result.Plan;
         _originChecked = result.FromOrigin;
         StripLabel = result.Label ?? "";
@@ -524,6 +544,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
+        // The daemon proves a checkout by its origin, which a repository with no remote does not have.
+        if (LocalRepository.IsLocal(owner)) return new(NoRemote);
 
         var candidates = await Task.Run(() => _candidateRoots(ct), ct);
         var checkouts = await _finder.FindAllAsync(owner, name, _session.Cwd, candidates, ct);
@@ -702,11 +724,26 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
 
     async Task StartAsync() {
         // Execute() does not gate on CanExecute.
-        if ((ProbedStart is null && !StartsFromOrigin) || DisabledReason is not null || IsLaunching || _plan is not { } plan) return;
+        if ((ProbedStart is null && !StartsFromOrigin) || DisabledReason is not null || IsLaunching || _plan is not { } plan
+         || _choices.AccountPending) return;
+        if (_choices.AccountRefusal is { } refusedAccount) {
+            Error = _accountError = refusedAccount;
+            return;
+        }
         IsLaunching = true;
         try {
+            var account = _choices.CurrentAccount;
             if (!_originChecked && !await CheckOriginAsync(plan)) return;
-            if (ProbedStart is not { } start || _checkout is not { } checkout) return;
+            if (ProbedStart is not { } start || _checkout is not { } checkout || _choices.AccountPending) return;
+            if (_choices.CurrentAccount != account) {
+                Error = AccountMoved;
+                return;
+            }
+            // The account can go while origin answers.
+            if (_choices.AccountRefusal is { } refusedAfterOrigin) {
+                Error = _accountError = refusedAfterOrigin;
+                return;
+            }
             var draft = _choices.Capture(Text, Tray.Snapshot());
             IReadOnlyList<string>? attachmentIds = null;
             if (draft.Attachments.Count > 0) {
@@ -742,12 +779,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 }
                 attachmentIds = upload.Ids;
             }
+            if (_choices.AccountErrorFor(draft) is { } accountError) {
+                if (_disposed) _drafts.HoldFailed(_session.SessionId, draft with { Error = accountError });
+                else Error = _accountError = accountError;
+                return;
+            }
 
             var request = new LaunchRequest(
                 _daemon.DaemonName, checkout, draft.Vendor, draft.Text, draft.Model, draft.Effort,
                 HomeViewModel.PermissionModeFor(draft.Vendor, draft.PermissionMode!), attachmentIds,
                 HomeViewModel.CodexPostureFor(draft.Vendor, draft.CodexPosture!.Sandbox, draft.CodexPosture.Approval),
-                Handoff: start with { SourceSessionId = _session.SessionId });
+                Handoff: start with { SourceSessionId = _session.SessionId }, AccountId: draft.Account?.Id);
             // Captured before the call: a navigation while it is in flight must keep the launch from opening.
             var generation = _navigationGeneration();
             var launchEpoch = _laneEpoch;

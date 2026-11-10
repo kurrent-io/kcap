@@ -18,7 +18,7 @@ namespace Capacitor.Cli.Core.Harness;
 /// <summary>
 /// The harnesses this process can see, in setup and display order, and the search path their
 /// binaries are looked for on. The one place shared code names a vendor: adding one is a directory
-/// plus a line here, and every consumer that treats vendors alike keeps iterating.
+/// plus its line in each factory here, and every consumer that treats vendors alike keeps iterating.
 ///
 /// <para>Built once at an entry point and passed down, so two consumers cannot resolve one vendor's
 /// root differently — and Antigravity is composed from the Gemini instance rather than from the
@@ -85,6 +85,27 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
             GrokHarness.FromEnvironment(home),
             MuseHarness.FromEnvironment(home),
         ], binaries, DesktopAppProbe.FromEnvironment(home));
+    }
+
+    /// <summary>Every vendor at its default layout under <paramref name="home"/>, no override variable read: the layout
+    /// another account on this machine has, whatever this process's environment says.</summary>
+    public static HarnessRegistry AtDefaults(UserHome home, BinaryProbe binaries) {
+        var gemini = GeminiHarness.Over(new GeminiPaths(home, null));
+
+        return new([
+            ClaudeHarness.Over(new ClaudePaths(home, null)),
+            CodexHarness.Over(new CodexPaths(home, null)),
+            CursorHarness.Over(new CursorPaths(home)),
+            CopilotHarness.Over(new CopilotPaths(home, null)),
+            gemini,
+            KiroHarness.Over(new KiroPaths(home, null)),
+            PiHarness.Over(new PiPaths(home, null)),
+            OpenCodeHarness.Over(new OpenCodePaths(home, null, null, null)),
+            AntigravityHarness.Over(gemini),
+            MistralVibeHarness.Over(new MistralVibePaths(home, null)),
+            GrokHarness.Over(new GrokPaths(home, null)),
+            MuseHarness.Over(new MusePaths(home, null, null)),
+        ], binaries, DesktopAppProbe.None);
     }
 
     /// <summary>Over harnesses resolved elsewhere — a test's, or a subset.</summary>

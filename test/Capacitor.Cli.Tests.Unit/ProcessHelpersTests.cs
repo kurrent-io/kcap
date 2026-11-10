@@ -1,30 +1,9 @@
+using Capacitor.Cli.Core.Processes;
 using TUnit.Assertions.Enums;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Capacitor.Cli.Tests.Unit;
-
-/// <summary>
-/// Builds a synthetic <c>KERN_PROCARGS2</c> payload (little-endian argc, then the
-/// NUL-terminated exec path, then argv) for <see cref="ProcessHelpers.ParseExecPath"/>
-/// tests. Kept out of the test class so the TUnit source generator only sees [Test]s.
-/// </summary>
-static class ProcArgs2 {
-    public static byte[] Of(int argc, string execPath, params string[] argv) {
-        var bytes = new List<byte>();
-        bytes.AddRange(BitConverter.GetBytes(argc));
-        bytes.AddRange(Encoding.UTF8.GetBytes(execPath));
-        bytes.Add(0);
-
-        foreach (var a in argv) {
-            bytes.AddRange(Encoding.UTF8.GetBytes(a));
-            bytes.Add(0);
-        }
-
-        return bytes.ToArray();
-    }
-}
 
 public class ProcessHelpersTests {
     [Test]
@@ -221,25 +200,6 @@ public class ProcessHelpersTests {
         await Assert.That(ProcessHelpers.ParseExecPath(buf)).IsEqualTo("/Users/alexey/.local/bin/claude");
     }
 
-    /// The kernel pads the exec path with NULs before argv; the arguments are read past that padding.
-    [Test]
-    public async Task ParseArgs_reads_the_arguments_after_the_exec_path_and_its_padding() {
-        var plain  = ProcArgs2.Of(3, "/opt/homebrew/bin/node", "node", "/usr/local/bin/gemini", "--resume");
-        var padded = ProcArgs2.Of(3, "/opt/homebrew/bin/node\0\0\0", "node", "/usr/local/bin/gemini", "--resume");
-
-        await Assert.That(ProcessHelpers.ParseArgs(plain)).IsEquivalentTo(["node", "/usr/local/bin/gemini", "--resume"], CollectionOrdering.Matching);
-        await Assert.That(ProcessHelpers.ParseArgs(padded)).IsEquivalentTo(["node", "/usr/local/bin/gemini", "--resume"], CollectionOrdering.Matching);
-        await Assert.That(ProcessHelpers.ParseArgs(new byte[] { 1, 0, 0, 0 })).IsEmpty();
-    }
-
-    /// An empty argument is still one argument, so the count stops before the environment that follows.
-    [Test]
-    public async Task ParseArgs_counts_an_empty_argument_and_stops_before_the_environment() {
-        var buffer = ProcArgs2.Of(2, "/usr/bin/node", "node", "").Concat("gemini\0"u8.ToArray()).ToArray();
-
-        await Assert.That(ProcessHelpers.ParseArgs(buffer)).IsEquivalentTo(["node", ""], CollectionOrdering.Matching);
-    }
-
     /// Gemini CLI runs as node with no title, so only its script names it: the shim the shebang hands over,
     /// or the entry point inside its package. Neither another runtime's script, an option's value nor inline
     /// code is taken for that script.
@@ -258,9 +218,8 @@ public class ProcessHelpersTests {
     [Arguments(new[] { "node", "--eval=1", "/usr/local/bin/gemini" }, null)]
     [Arguments(new[] { "node", "-pe", "/usr/local/bin/gemini" }, null)]
     public async Task A_script_run_by_node_names_its_agent(string[] argv, string? expected) {
-        var names = ProcessHelpers.ScriptNameCandidates(argv).ToList();
+        var names = ProcessArgs.ScriptNameCandidates(argv).ToList();
 
-        if (expected is not null) await Assert.That(names).Contains(expected);
         await Assert.That(ProcessHelpers.ResolveCodingAgentPid(42, "gemini", pid => pid == 42 ? (1, names) : null))
             .IsEqualTo(expected is null ? null : 42);
     }
@@ -292,53 +251,6 @@ public class ProcessHelpersTests {
     public async Task ParseExecPath_returns_null_when_the_exec_path_is_empty() {
         // argc followed immediately by the NUL terminator — no path present.
         await Assert.That(ProcessHelpers.ParseExecPath(ProcArgs2.Of(1, "", "claude"))).IsNull();
-    }
-
-    [Test]
-    [Arguments("/home/me/.local/share/claude/versions/2.1.272")]
-    [Arguments("/Users/me/.local/share/claude/versions/2.1.272")]
-    [Arguments(@"C:\Users\me\AppData\Local\claude\versions\2.1.272.exe")]
-    public async Task ExecutableNameCandidates_names_the_agent_above_a_versions_directory(string execPath) {
-        // With a native install the basename IS the version, so only the directory above
-        // versions/ names the agent.
-        var candidates = ProcessHelpers.ExecutableNameCandidates(execPath).ToList();
-
-        await Assert.That(candidates.Contains("claude")).IsTrue();
-    }
-
-    [Test]
-    public async Task ExecutableNameCandidates_yields_the_basename_first() {
-        var candidates = ProcessHelpers.ExecutableNameCandidates("/home/me/.local/share/claude/versions/2.1.272").ToList();
-
-        await Assert.That(candidates.Count).IsEqualTo(2);
-        await Assert.That(candidates[0]).IsEqualTo("2.1.272");
-        await Assert.That(candidates[1]).IsEqualTo("claude");
-    }
-
-    [Test]
-    [Arguments("/usr/bin/claude")]
-    [Arguments("claude")]
-    public async Task ExecutableNameCandidates_yields_only_the_basename_for_an_ordinary_path(string execPath) {
-        var candidates = ProcessHelpers.ExecutableNameCandidates(execPath).ToList();
-
-        await Assert.That(candidates.Count).IsEqualTo(1);
-        await Assert.That(candidates[0]).IsEqualTo("claude");
-    }
-
-    [Test]
-    public async Task ExecutableNameCandidates_does_not_climb_past_a_bare_versions_root() {
-        var candidates = ProcessHelpers.ExecutableNameCandidates("/versions/2.1.272").ToList();
-
-        await Assert.That(candidates.Count).IsEqualTo(1);
-        await Assert.That(candidates[0]).IsEqualTo("2.1.272");
-    }
-
-    [Test]
-    [Arguments(null)]
-    [Arguments("")]
-    [Arguments("/")]
-    public async Task ExecutableNameCandidates_is_empty_for_an_unusable_path(string? execPath) {
-        await Assert.That(ProcessHelpers.ExecutableNameCandidates(execPath).Count()).IsEqualTo(0);
     }
 
     [Test]

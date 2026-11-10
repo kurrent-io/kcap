@@ -19,6 +19,9 @@ public static class LifecycleSpoolDrain {
             Func<string, string, Task<DrainOutcome>> lifecyclePoster,
             Func<string, Task<DrainOutcome>>         transcriptPoster,
             TimeSpan budget, TimeProvider time, CancellationToken ct) {
+        using var lease = SpoolDrainLease.TryTake(lifecycle.DirectoryPath);
+        if (lease is null) return;
+
         var started = time.GetTimestamp();
         bool Expired() => time.GetElapsedTime(started) >= budget || ct.IsCancellationRequested;
 

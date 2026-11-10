@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.App.ViewModels;
+using Lucide.Avalonia;
 
 namespace Capacitor.App.Views;
 
@@ -54,6 +55,19 @@ public partial class LauncherPaneView : UserControl {
     }
 
     internal bool IsNudgingForTesting => GoalNudgeRing.Classes.Contains("on");
+
+    IDisposable? _fills;
+
+    protected override void OnDataContextChanged(EventArgs e) {
+        base.OnDataContextChanged(e);
+        _fills?.Dispose();
+        _fills = (DataContext as HomeViewModel)?.ComposerFills.Subscribe(_ => Dispatcher.UIThread.Post(Nudge));
+    }
+
+    void OnClearNextWorkSource(object? sender, RoutedEventArgs e) {
+        (DataContext as HomeViewModel)?.ClearNextWorkSource();
+        FocusComposer();
+    }
 
     internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
 
@@ -339,6 +353,190 @@ public partial class LauncherPaneView : UserControl {
         ShowMenu(flyout, anchor);
     }
 
+    const int MaxBranchRows = 8;
+
+    // Base-ref picker: a typed name, then Current HEAD, the refs sessions here recently started
+    // from (each removable), and the repository's branches once they are read, narrowed by the field.
+    async void OnBaseRefChipClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is not HomeViewModel vm || sender is not Control anchor) return;
+
+        var input = new TextBox { PlaceholderText = "Branch, tag or commit", MinWidth = 280, Text = vm.SelectedBaseRef };
+        input.Classes.Add("kcapField");
+        AutomationProperties.SetName(input, "Branch, tag or commit to start from");
+        // Typing while the lists load must still narrow them, so this is the text before any await.
+        var initial = input.Text;
+        var error = new TextBlock {
+            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            TextWrapping = TextWrapping.Wrap, MaxWidth = 280,
+        };
+
+        var rows = new StackPanel { Spacing = 2, Margin = new Thickness(6) };
+        var field = new StackPanel { Spacing = 6, Margin = new Thickness(4, 4, 4, 6) };
+        field.Children.Add(input);
+        field.Children.Add(error);
+        rows.Children.Add(field);
+        var flyout = ChoiceMenus.PanelFlyout(rows, minWidth: 300);
+
+        async void Choose(string? baseRef) {
+            var problem = await vm.ChooseBaseRefAsync(baseRef);
+            error.Text = problem;
+            error.IsVisible = problem is not null;
+            if (problem is null) flyout.Hide();
+        }
+
+        rows.Children.Add(this.ChoiceRow("Current HEAD", vm.SelectedBaseRef is null, () => Choose(null)));
+        var recentSection = new StackPanel { Spacing = 2, IsVisible = false };
+        var branchSection = new StackPanel { Spacing = 2, IsVisible = false };
+        rows.Children.Add(recentSection);
+        rows.Children.Add(branchSection);
+
+        input.KeyDown += (_, args) => {
+            if (args.Key == Key.Escape) {
+                args.Handled = true;
+                flyout.Hide();
+                return;
+            }
+            if (args.Key != Key.Enter) return;
+            args.Handled = true;
+            Choose(input.Text);
+        };
+        flyout.Opened += (_, _) => {
+            input.Focus();
+            input.SelectAll();
+        };
+
+        var lookup = new CancellationTokenSource();
+        flyout.Closed += (_, _) => lookup.Cancel();
+
+        // Opened before either read, which go to disk or the network: the field is usable at once.
+        ShowMenu(flyout, anchor);
+
+        var branches = vm.ListBranchesAsync(lookup.Token);
+        try {
+            var recent = await vm.ListRecentBaseRefsAsync();
+            if (recent.Count > 0) {
+                recentSection.Children.Add(this.ChoiceSeparator());
+                foreach (var baseRef in recent)
+                    recentSection.Children.Add(RecentBaseRefRow(vm, baseRef, recentSection, () => Choose(baseRef)));
+                recentSection.IsVisible = true;
+            }
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: list recent base refs failed: {ex}");
+        }
+
+        if (!branches.IsCompleted) {
+            branchSection.Children.Add(this.ChoiceSeparator());
+            branchSection.Children.Add(BranchNote("Looking up branches…"));
+            branchSection.IsVisible = true;
+        }
+        BranchListing? listing;
+        try { listing = await branches; }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: list branches failed: {ex}");
+            listing = null;
+        }
+
+        void Render() {
+            branchSection.Children.Clear();
+            if (listing is null) {
+                branchSection.IsVisible = false;
+                return;
+            }
+            var filter = input.Text == initial ? "" : (input.Text ?? "").Trim();
+            var matches = listing.Branches
+                .Where(b => b.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(b => b == listing.DefaultBranch ? 0 : 1)
+                .ToList();
+            branchSection.IsVisible = matches.Count > 0;
+            if (matches.Count == 0) return;
+            branchSection.Children.Add(this.ChoiceSeparator());
+            foreach (var branch in matches.Take(MaxBranchRows))
+                branchSection.Children.Add(BranchRow(vm, branch, branch == listing.DefaultBranch, () => Choose(branch)));
+            if (matches.Count > MaxBranchRows)
+                branchSection.Children.Add(BranchNote($"{matches.Count - MaxBranchRows} more — type to narrow"));
+        }
+        Render();
+        input.TextChanged += (_, _) => Render();
+    }
+
+    TextBlock BranchNote(string text) => new() {
+        Text = text, FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
+    };
+
+    Control BranchRow(HomeViewModel vm, string branch, bool isDefault, Action choose) {
+        var selected = vm.SelectedBaseRef == branch;
+        var grid = new Grid {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), MinWidth = 220,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+        };
+        grid.Children.Add(new TextBlock {
+            Text = branch, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        });
+        if (isDefault) {
+            var tag = new TextBlock {
+                Text = "default", FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
+                Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            };
+            Grid.SetColumn(tag, 1);
+            grid.Children.Add(tag);
+        }
+        var check = this.SelectionCheck(selected);
+        Grid.SetColumn(check, 2);
+        grid.Children.Add(check);
+
+        var pick = ChoiceMenus.ChoiceButton(grid, choose);
+        AutomationProperties.SetName(pick, ChoiceMenus.ChoiceName(isDefault ? $"{branch}, default branch" : branch, selected));
+        return pick;
+    }
+
+    Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel section, Action choose) {
+        var selected = vm.SelectedBaseRef == baseRef;
+        var title = new TextBlock {
+            Text = baseRef, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        var grid = new Grid {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"), MinWidth = 220,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+        };
+        grid.Children.Add(title);
+        var check = this.SelectionCheck(selected);
+        Grid.SetColumn(check, 1);
+        grid.Children.Add(check);
+
+        var pick = ChoiceMenus.ChoiceButton(grid, choose);
+        AutomationProperties.SetName(pick, ChoiceMenus.ChoiceName(baseRef, selected));
+
+        var remove = new Button {
+            Width = 24, Height = 24, Padding = new Thickness(0), Margin = new Thickness(4, 0, 0, 0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Content = new AppIcon { Kind = LucideIconKind.X, Size = 12, Foreground = this.Brush("KcapMutedBrush") },
+        };
+        remove.Classes.Add("kcapGhost");
+        ToolTip.SetTip(remove, "Remove from this list");
+        AutomationProperties.SetName(remove, $"Remove {baseRef} from recent branches");
+
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        row.Children.Add(pick);
+        Grid.SetColumn(remove, 1);
+        row.Children.Add(remove);
+
+        remove.Click += async (_, _) => {
+            section.Children.Remove(row);
+            if (section.Children.Count == 1) {
+                section.Children.Clear();
+                section.IsVisible = false;
+            }
+            try { await vm.ForgetBaseRefAsync(baseRef); }
+            catch (Exception ex) { Console.Error.WriteLine($"kcap: forget base ref failed: {ex}"); }
+        };
+        return row;
+    }
+
     void ShowMenu(Flyout flyout, Control anchor) {
         _openMenu = flyout;
         flyout.ShowAt(anchor);
@@ -374,6 +572,17 @@ public sealed class MachineLabelConverter : IValueConverter {
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is string { Length: > 0 } name ? $"Machine · {name}" : "Machine";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// BaseRefChip's label: "Branch from · …", HEAD when nothing is chosen.
+public sealed class BaseRefLabelConverter : IValueConverter {
+    public static readonly BaseRefLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        $"Branch from · {(value is string { Length: > 0 } name ? name : "HEAD")}";
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();

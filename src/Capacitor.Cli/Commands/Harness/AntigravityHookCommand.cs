@@ -5,7 +5,10 @@ using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -180,6 +183,8 @@ sealed class AntigravityHookCommand(
             DisabledSessions.Mark(sessionId, config);
             return 0;
         }
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Scope root: the git root discovered from the payload cwd (stamped onto `forwarded` above,
         // if found) is preferred; the payload cwd is the fallback. Read back from `enriched` (not a

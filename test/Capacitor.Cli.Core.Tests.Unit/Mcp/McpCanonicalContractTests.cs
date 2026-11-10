@@ -38,16 +38,19 @@ public class McpCanonicalContractTests {
     }
 
     /// <summary>Codex reads a plugin descriptor's entries into the same server config as
-    /// config.toml, so the bundled descriptor must carry the flows timeout the TOML writer emits.</summary>
+    /// config.toml, so the bundled descriptor must carry every tool timeout the TOML writer emits.</summary>
     [Test]
-    public async Task Bundled_codex_mcp_json_carries_the_flows_tool_timeout() {
+    public async Task Bundled_codex_mcp_json_carries_each_servers_tool_timeout() {
         var servers = (JsonObject)JsonNode.Parse(File.ReadAllText(Path.Combine(RepoTree.KcapDir(), ".codex-mcp.json")))!["mcpServers"]!;
-        var flows   = KcapMcpServers.ForCodex.Single(s => s.Name == "kcap-flows");
 
-        await Assert.That(servers["kcap-flows"]!["tool_timeout_sec"]!.GetValue<long>()).IsEqualTo((long)flows.ToolTimeout!.Value.TotalSeconds);
-        foreach (var (name, node) in servers)
-            if (name != "kcap-flows")
-                await Assert.That(node!["tool_timeout_sec"]).IsNull().Because($"{name} bounds no long call");
+        foreach (var server in KcapMcpServers.ForCodex) {
+            var written = servers[server.Name]!["tool_timeout_sec"];
+
+            if (server.ToolTimeout is { } timeout)
+                await Assert.That(written!.GetValue<long>()).IsEqualTo((long)timeout.TotalSeconds).Because(server.Name);
+            else
+                await Assert.That(written).IsNull().Because($"{server.Name} bounds no long call");
+        }
     }
 
     [Test]

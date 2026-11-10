@@ -12,5 +12,9 @@ public sealed record SessionStatsDto {
     [JsonPropertyName("peak_context_window")]   public long?                       PeakContextWindow   { get; init; }
     [JsonPropertyName("context_usage_percent")] public double?                     ContextUsagePercent { get; init; }
     [JsonPropertyName("context_window")]        public long?                       ContextWindow       { get; init; }
+    [JsonPropertyName("current_context_tokens")]    public long?   CurrentContextTokens     { get; init; }
+    [JsonPropertyName("current_context_window")]    public long?   CurrentContextWindow     { get; init; }
+    [JsonPropertyName("current_context_percent")]   public double? CurrentContextPercent    { get; init; }
+    [JsonPropertyName("awaiting_context_reading")]  public bool    AwaitingContextReading   { get; init; }
     [JsonPropertyName("estimated_cost_usd")]    public double?                     EstimatedCostUsd    { get; init; }
 }

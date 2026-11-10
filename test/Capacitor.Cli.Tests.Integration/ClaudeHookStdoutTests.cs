@@ -6,7 +6,7 @@ using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -61,7 +61,7 @@ public class ClaudeHookStdoutTests : IDisposable {
     // concurrently-running test writes to Console can contaminate it.
     async Task<string> RunSessionStartAsync() {
         var stdout = new StringWriter();
-        await new ClaudeHookCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).Handle(new StringReader(SessionStartPayloadWithoutTranscriptPath()), stdout: stdout);
+        await new ClaudeHookCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).Handle(new StringReader(SessionStartPayloadWithoutTranscriptPath()), passNoticesCapable: true, stdout: stdout);
         return stdout.ToString();
     }
 

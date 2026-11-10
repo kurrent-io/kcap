@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Harness.Pi;
 /// <c>PiTranscriptNormalizer</c> emit condition. A user/assistant message only
 /// produces a canonical event — and so only counts as import-relevant
 /// (<c>PiImportSource.IsImportRelevantLine</c>) or toward the watcher
-/// title-event threshold (<c>WatchCommand.IsEvent</c>) — when it actually
+/// title-event threshold (<c>TranscriptLineText.IsEvent</c>) — when it actually
 /// carries content. Shared so those two never drift from the normalizer (or
 /// each other): a role check alone over-counts empty/unsupported envelopes that
 /// the normalizer skips, which would re-classify a complete session as Partial

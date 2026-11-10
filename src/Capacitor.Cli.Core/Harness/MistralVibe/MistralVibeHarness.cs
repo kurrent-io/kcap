@@ -23,6 +23,8 @@ public sealed class MistralVibeHarness : IHarness<MistralVibeHarness> {
     /// paths; they reach them through the instance the entry point built.</summary>
     public MistralVibePaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.HooksToml, Paths.ConfigToml];
+
     // The PATH probe covers a fresh install that has written no markers yet.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),

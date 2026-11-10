@@ -8,7 +8,7 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Telemetry;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 
@@ -49,7 +49,7 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync());
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl));
             } catch (Exception ex) {
                 // The detail goes to stderr, not the client: an IO error's message can carry local paths.
                 await Console.Error.WriteLineAsync($"kcap mcp knowledge: unexpected error handling tools/call: {ex}");

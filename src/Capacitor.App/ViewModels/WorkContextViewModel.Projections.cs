@@ -297,17 +297,12 @@ public sealed partial class WorkContextViewModel {
     void ResolveRequesterAvatar() =>
         RequesterAvatarUrl = _viewer is { AvatarUrl: { } own } && (_requesterId is null || _viewer.Owns(_requesterId))
             ? own
-            : GitHubAvatarUrl(_requesterId);
+            : GitHubAvatar.UrlFor(_requesterId);
 
     void ForgetViewer() {
         ViewerIdentity = null;
         ResolveRequesterAvatar();
     }
-
-    static string? GitHubAvatarUrl(string? userId) =>
-        userId is not null && userId.StartsWith("github:", StringComparison.Ordinal)
-        && long.TryParse(userId.AsSpan(7), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0
-            ? $"https://avatars.githubusercontent.com/u/{id}?v=4&s=64" : null;
 
     static string? FirstNonBlank(params string?[] values) {
         foreach (var value in values)
@@ -427,6 +422,10 @@ public sealed partial class WorkContextViewModel {
         Tokens = SessionFactText.Tokens(summary?.Stats);
         Cost = SessionFactText.Cost(summary?.Stats);
         ContextUse = SessionFactText.Context(summary?.Stats);
+        _stats = summary?.Stats;
+        CurrentContextUse = SessionFactText.CurrentContext(_stats);
+        if (!(ContextPercent >= CompactThreshold) || _stats?.AwaitingContextReading == true) EndCompact();
+        RaiseCompactState();
         SessionSharing = summary is null ? SessionFactText.Unknown : SessionFactText.SessionSharing(summary);
         AgentSharing = SessionFactText.AgentSharing(summary?.AgentVisibility);
         _storedBranch = FirstNonBlank(summary?.RepoBranch, summary?.Repositories.FirstOrDefault(r => r.IsPrimary)?.Branch);
