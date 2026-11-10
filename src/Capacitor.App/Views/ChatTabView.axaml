@@ -449,7 +449,7 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapWarningBrush}" />
+                                                Background="{StaticResource KcapPurpleBrush}" />
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
@@ -720,7 +720,7 @@
                                                         IsVisible="{Binding CanSendNow}"
                                                         Height="24" Padding="12,0"
                                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
+                                                        FontSize="13" FontWeight="SemiBold"
                                                         AutomationProperties.Name="Send queued message again" />
                                             </StackPanel>
                                         </Grid>
@@ -771,7 +771,7 @@
                                                 <Button x:Name="ApproveHeldButton" Classes="kcapPrimary" Content="Approve"
                                                         Command="{Binding ApproveCommand}" IsVisible="{Binding CanDecide}"
                                                         Height="24" Padding="12,0" VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
+                                                        FontSize="13" FontWeight="SemiBold"
                                                         AutomationProperties.Name="Approve held message" />
                                             </StackPanel>
                                         </Grid>
@@ -855,9 +855,8 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:TerminalMenuChoiceViewModel">
-                                            <Button Classes="kcapGhost" Command="{Binding Choose}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="12,8" CornerRadius="8" Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" Cursor="Hand">
+                                            <Button Classes="kcapChip" Command="{Binding Choose}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                    Padding="12,8" CornerRadius="8" BorderThickness="1" Cursor="Hand">
                                                 <TextBlock Text="{Binding Label}" FontSize="13.5" TextWrapping="Wrap"
                                                            Foreground="{StaticResource KcapTextBrush}" />
                                             </Button>
@@ -880,7 +879,7 @@
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                             <!-- The hint exists only while the gate is shut, which is exactly when a tooltip
                                  is suppressed by default. -->
-                            <Button x:Name="AttachButton" Classes="kcapGhost" IsVisible="{Binding ShowsComposer}"
+                            <Button x:Name="AttachButton" Classes="kcapGhost kcapIcon" IsVisible="{Binding ShowsComposer}"
                                     IsEnabled="{Binding Attachments.CanAttach}" ToolTip.Tip="{Binding Attachments.AttachHint}"
                                     ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
                                     Width="24" Height="24" Padding="0" FontSize="15" Cursor="Hand"
@@ -895,8 +894,7 @@
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                     FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
                             <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
-                                    Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7"
-                                    Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                                    Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold"
                                     IsVisible="{Binding ShowsComposer}" />
                         </Grid>
                     </StackPanel>

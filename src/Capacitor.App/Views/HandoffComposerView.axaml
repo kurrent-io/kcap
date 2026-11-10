@@ -69,7 +69,7 @@
                                Foreground="{StaticResource KcapFaintBrush}"
                                IsVisible="{Binding StripNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
-                <Button x:Name="CancelHandoffButton" Grid.Column="2" Classes="kcapGhost" Content="Cancel"
+                <Button x:Name="CancelHandoffButton" Grid.Column="2" Classes="kcapChip" Content="Cancel"
                         Command="{Binding CloseStripCommand}" Margin="12,0,0,0"
                         Height="24" Padding="10,0" VerticalContentAlignment="Center" FontSize="13"
                         IsVisible="{Binding CanCloseStrip}" />

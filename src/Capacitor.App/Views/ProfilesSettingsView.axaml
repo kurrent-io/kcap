@@ -64,7 +64,7 @@
                                                                                Foreground="{StaticResource KcapMutedBrush}" />
                                                                 </StackPanel>
                                                             </Button>
-                                                            <Button Classes="kcapGhost profileRemove" Content="Remove profile" Click="OnMenuItemClick"
+                                                            <Button Classes="kcapDanger profileRemove" Content="Remove profile" Click="OnMenuItemClick"
                                                                     IsVisible="{Binding CanRemove}" CommandParameter="{Binding}"
                                                                     Command="{Binding $parent[views:ProfilesSettingsView].((vm:ProfilesSettingsViewModel)DataContext).RemoveCommand}"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"

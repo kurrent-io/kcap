@@ -1,5 +1,7 @@
 using System.Reactive.Subjects;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
@@ -45,6 +47,9 @@ public class FeedbackWindowSmokeTests {
 
             await Assert.That(sent.IsVisible).IsTrue();
             await Assert.That(window.FindControl<TextBlock>("SentText")!.Text).IsEqualTo("Sent. Replies go to a@b.c.");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(window.IsVisible).IsFalse();
         } finally {
             window.Close();
         }

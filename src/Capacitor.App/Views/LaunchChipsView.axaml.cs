@@ -124,16 +124,17 @@ public partial class LaunchChipsView : UserControl {
     /// monogram otherwise (both from HostedHarnessCatalog.TileFor). UI-thread only (constructs
     /// thread-affine Geometry/brushes).
     internal static Control BuildGlyph(string vendor, double size) {
-        var (glyph, color) = HostedHarnessCatalog.TileFor(vendor);
+        var (glyph, brushKey) = HostedHarnessCatalog.TileFor(vendor);
+        var brush = AppPalette.Brush(brushKey);
         if (VendorIcons.For(vendor) is { } geometry)
             return new Avalonia.Controls.Shapes.Path {
-                Data = geometry, Fill = new SolidColorBrush(Color.Parse(color)),
+                Data = geometry, Fill = brush,
                 Width = size, Height = size, Stretch = Stretch.Uniform,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             };
         return new TextBlock {
             Text = glyph, FontSize = size, FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.Parse(color)),
+            Foreground = brush,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
     }
@@ -159,7 +160,7 @@ public partial class LaunchChipsView : UserControl {
         var searchBox = new TextBox {
             Name = "ModelSearchBox",
             PlaceholderText = "Search models…", FontSize = 13.5,
-            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            Classes = { "kcapEmbedded" },
             VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
         AutomationProperties.SetName(searchBox, "Search models");
@@ -442,12 +443,14 @@ public partial class LaunchChipsView : UserControl {
                     Width = 34, Height = 34, Padding = new Thickness(0),
                     HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                     VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                    Background = active ? raised : Brushes.Transparent,
-                    BorderBrush = active ? border : Brushes.Transparent, BorderThickness = new Thickness(1),
+                    Background = active ? this.Brush("KcapSelectionBrush") : Brushes.Transparent,
+                    BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(9),
                     Opacity = option.Available ? 1 : 0.4,
                 };
-                tile.Classes.Add(active ? "kcapChip" : "kcapGhost");
+                tile.Classes.Add("kcapGhost");
+                tile.Classes.Set("active", active);
+                tile.Classes.Add("kcapVendorTab");
                 var unavailable = vm.UnavailableHarnessTip(option);
                 ToolTip.SetTip(tile, unavailable ?? $"{option.Label} — {HostedHarnessCatalog.DescriptionFor(option)}");
                 if (unavailable is not null) AutomationProperties.SetHelpText(tile, unavailable);

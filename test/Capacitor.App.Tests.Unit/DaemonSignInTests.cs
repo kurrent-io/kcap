@@ -36,7 +36,7 @@ public class DaemonSignInTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_footer_says_sign_in_required_and_offers_sign_in_for_the_apps_own_profile() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+        await AvaloniaSession.RunOnUiAsync(async () => {
             var service = new FakeDaemonClientService();
             var vm = new MainWindowViewModel(
                 service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
@@ -49,7 +49,7 @@ public class DaemonSignInTests {
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
             await Assert.That(vm.Alert.Recovery).IsEqualTo(RailRecovery.SignIn);
             // A signed-out daemon needs the user, as the launcher's card shows it too.
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse(StatusColors.InProgress));
+            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(((ISolidColorBrush)AppPalette.Brush(AppStatusPalette.Attention)).Color);
             await Assert.That(vm.SignInVisible).IsTrue();
 
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "old"));

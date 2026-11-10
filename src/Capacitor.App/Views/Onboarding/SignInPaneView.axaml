@@ -117,7 +117,7 @@
                     <Button x:Name="WorkspaceUrlButton" Classes="onboardingLink" Content="Use a workspace URL"
                             Command="{Binding ToggleUrlPanelCommand}" />
                 </WrapPanel>
-                <Button x:Name="CancelSignInButton" Classes="onboardingLink" HorizontalAlignment="Left" Content="Cancel sign-in"
+                <Button x:Name="CancelSignInButton" Classes="onboardingSecondary" HorizontalAlignment="Left" Content="Cancel sign-in"
                         Command="{Binding CancelCommand}" IsVisible="{Binding Busy}" />
 
                 <StackPanel Spacing="8" IsVisible="{Binding UrlPanelVisible}" IsEnabled="{Binding Idle}">

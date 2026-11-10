@@ -54,6 +54,40 @@
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPressed" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollViewerScrollBarsSeparatorBackground" Color="#00000000" />
+            <!-- Setup surfaces retain their own brand palette. -->
+            <SolidColorBrush x:Key="OnboardingCanvasBrush" Color="#180F19" />
+            <SolidColorBrush x:Key="OnboardingTextBrush" Color="#DED9FF" />
+            <SolidColorBrush x:Key="OnboardingFieldBrush" Color="#1E1220" />
+            <SolidColorBrush x:Key="OnboardingAccentBrush" Color="#DED9FF" />
+            <SolidColorBrush x:Key="OnboardingAccentHoverBrush" Color="#EEEAFE" />
+            <SolidColorBrush x:Key="OnboardingAccentOnBrush" Color="#631B3A" />
+            <SolidColorBrush x:Key="OnboardingAccentWashBrush" Color="#1ADED9FF" />
+            <SolidColorBrush x:Key="OnboardingAtmosphereBrush" Color="#FF4A80" />
+            <SolidColorBrush x:Key="OnboardingMutedBrush" Color="#C3B5C7" />
+            <SolidColorBrush x:Key="OnboardingDimBrush" Color="#AD9AB2" />
+            <SolidColorBrush x:Key="OnboardingNeutralBrush" Color="#C7BBCD" />
+            <SolidColorBrush x:Key="OnboardingSurfaceBrush" Color="#2A1B2D" />
+            <SolidColorBrush x:Key="OnboardingSurfaceBorderBrush" Color="#5D4363" />
+            <SolidColorBrush x:Key="OnboardingControlBorderBrush" Color="#7D6384" />
+            <SolidColorBrush x:Key="OnboardingDividerBrush" Color="#17DED9FF" />
+            <SolidColorBrush x:Key="OnboardingPanelBorderBrush" Color="#5D4363" />
+            <SolidColorBrush x:Key="OnboardingSkeletonBrush" Color="#3A2540" />
+            <SolidColorBrush x:Key="OnboardingWarningFillBrush" Color="#0DFF7272" />
+            <SolidColorBrush x:Key="OnboardingWarningBorderBrush" Color="#47FF7272" />
+            <SolidColorBrush x:Key="OnboardingResolvedFillBrush" Color="#0D5BE0B3" />
+            <SolidColorBrush x:Key="OnboardingResolvedBorderBrush" Color="#425BE0B3" />
+            <RadialGradientBrush x:Key="OnboardingBloomBrush" GradientOrigin="50%,50%" Center="50%,50%" RadiusX="50%" RadiusY="50%">
+                <GradientStop Offset="0" Color="#8C631B3A" />
+                <GradientStop Offset="0.4" Color="#38631B3A" />
+                <GradientStop Offset="0.7" Color="#00631B3A" />
+            </RadialGradientBrush>
+            <!-- Input outlines clear 3:1 against raised surfaces. -->
+            <SolidColorBrush x:Key="SettingsControlBorderBrush" Color="#616B80" />
+            <SolidColorBrush x:Key="KcapClaudeBrandBrush" Color="#D97757" />
+            <SolidColorBrush x:Key="KcapMistralBrandBrush" Color="#FA520F" />
+            <SolidColorBrush x:Key="KcapMuseAssistantBrandBrush" Color="#2F6FE0" />
+            <SolidColorBrush x:Key="KcapGrokBrandBrush" Color="#F5F5F5" />
+            <SolidColorBrush x:Key="KcapMuseBrandBrush" Color="#4B93FF" />
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="avares://kcap-desktop/Views/PendingCardTemplates.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingResources.axaml" />
@@ -807,5 +841,76 @@
             <Setter Property="RenderTransform" Value="scale(0.97, 0.72)" />
         </Style>
         <StyleInclude Source="avares://kcap-desktop/Views/SectionStyles.axaml" />
+        <Style Selector="Button.acpOption, ToggleButton.acpOption">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="ToggleButton.acpOption:checked">
+            <Setter Property="Background" Value="{StaticResource KcapInfoDimBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.acpOption:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapInfoDimBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <Style Selector="Button.acpOption /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.acpOption:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.acpOption:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.acpOption:checked /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapInfoDimBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <Style Selector="Button.acpOption:focus-visible /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:focus-visible /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:checked:focus-visible /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:checked:pointerover:focus-visible /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:checked:pressed:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.acpOption:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.acpOption:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="Opacity" Value="0.45" />
+        </Style>
+        <Style Selector="Button.kcapVendorTab.active /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapVendorTab.active:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapVendorTab.active:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.artefactRow:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.sectionHeader:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.copyValue:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railRow:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railPr:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.toolSummary:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.taskRow:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.nwbRow:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="Opacity" Value="0.45" />
+        </Style>
     </Application.Styles>
 </Application>
