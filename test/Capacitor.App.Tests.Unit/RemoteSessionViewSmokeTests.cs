@@ -148,8 +148,9 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
-                await Assert.That(host.Vm.ConnectionNotice!.ActionLabel).IsEqualTo("Start server");
-                host.Vm.ConnectionNotice.Action!.Execute(null);
+                var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
+                await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
+                Click(host, start);
                 await host.SettleUntilAsync(() => starts == 1, "start requested");
             } finally { await host.Vm.TeardownAsync(); }
             return true;

@@ -96,6 +96,8 @@ public class WorkspaceViewSmokeTests {
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
                 await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "The daemon isn’t running")).IsTrue();
+                var start = window.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start daemon"));
+                await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
                 await vm.StartDaemonCommand.Execute();
                 await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
                 daemon.StartBehavior = _ => Task.FromResult(new StartDaemonResult(false, "kcap CLI not found"));
