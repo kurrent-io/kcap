@@ -39,10 +39,11 @@ static class InteractiveLifetime {
     ///
     /// <c>feedback</c> joins this list for the same reason <c>import</c> does: on a real TTY with
     /// no <c>-m</c> flag it blocks on a plain <see cref="Console.ReadLine"/> loop, which has the
-    /// same "no timeout, no signal awareness" gap as a Spectre prompt.
+    /// same "no timeout, no signal awareness" gap as a Spectre prompt. <c>pass</c> and <c>message</c> read
+    /// the sharing approval the same way.
     /// </summary>
     public static bool IsInteractiveCommand(string command) => command is
-        "setup" or "login" or "profile" or "use" or "import" or "uninstall" or "feedback" or "local";
+        "setup" or "login" or "profile" or "use" or "import" or "uninstall" or "feedback" or "local" or "pass" or "message";
 
     /// <summary>
     /// Installs the interrupt handlers and the parent-liveness watchdog. Best

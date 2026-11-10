@@ -122,6 +122,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             return output.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = output, ToolKind = ChatDisplayKind.Shell };
 
         switch (cls.Kind) {
+            // Claude Code records a manual /compact twice: the typed prompt ahead of the boundary, and
+            // the command tags again after the summary. The typed one is the row; this one stays a receipt.
+            case UserMessageKind.Person when cls.IsCommand && scheduled?.IsCompactEcho(SystemInstructionParser.Parse(raw).CleanText) == true:
+                return null;
             case UserMessageKind.Person when cls is { IsCommand: true, Label: { Length: > 0 } line }:
                 return envelope with { Text = line };
             case UserMessageKind.Person:
@@ -192,25 +196,29 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             case AcpEventKind.UserMessage when IsTaskNotification(slug, raw): {
                 // Read past the reminders that open it, which can quote another task's tags.
                 var text = SystemInstructionParser.StripLeading(raw.Text ?? "");
-                var callId = Tag(TaskToolUseId(), text);
-                var agentId = Tag(TaskId(), text);
-                if (callId is null && agentId is null) return [];
-                // A cut-off notification has no status and still says the run ended; a status
-                // that is not an end, such as running, says nothing.
+                if (!IsClaudes(slug, text)) return [];
+                var head = Head(text);
+                var callId = Tag(TaskToolUseId(), head);
+                var taskIds = TaskIds(head);
+                RunSignal[] reopened = IsLeftoverReport(text, head) ? [new RunSignal.Reopened(evt.Timestamp)] : [];
+                if (callId is null && taskIds.Count == 0) return reopened;
+                // A notification cut off before its status still says the run ended; a whole one
+                // without a status, such as a check-in, or with a status that is not an end, says nothing.
                 RunOutcome? outcome;
-                switch (Tag(TaskStatus(), text)?.ToLowerInvariant()) {
-                    case null:        outcome = null; break;
+                switch (Tag(TaskStatus(), head)?.ToLowerInvariant()) {
+                    case null when !text.Contains(NotificationClose, StringComparison.Ordinal): outcome = null; break;
                     // Claude Code reports an agent paused on background work of its own as completed
                     // too: the summary is what tells the pause from the end.
-                    case "completed" when Tag(TaskSummary(), text)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
-                        return [new RunSignal.Waiting(callId, agentId, evt.Timestamp)];
+                    case "completed" when Tag(TaskSummary(), head)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
+                        return [new RunSignal.Waiting(callId, taskIds.FirstOrDefault(), evt.Timestamp)];
                     case "completed": outcome = RunOutcome.Done; break;
                     case "failed":    outcome = RunOutcome.Failed; break;
                     case "killed":    outcome = RunOutcome.Stopped; break;
                     case "stopped":   outcome = RunOutcome.Stopped; break;
-                    default:          return [];
+                    default:          return reopened;
                 }
-                return [new RunSignal.Finished(callId, agentId, outcome, evt.Timestamp)];
+                if (taskIds.Count <= 1) return [..reopened, new RunSignal.Finished(callId, taskIds.FirstOrDefault(), outcome, evt.Timestamp)];
+                return [..reopened, ..taskIds.Select(id => new RunSignal.Finished(null, id, outcome, evt.Timestamp))];
             }
             default:
                 return [];
@@ -218,6 +226,47 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     }
 
     const string WaitingSummaryEnd = " is waiting on its own background work";
+
+    const string PreviousSessionEnded = "before the previous session ended";
+    const string NoCompletionRecord = "No completion record was found";
+    const string OrphanScanMarker = "__orphan_summary";
+    const string NotificationClose = "</task-notification>";
+
+    /// The notification's own tags: a result can quote anything, tags included.
+    static string Head(string text) {
+        var end = text.IndexOf("<result>", StringComparison.Ordinal);
+        if (end < 0) end = text.IndexOf(NotificationClose, StringComparison.Ordinal);
+        return end < 0 ? text : text[..end];
+    }
+
+    static List<string> TaskIds(string head) {
+        var ids = new List<string>();
+        foreach (Match m in TaskId().Matches(head))
+            if (m.Groups[1].Value.Trim() is { Length: > 0 } id && !id.StartsWith(OrphanScanMarker, StringComparison.Ordinal)) ids.Add(id);
+        return ids;
+    }
+
+    /// Written by Claude Code rather than quoted by a person. Its origin says so where it has one, and Claude
+    /// may write guidance after it; without one, a message holding more than the notification is a
+    /// person's, and a bare paste cannot be told apart.
+    static bool IsClaudes(Struct? slug, string text) {
+        switch (SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind)) {
+            case "task-notification": return true;
+            case not null:            return false;
+        }
+        if (SchemaExtensions.Text(slug, ClaudeCodeExtension.PromptSource) is not (null or "system")) return false;
+        var close = text.IndexOf(NotificationClose, StringComparison.Ordinal);
+        return close < 0 || text.AsSpan(close + NotificationClose.Length).IsWhiteSpace();
+    }
+
+    /// A resumed Claude Code reports what the previous process left unfinished, which shows the process
+    /// came back even when the resume wrote no hook record. Only its whole shape counts, since a summary
+    /// quotes a command's text.
+    static bool IsLeftoverReport(string text, string head) =>
+        text.Contains(NotificationClose, StringComparison.Ordinal)
+        && string.Equals(Tag(TaskStatus(), head), "stopped", StringComparison.OrdinalIgnoreCase)
+        && Tag(TaskSummary(), head)?.Contains(PreviousSessionEnded, StringComparison.Ordinal) == true
+        && Tag(TaskNote(), head)?.StartsWith(NoCompletionRecord, StringComparison.Ordinal) == true;
 
     /// The server's events carry no origin_kind, so the text is the other way to know: how it opens
     /// once any reminders ahead of it are off.
@@ -429,6 +478,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     [GeneratedRegex(@"<task-id>(.*?)(?:</task-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskId();
+
+    [GeneratedRegex(@"<note>(.*?)(?:</note>|$)", RegexOptions.Singleline)]
+    private static partial Regex TaskNote();
 
     [GeneratedRegex(@"<tool-use-id>(.*?)(?:</tool-use-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskToolUseId();

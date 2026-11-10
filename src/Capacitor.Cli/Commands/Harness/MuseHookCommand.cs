@@ -10,6 +10,9 @@ using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Recording;
 
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
+
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
@@ -131,6 +134,8 @@ sealed class MuseHookCommand(
 
         if (await IsRepoExcludedAsync(sessionId, cwd, activeProfile, budget)) return;
 
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
         // Spawn before the POST, as Claude does: a hook Muse kills mid-POST must not take capture with it.
         var log = Paths.ResolveSessionLog(session.ToString("D"), today);
         if (log is not null && HookHttp.IsPostable(Url)) {
@@ -238,13 +243,20 @@ sealed class MuseHookCommand(
     /// would take the only copy of the end with it; a watcher is a detached process. Only a session with
     /// no log, which has nothing to drain, is posted directly.</summary>
     async Task HandleSessionEnd(JsonNode node, Guid session, string? cwd, DateOnly today) {
+        // Spans close only after an end that was handed off, posted, spooled or refused for good.
+        if (await HandOffSessionEnd(node, session, cwd, today))
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(session.ToString("N"), WorkspaceSpanHook.EndBudget);
+    }
+
+    /// <summary>Whether the session's end is now safe: handed to the watcher, posted, spooled, or refused for good.</summary>
+    async Task<bool> HandOffSessionEnd(JsonNode node, Guid session, string? cwd, DateOnly today) {
         var sessionId = session.ToString("N");
         var budget    = clock.Budget(SessionEndCeiling);
 
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            DisabledSessions.RemoveExclusion(sessionId, config);
-
-            return;
+            // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+            if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
+            return false;
         }
 
         var forwarded = new JsonObject {
@@ -265,7 +277,12 @@ sealed class MuseHookCommand(
         else if (marker is not null && owned) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
-            MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
+            try {
+                MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                await Console.Error.WriteLineAsync($"[kcap] muse session-end handoff failed ({sessionId}): {ex.Message}");
+                return false;
+            }
 
             // A watcher alive here takes the request on its next tick or on its last look, which it makes
             // only after retiring its pid file; one that has gone is replaced by a watcher armed for it.
@@ -273,16 +290,17 @@ sealed class MuseHookCommand(
                 agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
             if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
 
-            return;
+            return true;
         }
 
         // An end that names no run is placed by its session, as the watcher places a handed one: after a resume it may
         // be an earlier run's, and posted with no identity it would close the resumed run.
         if (!forwarded.ContainsKey("agent_host_id") && SessionId.Parse(sessionId) is { } placed
-         && SessionEndFence.ShouldHold(new ExitedSession(placed, null))) return;
+         && SessionEndFence.ShouldHold(new ExitedSession(placed, null))) return false;
 
-        await PostInOrderAsync("session-end/muse", forwarded.ToJsonString(), sessionId, budget);
+        var outcome = await PostInOrderAsync("session-end/muse", forwarded.ToJsonString(), sessionId, budget);
         if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
+        return outcome is HookPostOutcome.Posted or HookPostOutcome.Spooled or HookPostOutcome.Failed;
     }
 
     /// <summary>No child watcher starts here: the parent watcher's scan tails a child once its log

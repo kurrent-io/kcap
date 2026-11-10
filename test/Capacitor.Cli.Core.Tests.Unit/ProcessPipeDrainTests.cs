@@ -20,6 +20,23 @@ public class ProcessPipeDrainTests {
         await Assert.That(text).Contains("9.9.9");
     }
 
+    /// <summary>The drain's thread can start after the stop, on a loaded machine; what was already in
+    /// the pipe is still the caller's.</summary>
+    [Test]
+    public async Task A_stop_before_the_first_read_still_takes_what_is_in_the_pipe() {
+        await using var outbound = new AnonymousPipeServerStream(PipeDirection.Out);
+        await using var inbound = new AnonymousPipeClientStream(PipeDirection.In, outbound.GetClientHandleAsString());
+        using var reader = new StreamReader(inbound, leaveOpen: true);
+        using var stop = new CancellationTokenSource();
+
+        await outbound.WriteAsync(Encoding.UTF8.GetBytes("faketool 9.9.9\n"));
+        await outbound.FlushAsync();
+        stop.Cancel();
+
+        var text = await ProcessPipeDrain.Start(reader, cap: 8192, stop.Token).WaitAsync(TimeSpan.FromSeconds(2));
+        await Assert.That(text).Contains("9.9.9");
+    }
+
     [Test]
     public async Task A_leading_utf8_bom_is_not_part_of_the_text() {
         await using var outbound = new AnonymousPipeServerStream(PipeDirection.Out);

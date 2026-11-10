@@ -93,12 +93,13 @@ public class TitleGenerationTests {
     /// would start one more. The guard must hold before any agent is looked for.</summary>
     [Test]
     public async Task GenerateAsync_never_titles_a_kcap_title_run() {
-        using var home = new TempHome();
+        using var home   = new TempHome();
+        using var config = new TempConfigRoot();
         var log = new List<string>();
 
         var result = await TitleGeneration.GenerateAsync(
             TitleGeneration.TitlePromptPrefix + "Produce a short title", null, TimeProvider.System, log.Add, null,
-            TestHarnesses.Under(home));
+            TestHarnesses.Under(home), config.Root);
 
         await Assert.That(result).IsNull();
         await Assert.That(log).IsEquivalentTo(["Skipping title generation: the session is kcap's own title run"]);

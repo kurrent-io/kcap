@@ -80,7 +80,7 @@ public class PiRpcTests {
     // ---- ToEnvelopes: assistant message_end ----
 
     [Test]
-    public async Task Assistant_message_end_with_text_thinking_toolCall_and_usage_yields_four_envelopes() {
+    public async Task Assistant_message_end_with_text_thinking_toolCall_and_usage_yields_five_envelopes() {
         const string line = """
             {"type":"message_end","message":{"role":"assistant","content":[
                 {"type":"text","text":"Hello there"},
@@ -95,7 +95,7 @@ public class PiRpcTests {
 
         var envelopes = PiRpc.ToEnvelopes(frame, fallbackModel: "fallback-model");
 
-        await Assert.That(envelopes.Count).IsEqualTo(4);
+        await Assert.That(envelopes.Count).IsEqualTo(5);
 
         await Assert.That(envelopes[0].Kind).IsEqualTo(AcpEventKind.AssistantText);
         await Assert.That(envelopes[0].Text).IsEqualTo("Hello there");
@@ -114,6 +114,40 @@ public class PiRpcTests {
         await Assert.That(envelopes[3].Kind).IsEqualTo(AcpEventKind.Usage);
         await Assert.That(envelopes[3].Model).IsEqualTo("pi-large");
         await Assert.That(envelopes[3].ContextUsedTokens).IsEqualTo(100L);
+
+        await Assert.That(envelopes[4].Kind).IsEqualTo(AcpEventKind.TokenUsage);
+        await Assert.That(envelopes[4].Model).IsEqualTo("pi-large");
+    }
+
+    /// <summary>The message is a real Pi record. A hosted Pi session has no other capture path, so
+    /// without this envelope its tokens and cost never reach the server.</summary>
+    [Test]
+    public async Task Assistant_message_end_usage_yields_a_token_usage_envelope_with_gross_input() {
+        const string line = """
+            {"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"toolu_01GRhieBzgrqhYXccwskKCwP","name":"read","arguments":{"path":"/work/repo/README.md"}}],"api":"anthropic-messages","provider":"anthropic","model":"claude-opus-4-8","usage":{"input":2,"output":65,"cacheRead":3684,"cacheWrite":1691,"totalTokens":5442,"cost":{"input":0.00001,"output":0.0016250000000000001,"cacheRead":0.0018419999999999999,"cacheWrite":0.01056875,"total":0.01404575},"cacheWrite1h":0},"stopReason":"toolUse","timestamp":1781727143465,"responseId":"msg_014EEhMrkmZ9MrzHNvV4HLTv"}}
+            """;
+
+        var envelopes = PiRpc.ToEnvelopes(PiRpc.TryParseLine(line)!, fallbackModel: null);
+        var usages    = envelopes.Where(e => e.Kind == AcpEventKind.TokenUsage).ToList();
+
+        await Assert.That(usages).Count().IsEqualTo(1);
+        var usage = usages[0];
+        await Assert.That(usage.Model).IsEqualTo("claude-opus-4-8");
+        await Assert.That(usage.UsageInputTokens).IsEqualTo(2L + 3684L + 1691L);
+        await Assert.That(usage.UsageCachedInputTokens).IsEqualTo(3684L);
+        await Assert.That(usage.UsageCacheWriteInputTokens).IsEqualTo(1691L);
+        await Assert.That(usage.UsageOutputTokens).IsEqualTo(65L);
+    }
+
+    [Test]
+    public async Task Assistant_message_end_without_usage_yields_no_token_usage_envelope() {
+        const string line = """
+            {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-4-8"}}
+            """;
+
+        var envelopes = PiRpc.ToEnvelopes(PiRpc.TryParseLine(line)!, fallbackModel: null);
+
+        await Assert.That(envelopes.Any(e => e.Kind == AcpEventKind.TokenUsage)).IsFalse();
     }
 
     [Test]
@@ -197,12 +231,13 @@ public class PiRpcTests {
         var frame = PiRpc.TryParseLine(line);
         var envelopes = PiRpc.ToEnvelopes(frame!, fallbackModel: null);
 
-        await Assert.That(envelopes.Count).IsEqualTo(3);
+        await Assert.That(envelopes.Count).IsEqualTo(4);
         await Assert.That(envelopes[0].Kind).IsEqualTo(AcpEventKind.AssistantText);
         await Assert.That(envelopes[0].Text).IsEqualTo("partial");
         await Assert.That(envelopes[1].Kind).IsEqualTo(AcpEventKind.SystemNote);
         await Assert.That(envelopes[1].Text).IsEqualTo("Pi turn failed: boom");
         await Assert.That(envelopes[2].Kind).IsEqualTo(AcpEventKind.Usage);
+        await Assert.That(envelopes[3].Kind).IsEqualTo(AcpEventKind.TokenUsage);
     }
 
     /// <summary>An aborted turn is a stop somebody asked for — the daemon's own graceful stop

@@ -507,7 +507,12 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     public Task SendUserInputAndWaitForWriteAsync(string text) => Submit(text, dispatchId: null);
 
-    public Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) => Submit(text, dispatchId);
+    // Taken only once written: the dispatcher's acknowledgement is the app server's answer to the turn request.
+    public async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        await Submit(text, dispatchId).ConfigureAwait(false);
+
+        return Task.CompletedTask;
+    }
 
     // Every input is recorded, dispatched or not: Codex's item for an earlier typed input must not claim a later
     // dispatch with the same text.

@@ -18,6 +18,10 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
 
     bool _read;
 
+    // A refused write leaves the file behind what is held here. Rolling the removal back instead would have every later
+    // write put the finished source back on disk.
+    bool _behind;
+
     /// <summary>What the last daemon left, and whatever this one added since. A list that can't be read is logged and
     /// read as empty: its claims go stale with nothing to pick them up, which is no worse than never having had it.</summary>
     public IReadOnlyList<RecordedSource> Load() {
@@ -29,15 +33,18 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
     }
 
     /// <summary>Whether <paramref name="source"/> is on disk now. Nothing would pick up a source that isn't, so a
-    /// caller holding a claim for one lets it go.</summary>
+    /// caller holding a claim for one lets it go. An update the disk refused keeps the entry it would have replaced, which
+    /// is still a source being recorded.</summary>
     public bool TryAdd(RecordedSource source) {
         lock (_gate) {
             Read();
+            var listed = _sources.GetValueOrDefault(source.Key);
             _sources[source.Key] = source;
 
             if (Write()) return true;
 
-            _sources.Remove(source.Key);
+            if (listed is null) _sources.Remove(source.Key);
+            else _sources[source.Key] = listed;
 
             return false;
         }
@@ -46,7 +53,7 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
     public void Remove(string key) {
         lock (_gate) {
             Read();
-            if (_sources.Remove(key)) Write();
+            if (_sources.Remove(key) || _behind) Write();
         }
     }
 
@@ -74,10 +81,12 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
             Directory.CreateDirectory(stateDirectory);
             AtomicFile.Replace(
                 _path, JsonSerializer.Serialize([.. _sources.Values], RecordedSourceJsonContext.Default.ListRecordedSource), OwnerOnly, followLink: false, durable: true);
+            _behind = false;
 
             return true;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             LogUnwritable(ex, _path);
+            _behind = true;
 
             return false;
         }

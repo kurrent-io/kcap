@@ -307,14 +307,14 @@ public class FlowsLaneTests {
     }
 
     sealed class ThrowingScope : ISessionStartMemoryScopeResolver {
-        public Task<SessionStartMemoryScope> ResolveAsync(string? cwd, TimeSpan budget, CancellationToken ct) =>
+        public Task<SessionStartMemoryScope> ResolveAsync(string? cwd, string baseUrl, TimeSpan budget, CancellationToken ct) =>
             throw new IOException("no scope");
     }
 
     sealed class HangingScope : ISessionStartMemoryScopeResolver {
         public int Calls;
 
-        public Task<SessionStartMemoryScope> ResolveAsync(string? cwd, TimeSpan budget, CancellationToken ct) {
+        public Task<SessionStartMemoryScope> ResolveAsync(string? cwd, string baseUrl, TimeSpan budget, CancellationToken ct) {
             Calls++;
             return new TaskCompletionSource<SessionStartMemoryScope>().Task;
         }

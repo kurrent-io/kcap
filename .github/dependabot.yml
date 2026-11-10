@@ -18,17 +18,34 @@ updates:
     labels: [dependencies]
     commit-message:
       prefix: chore
+    # A package joins the first group it matches. The first two take every update type, since a major
+    # split across PRs cannot build.
     groups:
-      # Each ships as one release train on one version string, so a major split across PRs cannot
-      # build — grouped across all update types, and excluded below rather than trusting group order.
+      # Every PR here needs Native/AvaloniaNative/build.sh rerun on a Mac: the patched
+      # libAvaloniaNative.dylib is stamped with the Avalonia version. Libraries built on Avalonia are
+      # members because they drag Avalonia into whichever group they land in.
       avalonia:
-        patterns: ["Avalonia*", "ReactiveUI.Avalonia"]
-      tunit:
-        patterns: ["TUnit*"]
-      # Majors stay ungrouped: one is a judgement call, and must not ride along in a batch.
-      nuget-minor-and-patch:
+        patterns: ["Avalonia*", "*.Avalonia", "*.Avalonia.*", "ReactiveUI*", "DynamicData"]
+      # TUnit and the Microsoft.Testing extensions share one platform version line.
+      testing:
+        patterns:
+          - "TUnit*"
+          - "Microsoft.Testing.*"
+          - "WireMock.Net*"
+          - "NSubstitute*"
+          - "Testcontainers*"
+          - "Microsoft.Extensions.TimeProvider.Testing"
+      # Majors stay ungrouped from here on: one is a judgement call, and must not ride along in a batch.
+      dotnet-servicing:
+        patterns:
+          - "Microsoft.AspNetCore.*"
+          - "Microsoft.Extensions.*"
+          - "Microsoft.Data.Sqlite"
+          - "SQLitePCLRaw.*"
+          - "System.*"
+        update-types: [minor, patch]
+      nuget-other:
         patterns: ["*"]
-        exclude-patterns: ["Avalonia*", "ReactiveUI.Avalonia", "TUnit*"]
         update-types: [minor, patch]
 
   # Monthly: rollForward latestFeature means every 10.0.1xx SDK already satisfies the pin, so raising

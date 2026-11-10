@@ -40,6 +40,11 @@
     "kcap-knowledge": {
       "command": "kcap",
       "args": ["mcp", "knowledge"]
+    },
+    "kcap-pass": {
+      "command": "kcap",
+      "args": ["mcp", "pass"],
+      "tool_timeout_sec": 600
     }
   }
 }

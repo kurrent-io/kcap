@@ -45,6 +45,10 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<ICommand?> RunCodeProperty =
         AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(RunCode));
 
+    /// Text to mark wherever it occurs, as a find bar's matches. Unset marks nothing.
+    public static readonly StyledProperty<string?> FindQueryProperty =
+        AvaloniaProperty.Register<MarkdownView, string?>(nameof(FindQuery));
+
     // The extension builds its TextMate highlighters on first use and keeps them, so one
     // instance serves the app; a per-view instance rebuilds them on every render.
     static readonly TextMateExtension Highlighting = new();
@@ -66,12 +70,19 @@ public sealed class MarkdownView : ContentControl {
     bool _attached;
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
+    readonly FindHighlighter _find = new();
+    int _currentFind = -1;
     bool _nonLeftRelease;
 
     static MarkdownView() {
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
             view._details.Clear();
+            view._currentFind = -1;
             view.Render();
+        });
+        FindQueryProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
+            view._currentFind = -1;
+            view.ApplyFind();
         });
         RunCodeProperty.Changed.AddClassHandler<MarkdownView>((view, _) => view._codeActions.ApplyRunCode());
         FlavorProperty.Changed.AddClassHandler<MarkdownView>((view, _) => view.ApplyFlavor());
@@ -114,6 +125,15 @@ public sealed class MarkdownView : ContentControl {
     }
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
+
+    internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
+        if (Content is not MarkdownViewer) return false;
+        var point = e.GetPosition(this);
+        if (point.Y < 0 || point.Y >= Bounds.Height) return false;
+        if (!MarkViewSelection.TryStartFromLeft(_viewer, e)) return false;
+        _selectionHost?.UpdateSelection(this);
+        return true;
+    }
 
     internal void ExtendSelection(Point pointInView) {
         if (Content is MarkdownViewer) MarkViewSelection.Extend(_viewer, pointInView);
@@ -221,6 +241,7 @@ public sealed class MarkdownView : ContentControl {
         _untitledAgents.Clear();
         _unsettledAgentLinks.Clear();
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
+        _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
         try {
             _viewer.Markdown = Text;
@@ -229,9 +250,29 @@ public sealed class MarkdownView : ContentControl {
             _viewer.Markdown = null;
             Content = new SelectableTextBlock { Text = Text, TextWrapping = TextWrapping.Wrap };
         }
+        ApplyFind();
         _selectionHost?.UpdateSelection(this);
         WatchTitles();
     }
+
+    void ApplyFind() {
+        _find.Apply(_viewer, Content is MarkdownViewer ? FindQuery : null);
+        _find.SetCurrent(_currentFind, this);
+    }
+
+    internal int FindMatchCount => _find.Count;
+
+    /// Marks one match as the current one, or none for -1; it stays marked across a re-render.
+    internal void SetCurrentFind(int index) {
+        _currentFind = index;
+        _find.SetCurrent(index, this);
+    }
+
+    /// Where a match's first line sits, in this view's coordinates.
+    internal Rect? FindMatchBounds(int index) =>
+        _find.Bounds(index) is var (block, bounds) && block.TranslatePoint(bounds.Position, this) is { } at
+            ? new Rect(at, bounds.Size)
+            : null;
 
     internal string? AgentLinkLabel(string url) {
         var label = GetValue(AgentLinksProperty)?.For(url);
@@ -287,6 +328,11 @@ public sealed class MarkdownView : ContentControl {
         set => SetValue(RunCodeProperty, value);
     }
 
+    public string? FindQuery {
+        get => GetValue(FindQueryProperty);
+        set => SetValue(FindQueryProperty, value);
+    }
+
     void ApplyFlavor() {
         _linkKeys.Clear();
         _details.Clear();
@@ -308,6 +354,8 @@ public sealed class MarkdownView : ContentControl {
             MarkdownFlavor.Prompt => ChatPipeline.Prompt,
             _                     => ChatPipeline.Instance,
         };
+        _find.Forget();
+        ApplyFind();
         _selectionHost?.UpdateSelection(this);
     }
 

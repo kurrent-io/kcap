@@ -173,11 +173,36 @@ public class LaunchRequestTests {
     }
 
     [Test]
+    public async Task A_picked_next_work_task_carries_its_target_block_snake_case() {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", NextWorkTargetKey: "le:abc"));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo([.. TwelveKeys, "next_work"]);
+        await Assert.That(json.GetProperty("next_work").GetRawText()).IsEqualTo("""{"target_key":"le:abc"}""");
+    }
+
+    [Test]
     public async Task A_blank_account_id_is_sent_as_no_key() {
         var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", AccountId: "  "));
         var keys = json.EnumerateObject().Select(p => p.Name).ToArray();
 
         await Assert.That(keys).IsEquivalentTo(TwelveKeys);
+    }
+
+    [Test]
+    public async Task A_chosen_base_ref_adds_the_base_ref_key() {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", BaseRef: "feature/x"));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo([.. TwelveKeys, "base_ref"]);
+        await Assert.That(json.GetProperty("base_ref").GetString()).IsEqualTo("feature/x");
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("  ")]
+    public async Task No_base_ref_is_sent_as_no_key(string? baseRef) {
+        var json = Payload(new LaunchRequest("kcap-dev", "/repo", "claude", "go", BaseRef: baseRef));
+
+        await Assert.That(json.EnumerateObject().Select(p => p.Name).ToArray()).IsEquivalentTo(TwelveKeys);
     }
 
     [Test]

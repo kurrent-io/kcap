@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -126,13 +127,14 @@ public class ChatTabViewSmokeTests {
         /// `show: false` leaves the window unshown, so the view has no template and no
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
-        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null) {
+        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
+                ChatFindMemory? findMemory = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
-                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now));
+                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -230,6 +232,203 @@ public class ChatTabViewSmokeTests {
             await Terminal.TeardownAsync();
         }
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Find_scrolls_to_and_marks_each_match_and_escape_clears_the_marks() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var lines = new[] { Reply("The needle is up here.") }
+                .Concat(Enumerable.Repeat(UserLine, 80))
+                .Concat([Reply("And a needle down here.")]).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("find.jsonl", lines));
+            var input = host.View.FindControl<TextBox>("FindInput")!;
+            var summary = host.View.FindControl<TextBlock>("FindSummary")!;
+
+            host.View.OpenFind();
+            host.Settle();
+            await Assert.That(input.IsFocused).IsTrue();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+
+            // The reader is at the tail, so the first match is the one in view there.
+            await Assert.That(summary.Text).IsEqualTo("2 of 2");
+            await Assert.That(CurrentMark(host)?.DataContext).IsSameReferenceAs(host.Chat.Items[^1]);
+
+            host.PressEnter(RawInputModifiers.None);
+            host.Settle();
+            await Assert.That(summary.Text).IsEqualTo("1 of 2");
+            var top = CurrentMark(host);
+            await Assert.That(top?.DataContext).IsSameReferenceAs(host.Chat.Items[0]);
+            var at = top!.TranslatePoint(top.FindMatchBounds(0)!.Value.Center, host.Scroll)!.Value;
+            await Assert.That(at.Y).IsBetween(0, host.Scroll.Viewport.Height);
+            await Assert.That(host.AtBottom()).IsFalse();
+
+            host.Press(PhysicalKey.Escape);
+            await Assert.That(host.View.FindControl<Border>("FindBar")!.IsVisible).IsFalse();
+            await Assert.That(host.View.GetVisualDescendants().OfType<MarkdownView>().Sum(v => v.FindMatchCount)).IsEqualTo(0);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
+    /// Pins that leaving a session and coming back, whether the view is swapped to another chat or
+    /// taken out of the window, keeps the search open on the match the reader was at.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_open_search_survives_leaving_the_session_and_coming_back() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var lines = new[] { Reply("The needle is up here.") }
+                .Concat(Enumerable.Repeat(UserLine, 80))
+                .Concat([Reply("And a needle down here.")]).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("find.jsonl", lines));
+            var summary = host.View.FindControl<TextBlock>("FindSummary")!;
+            host.View.OpenFind();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+            host.View.StepFind(backwards: true);
+            host.Settle();
+            await Assert.That(summary.Text).IsEqualTo("1 of 2");
+
+            async Task AssertIntact() {
+                await Assert.That(host.View.FindControl<Border>("FindBar")!.IsVisible).IsTrue();
+                await Assert.That(host.View.FindControl<TextBox>("FindInput")!.Text).IsEqualTo("needle");
+                await Assert.That(summary.Text).IsEqualTo("1 of 2");
+                var marks = host.View.GetVisualDescendants().OfType<MarkdownView>()
+                    .Where(v => MarkdownViewHarness.Runs(v).Any(r => ReferenceEquals(r.Background, host.Window.FindResource("KcapSelectionBrush"))))
+                    .ToList();
+                await Assert.That(marks.Count).IsEqualTo(1);
+                await Assert.That(marks[0].DataContext).IsSameReferenceAs(host.Chat.Items[0]);
+                var at = marks[0].TranslatePoint(marks[0].FindMatchBounds(0)!.Value.Center, host.Scroll)!.Value;
+                await Assert.That(at.Y).IsBetween(0, host.Scroll.Viewport.Height);
+            }
+
+            host.View.DataContext = null;
+            host.Settle();
+            host.View.DataContext = host.Chat;
+            host.Settle();
+            await AssertIntact();
+
+            host.Window.Content = null;
+            host.Settle();
+            host.Window.Content = host.View;
+            host.Settle();
+            await AssertIntact();
+
+            host.View.StepFind(backwards: false);
+            host.Settle();
+            await Assert.That(summary.Text).IsEqualTo("2 of 2");
+            await Assert.That(CurrentMark(host)?.DataContext).IsSameReferenceAs(host.Chat.Items[^1]);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
+    static string Reply(string text) => "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}";
+
+    /// Pins the rail's round trip: navigating away tears the chat down, and the one built on return
+    /// reopens the search on the match the reader left.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_search_left_open_comes_back_with_the_session() => RunOnUiAsync(async () => {
+        var memory = new ChatFindMemory();
+        var lines = new[] { Reply("The needle is up here.") }
+            .Concat(Enumerable.Repeat(UserLine, 80))
+            .Concat([Reply("And a needle down here.")]).ToArray();
+        var path = Tmp.CreateFile("find.jsonl", lines);
+        var first = new Host(findMemory: memory);
+        try {
+            await first.LoadAsync(path);
+            first.View.OpenFind();
+            first.Window.KeyTextInput("needle");
+            first.Settle();
+            first.View.StepFind(backwards: true);
+            first.Settle();
+            await Assert.That(first.View.FindControl<TextBlock>("FindSummary")!.Text).IsEqualTo("1 of 2");
+        } finally {
+            await first.CloseAsync();
+        }
+
+        var back = new Host(findMemory: memory);
+        try {
+            await back.LoadAsync(path);
+            back.Settle();
+            await Assert.That(back.View.FindControl<Border>("FindBar")!.IsVisible).IsTrue();
+            await Assert.That(back.View.FindControl<TextBox>("FindInput")!.Text).IsEqualTo("needle");
+            await Assert.That(back.View.FindControl<TextBlock>("FindSummary")!.Text).IsEqualTo("1 of 2");
+            var mark = CurrentMark(back);
+            await Assert.That(mark?.DataContext).IsSameReferenceAs(back.Chat.Items[0]);
+            var at = mark!.TranslatePoint(mark.FindMatchBounds(0)!.Value.Center, back.Scroll)!.Value;
+            await Assert.That(at.Y).IsBetween(0, back.Scroll.Viewport.Height);
+        } finally {
+            await back.CloseAsync();
+        }
+    });
+
+    /// Pins that stepping to a match already in full view moves only the mark, not the transcript.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Stepping_to_a_match_in_view_leaves_the_scroll_where_it_is() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var lines = Enumerable.Repeat(UserLine, 40)
+                .Concat([Reply("One needle here."), Reply("Another needle just below.")])
+                .Concat(Enumerable.Repeat(UserLine, 40)).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("near.jsonl", lines));
+            host.View.OpenFind();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+            var first = CurrentMark(host);
+            await Assert.That(first).IsNotNull();
+            var offset = host.Scroll.Offset.Y;
+            await Assert.That(offset).IsLessThan(Math.Max(0, host.Scroll.Extent.Height - host.Scroll.Viewport.Height));
+
+            host.View.StepFind(backwards: false);
+            host.Settle();
+
+            var second = CurrentMark(host);
+            await Assert.That(second).IsNotNull();
+            await Assert.That(second).IsNotSameReferenceAs(first);
+            await Assert.That(host.Scroll.Offset.Y).IsEqualTo(offset);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
+    static MarkdownView? CurrentMark(Host host) {
+        var selection = host.Window.FindResource("KcapSelectionBrush");
+        return host.View.GetVisualDescendants().OfType<MarkdownView>().FirstOrDefault(view =>
+            MarkdownViewHarness.Runs(view).Any(run => ReferenceEquals(run.Background, selection)));
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_renders_a_neutral_status_when_its_session_ends() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var path = Tmp.CreateFile("unresolved.jsonl", [ToolCallLine]);
+            await host.LoadAsync(path);
+            var call = OnlyGroup(host).Calls.Single();
+            call.Toggle();
+            host.Settle();
+            var running = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolRunning"));
+            await Assert.That(running.IsEffectivelyVisible).IsTrue();
+
+            host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
+            host.Settle();
+
+            await Assert.That(running.IsEffectivelyVisible).IsFalse();
+            await Assert.That(PulseClock.GetIsActive(running)).IsFalse();
+            var neutral = host.View.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "ToolUnknownStatusPill");
+            await Assert.That(neutral).IsNotNull();
+            await Assert.That(neutral!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(neutral.Background).IsEqualTo((IBrush)host.View.FindResource("KcapMutedBrush")!);
+            var text = host.View.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            await Assert.That(text).Contains("Outcome unknown");
+            await Assert.That(text).Contains("No result was recorded");
+        } finally { await host.CloseAsync(); }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -694,6 +893,41 @@ public class ChatTabViewSmokeTests {
                 await host.AppendAndTickAsync(path, 10);
                 host.Settle();
                 await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drag_from_a_messages_left_margin_selects_text(bool user, bool rowPadding) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var line = user ? UserLine.Replace("hello", "hello world")
+                    : """{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}""";
+                var path = Tmp.CreateFile("margin-selection.jsonl", [line]);
+                await host.LoadAsync(path);
+                var markdown = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.Text == "hello world");
+                PresentAndLocate(host, markdown);
+                var block = MarkdownViewHarness.Paragraphs(markdown).Single();
+                var first = block.TextLayout.HitTestTextPosition(0);
+                var last = block.TextLayout.HitTestTextPosition(10);
+                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
+                var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+                host.Window.MouseUp(end, MouseButton.Left);
+                host.Settle();
+                await Assert.That(markdown.HasSelection).IsTrue();
+                await Assert.That(markdown.IsSelecting).IsFalse();
+                await markdown.CopySelectionAsync();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("hello worl");
             } finally { await host.CloseAsync(); }
         });
     }
@@ -2424,6 +2658,36 @@ public class ChatTabViewSmokeTests {
 
             await Assert.That(host.AtBottom()).IsFalse();
             await Assert.That(host.Scroll.Offset.Y).IsLessThan(start - host.Scroll.Viewport.Height / 2);
+            await host.CloseAsync();
+        });
+    }
+
+    /// Page Up and Page Down typed in the composer page the transcript and leave focus in the
+    /// composer; paging back down to the end resumes following.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Paging_from_the_composer_scrolls_the_transcript() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.LoadAsync(Tmp.CreateFile("page-composer.jsonl", Enumerable.Repeat(UserLine, 60).ToArray()));
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
+            var start = host.Scroll.Offset.Y;
+
+            host.Composer.Focus();
+            Dispatcher.UIThread.RunJobs();
+            host.Press(PhysicalKey.PageUp);
+            host.Settle();
+            host.Settle();
+
+            await Assert.That(host.AtBottom()).IsFalse();
+            await Assert.That(host.Scroll.Offset.Y).IsLessThan(start - host.Scroll.Viewport.Height / 2);
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+
+            host.Press(PhysicalKey.PageDown);
+            host.Settle();
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
             await host.CloseAsync();
         });
     }

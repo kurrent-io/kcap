@@ -45,4 +45,7 @@ public interface IRecorderHost {
 
     /// <summary>Whether kcap's git hook still files this session's commits.</summary>
     Task<bool> CoversCommitsAsync(string sessionId, string? cwd);
+
+    /// <summary>Posts what this host's hooks spooled for the workspace record.</summary>
+    Task DrainWorkspaceAsync();
 }

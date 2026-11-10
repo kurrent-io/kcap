@@ -1145,6 +1145,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(FindRepoForRemoteRequest))]
 [JsonSerializable(typeof(BorrowProbeResult))]
 [JsonSerializable(typeof(SendInputCommand))]
+[JsonSerializable(typeof(SendInputAcked))]
 [JsonSerializable(typeof(SendRawInputCommand))]
 [JsonSerializable(typeof(ResizeTerminalCommand))]
 [JsonSerializable(typeof(PrepareEvalCommand))]
@@ -1306,6 +1307,17 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactVersionBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.SetArtefactVisibilityBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserSurfacesDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserCandidatesDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassResponseDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassRefusalDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ApprovePassBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassApprovalResponseDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.CatchUpDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.WhatElseDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.DeclareLooseEndBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.VisibilityOptionsResponse))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupResponse))]
@@ -1326,7 +1338,9 @@ partial class CapacitorJsonContext : JsonSerializerContext;
 public readonly record struct PermissionDecision(
         string       Behavior,
         JsonElement? ApplyPermissions,
-        JsonElement? UpdatedInput
+        JsonElement? UpdatedInput,
+        // The reason a person gave with a deny. Absent from a server that predates it.
+        string?      Message = null
     );
 
 /// <summary>
@@ -1548,9 +1562,9 @@ public readonly record struct AcpEventEnvelope(
         // token_usage — a per-event additive token DELTA (codex app-server). Additive/nullable, so
         // ContractVersion stays 1: an older server ignores them. The model rides the Model field
         // above (attributed to the model resolved at the delta's instant — correct across a reroute).
-        // input is GROSS (server converts to net = input − cached before stamping $usage, matching
-        // UsageMetadataHelper's cross-vendor contract). cache-write is the cache-CREATION tier, billed
-        // separately from cached reads. total is derived server-side and not carried.
+        // input is GROSS of both cache tiers whatever the vendor reports, and every reader normalises to
+        // that; the server converts it to net = input − cached − cache-write. cache-write is the
+        // cache-CREATION tier, billed separately from cached reads. total is derived server-side and not carried.
         long?   UsageInputTokens       = null,
         long?   UsageCachedInputTokens = null,
         long?   UsageCacheWriteInputTokens = null,
@@ -2335,7 +2349,13 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsHandoffLaunch = false,
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
-        bool                                        SupportsResumeInPlace = false
+        bool                                        SupportsResumeInPlace = false,
+        // Relays a deny's Message to the agent. False from a daemon predating it; the server then
+        // tells the person their reason was not delivered.
+        bool                                        SupportsDenyMessage = false,
+        // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
+        // of one already taken. An older server ignores it and sends each input once.
+        bool                                        SupportsInputAcks = false
     );
 
 public sealed record UnattendedVendorCapability(

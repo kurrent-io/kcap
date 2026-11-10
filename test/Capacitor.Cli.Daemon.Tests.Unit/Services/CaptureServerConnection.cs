@@ -429,6 +429,23 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>When set, every dropped-input report is recorded and then held until this completes.</summary>
     public TaskCompletionSource? InputRejectionGate { get; init; }
 
+    /// <summary>Every input acknowledgement, in call order.</summary>
+    public List<(Guid DispatchId, string AgentId)> InputAcks { get; } = [];
+
+    /// <summary>Runs inside each acknowledgement, after it is recorded, with its 1-based number.</summary>
+    public Action<int>? OnInputAcked { get; set; }
+
+    public override Task SendInputAckedAsync(Guid dispatchId, string agentId) {
+        int count;
+        lock (InputAcks) {
+            InputAcks.Add((dispatchId, agentId));
+            count = InputAcks.Count;
+        }
+        OnInputAcked?.Invoke(count);
+
+        return Task.CompletedTask;
+    }
+
     public override Task SendInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
         lock (InputRejections) InputRejections.Add((dispatchId, agentId, reason));
 

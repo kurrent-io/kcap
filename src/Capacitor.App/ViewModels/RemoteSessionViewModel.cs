@@ -288,7 +288,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<ITerminalSurface>? surfaceFactory = null, IPlanArtifactSource? planArtifacts = null,
             SessionRunActivity? commands = null, IPullRequestSource? pullRequests = null,
             Action? requestSignIn = null, Action? linkGitHub = null, IObservable<Unit>? signInCompleted = null, IPlanSource? plans = null,
-            ComposerDrafts? drafts = null, Func<string, Action>? inputSending = null,
+            ComposerDrafts? drafts = null, ChatFindMemory? finds = null, Func<string, Action>? inputSending = null,
             LastReads<PullRequestSnapshot>? pullRequestSnapshots = null, Action<string>? pullRequestLinksChanged = null,
             SubagentEventsReader? readSubagent = null, AccountReadings? readings = null, IMessageSenderSource? senders = null,
             IRemoteAgentsService? remoteAgents = null, IAppNotifier? notifier = null, IObservable<string?>? appSubject = null,
@@ -326,7 +326,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         WorkContext = new WorkContextViewModel(_presence, workContext, time, opener, runs,
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
-            layout: workContextLayout);
+            canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the session it was opened from.
@@ -375,7 +376,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
         Chat.Tasks.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
@@ -386,6 +387,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             }).DisposeWith(_disposables);
         if (PullRequests is { } fixHost)
             Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
+        Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
+            .Subscribe(_ => WorkContext.AgentInputAvailabilityChanged()).DisposeWith(_disposables);
         Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor)
             ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory, viewer)
             : null;
@@ -574,7 +577,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _presence.OnNext(new AgentStatusDto(_row.Id, _row.Kind, _row.Vendor, _row.RepoPath, _row.Status,
             null, null, null, _row.CreatedAt, _row.Model, _row.RequesterDisplay,
             Title: _row.Title, WorktreePath: _row.WorktreePath, WorkLocation: _row.WorkLocation,
-            BorrowedFrom: _row.BorrowedFrom, SessionId: sessionId, Branch: _row.Branch));
+            BorrowedFrom: _row.BorrowedFrom, SessionId: sessionId, Branch: _row.Branch, AwaitingInput: _row.AwaitingInput));
         if (string.IsNullOrEmpty(sessionId)) PullRequests?.ClearSession();
     }
 

@@ -104,7 +104,7 @@ public enum RecorderClaimState { None, DaemonFresh, DaemonStale }
   - `A_shrink_is_logged_once`: three drains on the shrunk file log one line.
   - `Reconnect_rewind_resends_exactly_the_gap`: the server is 3 lines behind, and exactly those 3 lines go out with the same line numbers as before.
   - `A_line_cut_inside_a_multibyte_character_is_held_until_complete`, with an index, in `IndexedTranscriptReadTests`.
-- [ ] **Implement:** every path that sets `LinesProcessed` from a read takes the larger of the cursor and the read's position. A shrink logs once, and the flag clears when the file reaches the cursor again. Cursor keeps its quarantine. Lines written below the cursor after a shrink stay out of the live stream, because the server would drop them, and `kcap import` remains the repair.
+- [ ] **Implement:** every path that sets `LinesProcessed` from a read takes the larger of the cursor and the read's position. A shrink logs once, and the flag clears when the file reaches the cursor again. Cursor keeps its quarantine. Lines written below the cursor after a shrink stay out of the live stream, because the server would drop them. Nothing sends them later: `kcap import` resumes from the server's cursor too, and `kcap import --repair-capture` restores only an ended Claude or Codex session's missing file-tool records.
 - [ ] **Verify:** both classes pass, plus `ReadNewCompleteLinesAsyncTests`, `CursorReconnectRewindTests`, `HeldLineDrainTests`, `ShortLiveSessionTests` and `WatchCommandTests`.
 - [ ] **Commit:** `Keep a watcher's line cursor when its transcript shrinks`
 

@@ -72,8 +72,8 @@ public sealed class TranscriptRecorder(
     // From the stop request, which a kill follows 5s later; the rest covers the drain-complete signal and the close.
     static readonly TimeSpan ShutdownTitleDeadline = TimeSpan.FromSeconds(4);
 
-    // Nothing kills the recorder on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
-    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
+    // Nothing kills the recorder on any other exit; the title's own budget ends it first.
+    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TitleGeneration.Budget;
 
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }
@@ -953,8 +953,9 @@ public sealed class TranscriptRecorder(
             var newLineNumbers = drainRead.LineNumbers;
             var newLines       = captured.Lines;
             // The server drops a line numbered at or below one it took, so a shorter file never
-            // lowers the cursor; only a reconnect rewind does. kcap import repairs lines written
-            // below it.
+            // lowers the cursor; only a reconnect rewind does. Lines written below it after a shrink
+            // are never sent, and the log line below is all that says so: kcap import resumes from
+            // the server's cursor too.
             var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
 
             if (drainRead.NextPosition < state.LinesProcessed) {
@@ -1256,29 +1257,28 @@ public sealed class TranscriptRecorder(
                     ObservedCommits = state.Commits.Pending,
                 };
 
-                int? cursorAckNextLine = null;
-
-                foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                    // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
-                    context.Beat();
-
-                    // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
-                    if (HasLostClaim()) return newLines;
-
-                    if (vendor == "cursor") {
-                        // A barrier can appear between chunks, after the initial admission check.
-                        if (_markers.IsQuarantined(sessionId)
-                         || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-                            return newLines;
-                        }
-
+                var sent = await TranscriptBatchBuffer.SendAsync(
+                    batch,
+                    async chunk => {
                         var ack = await transport.SendBatchAsync(chunk, ct);
-                        cursorAckNextLine = ack;
-                        if (chunk.LineNumbers!.Length > 0 && ack <= chunk.LineNumbers[^1]) break;
-                    } else {
-                        await transport.SendBatchAsync(chunk, ct);
-                    }
-                }
+
+                        return vendor == "cursor" ? ack : null;
+                    },
+                    () => {
+                        // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
+                        context.Beat();
+
+                        // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
+                        if (HasLostClaim()) return false;
+
+                        // A barrier can appear between chunks, after the initial admission check.
+                        return vendor != "cursor"
+                            || !(_markers.IsQuarantined(sessionId) || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound));
+                    });
+
+                if (sent is not { } outcome) return newLines;
+
+                var cursorAckNextLine = outcome.AckedNextLine;
 
                 if (newLines.Count > 0) {
                     log(cursorAckNextLine is { } nextLine
@@ -1293,7 +1293,7 @@ public sealed class TranscriptRecorder(
                 // Cursor's cursor is the server's acked frontier, not the raw line count sent: a blocked line
                 // re-delivers next poll, and an ignored one still advances past.
                 state.LinesProcessed = cursorAckNextLine ?? linesRead;
-                state.Commits = state.Commits.Delivered(batch.ObservedCommits);
+                if (outcome.Complete) state.Commits = state.Commits.Delivered(batch.ObservedCommits);
                 if (drainRead.Lines.Count > 0) stamper.Acknowledged(state.LinesProcessed - 1);
 
                 if (cursorAckNextLine is not null) {

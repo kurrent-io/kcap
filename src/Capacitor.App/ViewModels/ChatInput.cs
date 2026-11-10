@@ -32,5 +32,10 @@ public abstract class ChatInput : ReactiveObject, IDisposable {
     /// land as text.
     public virtual Task<bool> SendKeysAsync(byte[] keys, CancellationToken ct) => Task.FromResult(false);
     public virtual bool CanSendKeys => false;
+    /// Whether <see cref="ResubmitAsync"/> can press Enter in the agent's composer.
+    public virtual bool CanResubmit => false;
+    /// Presses Enter once more for the latest send, whose own Enter the agent may have taken as a
+    /// newline. False when nothing was pressed.
+    public virtual Task<bool> ResubmitAsync(CancellationToken ct) => Task.FromResult(false);
     public abstract void Dispose();
 }

@@ -6,8 +6,8 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// Renders snippet runs as a TextBlock's inlines: matched runs SemiBold in KcapTextBrush, the
-/// rest in the block's own foreground.
+/// Renders snippet runs as a TextBlock's inlines: matched runs SemiBold in KcapInfoBrush, so a match
+/// stands out on a title already drawn in KcapTextBrush; the rest keeps the block's own foreground.
 public static class SearchSnippetText {
     public static readonly AttachedProperty<IReadOnlyList<SnippetRun>?> RunsProperty =
         AvaloniaProperty.RegisterAttached<TextBlock, IReadOnlyList<SnippetRun>?>("Runs", typeof(SearchSnippetText));
@@ -32,7 +32,7 @@ public static class SearchSnippetText {
     }
 
     static IBrush? MatchBrush(TextBlock block) =>
-        block.TryFindResource("KcapTextBrush", out var found) || Application.Current?.TryFindResource("KcapTextBrush", out found) == true
+        block.TryFindResource("KcapInfoBrush", out var found) || Application.Current?.TryFindResource("KcapInfoBrush", out found) == true
             ? found as IBrush
             : null;
 }

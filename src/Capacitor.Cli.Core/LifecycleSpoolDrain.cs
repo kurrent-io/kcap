@@ -19,6 +19,9 @@ public static class LifecycleSpoolDrain {
             Func<string, string, Task<DrainOutcome>> lifecyclePoster,
             Func<string, Task<DrainOutcome>>         transcriptPoster,
             TimeSpan budget, TimeProvider time, CancellationToken ct) {
+        using var lease = SpoolDrainLease.TryTake(lifecycle.DirectoryPath);
+        if (lease is null) return;
+
         var started = time.GetTimestamp();
         bool Expired() => time.GetElapsedTime(started) >= budget || ct.IsCancellationRequested;
 
@@ -37,12 +40,17 @@ public static class LifecycleSpoolDrain {
                 continue;
             }
 
-            // Read before each post, for a pass under way when the person disables the session.
+            // Read before each post, for a pass under way when the person disables the session. Both spools' posts are
+            // recorded where the pass holds its lease.
             Task<DrainOutcome> PostLifecycle(string route, string body) =>
-                DisabledSessions.IsDisabledByPerson(sid, config) ? Task.FromResult(DrainOutcome.Drop) : lifecyclePoster(route, body);
+                DisabledSessions.IsDisabledByPerson(sid, config)
+                    ? Task.FromResult(DrainOutcome.Drop)
+                    : UnansweredPosts.TrackAsync(lifecycle.DirectoryPath, sid, () => lifecyclePoster(route, body));
 
             Task<DrainOutcome> PostTranscript(string body) =>
-                DisabledSessions.IsDisabledByPerson(sid, config) ? Task.FromResult(DrainOutcome.Drop) : transcriptPoster(body);
+                DisabledSessions.IsDisabledByPerson(sid, config)
+                    ? Task.FromResult(DrainOutcome.Drop)
+                    : UnansweredPosts.TrackAsync(lifecycle.DirectoryPath, sid, () => transcriptPoster(body));
 
             // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
             // must not follow a later run's start: both are settled before the phases run.
@@ -123,7 +131,10 @@ public static class LifecycleSpoolDrain {
                 return DrainOutcome.Delivered;
             }
             return HookSpool.OutcomeOf((int)resp.StatusCode);
-        } catch { return DrainOutcome.TransientStop; }
+        } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+            // One that may have reached the server goes through, for the pass to record.
+            return DrainOutcome.TransientStop;
+        }
     }
 
     // "session-end/kiro" → "kiro"; literal "session-end" (Claude's own naming, no vendor suffix) →

@@ -110,6 +110,23 @@ internal sealed class FakeAcpRuntime : IHostedAgentRuntime, IAcpTranscriptSource
         lock (SentInputs) SentInputs.Add(text);
     }
 
+    /// <summary>When set, a dispatched input is taken at once and written only when the test completes this,
+    /// as a runtime does with input queued behind an active turn.</summary>
+    public TaskCompletionSource? DispatchedWrite { get; init; }
+
+    public async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        if (DispatchedWrite is null) {
+            await SendUserInputAsync(text);
+
+            return Task.CompletedTask;
+        }
+
+        await AdmitAsync();
+        lock (SentInputs) SentInputs.Add(text);
+
+        return DispatchedWrite.Task;
+    }
+
     async Task AdmitAsync() {
         if (SendUserInputThrow is { } ex) throw ex;
         if (SendUserInputGate is { } gate) await gate.Task;

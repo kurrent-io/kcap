@@ -1,6 +1,7 @@
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -8,6 +9,55 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.App.Tests.Unit;
 
 public class ServerSessionsServiceTests {
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    [NotInParallel("AvaloniaSession")]
+    public Task Show_more_expands_only_groups_receiving_new_ended_sessions(bool receivesNewSessions) => AvaloniaSession.RunOnUiAsync(async () => {
+        var (lane, listing, time, service) = Build();
+        using var serviceLifetime = service;
+        var other = Row("other", "active") with { Repo = new() { Hash = "other", Owner = "kurrent-io", Name = "other" } };
+        listing.Answer("active", "me", 0, 1, other);
+        listing.Answer("active", null, 0, 1, other);
+        var rows = Rows("s", 1, 24).Select(row => row with {
+            Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap" }
+        }).ToArray();
+        listing.Answer("ended", "me", 0, 24, rows[..20]);
+        listing.Answer("ended", "me", 20, 24, receivesNewSessions ? rows[20..] : []);
+        using var remote = new FakeRemoteAgents();
+        using var directory = new AgentDirectory(new FakeDaemonClientService(), remote, lane,
+            new RepoIdentityResolver(_ => null), path => path, null, null, time, sessions: service);
+        var persisted = new List<RailPreferences>();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time,
+            sessions: service, persistPreferences: persisted.Add);
+        Connect(lane);
+        await Eventually(() => rail.Groups.Count == 2 && rail.Groups.Sum(g => g.Sessions.Count) == 21 && rail.ShowsShowMore, "first page in rail");
+        var group = rail.Groups.Single(g => g.Label == "kurrent-io/kcap");
+        var unrelated = rail.Groups.Single(g => g.Label == "kurrent-io/other");
+        await group.ToggleCommand.Execute();
+        await unrelated.ToggleCommand.Execute();
+
+        await rail.ShowMoreCommand.Execute();
+
+        await Assert.That(group.Sessions.Count).IsEqualTo(receivesNewSessions ? 24 : 20);
+        await Assert.That(group.IsExpanded).IsEqualTo(receivesNewSessions);
+        await Assert.That(unrelated.IsExpanded).IsFalse();
+        await Assert.That(persisted[^1].Collapsed.Contains(group.Key)).IsEqualTo(!receivesNewSessions);
+        await Assert.That(persisted[^1].Collapsed.Contains(unrelated.Key)).IsTrue();
+        if (receivesNewSessions) {
+            await Assert.That(rail.ShowsShowMore).IsFalse();
+            await Assert.That(rail.LoadedText).IsEqualTo("");
+            await group.ToggleCommand.Execute();
+        }
+
+        // Background refreshes must still respect a group the user folds again.
+        listing.Answer("ended", "me", 0, 25, [rows[0] with { SessionId = "newer" }, .. rows[..19]]);
+        await service.ReconcileAsync();
+        await Eventually(() => group.Sessions.Any(s => s.Id == "newer"), "background refresh in rail");
+        await Assert.That(group.IsExpanded).IsFalse();
+        await Assert.That(unrelated.IsExpanded).IsFalse();
+    });
+
     /// Answers each (state, owner, offset) from a script and records every query; a gate holds a
     /// matching query open until the test releases it.
     sealed class ScriptedListing {

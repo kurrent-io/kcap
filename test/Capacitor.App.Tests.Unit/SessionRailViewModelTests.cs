@@ -160,6 +160,45 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// Stepping follows the drawn order across groups, skips a folded group's rows, starts from an
+    /// end when nothing is selected and stops at either end.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Stepping_opens_the_adjacent_shown_session_in_rail_order() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var opened = new List<string>();
+            using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System);
+            var now = DateTime.UtcNow;
+            void Add(string id, string repo, int minutesAgo) =>
+                directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto(id, $"/{repo}", created: now.AddMinutes(-minutesAgo)), new RepoIdentity($"path:/{repo}", repo)));
+            Add("a-new", "a", 1);
+            Add("a-old", "a", 5);
+            Add("b-only", "b", 2);
+            Add("c-only", "c", 3);
+            await rail.Groups.Single(g => g.Label == "b").ToggleCommand.Execute();
+
+            await Assert.That(rail.OpenAdjacent(1)).IsTrue();
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            await Assert.That(opened).IsEquivalentTo(["a-new", "c-only"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            rail.SelectedSessionKey = "local:a-old";
+            await rail.OpenNextSessionCommand.Execute();
+            rail.SelectedSessionKey = "local:c-only";
+            await rail.OpenPreviousSessionCommand.Execute();
+            await Assert.That(opened).IsEquivalentTo(["c-only", "a-old"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            await Assert.That(rail.OpenAdjacent(1)).IsFalse();
+            rail.SelectedSessionKey = "local:b-only";
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            rail.SelectedSessionKey = "local:a-new";
+            await Assert.That(rail.OpenAdjacent(-1)).IsFalse();
+            await Assert.That(opened).IsEquivalentTo(["a-old"], CollectionOrdering.Matching);
+        });
+    }
+
     /// The default order is newest first, ties by id; a status flip never moves a row, a changed
     /// time does, and the same rows arriving in another order land in the same places.
     [Test]

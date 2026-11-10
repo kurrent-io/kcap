@@ -111,4 +111,44 @@ public class ApplicationIntegrationRefreshTests {
         await Assert.That(File.ReadAllText(codex)).DoesNotContain(userApps);
         await Assert.That(File.Exists(Tmp.PathTo("home/.codex/hooks.json"))).IsFalse();
     }
+
+    [Test]
+    public async Task A_second_refresh_waits_for_the_first_then_skips_because_the_marker_is_gone() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var target = Tmp.PathTo("Applications/kcap.app");
+        var entered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var runner = new Runner((_, _) => {
+            entered.TrySetResult();
+            release.Task.Wait();
+            return new ProcessResult(0, "", "", false);
+        });
+        var refresh = new ApplicationIntegrationRefresh(config, runner);
+        refresh.Schedule(target);
+
+        var first = Task.Run(() => refresh.RunPendingAsync(target, CancellationToken.None));
+        await entered.Task;
+        var second = refresh.RunPendingAsync(target, CancellationToken.None);
+        await Task.Delay(300);
+        await Assert.That(second.IsCompleted).IsFalse();
+        release.SetResult();
+
+        await Assert.That(await first).IsNull();
+        await Assert.That(await second).IsNull();
+        await Assert.That(runner.Calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_marker_with_a_trailing_separator_still_matches_the_bundle() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var target = Tmp.PathTo("Applications/kcap.app");
+        var runner = new Runner((_, _) => new ProcessResult(0, "", "", false));
+        var refresh = new ApplicationIntegrationRefresh(config, runner);
+        refresh.Schedule(target + Path.DirectorySeparatorChar);
+
+        await refresh.RunPendingAsync(target, CancellationToken.None);
+
+        await Assert.That(runner.Calls).IsEqualTo(1);
+        await Assert.That(File.Exists(config.Path(ApplicationIntegrationRefresh.FileName))).IsFalse();
+    }
 }

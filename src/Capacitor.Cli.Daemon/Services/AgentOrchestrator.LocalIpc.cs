@@ -903,11 +903,14 @@ internal partial class AgentOrchestrator {
     public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
         // Where this daemon reads it, which a daemon under another config directory doesn't share: a restart would otherwise
         // pick the session up again. The id names a file, and any local process can send the frame.
+        var markFailed = false;
+
         if (Guid.TryParse(sessionId, out var guid) && guid.ToString("N") is var session) {
             try {
                 DisabledSessions.Mark(session, _config.ConfigRoot);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 LogDisableMarkFailed(ex, session);
+                markFailed = true;
             }
         }
 
@@ -918,7 +921,7 @@ internal partial class AgentOrchestrator {
             RecordingDisable.SendInFlight  => RecordingIpc.SendInFlight,
             RecordingDisable.StillStopping => RecordingIpc.StillStopping,
             _                              => RecordingIpc.NotHeld,
-        }, HostsLiveOutput(sessionId), _config.ServerUrl);
+        }, HostsLiveOutput(sessionId), _config.ServerUrl, markFailed);
 
         try {
             await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(JsonSerializer.Serialize(answer, RecordingIpcJsonContext.Default.DisableSessionAckDto)), ct);

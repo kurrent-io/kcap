@@ -30,6 +30,87 @@ public class LauncherPaneViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     [Test]
+    public async Task Folder_access_accepts_a_picker_path_through_a_symlink() {
+        Skip.When(OperatingSystem.IsWindows(), "Unix folder picker aliases; Windows symlinks require privileges");
+        var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
+        var alias = Tmp.PathTo("alias");
+        Directory.CreateSymbolicLink(alias, repository);
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
+    }
+
+    /// A row's ▶ and menu show under the pointer, on the picked row and while the menu is open, not on the focus a click
+    /// leaves behind.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_rows_actions_hide_when_focus_stays_but_the_pointer_has_gone() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var rows = new List<NextWorkCandidateDto> {
+                new("wi:1", "work_item", "1", "ITEM-1 Do the thing", null, "h1", "FinishYours", 2, 1, "Assigned to you", new(0, null, false, 0, 0), []),
+            };
+            var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(DateTimeOffset.UtcNow, false, false, null, rows)) };
+            using var band = new ViewModels.NextWork.NextWorkBandViewModel(api, TimeProvider.System);
+            var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var cleanup = tmp;
+            using var home = new HomeViewModel(new FakeDaemonClientService(), new AppStateStore(path),
+                new RecordingLaunchClient(), () => Task.FromResult(Array.Empty<string>()), TimeProvider.System) { NextWork = band };
+            await band.RefreshAsync();
+            var window = new Window { Width = 1000, Height = 800, Content = new LauncherPaneView { DataContext = home } };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                Find<Button>(window, "CardRow")!.Focus();
+                Dispatcher.UIThread.RunJobs();
+
+                await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(0);
+
+                // The open menu holds the actions, its own trigger among them, whatever has the pointer.
+                var more = Find<Button>(window, "CardMore")!;
+                more.Flyout!.ShowAt(more);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(1);
+                more.Flyout.Hide();
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(0);
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
+    /// The next-work list takes the height left under the composer and scrolls inside it, rather than running past the
+    /// pane's bottom edge.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_long_next_work_list_scrolls_inside_the_room_under_the_composer() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var rows = Enumerable.Range(1, 30).Select(i => new NextWorkCandidateDto($"wi:{i}", "work_item", $"{i}", $"ITEM-{i} Do the thing", null, "h1",
+                "FinishYours", 2, i, "Assigned to you", new(0, null, false, 0, 0), [])).ToList();
+            var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(DateTimeOffset.UtcNow, false, false, null, rows)) };
+            using var band = new ViewModels.NextWork.NextWorkBandViewModel(api, TimeProvider.System);
+            var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var cleanup = tmp;
+            using var home = new HomeViewModel(new FakeDaemonClientService(), new AppStateStore(path),
+                new RecordingLaunchClient(), () => Task.FromResult(Array.Empty<string>()), TimeProvider.System) { NextWork = band };
+            await band.RefreshAsync();
+            band.MoreExpanded = true;
+            var window = new Window { Width = 1000, Height = 800, Content = new LauncherPaneView { DataContext = home } };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var list = Find<ScrollViewer>(window, "BandList")!;
+                var bottom = list.TranslatePoint(new Point(0, list.Bounds.Height), window)!.Value.Y;
+
+                await Assert.That(list.Extent.Height).IsGreaterThan(list.Viewport.Height);
+                await Assert.That(bottom).IsLessThanOrEqualTo(800);
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
+    [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Retrying_a_failed_upgrade_replaces_the_failure_icon_with_progress() {
         await AvaloniaSession.RunOnUiAsync(async () => {
@@ -106,14 +187,15 @@ public class LauncherPaneViewSmokeTests {
         }
     }
 
-    static (HomeViewModel Vm, FakeDaemonClientService Service, RecordingLaunchClient Launch, TempDir Tmp) Build() {
+    static (HomeViewModel Vm, FakeDaemonClientService Service, RecordingLaunchClient Launch, TempDir Tmp) Build(IBranchReader? branches = null) {
         var tmp = TempDir.WithPathTo("app-state.json", out var path);
         var service = new FakeDaemonClientService();
         // Connected steady state: StartCommand's canExecute gates on daemon + server both up.
         service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         var launch = new RecordingLaunchClient();
-        var vm = new HomeViewModel(service, new AppStateStore(path), launch, () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
+        var vm = new HomeViewModel(
+            service, new AppStateStore(path), launch, () => Task.FromResult(Array.Empty<string>()), TimeProvider.System, branches: branches);
         return (vm, service, launch, tmp);
     }
 
@@ -461,7 +543,7 @@ public class LauncherPaneViewSmokeTests {
 
         await Assert.That(showOnDisabled).IsTrue();
         await Assert.That(tipBefore).IsEqualTo("Select a repository to start");
-        await Assert.That(tipAfter).IsEqualTo("Start");
+        await Assert.That(tipAfter).IsEqualTo(HomeViewModel.NeedsPromptTip);
     }
 
     [Test]
@@ -612,6 +694,7 @@ public class LauncherPaneViewSmokeTests {
         var (visibleBefore, visibleAfterFailure, errorMessage, visibleAfterSuccess) = await AvaloniaSession.DispatchAsync(async () => {
             var (vm, _, launch, tmp) = Build();
             using var _tmp = tmp;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm } };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -627,6 +710,7 @@ public class LauncherPaneViewSmokeTests {
             var message = errorText.Text;
 
             launch.Next = new LaunchOutcome(true, SecondLaunchedId, null);
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             Dispatcher.UIThread.RunJobs();
             var afterSuccess = errorText.IsVisible;
@@ -846,6 +930,7 @@ public class LauncherPaneViewSmokeTests {
             var held = new TaskCompletionSource<UploadOutcome>();
             var (vm, tmp) = BuildAttachable(new ScriptedUploader { Pending = held });
             using var _tmp = tmp;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 600 };
             window.Show();
             Settle(window);
@@ -863,7 +948,7 @@ public class LauncherPaneViewSmokeTests {
             held.SetResult(new UploadOutcome(UploadKind.Uploaded, ["u1"], null));
             await launching;
             Settle(window);
-            await Assert.That(ToolTip.GetTip(startButton) as string).IsEqualTo("Start");
+            await Assert.That(ToolTip.GetTip(startButton) as string).IsEqualTo(HomeViewModel.NeedsPromptTip);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -871,9 +956,17 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
-    static (Flyout Menu, List<AppIcon> Checks) OpenMenu(Window window, LauncherPaneView view, string chipName) {
+    /// The repository and machine menus build their rows from an awaited state read, so the flyout
+    /// opens on a later dispatcher job than the click; wait for a new one rather than read it at once.
+    static async Task<(Flyout Menu, List<AppIcon> Checks)> OpenMenuAsync(Window window, LauncherPaneView view, string chipName) {
+        Flyout? Current() => chipName is "RepositoryChip" or "MachineChip"
+            ? view.OpenMenuForTesting
+            : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting;
+        var before = Current();
         Click(window, Find<Button>(window, chipName)!);
-        var menu = (chipName is "RepositoryChip" or "MachineChip" ? view.OpenMenuForTesting : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting)!;
+        await WorkspaceFixtures.WaitUntilAsync(() => Current() is { } opened && opened != before, what: $"{chipName} menu");
+        Settle(window);
+        var menu = Current()!;
         var checks = ((Control)menu.Content!).GetVisualDescendants().OfType<AppIcon>()
             .Where(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).ToList();
         return (menu, checks);
@@ -892,7 +985,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             vm.SelectedEffort = "high";
 
-            var (effort, effortChecks) = OpenMenu(window, view, "EffortChip");
+            var (effort, effortChecks) = await OpenMenuAsync(window, view, "EffortChip");
             await Assert.That(effort.Placement).IsEqualTo(PlacementMode.BottomEdgeAlignedLeft);
             await Assert.That(effortChecks.Count(c => c.IsVisible)).IsEqualTo(1);
             var checkedRow = effortChecks.Single(c => c.IsVisible).FindAncestorOfType<Button>()!;
@@ -901,7 +994,7 @@ public class LauncherPaneViewSmokeTests {
             effort.Hide();
             Settle(window);
 
-            var (agent, agentChecks) = OpenMenu(window, view, "AgentChip");
+            var (agent, agentChecks) = await OpenMenuAsync(window, view, "AgentChip");
             await Assert.That(agent.Placement).IsEqualTo(PlacementMode.BottomEdgeAlignedLeft);
             await Assert.That(agentChecks.Count(c => c.IsVisible)).IsEqualTo(1);
             agent.Hide();
@@ -935,7 +1028,7 @@ public class LauncherPaneViewSmokeTests {
             var window = new Window { Content = view, Width = 900, Height = 700 };
             window.Show();
 
-            var (menu, _) = OpenMenu(window, view, "RepositoryChip");
+            var (menu, _) = await OpenMenuAsync(window, view, "RepositoryChip");
             var rows = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().ToList();
             await Assert.That(rows.Any(r => AutomationProperties.GetName(r) == "Add repository…")).IsFalse();
             Click(window, rows.Single(r => AutomationProperties.GetName(r) == "Enter a path on home-pc…"));
@@ -953,9 +1046,103 @@ public class LauncherPaneViewSmokeTests {
 
             field.Text = "/srv/other";
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-            Settle(window);
+            // The field closes only after the selection's awaited state read.
+            await WorkspaceFixtures.WaitUntilAsync(() => !entry.IsOpen, what: "path entry closed");
             await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/other");
-            await Assert.That(entry.IsOpen).IsFalse();
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
+    /// The branch chip opens on a focused field: a name git would reject keeps the menu open with
+    /// its reason, a good one closes it and becomes the chip's label.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_branch_chip_takes_a_typed_ref_and_refuses_a_malformed_one() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            var view = new LauncherPaneView { DataContext = vm };
+            var window = new Window { Content = view, Width = 900, Height = 700 };
+            window.Show();
+            Settle(window);
+            await Assert.That(Find<Button>(window, "BaseRefChip")!.IsVisible).IsFalse();
+
+            await vm.SelectRepositoryAsync("/repos/kcap-cli");
+            Click(window, Find<Button>(window, "BaseRefChip")!);
+            var menu = view.OpenMenuForTesting!;
+            var content = (Control)menu.Content!;
+            var field = content.GetVisualDescendants().OfType<TextBox>().Single();
+            await Assert.That(field.IsFocused).IsTrue();
+
+            window.KeyTextInput("bad name");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Settle(window);
+            await Assert.That(menu.IsOpen).IsTrue();
+            await Assert.That(content.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsVisible && t.Text == BaseRefName.Problem("bad name"))).IsTrue();
+            await Assert.That(vm.SelectedBaseRef).IsNull();
+
+            field.Text = "feature/x";
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            // The menu closes only after the choice's awaited state write.
+            await WorkspaceFixtures.WaitUntilAsync(() => !menu.IsOpen, what: "branch menu closed");
+            await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
+            await Assert.That(AutomationProperties.GetName(Find<Button>(window, "BaseRefChip")!)).IsEqualTo("Branch from · feature/x");
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
+    sealed class ListedBranches(BranchListing listing) : IBranchReader {
+        public Task<BranchListing?> ListLocalAsync(string repoPath, CancellationToken ct) => Task.FromResult<BranchListing?>(listing);
+        public Task<BranchListing?> ListRemoteAsync(string url, CancellationToken ct) => Task.FromResult<BranchListing?>(null);
+        public string? OriginUrlOf(string repoPath) => null;
+    }
+
+    /// The branch list leads with the default, caps its rows, narrows as the field is edited, and a
+    /// pick chooses that branch.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_branch_chip_lists_branches_and_narrows_them_as_you_type() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            string[] names = ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "feature/x", "main"];
+            var (vm, _, _, tmp) = Build(new ListedBranches(new BranchListing("main", names)));
+            using var _tmp = tmp;
+            var view = new LauncherPaneView { DataContext = vm };
+            var window = new Window { Content = view, Width = 900, Height = 700 };
+            window.Show();
+            Settle(window);
+            await vm.SelectRepositoryAsync("/repos/kcap-cli");
+
+            Click(window, Find<Button>(window, "BaseRefChip")!);
+            var menu = view.OpenMenuForTesting!;
+            var content = (Control)menu.Content!;
+            List<string> Picks() => content.GetVisualDescendants().OfType<Button>()
+                .Select(b => AutomationProperties.GetName(b))
+                .Where(n => n is not null && names.Any(name => n.StartsWith(name, StringComparison.Ordinal))).ToList()!;
+            for (var i = 0; i < 200 && Picks().Count == 0; i++) {
+                await Task.Delay(10);
+                Settle(window);
+            }
+
+            var picks = Picks();
+            await Assert.That(picks.Count).IsEqualTo(8);
+            await Assert.That(picks[0]).Contains("main, default branch");
+            await Assert.That(content.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "2 more — type to narrow")).IsTrue();
+
+            content.GetVisualDescendants().OfType<TextBox>().Single().Text = "feat";
+            Settle(window);
+            var feature = content.GetVisualDescendants().OfType<Button>()
+                .Single(b => AutomationProperties.GetName(b)?.StartsWith("feature/x", StringComparison.Ordinal) == true);
+            await Assert.That(Picks().Count).IsEqualTo(1);
+
+            Click(window, feature);
+            await WorkspaceFixtures.WaitUntilAsync(() => !menu.IsOpen, what: "branch menu closed");
+            await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -977,7 +1164,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             var tiles = ((Control)agent.Content!).GetVisualDescendants().OfType<Button>()
                 .Where(b => b.Width == 34).ToList();
             var disabled = tiles.Where(t => !t.IsEnabled).ToList();
@@ -1081,7 +1268,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
 
             await Assert.That(AccountHeader(agent)!.Classes.Contains("sectionMeta")).IsTrue();
@@ -1141,7 +1328,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             await Assert.That(AccountHeader(agent)).IsNotNull();
 
@@ -1201,7 +1388,7 @@ public class LauncherPaneViewSmokeTests {
             var window = new Window { Content = view, Width = 900, Height = 700 };
             window.Show();
             Settle(window);
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             static bool Shows(Flyout menu, string text) =>
                 ((Control)menu.Content!).GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == text);
@@ -1233,6 +1420,7 @@ public class LauncherPaneViewSmokeTests {
             using var rig = new AccountRig(Tmp.PathTo("app-state.json"));
             await rig.ResolveAsync();
             var vm = rig.Vm;
+            vm.Goal = "go";
             var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 700 };
             window.Show();
             Settle(window);
@@ -1252,6 +1440,7 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(chip.Text).IsEqualTo("Claude Code · Default · work");
 
             rig.Snapshots.OnNext(AccountsSnapshot(2, HomeAccount));
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             Settle(window);
             await Assert.That(Find<TextBlock>(window, "StartErrorText")!.Text)
@@ -1286,7 +1475,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             static bool Pending(Flyout menu) => ((Control)menu.Content!).GetVisualDescendants().OfType<TextBlock>()
                 .Any(t => t.Text == "Loading accounts…");
@@ -1336,7 +1525,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             Button Tab(string label) => PanelButtons(agent).Single(b => b.Width == 34 && AutomationProperties.GetName(b) == label);
             await Assert.That(AccountHeader(agent)).IsNotNull();
@@ -1370,7 +1559,7 @@ public class LauncherPaneViewSmokeTests {
             window.Show();
             Settle(window);
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
             Settle(window);
@@ -1408,7 +1597,7 @@ public class LauncherPaneViewSmokeTests {
             var goal = Find<TextBox>(window, "GoalInput")!;
             await Assert.That(ControlAutomationPeer.CreatePeerForElement(goal).GetName()).IsEqualTo("Session goal");
 
-            var (agent, _) = OpenMenu(window, view, "AgentChip");
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
             var search = ((Control)agent.Content!).GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "ModelSearchBox");
             await Assert.That(ControlAutomationPeer.CreatePeerForElement(search).GetName()).IsEqualTo("Search models");

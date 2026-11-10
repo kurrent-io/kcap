@@ -66,6 +66,30 @@ public class WorkContextDtoTests {
     }
 
     [Test]
+    public async Task Summary_reads_the_current_context_reading() {
+        const string body = """{"session_id":"s1","stats":{"peak_context_tokens":142000,"current_context_tokens":37040,"current_context_window":1000000,"current_context_percent":3.7,"awaiting_context_reading":true}}""";
+
+        var stats = JsonSerializer.Deserialize(body, CapacitorJsonContext.Default.SessionSummaryDto)!.Stats!;
+
+        await Assert.That(stats.CurrentContextTokens).IsEqualTo(37_040L);
+        await Assert.That(stats.CurrentContextWindow).IsEqualTo(1_000_000L);
+        await Assert.That(stats.CurrentContextPercent).IsEqualTo(3.7);
+        await Assert.That(stats.AwaitingContextReading).IsTrue();
+    }
+
+    [Test]
+    public async Task An_older_summary_has_no_current_reading() {
+        const string body = """{"session_id":"s1","stats":{"peak_context_tokens":142000,"context_window":200000,"estimated_cost_usd":1.25}}""";
+
+        var stats = JsonSerializer.Deserialize(body, CapacitorJsonContext.Default.SessionSummaryDto)!.Stats!;
+
+        await Assert.That(stats.CurrentContextTokens).IsNull();
+        await Assert.That(stats.CurrentContextWindow).IsNull();
+        await Assert.That(stats.CurrentContextPercent).IsNull();
+        await Assert.That(stats.AwaitingContextReading).IsFalse();
+    }
+
+    [Test]
     public async Task A_null_list_member_deserializes_to_empty_rather_than_null() {
         const string topologyBody = """{"parts":null,"part_of":null,"blocks":null,"blocked_by":null,"cycle":"none","item":null}""";
         const string summaryBody = """{"session_id":"s1","repositories":null,"pull_requests":null}""";

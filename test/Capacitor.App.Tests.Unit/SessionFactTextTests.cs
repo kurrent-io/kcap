@@ -46,6 +46,26 @@ public class SessionFactTextTests {
     }
 
     [Test]
+    [Arguments(37_040L, 1_000_000L, null, false, "37k / 1M (4%)")]
+    [Arguments(null, null, null, true, "compacted")]
+    [Arguments(null, null, 42.0, false, "42% ctx")]
+    [Arguments(null, null, null, false, null)]
+    public async Task Current_context_reads_the_reading_or_the_wait(long? tokens, long? window, double? percent, bool awaiting, string? expected) {
+        var stats = new SessionStatsDto { CurrentContextTokens = tokens, CurrentContextWindow = window, CurrentContextPercent = percent, AwaitingContextReading = awaiting };
+
+        await Assert.That(SessionFactText.CurrentContext(stats)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Current_context_is_null_without_stats_and_exposes_the_percent() {
+        await Assert.That(SessionFactText.CurrentContext(null)).IsNull();
+        await Assert.That(SessionFactText.CurrentContextPercent(null)).IsNull();
+        await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextPercent = 42.0 })).IsEqualTo(42.0);
+        await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextTokens = 850_000, CurrentContextWindow = 1_000_000 })).IsEqualTo(85.0);
+        await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextTokens = 850_000 })).IsNull();
+    }
+
+    [Test]
     [Arguments(null, "private", "activity", "Private")]
     [Arguments(null, null, "full", "Org members · Full")]
     [Arguments("scoped", "private", null, "People & teams")]

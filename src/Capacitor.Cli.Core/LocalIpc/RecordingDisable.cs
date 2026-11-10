@@ -14,8 +14,9 @@ public enum RecordingDisable {
     /// <summary>A source was told to stop and hadn't ended when the daemon stopped waiting.</summary>
     StillStopping,
 
-    /// <summary>Nothing answers on its socket, or it is too old to know the frame. Neither can be recording for this
-    /// command to stop, so this alone says nothing is wrong.</summary>
+    /// <summary>Nothing answers on its socket and it is down, or it is too old to know the frame. Neither can be recording
+    /// for this command to stop, so this alone says nothing is wrong. One up with nothing on its socket is
+    /// <see cref="Silent"/>.</summary>
     NoSocket,
 
     /// <summary>It took the connection and gave no answer, so it may still be running what it was asked about.</summary>

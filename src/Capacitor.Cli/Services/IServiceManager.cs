@@ -1,4 +1,5 @@
 using System.Text;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Services;
 
@@ -7,9 +8,6 @@ enum ServicePlatform { Launchd, Systemd, WindowsScheduledTask, WindowsService }
 
 /// <summary>Lifecycle state of an installed service for one id.</summary>
 enum ServiceState { NotInstalled, Installed, Running }
-
-/// <summary>Tri-state result of probing a launchd service via launchctl print.</summary>
-enum LabelProbe { Loaded, Absent, Unknown }
 
 /// <summary>A file the manager writes at install time (absolute path + content).</summary>
 record GeneratedFile(string Path, string Content);

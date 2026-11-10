@@ -25,6 +25,7 @@ using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit;
@@ -1992,21 +1993,45 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Filter_dot_follows_filters_differ() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Custom_list_settings_stay_highlighted_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
-        var dot = host.Named<Ellipse>("RailFilterDot");
-        var atDefaults = dot.IsVisible;
+        var filter = host.Named<Button>("RailFilterButton");
+        var icon = filter.GetVisualDescendants().OfType<AppIcon>().Single();
+        var presenter = filter.GetVisualDescendants().OfType<ContentPresenter>()
+            .Single(p => p.Name == "PART_ContentPresenter");
+        var app = Application.Current!;
+        var muted = app.FindResource("KcapMutedBrush");
+        var blue = app.FindResource("KcapInfoBrush");
+        var collapsedBackground = presenter.Background;
 
-        host.Rail.Scope = RailScope.Team;
-        host.Settle();
-        var narrowed = dot.IsVisible;
-        host.Rail.Scope = RailScope.Mine;
-        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
+        Click(host, filter);
+        await Assert.That(host.Rail.FiltersOpen).IsTrue();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        var expandedBackground = presenter.Background;
+        await Assert.That(expandedBackground).IsNotSameReferenceAs(collapsedBackground);
 
-        await Assert.That(atDefaults).IsFalse();
-        await Assert.That(narrowed).IsTrue();
-        await Assert.That(dot.IsVisible).IsFalse();
-        await Assert.That(dot.Fill).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
+        host.Rail.Sort = RailSort.Title;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(expandedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Custom list settings applied");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Custom list settings applied");
+
+        Click(host, filter);
+        host.Window.MouseMove(new Point(0, 0));
+        host.Settle();
+        await Assert.That(host.Rail.FiltersOpen).IsFalse();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+
+        host.Rail.Sort = RailSort.LastUpdated;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Default list settings");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
     });
 
     [Test]
@@ -2108,6 +2133,35 @@ public class MainWindowSmokeTests {
         await Assert.That(yield.CanExecute(null)).IsFalse();
         await Assert.That(passedThrough.Handled).IsFalse();
         await Assert.That(host.Vm.IsSearchOpen).IsFalse();
+    });
+
+    /// Ctrl+PageDown and Ctrl+PageUp reach the rail even while the terminal has focus.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Ctrl_page_keys_step_through_the_rail_from_a_focused_terminal() => AvaloniaSession.RunOnUiAsync(async () => {
+        FakeDaemonClientService? service = null;
+        var opened = new List<string>();
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id), openLocal: opened.Add);
+        service = host.Service;
+        const string id = "0123456789abcdef0123456789abcdef";
+        var now = DateTime.UtcNow;
+        foreach (var (agent, minutesAgo) in new[] { ("newer", 1), (id, 2), ("older", 3) }) {
+            host.Directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                new AgentStatusDto(agent, "agent", "claude", "/repo", "Running", null, null, null, now.AddMinutes(-minutesAgo), null, null),
+                new RepoIdentity("path:/repo", "repo")));
+        }
+        host.Vm.OpenSession(id);
+        service.Agents.AddOrUpdate(WorkspaceFixtures.Agent(id, "claude", true, "/repo/myproj", sessionId: id));
+        host.Settle();
+        ((WorkspaceViewModel)host.Vm.CurrentWorkspace!).ShowTerminalCommand.Execute().Subscribe();
+        host.Settle();
+        await Assert.That(host.Window.GetVisualDescendants().OfType<TerminalControl>().Single().Focus()).IsTrue();
+
+        host.Window.KeyPressQwerty(PhysicalKey.PageDown, RawInputModifiers.Control);
+        host.Window.KeyPressQwerty(PhysicalKey.PageUp, RawInputModifiers.Control);
+        host.Settle();
+
+        await Assert.That(opened).IsEquivalentTo(["older", "newer"], CollectionOrdering.Matching);
     });
 
     [Test]

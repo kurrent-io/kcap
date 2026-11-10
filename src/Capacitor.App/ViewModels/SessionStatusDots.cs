@@ -52,17 +52,20 @@ public static class SessionStatusDots {
             harness: string.IsNullOrEmpty(row.Vendor) ? null : HostedHarnessCatalog.LabelFor(row.Vendor),
             ended: row.IsEndedSession,
             liveCommands: work.Commands,
-            terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id);
+            terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id,
+            stale: row.IsStale);
 
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
     /// <paramref name="usageLimitSummary"/> is set only for a question the user must answer.
+    /// <paramref name="stale"/> is the server's idle flag, which outranks only the bare "Running" that
+    /// claims nothing about the turn: anything the daemon actually reported is still shown.
     public static AgentStatusPresentation Present(
             string status, bool? awaitingInput, bool waitsOnUser, int? liveSubagents, bool pending,
             string? usageLimitSummary, string? launchStage, string? elapsed,
             string? requester = null, string? borrowedFrom = null, bool answerExpected = false,
             string? model = null, string? harness = null, bool ended = false, int liveCommands = 0,
             bool terminalDialog = false, string? interruption = null, string? agentId = null,
-            bool turnAttested = false) {
+            bool turnAttested = false, bool stale = false) {
         var kind =
             status == "Failed" ? AgentStatusKind.Failed
             : answerExpected ? AgentStatusKind.Answer
@@ -72,6 +75,7 @@ public static class SessionStatusDots {
             : status == "Resuming" ? AgentStatusKind.Resuming
             : IsWorking(status, awaitingInput, liveSubagents, liveCommands) ? AgentStatusKind.Working
             : waitsOnUser || status == "Idle" ? AgentStatusKind.Idle
+            : stale && status == "Running" ? AgentStatusKind.Stale
             : status == "Completed" ? AgentStatusKind.Done
             : AgentStatusKind.Other;
         var label = kind switch {
@@ -83,6 +87,7 @@ public static class SessionStatusDots {
             AgentStatusKind.Resuming    => "Resuming",
             AgentStatusKind.Working     => "Working",
             AgentStatusKind.Idle        => "Idle",
+            AgentStatusKind.Stale       => "Stale",
             AgentStatusKind.Done        => "Done",
             _                           => status,
         };
@@ -96,6 +101,7 @@ public static class SessionStatusDots {
             : kind == AgentStatusKind.Answer ? "An answer is expected"
             : kind == AgentStatusKind.Resuming ? "Resuming after a daemon restart"
             : kind == AgentStatusKind.Interrupted ? "Not resumed after a daemon restart"
+            : kind == AgentStatusKind.Stale ? "No activity for over an hour"
             : label;
         var facts = new List<AgentStatusFact> { new(sentence, "Status") };
         Add(facts, harness, "Harness");
@@ -149,7 +155,7 @@ public static class SessionStatusDots {
             .OrderBy(item => (int)item.Status.Kind)
             .ThenBy(item => item.Row.Id, StringComparer.Ordinal)
             .ToList();
-        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
+        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Stale and not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
         if (surfaced.Count == 0) return null;
         var dominant = surfaced[0].Status.Kind;
         var count = surfaced.Count(item => item.Status.Kind == dominant);

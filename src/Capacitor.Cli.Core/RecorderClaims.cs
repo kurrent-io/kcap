@@ -87,7 +87,8 @@ public sealed class RecorderClaims(string directory, TimeProvider time, string? 
         Read(key) is not RecorderClaimState.None && (holder is null || Contents(key)?.Holder is not { } named || named == holder);
 
     /// <summary>Gives up <paramref name="key"/> if <paramref name="daemonName"/> holds it. Any other claim, a corrupt one
-    /// too, may be someone's who is recording.</summary>
+    /// too, may be someone's who is recording. It reads and then deletes, so the caller holds the per-key spawn lock, as
+    /// a take does.</summary>
     public void ReleaseIfHeldBy(string key, string daemonName) {
         if (Contents(key)?.Holder == daemonName) Release(key);
     }

@@ -26,7 +26,7 @@ public static class ChatPipeline {
     /// earlier claimed. The paragraph parser still reads a `[label]: url` line as a definition.
     static MarkdownPipeline PromptPipeline() {
         var builder = new MarkdownPipelineBuilder();
-        var paragraphs = new ParagraphBlockParser { ParseSetexHeadings = false };
+        var paragraphs = new ParagraphBlockParser { ParseSetextHeadings = false };
         paragraphs.Closed += BlankLines.RecordLastLine;
         builder.BlockParsers.Clear();
         builder.BlockParsers.AddRange([

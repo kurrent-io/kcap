@@ -55,6 +55,9 @@ internal sealed class TerminalChatInput : ChatInput {
         CanInterrupt ? _terminal.SendEscapeAsync(ct) : Task.CompletedTask;
     public override Task<bool> SendKeysAsync(byte[] keys, CancellationToken ct) => _terminal.SendRawAsync(keys, ct);
     public override bool CanSendKeys => true;
+    public override bool CanResubmit => !_disposed && _terminal.CanInterrupt;
+    public override Task<bool> ResubmitAsync(CancellationToken ct) =>
+        CanResubmit ? _terminal.ResubmitAsync(ct) : Task.FromResult(false);
     public override string Hint => _sending ? "Sending…" : _notice ?? HintFor(_terminal.SendAvailability, _terminal.State);
 
     public override bool CanAttach =>

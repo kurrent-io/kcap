@@ -58,7 +58,16 @@ class MemoriesCommand(
         string? placeDir = null;
         if (!global) {
             placeDir = PlaceDir(from, workdir.Path, claude);
-            repoHash = placeDir is null ? null : await new CwdRepository(config, placeDir, router, time).GetHashAsync();
+            if (placeDir is not null) {
+                var checkout = new CwdRepository(config, placeDir, router, time);
+                // Only a repository with no remote needs the server to name it, so only it opens a client.
+                if (await checkout.GetAsync() is { Owner: { } owner, RepoName: { } name }) {
+                    if (LocalRepository.IsLocal(owner)) {
+                        using var lookup = await http.ForCommandAsync();
+                        repoHash = await checkout.GetHashAsync(lookup, profiles.Resolution.ServerUrl!);
+                    } else repoHash = RepoHashHelper.ComputeRepoHash(owner, name);
+                }
+            }
             if (repoHash is null && project is null) {
                 await Console.Error.WriteLineAsync(placeDir is null
                     ? $"{from} belongs to another Claude project — run from the checkout it was recorded in, or pass --project <slug> or --global."

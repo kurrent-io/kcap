@@ -15,7 +15,7 @@ internal sealed class SessionStartMemoryContextProvider(
         using var expiry = new CancellationTokenSource(request.Budget, time);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(request.CancellationToken, expiry.Token);
         try {
-            var scope = await scopeResolver.ResolveAsync(request.Cwd, request.Budget, cts.Token);
+            var scope = await scopeResolver.ResolveAsync(request.Cwd, request.BaseUrl, request.Budget, cts.Token);
             return await FetchWithScopeAsync(scope, request, cts.Token);
         } catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or
                                      OperationCanceledException or UnauthorizedAccessException or InvalidDataException) {

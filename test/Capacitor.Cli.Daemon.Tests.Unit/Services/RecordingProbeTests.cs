@@ -98,6 +98,25 @@ public class RecordingProbeTests {
         await Assert.That(_probe.Answer).IsNull();
     }
 
+    /// <summary>A call the old connection answers after it went away speaks for a server that may not be the next one's,
+    /// so it settles nothing, and the next connection's own answer is the one that counts. This call ignores its token,
+    /// as one already on the wire can.</summary>
+    [Test]
+    public async Task An_answer_from_a_connection_that_went_away_settles_nothing() {
+        var detached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var asking   = _probe.AskUntilAnsweredAsync(_ => detached.Task, _time, CancellationToken.None);
+
+        _probe.Forget();
+        detached.SetResult();
+
+        await Assert.That(await asking.WithinDeadlineAsync("the old connection's asking")).IsNull();
+        await Assert.That(_probe.Answer).IsNull();
+
+        await AskAsync(_ => new HubException(NoSuchMethod)).WithinDeadlineAsync("the next connection's ask");
+
+        await Assert.That(_probe.Answer).IsFalse();
+    }
+
     [Test]
     public async Task A_new_ask_replaces_the_one_before_it() {
         var first = AskAsync(_ => new HubException("Busy."));

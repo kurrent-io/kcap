@@ -156,6 +156,7 @@ public class LocalServerRecoveryViewModelTests {
 
             await Assert.That(recorder.Reconnects).IsEqualTo(1);
             await Assert.That(vm.Message).IsNull();
+            await Assert.That(vm.Failed).IsFalse();
         });
     }
 
@@ -175,6 +176,7 @@ public class LocalServerRecoveryViewModelTests {
 
             await Assert.That(vm.Message).Contains("lifecycle_busy: another kcap local command is running");
             await Assert.That(vm.Message).Contains("Starting the local server...");
+            await Assert.That(vm.Failed).IsTrue();
             await Assert.That(recorder.Reconnects).IsEqualTo(0);
             await Assert.That(vm.Visible).IsTrue();
 
@@ -380,16 +382,17 @@ public class LocalServerRecoveryViewModelTests {
     }
 
     /// An uninstalled, purged or never-installed server still reads as down, but a start cannot bring it back:
-    /// the banner says what the files say and offers nothing to click, and Start invoked anyway runs nothing.
+    /// the banner says what the files say and offers nothing to click, and Start invoked anyway runs nothing. Only an
+    /// installation missing its server's files is shown as failed: nothing but a reinstall lets it run.
     [Test]
-    [Arguments(LocalServerCondition.Uninstalled, "The local server was uninstalled")]
-    [Arguments(LocalServerCondition.Purged, "The local server was removed")]
-    [Arguments(LocalServerCondition.NotInstalled, "The local server was removed")]
-    [Arguments(LocalServerCondition.FilesMissing, "The local server needs attention")]
-    [Arguments(LocalServerCondition.Interrupted, "The local server needs attention")]
-    [Arguments(LocalServerCondition.Unreadable, "The local server needs attention")]
+    [Arguments(LocalServerCondition.Uninstalled, "The local server was uninstalled", false)]
+    [Arguments(LocalServerCondition.Purged, "The local server was removed", false)]
+    [Arguments(LocalServerCondition.NotInstalled, "The local server was removed", false)]
+    [Arguments(LocalServerCondition.FilesMissing, "The local server needs attention", true)]
+    [Arguments(LocalServerCondition.Interrupted, "The local server needs attention", false)]
+    [Arguments(LocalServerCondition.Unreadable, "The local server needs attention", false)]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_gone_installation_is_explained_and_never_offered_start(LocalServerCondition condition, string headline) {
+    public async Task A_gone_installation_is_explained_and_never_offered_start(LocalServerCondition condition, string headline, bool failed) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
             var recorder = new Recorder();
@@ -402,6 +405,7 @@ public class LocalServerRecoveryViewModelTests {
             await Assert.That(vm.StartOffered).IsFalse();
             await Assert.That(vm.Headline).IsEqualTo(headline);
             await Assert.That(vm.Body).IsEqualTo(condition.Explanation);
+            await Assert.That(vm.Failed).IsEqualTo(failed);
             await Assert.That(((ICommand)vm.StartCommand).CanExecute(null)).IsFalse();
             await Assert.That(await vm.StartAsync()).IsFalse();
             await Assert.That(recorder.Starts).IsEqualTo(0);

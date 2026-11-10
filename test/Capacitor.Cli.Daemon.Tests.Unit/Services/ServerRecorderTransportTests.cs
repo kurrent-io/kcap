@@ -122,7 +122,8 @@ public class ServerRecorderTransportTests {
         await transport.DetachAsync(B, CancellationToken.None).WithinDeadlineAsync("B's detach");
         await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop");
 
-        await Assert.That(transport.IsConnected).IsFalse();
+        // The server can see the close before the client's own state settles.
+        await WaitHarness.PollUntilAsync(() => !transport.IsConnected);
     }
 
     /// <summary>The source left while the connection was down, so nothing but the connection itself is left to come back.</summary>
@@ -247,6 +248,8 @@ public class ServerRecorderTransportTests {
 
         await back.Task.WithinDeadlineAsync("the connection to come back");
         await Assert.That(transport.IsConnected).IsTrue();
+        // The hub notes a sign-in once its own connect handler runs, which can be after the client is up.
+        await hub.WaitForAsync(h => h.Bearers.Count == 2, "the second sign-in to reach the server");
         await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
     }
 
@@ -270,11 +273,13 @@ public class ServerRecorderTransportTests {
         transport.Restart();
 
         await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop");
-        await Assert.That(transport.IsConnected).IsFalse();
+        // The server can see the close before the client's own state settles.
+        await WaitHarness.PollUntilAsync(() => !transport.IsConnected);
 
         bearer = "second";
 
         await back.Task.WithinDeadlineAsync("the connection to come back");
+        await hub.WaitForAsync(h => h.Bearers.Count == 2, "the second sign-in to reach the server");
         await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
     }
 

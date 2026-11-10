@@ -1,3 +1,4 @@
+using System.Text;
 using Capacitor.Cli.Core.Auth;
 
 namespace Capacitor.Cli.Core;
@@ -31,14 +32,21 @@ public static class DisabledSessions {
      || SessionIds.Canonical(sessionId) is { } canonical && canonical != sessionId && File.Exists(Path.Combine(GetDisabledDir(config), canonical));
 
     /// <summary>A person's disable. A marker already there keeps what it holds: the stop that follows can be cut short,
-    /// and an emptied marker would read as clean to the next run.</summary>
+    /// and an emptied marker would read as clean to the next run. Created only if absent, because another run can write
+    /// one at any moment.</summary>
     public static void Mark(string sessionId, ConfigRoot config) {
         var dir  = GetDisabledDir(config);
         var path = Path.Combine(dir, sessionId);
         if (File.Exists(path)) return;
 
         Directory.CreateDirectory(dir);
-        File.WriteAllText(path, "");
+
+        try {
+            // Shared, or on Windows a run recording its deletion beside this one is refused while this is open.
+            new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete).Dispose();
+        } catch (IOException) when (File.Exists(path)) {
+            // Another run's marker, which stays as it is.
+        }
     }
 
     /// <summary>A hook's exclusion of this run, lifted by <see cref="RemoveExclusion"/>.</summary>
@@ -61,12 +69,14 @@ public static class DisabledSessions {
     public static void MarkDeletedUnconfirmed(string sessionId, ConfigRoot config) {
         var dir = GetDisabledDir(config);
         Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, sessionId), DeletedUnconfirmed);
+
+        using var marker = new FileStream(Path.Combine(dir, sessionId), FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        marker.Write(Encoding.UTF8.GetBytes(DeletedUnconfirmed));
     }
 
     public static bool WasDeletedUnconfirmed(string sessionId, ConfigRoot config) {
         try {
-            return File.ReadAllText(Path.Combine(GetDisabledDir(config), sessionId)) == DeletedUnconfirmed;
+            return File.ReadAllTextShared(Path.Combine(GetDisabledDir(config), sessionId)) == DeletedUnconfirmed;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return false;
         }

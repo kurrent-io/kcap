@@ -73,6 +73,6 @@ public class DaemonCommandsServiceRepointTests {
         var exit = await Commands(manager).RepointFrom(Legacy, Own);
 
         await Assert.That(exit).IsEqualTo(1);
-        await Assert.That(console.GetCapturedError()).Contains("only a Scheduled Task can be repointed");
+        await Assert.That(console.GetCapturedError()).Contains("only a launchd job or a Scheduled Task can be repointed");
     }
 }

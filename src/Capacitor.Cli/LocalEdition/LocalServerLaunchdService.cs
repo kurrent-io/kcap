@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.LocalEdition;
 
@@ -116,7 +117,7 @@ sealed partial class LocalServerLaunchdService(
 
     LabelProbe Probe(LocalServerUnit unit) {
         var (exit, stdout, stderr) = _run("launchctl", LocalServerLaunchdUnit.PrintArgs(_uid, unit));
-        return LaunchdUnit.ClassifyPrint(exit, stdout, stderr);
+        return LaunchdPrint.Classify(exit, stdout, stderr);
     }
 
     void Check(string[] args) {

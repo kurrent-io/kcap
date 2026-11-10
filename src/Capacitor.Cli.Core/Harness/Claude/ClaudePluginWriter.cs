@@ -6,7 +6,9 @@ public static class ClaudePluginWriter {
     static readonly string[] LegacyMarketplaces = ["kurrent", "kapacitor"];
     static readonly string[] LegacyPlugins      = ["kcap@kurrent", "kapacitor@kapacitor", "kapacitor@kurrent"];
 
-    public static SettingsEdit Install(string settingsPath, string marketplacePath) {
+    /// <param name="claudeHome">The user-scope Claude home whose plugin records follow the move; null for a
+    /// project-scope install, which has none.</param>
+    public static SettingsEdit Install(string settingsPath, string? claudeHome, string marketplacePath) {
         var result = JsonSettingsFile.Edit(settingsPath, root => {
             var marketplaces = root["extraKnownMarketplaces"] as JsonObject ?? [];
             root["extraKnownMarketplaces"] = marketplaces;
@@ -26,7 +28,15 @@ public static class ClaudePluginWriter {
             return changed;
         });
 
-        if (result is SettingsEdit.Changed or SettingsEdit.Unchanged) ClaudePluginInstaller.WriteMarker(settingsPath);
+        if (result is not (SettingsEdit.Changed or SettingsEdit.Unchanged)) return result;
+
+        if (claudeHome is not null) {
+            var records = ClaudePluginRecords.Repoint(claudeHome, marketplacePath);
+            if (records is SettingsEdit.Malformed or SettingsEdit.Failed) return SettingsEdit.Failed;
+            if (records == SettingsEdit.Changed) result = SettingsEdit.Changed;
+        }
+
+        ClaudePluginInstaller.WriteMarker(settingsPath);
 
         return result;
     }

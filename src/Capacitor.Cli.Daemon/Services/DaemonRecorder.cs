@@ -84,6 +84,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly RecordedSourceList _list;
     readonly KeyedAsyncGate _keys = new();
     readonly ConcurrentDictionary<string, Tracked> _sources = new(StringComparer.Ordinal);
+    readonly KeyedAsyncGate _agentGates = new();
+    readonly ConcurrentDictionary<Task, string> _moves = new();
     readonly ConcurrentQueue<(RecordedSource Source, bool MayImport)> _letGo = new();
     readonly CancellationTokenSource _closing = new();
     readonly Lazy<RecorderHost> _host;
@@ -211,14 +213,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Starts recording a source <see cref="ClaimAsync"/> claimed, with its agent published. A source the last
-    /// daemon left is already being recorded, and is now this agent's.</summary>
+    /// daemon left is already being recorded, and is now this agent's, moved to where this agent writes it.</summary>
     public void StartForAgent(RecordedSource source) {
         if (!_sources.TryGetValue(source.Key, out var tracked) || IsLeaving(tracked)) return;
 
         if (tracked.Running) {
-            tracked.Source   = source;
+            // The host goes on tailing the path it was given until the move, and the entry says so meanwhile.
+            var tailed = tracked.Source.TranscriptPath;
+
+            tracked.Source   = source with { TranscriptPath = tailed };
             tracked.Restored = false;
-            _list.TryAdd(source);
+            _list.TryAdd(tracked.Source);
+
+            if (tailed != source.TranscriptPath) _ = MoveAsync(tracked, source);
 
             return;
         }
@@ -255,9 +262,34 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (!_sources.TryGetValue(found.Key, out var tracked) || tracked.Source.TranscriptPath == found.TranscriptPath) return;
         if (File.Exists(tracked.Source.TranscriptPath)) return;
 
-        LogTranscriptMoved(found.Key, found.TranscriptPath);
-        await FinishAsync(found.Key, CancellationToken.None);
-        await TryRecordAsync(found with { SkipTitle = tracked.Source.SkipTitle }, CancellationToken.None);
+        await MoveAsync(tracked, found with { SkipTitle = tracked.Source.SkipTitle });
+    }
+
+    // One restart, and the server's position carries the source on from where it was. Under the agent's gate, which its
+    // finish takes too, so the two never interleave: an agent finished by the time the replacement is up has that tail
+    // drained, and nothing of it goes on recording. Known to the agent's finish from before the gate, which waits for it.
+    async Task MoveAsync(Tracked from, RecordedSource to) {
+        // A terminal session has no agent to finish, so its own key stands in and no agent's finish waits on it.
+        var agent = to.AgentId ?? to.Key;
+        var done  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _moves[done.Task] = agent;
+
+        try {
+            using var gate = await _agentGates.EnterAsync(agent, CancellationToken.None);
+
+            LogTranscriptMoved(to.Key, to.TranscriptPath);
+            await FinishAsync(to.Key, CancellationToken.None);
+
+            if (!await TryRecordAsync(to, CancellationToken.None) || !from.AgentFinished) return;
+
+            if (_sources.TryGetValue(to.Key, out var replacement) && replacement.Source.AgentId == to.AgentId) {
+                replacement.AgentFinished = true;
+                await FinishQuietlyAsync(to.Key, CancellationToken.None);
+            }
+        } finally {
+            _moves.TryRemove(done.Task, out var _);
+            done.SetResult();
+        }
     }
 
     /// <summary>Makes the final drain of the source <paramref name="key"/> names and lets it go. Off the caller's thread,
@@ -315,16 +347,33 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// carries on: a tail landing behind the session's end reactivates it, and the server's sweep closes it again once
     /// the source has detached.</summary>
     public async Task FinishAgentAsync(string agentId, TimeSpan budget) {
-        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false }).Select(source => source.Key).ToArray();
-        if (keys.Length == 0) return;
+        try {
+            await FinishUnderGateAsync(agentId).WaitAsync(budget, _time);
+        } catch (TimeoutException) {
+            // The bound passed, and the finish carries on.
+        }
+    }
 
-        foreach (var key in keys) {
-            if (_sources.TryGetValue(key, out var tracked)) tracked.AgentFinished = true;
+    // Under the agent's gate, so a move of its source is either over, its replacement the current source, or still to
+    // come, and it then finds the source it moves from finished. The drains are waited for outside the gate, which a
+    // second ask on the way through a teardown would otherwise spend its budget on.
+    async Task FinishUnderGateAsync(string agentId) {
+        Task[] finishing;
+
+        using (await _agentGates.EnterAsync(agentId, CancellationToken.None)) {
+            var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false })
+                .Select(source => source.Key).ToArray();
+
+            foreach (var tracked in keys.Select(key => _sources.GetValueOrDefault(key)).OfType<Tracked>()) tracked.AgentFinished = true;
+
+            finishing = [.. keys.Select(key => FinishQuietlyAsync(key, CancellationToken.None))];
         }
 
-        using var bound = new CancellationTokenSource(budget, _time);
+        await Task.WhenAll(finishing);
 
-        await Task.WhenAll(keys.Select(key => FinishQuietlyAsync(key, bound.Token)));
+        // A move admitted behind this waits for the same old source and then drains its replacement's tail, and the
+        // session's end follows this finish.
+        while (_moves.Where(move => move.Value == agentId).Select(move => move.Key).ToArray() is { Length: > 0 } moving) await Task.WhenAll(moving);
     }
 
     /// <summary>Picks up what the last daemon left: each source from the line the server answers with, unless a live
@@ -441,15 +490,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    /// <summary>A later run of the command, with nothing left here to stop: what an earlier one left on its way has settled,
-    /// however it did, by the time this answers <see cref="RecordingDisable.NotHeld"/>, so the deletion after it covers it.</summary>
+    /// <summary>A later run of the command, with nothing left here to stop: what an earlier one left on its way has had its
+    /// answer by the time this answers <see cref="RecordingDisable.NotHeld"/>, so the deletion after it covers it. One that
+    /// lost its answer stays a send that may have landed.</summary>
     async Task<RecordingDisable> SettledAsync(string session, CancellationToken ct) {
         if (!_host.IsValueCreated) return RecordingDisable.NotHeld;
 
         try {
-            await _transport!.SilenceAsync(session).WaitAsync(DisableBound, _time, ct);
-
-            return RecordingDisable.NotHeld;
+            // The transport keeps the session's silence, so a send that lost its answer is still known as one.
+            return await _transport!.SilenceAsync(session).WaitAsync(DisableBound, _time, ct) ? RecordingDisable.NotHeld : RecordingDisable.SendInFlight;
         } catch (TimeoutException) {
             return RecordingDisable.SendInFlight;
         }
@@ -470,9 +519,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         var stuck = _host.Value.ActiveKeys.ToHashSet(StringComparer.Ordinal);
 
-        foreach (var tracked in _sources.Values) {
-            if (stuck.Contains(tracked.Source.Key) || !tracked.Running) continue;
-
+        foreach (var tracked in _sources.Values.Where(tracked => tracked.Running && !stuck.Contains(tracked.Source.Key))) {
             // Its end hasn't been decided: the next boot picks the source up, finds its process gone and decides it.
             if (tracked.EndPending) {
                 tracked.Settled.TrySetResult();
@@ -553,10 +600,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             await _liveness.WithSpawnLock(key, () => {
                 wasOwn = _claims.Holder(key) == _config.Name;
 
-                // Any live pid, a wedged one's too: a claim would stop a hook from reaping it, and it could still send.
+                // Any live pid, a wedged one's too: a claim would stop a hook from reaping it or stopping it, and it could
+                // still send. One this daemon left from before goes here, while nothing can take the key in between.
                 outcome = _liveness.PidAlive(key) ? ClaimOutcome.HeldByWatcher
                     : _claims.TryTake(key, _config.Name, isHosted: !source.IsTerminal) ? ClaimOutcome.Taken
                     : ClaimOutcome.Contended;
+
+                if (outcome is ClaimOutcome.HeldByWatcher) _claims.ReleaseIfHeldBy(key, _config.Name);
 
                 return Task.CompletedTask;
             });
@@ -575,12 +625,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.ContainsKey(source.Key)) return;
 
         if (IsDisabled(source)) {
-            ForgetDisabled(source);
+            await ForgetDisabledAsync(source, ct);
 
             return;
         }
 
-        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        await LetGoOfOwnClaimAsync(source.Key, ct);
 
         if (scope.Readable) _letGo.Enqueue((source, scope.MayImport(source.Cwd)));
         else LogScopeUnreadable(source.Key);
@@ -593,7 +643,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.ContainsKey(source.Key)) return;
 
         if (IsDisabled(source)) {
-            ForgetDisabled(source);
+            await ForgetDisabledAsync(source, CancellationToken.None);
 
             return;
         }
@@ -604,12 +654,36 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     // Nothing of it is left to pick up: no mark, which would ask for what the person deleted to be sent again.
-    void ForgetDisabled(RecordedSource source) {
+    async Task ForgetDisabledAsync(RecordedSource source, CancellationToken ct) {
         LogDisabled(source.Key);
 
-        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        await LetGoOfOwnClaimAsync(source.Key, ct);
         _list.Remove(source.Key);
         DiscardSpool(source.SessionId);
+    }
+
+    // Read and deleted under the spawn lock a take holds, or the claim deleted can be one another daemon has just taken.
+    // A lock still held after the retries leaves the claim: nothing here beats it, so it goes stale and a hook takes it.
+    async Task LetGoOfOwnClaimAsync(string key, CancellationToken ct) {
+        for (var attempt = 1; attempt <= TakeAttempts; attempt++) {
+            var locked = false;
+
+            try {
+                await _liveness.WithSpawnLock(key, () => {
+                    locked = true;
+                    _claims.ReleaseIfHeldBy(key, _config.Name);
+
+                    return Task.CompletedTask;
+                });
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                LogClaimFailed(ex, key);
+
+                return;
+            }
+
+            if (locked) return;
+            if (attempt < TakeAttempts) await Task.Delay(TakeRetryGap, _time, ct);
+        }
     }
 
     bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabledByPerson(source.SessionId, _config.ConfigRoot);
@@ -655,7 +729,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             var (outcome, wasOwn) = await TakeOnceAsync(source);
 
             if (outcome is ClaimOutcome.Disabled) {
-                ForgetDisabled(source);
+                await ForgetDisabledAsync(source, ct);
 
                 return;
             }
@@ -675,9 +749,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             if (outcome is ClaimOutcome.HeldByWatcher || _time.GetElapsedTime(started) >= RestoreWindow) {
                 LogNotRestored(source.Key, outcome);
 
-                // A claim left beside a live watcher would keep every hook from stopping it, and with no entry nothing
-                // would beat it.
-                _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+                // With no entry nothing would beat it.
+                await LetGoOfOwnClaimAsync(source.Key, ct);
                 _list.Remove(source.Key);
 
                 return;
@@ -961,7 +1034,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             // that knows none, the marker is all a recorder heard, and what the frame would have cleared is still here.
             if (tracked.Disabled || IsDisabled(tracked.Source)) {
                 Silence(tracked.Source.SessionId);
-                ForgetDisabled(tracked.Source);
+                await ForgetDisabledAsync(tracked.Source, CancellationToken.None);
             }
 
             tracked.LastAttemptDone.TrySetResult();
