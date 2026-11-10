@@ -1888,17 +1888,30 @@ public class RecorderHostTests {
     [Test]
     public async Task A_read_that_fails_below_the_threshold_marks_the_source_for_import() {
         var source = Source(Tmp.CreateFile("t.jsonl", "{\"type\":\"system\"}\n"));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeDrain[source.Key] = () => {
+            entered.TrySetResult();
+
+            return release.Task;
+        };
         var host   = NewHost();
 
-        host.TryAdd(source);
-        await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
-        await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
+        try {
+            host.TryAdd(source);
+            await entered.Task.WithinDeadlineAsync("the recorder reaching its first drain");
+            await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
-        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
-        var finish = host.FinishAsync(source.Key, CancellationToken.None);
-        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+            using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
+            var finish = host.FinishAsync(source.Key, CancellationToken.None);
+            release.SetResult();
+            await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+            await finish;
 
-        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+            await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+        } finally {
+            release.TrySetResult();
+        }
     }
 
     /// <summary>A file pending delete on Windows refuses a read this way, and a refusal says no more about what is left
