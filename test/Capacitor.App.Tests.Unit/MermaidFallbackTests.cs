@@ -179,7 +179,7 @@ public class MermaidFallbackTests {
 
     [Test]
     public Task The_disclosure_indexes_only_visible_source_for_selection_find_and_pointer_selection() => RunOnUiAsync(async () => {
-        const string source = "graph TD\n A[DIAGRAM_SENTINEL] --> B";
+        const string source = "graph TD; A[DIAGRAM_SENTINEL] --> B\n B --> C";
         var (window, view, _) = Show("Before the diagram.\n\n" + Fence(source) + "\n\nAfter the diagram.", MarkdownFlavor.GitHub);
         try {
             view.SelectAll();
@@ -195,10 +195,12 @@ public class MermaidFallbackTests {
             await Assert.That(view.FindMatchCount).IsEqualTo(1);
             view.SelectAll();
             var selected = Viewer(view).GetSelectedText();
-            await Assert.That(selected).IsEqualTo("Before the diagram.\n" + source + "\nAfter the diagram.");
+            // MarkView expands code LineBreaks to platform newlines; block separators stay LF.
+            await Assert.That(selected).IsEqualTo("Before the diagram.\n" + source.ReplaceLineEndings(Environment.NewLine) + "\nAfter the diagram.");
             await Assert.That(selected.Split("DIAGRAM_SENTINEL", StringSplitOptions.None).Length).IsEqualTo(2);
 
-            // The ordinary code block participates in real pointer hit testing, not just SelectAll.
+            // Select the unique sentinel through real code-block hit testing. Keep it before the
+            // first LineBreak: MarkView's Windows offsets after one differ from Avalonia's layout.
             Viewer(view).ClearSelection();
             var code = (TextBlock)All<Border>(view).Single(b => b.Classes.Contains("markdown-mermaid-source")).Child!;
             var start = code.TextLayout.HitTestTextPosition(source.IndexOf("DIAGRAM_SENTINEL", StringComparison.Ordinal));
@@ -274,7 +276,7 @@ public class MermaidFallbackTests {
             var code = All<Border>(view).Single(b => b.Classes.Contains("markdown-mermaid-source"));
             await Assert.That(code.Bounds.Height).IsGreaterThan(outer.Viewport.Height);
             view.SelectAll();
-            await Assert.That(Viewer(view).GetSelectedText()).IsEqualTo(text);
+            await Assert.That(Viewer(view).GetSelectedText()).IsEqualTo(text.ReplaceLineEndings(Environment.NewLine));
             Press(window, PhysicalKey.PageDown);
             await Assert.That(outer.Offset.Y).IsGreaterThan(0);
             Press(window, PhysicalKey.PageUp);
