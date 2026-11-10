@@ -14,6 +14,7 @@ sealed class UnixPtyReaderThread {
     const int ChunkSize     = 4096;
 
     readonly int                  _masterFd;
+    readonly Func<bool>           _childExited;
     readonly CancellationToken    _stop;
     readonly Channel<byte[]>      _chunks  = Channel.CreateUnbounded<byte[]>(new() { SingleWriter = true });
     readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -25,9 +26,12 @@ sealed class UnixPtyReaderThread {
     readonly object _creditGate = new();
     bool            _credit     = true;
 
-    public UnixPtyReaderThread(int masterFd, int pid, CancellationToken stop) {
-        _masterFd = masterFd;
-        _stop     = stop;
+    /// <param name="childExited">Reaps the child if it has exited. Asked whenever the terminal is idle: a
+    /// descendant that inherited the terminal keeps it open after the child dies, so no hangup comes.</param>
+    public UnixPtyReaderThread(int masterFd, int pid, Func<bool> childExited, CancellationToken stop) {
+        _masterFd    = masterFd;
+        _childExited = childExited;
+        _stop        = stop;
 
         new Thread(Run) { IsBackground = true, Name = $"kcap-pty-reader-{pid}" }.Start();
     }
@@ -86,7 +90,8 @@ sealed class UnixPtyReaderThread {
         }
     }
 
-    /// <summary>Bytes read, or 0 once the slave side has hung up or the stop token fired. Throws
+    /// <summary>Bytes read, or 0 once the slave side has hung up, the child has exited with nothing left
+    /// to read, or the stop token fired. Throws
     /// <see cref="IOException"/> for any other failure: the end of the stream is what tears an agent
     /// down, so a failure that is not a hangup must surface as one rather than pass for an exit.</summary>
     int ReadChunk(byte[] buf) {
@@ -105,7 +110,11 @@ sealed class UnixPtyReaderThread {
                 throw Failure("poll", errno);
             }
 
-            if (pollResult == 0) continue;
+            if (pollResult == 0) {
+                if (_childExited()) return 0;
+
+                continue;
+            }
 
             if ((pfd.revents & UnixPtyInterop.POLLIN) != 0) {
                 var bytesRead = (int)UnixPtyInterop.read(_masterFd, buf, buf.Length);

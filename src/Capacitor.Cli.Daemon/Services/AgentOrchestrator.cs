@@ -6462,9 +6462,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return null;
     }
 
-    /// <summary>Says, once and early, what the operator is otherwise left to infer from silence.
-    /// Never cancels or reaps the launch — detection keeps running while the agent is alive, and
-    /// a slow first turn or startup prompt still links once its transcript turns up.</summary>
+    /// <summary>Says, once and early, what the operator is otherwise left to infer from silence, and
+    /// checks the process is still there. A live agent keeps its launch — a slow first turn or startup
+    /// prompt still links once its transcript turns up — but one whose process is gone has its read
+    /// ended, so it is reported with its exit code rather than shown running.</summary>
     async Task WarnIfStillUnlinkedAsync(AgentInstance agent, CancellationToken ct) {
         try {
             await Task.Delay(SessionIdSlowWarnAfter, _time, ct).ConfigureAwait(false);
@@ -6472,8 +6473,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return;
         }
 
-        if (agent.TranscriptPath is null)
-            LogSessionIdSlow(agent.Id, SessionIdSlowWarnAfter.TotalSeconds);
+        if (agent.TranscriptPath is not null) return;
+
+        LogSessionIdSlow(agent.Id, SessionIdSlowWarnAfter.TotalSeconds);
+
+        await agent.Runtime.WaitForExitAsync(TimeSpan.Zero).ConfigureAwait(false);
+        if (!agent.Runtime.HasExited) return;
+
+        LogExitFoundByLivenessCheck(agent.Id, agent.Runtime.ExitCode);
+        try { await agent.ReadCts.CancelAsync().ConfigureAwait(false); } catch (ObjectDisposedException) { /* already torn down */ }
     }
 
     async Task RunHeartbeatLoopAsync(CancellationToken ct) {
@@ -7349,6 +7357,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} still has no transcript {Seconds:F0}s after spawn; the surface is showing 'waiting for session to start'. Detection continues while the agent is running.")]
     partial void LogSessionIdSlow(string agentId, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} has exited (code {ExitCode}) though its output had not ended; ending its run")]
+    partial void LogExitFoundByLivenessCheck(string agentId, int? exitCode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} found transcript of session {Found}, not its own session {Own}; not linking it")]
     partial void LogForeignTranscriptSkipped(string agentId, string found, string own);

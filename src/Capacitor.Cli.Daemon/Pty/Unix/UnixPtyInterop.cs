@@ -180,6 +180,7 @@ internal static partial class UnixPtyInterop {
     public const int   EINTR    = 4;
     public const int   EIO      = 5;
     public const int   EBADF    = 9;
+    public const int   ECHILD   = 10;
 
     static readonly int EAGAIN = IsMacOS ? 35 : 11;
 

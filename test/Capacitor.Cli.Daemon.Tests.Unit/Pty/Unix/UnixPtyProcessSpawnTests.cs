@@ -108,6 +108,91 @@ public class UnixPtyProcessSpawnTests {
         }
     }
 
+    /// <summary>A helper that inherited the terminal and ignores SIGHUP keeps it open after the leader
+    /// exits, so the terminal never hangs up: the output must still end once the leader has gone, with
+    /// the leader's own exit code.</summary>
+    [Test]
+    public async Task Output_ends_when_the_leader_exits_though_a_helper_holds_the_terminal() {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+
+        using var spawner = new UnixSpawnerThread();
+        var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
+        var proc = factory.Spawn(
+            "/bin/sh", ["-c", "(trap '' HUP; exec sleep 300) & echo \"CHILD:$!:DONE\"; sleep 1; exit 3"],
+            AppContext.BaseDirectory);
+        var helperPid      = -1;
+        var helperIdentity = "";
+        try {
+            var (output, ended) = await ReadToEndAsync(proc, TimeSpan.FromSeconds(10));
+            var match = System.Text.RegularExpressions.Regex.Match(output, @"CHILD:(\d+):DONE");
+            if (match.Success) {
+                helperPid      = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+                helperIdentity = PidIdentity.Capture(helperPid);
+            }
+
+            await Assert.That(ended).IsTrue();
+            await Assert.That(proc.HasExited).IsTrue();
+            await Assert.That(proc.ExitCode).IsEqualTo(3);
+        } finally {
+            await proc.DisposeAsync();
+            if (helperPid > 0 && !PidIdentity.IsGone(helperPid, helperIdentity))
+                UnixPtyInterop.kill(helperPid, UnixPtyInterop.SIGKILL);
+        }
+    }
+
+    /// <summary>A leader a signal killed reports 128 plus the signal, so a SIGKILL reads as a failure
+    /// rather than a clean exit.</summary>
+    [Test]
+    public async Task A_leader_killed_by_a_signal_exits_with_128_plus_the_signal() {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+
+        using var spawner = new UnixSpawnerThread();
+        var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
+        var       proc    = factory.Spawn("/bin/sh", ["-c", "kill -9 $$"], AppContext.BaseDirectory);
+        try {
+            await ReadToEndAsync(proc, TimeSpan.FromSeconds(10));
+            await proc.WaitForExitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(proc.HasExited).IsTrue();
+            await Assert.That(proc.ExitCode).IsEqualTo(137);
+        } finally {
+            await proc.DisposeAsync();
+        }
+    }
+
+    /// <summary>A leader something else already reaped is gone, though its status went with the reap:
+    /// it must read as exited, or the agent stays live and a later group signal could hit a reused pid.</summary>
+    [Test]
+    public async Task A_leader_reaped_elsewhere_reads_as_exited_with_no_code() {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+
+        using var spawner = new UnixSpawnerThread();
+        var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
+        var       proc    = factory.Spawn("sleep", ["30"], AppContext.BaseDirectory);
+        try {
+            UnixPtyInterop.kill(proc.Pid, UnixPtyInterop.SIGKILL);
+            await Assert.That(UnixPtyInterop.waitpid(proc.Pid, out _, 0)).IsEqualTo(proc.Pid);
+
+            await proc.WaitForExitAsync(TimeSpan.FromSeconds(1));
+
+            await Assert.That(proc.HasExited).IsTrue();
+            await Assert.That(proc.ExitCode).IsNull();
+        } finally {
+            await proc.DisposeAsync();
+        }
+    }
+
+    /// <summary>Everything the process wrote, and whether its output ended before <paramref name="limit"/>.</summary>
+    static async Task<(string Output, bool Ended)> ReadToEndAsync(Capacitor.Cli.Daemon.Pty.IPtyProcess proc, TimeSpan limit) {
+        using var cts    = new CancellationTokenSource(limit);
+        var       buffer = new System.Text.StringBuilder();
+        try {
+            await foreach (var chunk in proc.ReadOutputAsync(cts.Token)) buffer.Append(System.Text.Encoding.UTF8.GetString(chunk));
+        } catch (OperationCanceledException) { }
+
+        return (buffer.ToString(), !cts.IsCancellationRequested);
+    }
+
     /// <summary>A spawned child that nothing came to own has to go down with its whole group. The
     /// helper ignores SIGHUP, so closing the master alone leaves it running — only the group kill
     /// reaches it.</summary>

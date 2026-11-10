@@ -24,7 +24,11 @@ public sealed class UnixPtyProcess : IPtyProcess {
         _master       = master;
         Pid           = childPid;
         StartIdentity = startIdentity;
-        _reader       = new(masterFd, childPid, _cts.Token);
+        _reader       = new(masterFd, childPid, () => {
+                CheckExited();
+
+                return HasExited;
+            }, _cts.Token);
     }
 
     /// <summary>Executable resolution is PRE-FORK, in the parent (spec §4.2(a), pinned): resolves
@@ -362,12 +366,11 @@ public sealed class UnixPtyProcess : IPtyProcess {
         var started = _time.GetTimestamp();
         var limit   = timeout ?? TimeSpan.FromSeconds(5);
 
-        while (!HasExited && _time.GetElapsedTime(started) < limit) {
-            CheckExited();
+        CheckExited();
 
-            if (!HasExited) {
-                await Task.Delay(ExitConfirmGap, _time);
-            }
+        while (!HasExited && _time.GetElapsedTime(started) < limit) {
+            await Task.Delay(ExitConfirmGap, _time);
+            CheckExited();
         }
     }
 
@@ -382,9 +385,19 @@ public sealed class UnixPtyProcess : IPtyProcess {
 
             if (result == Pid) {
                 HasExited = true;
-                ExitCode  = (status >> 8) & 0xFF;
+                ExitCode  = ExitCodeOf(status);
+            } else if (result < 0 && Marshal.GetLastPInvokeError() == UnixPtyInterop.ECHILD) {
+                // Reaped by someone else, so the status is lost; the pid may already be another process's.
+                HasExited = true;
             }
         }
+    }
+
+    /// <summary>The exit status, or 128 plus the signal for a child a signal killed, as a shell reports it.</summary>
+    internal static int ExitCodeOf(int status) {
+        var signal = status & 0x7F;
+
+        return signal is 0 or 0x7F ? (status >> 8) & 0xFF : 128 + signal;
     }
 
     public async ValueTask DisposeAsync() {
