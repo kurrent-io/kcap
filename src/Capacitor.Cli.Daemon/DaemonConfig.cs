@@ -14,7 +14,7 @@ public class DaemonConfig {
     public string   Name                { get; set; } = "";
     public string   ServerUrl           { get; set; } = "";
     public string[] AllowedRepoPaths    { get; set; } = [];
-    public int      MaxConcurrentAgents { get; set; } = 5;
+    public int      MaxConcurrentAgents { get; set; } = DaemonSettings.DefaultMaxAgents;
 
     /// <summary>The path this daemon's binary was started from, read at process start. The restart poll watches it and
     /// a self-respawn runs it: on Windows <c>kcap update</c> moves the running image elsewhere, so the process's own
@@ -581,6 +581,10 @@ public class DaemonConfig {
     /// (reconnect spec §4).
     /// </summary>
     public bool AcpReconnectEnabled { get; set; } = true;
+
+    /// <summary>Whether this daemon records its hosted Claude sessions itself rather than leave them to a watcher, read
+    /// from <c>KCAP_DAEMON_RECORDING</c>. Off by default: a session then records exactly as it would without it.</summary>
+    public bool RecordHostedClaude { get; set; }
 
     /// <summary>
     /// Path to the kcap CLI binary. Used by the daemon to spawn auxiliary

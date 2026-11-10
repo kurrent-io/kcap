@@ -390,7 +390,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
             .Subscribe(_ => WorkContext.AgentInputAvailabilityChanged()).DisposeWith(_disposables);
         Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor)
-            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory, viewer)
+            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory,
+                _rows.Select(r => r.TerminalInput), viewer)
             : null;
         if (Terminal is not null) Chat.ShowTerminal = () => ActiveTab = RemoteTab.Terminal;
         Apply(row);

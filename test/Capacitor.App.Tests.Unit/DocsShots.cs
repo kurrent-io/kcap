@@ -214,12 +214,12 @@ public sealed class DocsShots {
 
     [Test, DocsShot("desktop-settings-privacy")]
     public async Task The_settings_window_shows_who_reads_new_sessions_and_the_recording_rules() {
-        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "CaptureTab", height: 1060), "AllowedReposInput");
+        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "PrivacyTab", height: 1060), "AllowedReposInput");
     }
 
     [Test, DocsShot("desktop-settings-usage-data")]
     public async Task The_settings_window_shows_the_usage_data_switch_on() {
-        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "PrivacyTab", height: 520, usageData: true), "UsageDataSwitch");
+        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "UsageDataTab", height: 520, usageData: true), "UsageDataSwitch");
     }
 
     [Test, DocsShot("desktop-settings-harnesses")]

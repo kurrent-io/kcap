@@ -163,7 +163,7 @@ public class LiveWatchHardeningAcceptanceTests {
     /// <para><c>LifecycleSpoolDrainTests.drains_start_then_transcript_then_end_for_a_session_with_no_further_hook</c>
     /// and <c>...delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap</c> already
     /// prove this exact ordering against injected poster delegates; this test proves the SAME
-    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>'s
+    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>'s
     /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping,
     /// the needs-import route literally hitting the wire) — the part the delegate-injected test
     /// can't reach.</para>
@@ -189,7 +189,7 @@ public class LiveWatchHardeningAcceptanceTests {
         // currentSessionId: null — this drain pass belongs to a DIFFERENT vendor's own
         // invocation; `sid`'s session never fires another hook of its own.
         await LifecycleSpoolDrain.RunAsync(
-            Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
+            Config.Root, Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         var hits = server.LogEntries.Select(e => e.RequestMessage).ToList();

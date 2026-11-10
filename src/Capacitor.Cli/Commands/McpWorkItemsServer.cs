@@ -10,6 +10,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.WorkItems;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
@@ -92,7 +93,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
             null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request),
+            "initialize" => BuildInitializeResponse(id, request, InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable))),
             "tools/list" => BuildToolsListResponse(id, tools),
             _            => McpProtocol.TryHandleStandardMethod(method, id)
                             ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
@@ -103,8 +104,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     // Claude Code keeps only the first 2,048 characters of an MCP server's instructions, so the
     // completion rule leads: it is the one sentence no tool description repeats.
-    internal const string ServerInstructions =
-        NextWorkEmitter.CompletionInstruction + " " +
+    internal const string ServerInstructions = NextWorkEmitter.CompletionInstruction + " " + DeclarationInstructions;
+
+    const string DeclarationInstructions =
         "Attach this session to its work item with declare_work_item. When work splits into parts, create " +
         "them (declare_work_item with new_title) and declare the breakdown (declare_work_breakdown); when " +
         "one item must land first, declare_work_relation ('blocks'/'blocked_by'). Structure is declared, " +
@@ -118,10 +120,13 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         "(reopen_loose_end undoes a mistaken close), or hand the work back with release_loose_end. A claim " +
         "refusal is not permission to dismiss, close, or launch a duplicate.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
+    /// <summary>A headless run's answer is its output, so it is not told to present next work.</summary>
+    internal static string InstructionsFor(bool headless) => headless ? DeclarationInstructions : ServerInstructions;
+
+    static string BuildInitializeResponse(JsonNode id, JsonObject request, string instructions) =>
         ToResponse<McpInitResult>(
             id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-workitems", "1.0.0"), ServerInstructions),
+            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-workitems", "1.0.0"), instructions),
             McpJsonContext.Default.McpInitResult
         );
 
@@ -230,7 +235,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             // dismiss/restore/list carry tracker- and session-authored label/because text the same
             // way get_next_work's rows do, so they go through the same untrusted-data boundary
             // rather than reaching the agent verbatim.
-            if (IsNextWorkTargetTool(toolName)) return RenderNextWorkTargetResult(id, toolName, httpResponse.StatusCode, body);
+            if (IsNextWorkTargetTool(toolName)) return RenderNextWorkTargetResult(id, toolName, httpResponse.StatusCode, body, baseUrl);
             if (toolName is "claim_loose_end" or "release_loose_end") {
                 var (text, isError) = LooseEndClaimToolResults.Render((int)httpResponse.StatusCode, body);
                 return BuildToolResult(id, text, isError);
@@ -303,7 +308,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             var bytes = await BoundedHttpContent.ReadAsync(httpResponse.Content, NextWorkMaxResponseBytes, deadline.Token);
             if (bytes is null) return BuildToolResult(id, NextWorkTooLargeMessage, isError: true);
 
-            return RenderNextWorkResult(id, httpResponse.StatusCode, Encoding.UTF8.GetString(bytes));
+            return RenderNextWorkResult(id, httpResponse.StatusCode, Encoding.UTF8.GetString(bytes), baseUrl);
         } catch (OperationCanceledException) {
             return BuildToolResult(id, NextWorkDeadlineMessage, isError: true);
         } catch (ArgumentException ex) {
@@ -339,7 +344,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         return qs.Count == 0 ? $"{baseUrl}/api/next-work" : $"{baseUrl}/api/next-work?{string.Join('&', qs)}";
     }
 
-    internal static string RenderNextWorkResult(JsonNode id, HttpStatusCode status, string body) {
+    internal static string RenderNextWorkResult(JsonNode id, HttpStatusCode status, string body, string? serverUrl = null) {
         if (status == HttpStatusCode.NotFound && ErrorCode(body) == "next_work_unavailable")
             return BuildToolResult(id, NextWorkUnavailableMessage);
 
@@ -353,7 +358,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                 ErrorCode(body) is { } code && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
-        return RenderNextWorkFeed(body) is { } text
+        return RenderNextWorkFeed(body, serverUrl) is { } text
             ? BuildToolResult(id, text)
             : BuildToolResult(id, "Error: the server returned an unreadable next-work response.", isError: true);
     }
@@ -371,7 +376,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// <c>&lt;next-work-data&gt;</c> block with every field sanitised (including the target_key an
     /// agent echoes back to dismiss_next_work), and the freshness line outside it. Null when the
     /// body is not a feed.</summary>
-    internal static string? RenderNextWorkFeed(string body) {
+    internal static string? RenderNextWorkFeed(string body, string? serverUrl = null) {
         try {
             using var doc  = JsonDocument.Parse(body);
             var       root = doc.RootElement;
@@ -379,7 +384,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (!root.IsObject || root.Arr("items") is not { } items) return null;
 
             var rows = new List<string>();
-            AppendFeedRows(rows, items);
+            AppendFeedRows(rows, items, serverUrl);
 
             var arms = new List<(string? Arm, string? State, string? Code)>();
             if (root.Arr("freshness") is { } freshness) {
@@ -400,7 +405,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             var attached = new List<string>();
             var open     = root.Arr("attached_open");
             var held     = open is { } records && records.EnumerateArray().Any(e => e.IsObject);
-            if (held) AppendAttachedRows(attached, open!.Value);
+            if (held) AppendAttachedRows(attached, open!.Value, serverUrl);
 
             var sb = new StringBuilder();
             if (held) Line(sb, AttachedOpenNotice);
@@ -437,7 +442,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     /// <summary>One line per open attached work item: its label, href and each seed issue or PR with its
     /// tracker state, all untrusted tracker text. An item with no label is dropped.</summary>
-    static void AppendAttachedRows(List<string> rows, JsonElement items) {
+    static void AppendAttachedRows(List<string> rows, JsonElement items, string? serverUrl) {
         foreach (var item in items.EnumerateArray()) {
             if (!item.IsObject) continue;
 
@@ -445,7 +450,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (label.Length == 0) continue;
 
             var line = new StringBuilder($"- {label}");
-            var href = NextWorkUntrustedText.Render(item.Str("href"), NextWorkEmitter.FieldCap);
+            var href = NextWorkUntrustedText.Render(NextWorkEmitter.AbsoluteHref(item.Str("href"), serverUrl), NextWorkEmitter.FieldCap);
             if (href.Length > 0) line.Append($" ({href})");
 
             var subjects = item.Arr("subjects") is { } subs
@@ -473,7 +478,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// through <see cref="NextWorkUntrustedText"/>, while target_key is a reference id an agent must
     /// be able to echo back to dismiss_next_work — rendered in full up to the server's own length
     /// ceiling rather than character-remapped.</summary>
-    static void AppendFeedRows(List<string> rows, JsonElement items) {
+    static void AppendFeedRows(List<string> rows, JsonElement items, string? serverUrl) {
         foreach (var item in items.EnumerateArray()) {
             if (!item.IsObject) continue;
 
@@ -481,7 +486,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (label.Length == 0) continue;
 
             var because = NextWorkUntrustedText.Render(item.Str("because"), NextWorkEmitter.FieldCap);
-            var href    = NextWorkUntrustedText.Render(item.Str("target_href"), NextWorkEmitter.FieldCap);
+            var href    = NextWorkUntrustedText.Render(NextWorkEmitter.AbsoluteHref(item.Str("target_href"), serverUrl), NextWorkEmitter.FieldCap);
             var arm     = NextWorkUntrustedText.Render(item.Str("arm"), 64);
             var key     = NextWorkUntrustedText.Render(item.Str("target_key"), TargetKeyFieldCap);
             var rank    = item.Num("rank") ?? rows.Count + 1;
@@ -644,13 +649,13 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// session-authored, same as the feed's. The dismissals route's error body is
     /// <c>{"code", "message"}</c>, not the feed's <c>{"error"}</c>, so only a well-formed code
     /// survives a non-2xx status; a 409 <c>not_presented</c> reaches the agent this way.</summary>
-    internal static string RenderNextWorkTargetResult(JsonNode id, string toolName, HttpStatusCode status, string body) {
+    internal static string RenderNextWorkTargetResult(JsonNode id, string toolName, HttpStatusCode status, string body, string? serverUrl = null) {
         if ((int)status is < 200 or > 299)
             return BuildToolResult(id,
                 NextWorkTargetErrorCode(body) is { } code && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
-        return RenderNextWorkTargetBody(toolName, body) is { } text
+        return RenderNextWorkTargetBody(toolName, body, serverUrl) is { } text
             ? BuildToolResult(id, text)
             : BuildToolResult(id, "Error: the server returned an unreadable response.", isError: true);
     }
@@ -681,7 +686,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// <summary>Dispatches on shape: <c>list_dismissed_next_work</c>'s body is <c>{items, truncated}</c>;
     /// dismiss/restore's is <c>{target_key, [dismissed_at], page_one}</c>. Null when the body matches
     /// neither.</summary>
-    internal static string? RenderNextWorkTargetBody(string toolName, string body) {
+    internal static string? RenderNextWorkTargetBody(string toolName, string body, string? serverUrl = null) {
         try {
             using var doc  = JsonDocument.Parse(body);
             var       root = doc.RootElement;
@@ -689,10 +694,10 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (!root.IsObject) return null;
 
             if (toolName == "list_dismissed_next_work")
-                return root.Arr("items") is { } items ? RenderDismissedList(root, items) : null;
+                return root.Arr("items") is { } items ? RenderDismissedList(root, items, serverUrl) : null;
 
             return root.Arr("page_one") is { } page
-                ? RenderDismissOrRestore(root, page, includeDismissedAt: toolName == "dismiss_next_work")
+                ? RenderDismissOrRestore(root, page, includeDismissedAt: toolName == "dismiss_next_work", serverUrl)
                 : null;
         } catch (JsonException) {
             return null;
@@ -701,9 +706,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         }
     }
 
-    static string RenderDismissOrRestore(JsonElement root, JsonElement pageOne, bool includeDismissedAt) {
+    static string RenderDismissOrRestore(JsonElement root, JsonElement pageOne, bool includeDismissedAt, string? serverUrl) {
         var rows = new List<string>();
-        AppendFeedRows(rows, pageOne);
+        AppendFeedRows(rows, pageOne, serverUrl);
 
         var key = NextWorkUntrustedText.Render(root.Str("target_key"), TargetKeyFieldCap);
 
@@ -725,7 +730,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         return sb.ToString().TrimEnd();
     }
 
-    static string RenderDismissedList(JsonElement root, JsonElement items) {
+    static string RenderDismissedList(JsonElement root, JsonElement items, string? serverUrl) {
         var rows = new List<string>();
 
         foreach (var item in items.EnumerateArray()) {
@@ -736,7 +741,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             var key         = NextWorkUntrustedText.Render(item.Str("target_key"), TargetKeyFieldCap);
             var kind        = NextWorkUntrustedText.Render(item.Str("target_kind"), 64);
-            var href        = NextWorkUntrustedText.Render(item.Str("href"), NextWorkEmitter.FieldCap);
+            var href        = NextWorkUntrustedText.Render(NextWorkEmitter.AbsoluteHref(item.Str("href"), serverUrl), NextWorkEmitter.FieldCap);
             var via         = NextWorkUntrustedText.Render(item.Str("via"), 64);
             var dismissedAt = item.Str("dismissed_at");
 

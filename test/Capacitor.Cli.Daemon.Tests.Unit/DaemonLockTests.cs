@@ -164,6 +164,18 @@ public class DaemonLockTests {
         await Assert.That(DaemonVersionMarker.TryRead(daemons.Store, "alpha")).IsEqualTo("0.4.11+sha.abc1234");
     }
 
+    /// <summary>A clean stop takes the recording marker with it, so terminal hooks open no socket to a daemon that has gone.</summary>
+    [Test]
+    public async Task Dispose_RemovesTheRecordingMarker() {
+        using var daemons = new TempDaemonStore();
+
+        var l = DaemonLock.TryAcquire(daemons.Store, "alpha");
+        DaemonRecordingMarker.Sync(daemons.Store, "alpha", recording: true);
+        l!.Dispose();
+
+        await Assert.That(DaemonRecordingMarker.Exists(daemons.Store, "alpha")).IsFalse();
+    }
+
     /// <summary>
     /// The version marker is observability-only (for <c>kcap daemon status</c>),
     /// so a failure to write it must never abort lock acquisition / daemon startup

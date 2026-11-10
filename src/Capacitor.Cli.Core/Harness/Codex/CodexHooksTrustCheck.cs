@@ -52,11 +52,15 @@ public static class CodexHooksTrustCheck {
         if (!root.TryGetValue("hooks", out var hooks) || hooks is not TomlTable hooksTable
          || !hooksTable.TryGetValue("state", out var state) || state is not TomlTable stateTable) return true;
 
-        var ours = Normalize(paths.UserHooksJson);
         return !stateTable.Any(entry =>
             entry.Value is TomlTable hook && hook.ContainsKey("trusted_hash")
-         && HooksFileOf(entry.Key) is { } file && string.Equals(Normalize(file), ours, PathComparison));
+         && HooksFileOf(entry.Key) is { } file && SameFile(file, paths.UserHooksJson));
     }
+
+    /// <summary>Whether a path Codex reports names the same hooks file, under the platform's case rules and with a
+    /// Windows verbatim prefix ignored.</summary>
+    internal static bool SameFile(string reported, string path) =>
+        string.Equals(Normalize(reported), Normalize(path), PathComparison);
 
     static string? HooksFileOf(string key) {
         var end = key.IndexOf(".json:", StringComparison.OrdinalIgnoreCase);
@@ -64,6 +68,7 @@ public static class CodexHooksTrustCheck {
     }
 
     static string Normalize(string path) {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal)) path = path[4..];
         try {
             return Path.GetFullPath(path.Replace('/', Path.DirectorySeparatorChar));
         } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) {

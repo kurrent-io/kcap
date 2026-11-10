@@ -1253,6 +1253,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Which of the launcher's problem notices show.
     public LauncherNotices Notices { get; } = new();
 
+    public IDisposable AttachHistoryImport(HistoryImportBannerViewModel? import) => Notices.TrackHistory(import is null
+        ? Observable.Return((false, LauncherNotices.Kind.Note))
+        : import.WhenAnyValue(x => x.IsVisible, x => x.Running, x => x.NeedsAttention,
+            (visible, running, attention) => (visible, running ? LauncherNotices.Kind.Progress
+                : attention ? LauncherNotices.Kind.Attention : LauncherNotices.Kind.Note)));
+
     /// True while an update the user went on from early is still finishing on this machine.
     public IObservable<bool> UpdateFinishing => _updateFinishing.DistinctUntilChanged();
 

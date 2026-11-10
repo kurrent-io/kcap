@@ -31,7 +31,7 @@ namespace Capacitor.Cli.Recording.Harness.Cursor;
 /// <see cref="CursorAppendOnlyProbe"/>, the pure core <c>CursorVerifyAppendOnlyCommand</c> runs on too.
 /// </summary>
 public sealed class CursorRewriteGuard(ConfigRoot config, string sessionId, TimeProvider time, Action<string>? log = null) {
-    readonly CursorMarkers _markers = new(config, time);
+    readonly CursorMarkers _markers = new(config, time) { FailureLog = log };
 
     public int TrailingBytes { get; init; } = 4096;
 
