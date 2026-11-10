@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using Capacitor.Cli.Core.Auth;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -27,14 +25,10 @@ public class WorkspaceProbeTests {
 
     [Test]
     public async Task A_refused_connection_is_no_answer() {
-        // Reserve the port without listening. Stopping a server releases its port, allowing a
-        // parallel test's server to take it and answer this probe (including with a real 404).
-        using var reserved = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        reserved.ExclusiveAddressUse = true;
-        reserved.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        var url = $"http://127.0.0.1:{((IPEndPoint)reserved.LocalEndPoint!).Port}";
-        using var handler = new SocketsHttpHandler { UseProxy = false };
-        using var client = new HttpClient(handler);
+        using var server = WireMockServer.Start();
+        var       url    = server.Urls[0];
+        server.Stop();
+        using var client = new HttpClient();
 
         await Assert.That(await WorkspaceProbe.AskAsync(client, url, TimeProvider.System)).IsEqualTo(WorkspaceAnswer.NoAnswer);
     }
