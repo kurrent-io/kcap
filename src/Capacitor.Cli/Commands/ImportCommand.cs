@@ -2821,6 +2821,11 @@ class ImportCommand(
         ) {
         if (sessionCwds.Count == 0) return;
 
+        // Some transcripts record a Windows cwd with forward slashes: one spelling per directory, so it is listed and
+        // counted once and its home prefix shortens. The remapper treats both separators alike, so a rule printed
+        // from here still matches the raw cwd.
+        sessionCwds = sessionCwds.ToDictionary(kv => kv.Key, kv => WindowsSpelling(kv.Value), StringComparer.Ordinal);
+
         var uniqueCwds = sessionCwds.Values.Distinct(StringComparer.Ordinal).ToList();
         var missing    = uniqueCwds.Where(c => !Directory.Exists(c)).ToHashSet(StringComparer.Ordinal);
 
@@ -2867,6 +2872,11 @@ class ImportCommand(
 
         display.Line(hint);
     }
+
+    static string WindowsSpelling(string cwd) =>
+        cwd.Length >= 3 && char.IsAsciiLetter(cwd[0]) && cwd[1] == ':' && CwdRemapper.IsSeparator(cwd[2])
+            ? cwd.Replace('/', '\\')
+            : cwd;
 
     /// <summary>
     /// Missing paths sharing a parent directory, under two or more slugs, whose

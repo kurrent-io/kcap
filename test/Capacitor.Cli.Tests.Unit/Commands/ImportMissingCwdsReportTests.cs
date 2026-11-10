@@ -313,6 +313,23 @@ public class ImportMissingCwdsReportTests {
         await Assert.That(output).Contains($"  {plain.PathTo("worktrees", "ai-1")}");
     }
 
+    /// <summary>A transcript can record a Windows cwd with forward slashes; it is the same directory as its
+    /// backslash spelling, so it is listed once, in backslashes, under the shortened home.</summary>
+    [Test]
+    public async Task A_forward_slash_windows_cwd_is_listed_once_with_backslashes() {
+        var sessionCwds = new Dictionary<string, string>(StringComparer.Ordinal) {
+            ["s1"] = "C:/Users/me/gone/a",
+            ["s2"] = @"C:\Users\me\gone\a",
+        };
+
+        var output = Capture(d => ImportCommand.ReportMissingCwds(sessionCwds, cwdRemap: null, d, new UserHome(@"C:\Users\me")));
+        var lines  = output.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+
+        await Assert.That(output).Contains("2 sessions reference 1 path that no longer exists on disk:");
+        await Assert.That(lines.Count(l => l == @"  ~\gone\a")).IsEqualTo(1);
+        await Assert.That(output).DoesNotContain("C:/");
+    }
+
     static string Capture(Action<ImportCommand.ImportDisplay> render) {
         var terminal = new TestImportTerminal();
         render(terminal.Display());
