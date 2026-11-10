@@ -204,6 +204,23 @@ public class LocalControlHelloTests {
         }, recording: true);
     }
 
+    /// <summary>A terminal hook sends its frame only to a daemon saying this, through the same routing switch, so the
+    /// frame must reach its handler: one that didn't would drop the connection and every terminal session would read as
+    /// unanswered.</summary>
+    [Test]
+    public async Task A_recording_daemon_says_it_takes_terminal_sessions_and_answers_their_frame() {
+        await RunAsync("hello-term", async (h, ct) => {
+            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.TerminalCapability);
+
+            var json = JsonSerializer.Serialize(
+                new RecordTerminalSourceDto("session-1", null, "/t.jsonl", "claude", null, false, "nobody", "https://elsewhere.example", "/c", "/c/w", "/h", 4242, "test:claude"),
+                RecordingIpcJsonContext.Default.RecordTerminalSourceDto);
+            var record = await AskAsync(h.SockPath, LocalFrame.RecordTerminalSource(json), ct);
+
+            await Assert.That((record!.Type, record.Text)).IsEqualTo((FrameType.RecordSourceAck, RecordingIpc.Refused));
+        }, recording: true);
+    }
+
     /// <summary>Beside the routing switch or not at all: a capability with no handler would be a stop that never lands.</summary>
     [Test]
     public async Task Every_daemon_answers_a_disable() {
@@ -244,7 +261,10 @@ public class LocalControlHelloTests {
     [Test]
     public async Task A_daemon_with_recording_off_does_not_say_so() {
         await RunAsync("hello-off", async (h, ct) => {
-            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).DoesNotContain(RecordingIpc.Capability);
+            var capabilities = await CapabilitiesAsync(h.SockPath, ct);
+
+            await Assert.That(capabilities).DoesNotContain(RecordingIpc.Capability);
+            await Assert.That(capabilities).DoesNotContain(RecordingIpc.TerminalCapability);
         });
     }
 

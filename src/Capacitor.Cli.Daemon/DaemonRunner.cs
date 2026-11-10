@@ -306,6 +306,9 @@ public static partial class DaemonRunner {
         config.PriorInstanceId = daemonLock.PriorInstanceId;
         StartupPhase(time, "lock acquired");
 
+        // Under the lock, so no other daemon of this name writes or removes it, and the lock's release removes it.
+        DaemonRecordingMarker.Sync(config.Store, config.Name, config.RecordHostedClaude);
+
         // File when detached, console when foreground. After the lock: Windows opens the log file
         // write-exclusive, so a duplicate daemon opening it first would crash instead of refusing above.
         if (logFile is not null) {

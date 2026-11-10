@@ -211,6 +211,38 @@ public class ClaudeHookCommandTests {
             .Contains("approval policy degraded");
     }
 
+    /// <summary>The degraded arm runs late, with little of the session-start budget left before Claude kills the hook. A
+    /// daemon that takes the hand-over and never answers must not spend what the watcher's start needs: on a clock nothing
+    /// moves, any wait on the daemon here would never end.</summary>
+    [Test, ExcludeOn(TUnit.Core.Enums.OS.Windows)] // Unix-domain socket path
+    public async Task A_late_degraded_session_start_starts_its_watcher_without_waiting_on_a_hung_daemon() {
+        using var fx      = new Fixture(Config.Root);
+        using var daemons = new TempDaemonStore();
+        var time     = new FakeTimeProvider();
+        var clock    = new HookClock(time);
+        var profiles = Resolutions.At("http://127.0.0.1:1", Config.Root);
+        var paths    = new WatcherPaths(Tmp.CreateDir("watchers"));
+        var spawner  = new FakeWatcherSpawner();
+        time.Advance(ClaudeHookCommand.SessionStartCeiling - HookBudget.Safety - TimeSpan.FromMilliseconds(300));
+
+        DaemonRecordingMarker.Sync(daemons.Store, "daemon-a", recording: true);
+        await using var daemon = new FakeRecordingDaemon(daemons.Store.SocketPath("daemon-a"), Core.LocalIpc.RecordingIpc.TerminalCapability);
+        var watchers = new WatcherManager(
+            Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, paths, spawner, time,
+            new LocalDaemonRecording(daemons.Store, HostedAgent.Terminal, daemonName: null,
+                new TerminalHandOff("daemon-a", "default", "http://127.0.0.1:1", Config.Root.Directory, paths.Directory, _ => Home.Path, _ => new ProcessIncarnation(4242, "test:claude")), time),
+            HostedAgent.Terminal);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","transcript_path":"/t/{{Sid}}.jsonl","cwd":"/tmp"}""");
+
+        var exit = await new ClaudeHookCommand(Config.Root, profiles, clock, Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, input, () => Task.FromException<AuthAttempt>(new HttpRequestException("auth is down")))
+            .WithinDeadlineAsync("the degraded arm");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(spawner.Keys).IsEquivalentTo([Sid]);
+        await Assert.That(daemon.Received).IsEmpty();
+    }
+
     /// <summary>The degraded arm spools the end without reaching the stamp the posted path applies, and its replay
     /// may land after a resume, so it carries the run identity too.</summary>
     [Test]
@@ -314,6 +346,87 @@ public class ClaudeHookCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+    }
+
+    static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
+
+    /// <summary>The daemon posted the end of this process's run when it exited with no hook in time, so the hook's own
+    /// would be a second one.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_posted_again() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A claim nobody marked posted for longer than any hook takes lost its claimer, so this hook takes it over,
+    /// posts, and marks it posted so nobody posts it after.</summary>
+    [Test]
+    public async Task A_hook_takes_over_a_stale_unposted_claim_and_marks_it_posted() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>The server refusing the end it claimed is as final as taking it, so the daemon does not take the claim over
+    /// to post an end of its own. The claim is stale already, so only a settled record stops that take-over.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_settles_its_claim() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    [Test]
+    public async Task A_session_end_the_server_refused_with_no_claim_leaves_no_record() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.Exists(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude)).IsFalse();
+    }
+
+    /// <summary>A resumed run in another process owes its own end, however soon after the first it comes.</summary>
+    [Test]
+    public async Task An_end_the_daemon_posted_for_another_process_does_not_hold_back_this_one() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, new ProcessIncarnation(4343, "mac:1:2"), DateTimeOffset.UtcNow);
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+    }
+
+    /// <summary>The degraded arm spools the end it would post, and a spooled second end is a second end all the same.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_spooled_on_the_degraded_arm() {
+        using var fx = new Fixture(Config.Root);
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => Claude)
+            .HandleWithDeps(fx.Spool, input, () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.SpoolFiles).IsEmpty();
     }
 
     /// <summary>Session-end is the only eviction the policy directories get, so what it leaves
@@ -2453,6 +2566,9 @@ public class ClaudeHookCommandTests {
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
 
+        /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
+        public ProcessIncarnation? EndingProcess { get; set; }
+
         /// <summary>The environment Claude Code ran the hook in. Empty by default, so the test host's own
         /// <c>CLAUDE_CODE_ENTRYPOINT</c> never reaches the hook.</summary>
         public Func<string, string?> Env { get; set; } = _ => null;
@@ -2510,7 +2626,7 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None) { Env = Env }.HandleCore(
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 
@@ -2518,7 +2634,7 @@ public class ClaudeHookCommandTests {
         /// <param name="clientUnavailable">Client creation fails, which sends the hook down the arm that never reaches HandleCore.</param>
         public Task<int> EnterAsync(string stdin, bool clientUnavailable = false) {
             StubMemoryServer();
-            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None) { Env = Env }
+            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }
                 .HandleWithDeps(Spool, new StringReader(stdin), () => clientUnavailable
                     ? Task.FromException<AuthAttempt>(new HttpRequestException("unreachable"))
                     : Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
