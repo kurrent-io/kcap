@@ -312,7 +312,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.AtCap, initialValue: false).DisposeWith(_disposables);
         _liveNotShownText = (sessions?.LiveNotShown ?? Observable.Return(0))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Select(n => n > 0 ? $"{n} more live sessions · narrow the scope" : null)
+            .Select(n => n > 0 ? $"{n} more live session{(n == 1 ? "" : "s")} · narrow the scope" : null)
             .ToProperty(this, x => x.LiveNotShownText, initialValue: null).DisposeWith(_disposables);
         ShowMoreCommand = ReactiveCommand.CreateFromObservable(
             ShowMore, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);

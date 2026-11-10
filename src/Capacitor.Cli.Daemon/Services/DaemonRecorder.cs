@@ -4,6 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Claude;
@@ -125,7 +126,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 return transport;
             },
             (source, log, stop, beat) => new RecorderHousekeeping(
-                source.Recording, source.SkipTitle, parentPid: null,
+                source.Recording, source.SkipTitle || !TitlesAllowed(config, logger, source.Recording), parentPid: null,
                 new DaemonRecorderHost(config.ConfigRoot, hookCommand, time, stop, (session, vendor, path) => HandOffTitle(config, logger, session, vendor, path), log),
                 config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, beat),
             time, logger);
@@ -754,6 +755,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     static void WarnOfMissingTools(DaemonConfig config, ILogger logger) {
         foreach (var tool in new[] { "git", "gh" })
             if (!config.Binaries.Finds(tool)) LogToolMissing(logger, tool);
+    }
+
+    static bool TitlesAllowed(DaemonConfig config, ILogger logger, RecordingSource source) {
+        if (config.LocalRoot is not { } root || LocalIntelligenceGate.For(config.ConfigRoot, root).Allows(config.ServerUrl)) return true;
+
+        logger.LogInformation("Not generating a title for {SessionId}: {Reason}", source.SessionId, LocalIntelligenceGate.NotSetUp);
+
+        return false;
     }
 
     /// <summary>Finishes a title through the CLI beside this binary: a recorder's process path would name the daemon.</summary>

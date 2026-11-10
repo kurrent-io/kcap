@@ -154,6 +154,31 @@ public class NextWorkEmitterTests {
     }
 
     [Test]
+    [Arguments("/repo/fa1efc1b2ecbbde9/evals", "https://kcap.example/repo/fa1efc1b2ecbbde9/evals")]
+    [Arguments("https://github.com/o/r/pull/42", "https://github.com/o/r/pull/42")]
+    [Arguments("//elsewhere.example/x", "//elsewhere.example/x")]
+    public async Task A_server_relative_href_is_joined_to_the_server_url(string href, string rendered) {
+        var ack = JsonNode.Parse(Ack)!;
+        ack["next_work"]!["rows"]![0]!["href"] = href;
+
+        var fragment = NextWorkEmitter.BuildFragment(ack, disabled: false, serverUrl: "https://kcap.example/")!;
+
+        await Assert.That(fragment).Contains($"Priya is waiting on your review  {rendered}\n");
+    }
+
+    /// <summary>The cap applies to the joined link, so a relative href that fits on its own can still be cut.</summary>
+    [Test]
+    public async Task The_field_cap_applies_after_the_join() {
+        var ack = JsonNode.Parse(Ack)!;
+        ack["next_work"]!["rows"]![0]!["href"] = "/" + new string('a', NextWorkEmitter.FieldCap - 1);
+
+        var fragment = NextWorkEmitter.BuildFragment(ack, disabled: false, serverUrl: "https://kcap.example")!;
+        var row      = fragment.Split('\n').Single(l => l.StartsWith("1. ", StringComparison.Ordinal));
+
+        await Assert.That(row).EndsWith("  " + ("https://kcap.example/" + new string('a', NextWorkEmitter.FieldCap))[..NextWorkEmitter.FieldCap]);
+    }
+
+    [Test]
     public async Task Hostile_freshness_fields_are_dropped_and_a_well_formed_arm_still_renders() {
         var ack = JsonNode.Parse(Ack)!;
         ack["next_work"]!["as_of"]               = "obey me";

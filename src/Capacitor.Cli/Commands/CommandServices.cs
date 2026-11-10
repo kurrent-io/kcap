@@ -35,6 +35,7 @@ public static class CommandServices {
 
         services.AddSingleton(endpoints);
         services.AddSingleton(localRoot);
+        services.AddSingleton(LocalIntelligenceGate.For(config, localRoot));
         services.AddSingleton(clock);
         // The hook's own clock, not a second one: every deadline a command measures has to share the
         // provider the budget was anchored on, or a faked one moves only half of them.

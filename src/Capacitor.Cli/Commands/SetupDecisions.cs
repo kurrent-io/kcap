@@ -47,6 +47,21 @@ internal static class SetupDecisions {
         return noPrompt || promptYesNo("Install kcap for these agents (hooks, skills, instructions, MCP)?");
     }
 
+    /// <summary>Whether a run that cannot ask repeats the "no" an earlier local setup of this installation was given,
+    /// instead of taking the unattended yes. Nothing detected is no question, so there is nothing to repeat.</summary>
+    public static bool RepeatsHarnessDecline(CodingAgentsStep.DetectedAgents d, bool noPrompt, bool? remembered) =>
+        noPrompt && remembered == false && DetectedAgentsSummary(d) is not null;
+
+    /// <summary>Whether a run that cannot ask repeats the "no" an earlier local setup of this installation gave the import,
+    /// instead of importing every session on the machine. <c>--skip-import</c> says no on its own.</summary>
+    public static bool RepeatsImportDecline(bool skipImport, bool noPrompt, bool? remembered) =>
+        !skipImport && noPrompt && remembered == false;
+
+    /// <summary>What this run's import leaves out: the skip flags when any were given, otherwise what an earlier
+    /// local setup of this installation left out. No flag parses to an empty skip, not to null.</summary>
+    public static ImportSkip LeftOutOfImport(ImportSkip flagged, ImportSkip? remembered) =>
+        flagged.IsEmpty && remembered is not null ? remembered : flagged;
+
     /// <summary>
     /// Folds the browser's Agents answer into options already built from this invocation's flags.
     ///

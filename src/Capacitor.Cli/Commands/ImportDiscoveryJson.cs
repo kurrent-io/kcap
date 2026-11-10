@@ -101,8 +101,12 @@ public static class ImportDiscoveryRender {
         foreach (var f in named.Take(ListedFolders))
             yield return $"    {f.Folder}  ({f.Sessions} session{(f.Sessions == 1 ? "" : "s")})";
 
-        if (named.Count > ListedFolders)
-            yield return $"    ... and {named.Count - ListedFolders} more folders ({named.Skip(ListedFolders).Sum(f => f.Sessions)} sessions)";
+        if (named.Count > ListedFolders) {
+            var more         = named.Count - ListedFolders;
+            var moreSessions = named.Skip(ListedFolders).Sum(f => f.Sessions);
+
+            yield return $"    ... and {more} more folder{(more == 1 ? "" : "s")} ({moreSessions} session{(moreSessions == 1 ? "" : "s")})";
+        }
 
         if (folders.FirstOrDefault(f => f.Folder is null) is { } unknown)
             yield return $"    no folder recorded  ({unknown.Sessions} session{(unknown.Sessions == 1 ? "" : "s")})";
