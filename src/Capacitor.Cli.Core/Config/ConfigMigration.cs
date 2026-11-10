@@ -113,7 +113,7 @@ public static class ConfigMigration {
         Remotes           = profile.Remotes ?? [],
         Daemon = profile.Daemon is null
             ? null
-            : profile.Daemon with { MaxAgents = Scalar(raw?["daemon"] as JsonObject, "max_agents", 5) }
+            : profile.Daemon with { MaxAgents = Scalar(raw?["daemon"] as JsonObject, "max_agents", 20) }
     };
 
     /// <summary>

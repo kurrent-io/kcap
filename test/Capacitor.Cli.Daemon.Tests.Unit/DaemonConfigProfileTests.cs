@@ -36,9 +36,9 @@ public class DaemonConfigProfileTests {
     /// A profile value equal to the default must still be the profile's value, not "unset".
     [Test]
     public async Task MaxAgents_FromProfile_Applies_when_it_equals_the_default() {
-        var config = ApplyProfileSettings(new DaemonConfig { MaxConcurrentAgents = 8 }, new DaemonSettings { MaxAgents = 5 });
+        var config = ApplyProfileSettings(new DaemonConfig { MaxConcurrentAgents = 8 }, new DaemonSettings { MaxAgents = 20 });
 
-        await Assert.That(config.MaxConcurrentAgents).IsEqualTo(5);
+        await Assert.That(config.MaxConcurrentAgents).IsEqualTo(20);
     }
 
     [Test]
@@ -52,7 +52,7 @@ public class DaemonConfigProfileTests {
     public async Task MaxAgents_NullProfile_KeepsDefault() {
         var config = ApplyProfileSettings(new DaemonConfig(), profileDaemon: null);
 
-        await Assert.That(config.MaxConcurrentAgents).IsEqualTo(5);
+        await Assert.That(config.MaxConcurrentAgents).IsEqualTo(20);
     }
 
     // ── claude_path from profile ─────────────────────────────────────────────

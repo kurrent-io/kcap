@@ -32,7 +32,7 @@ public record DaemonSettings {
     public string? Name { get; init; }
 
     [JsonPropertyName("max_agents")]
-    public int MaxAgents { get; init; } = 5;
+    public int MaxAgents { get; init; } = 20;
 
     [JsonPropertyName("claude_path")]
     public string? ClaudePath { get; init; }
