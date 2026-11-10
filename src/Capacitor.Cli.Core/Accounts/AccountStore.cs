@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.Harness;
@@ -31,12 +32,18 @@ public sealed class AccountStore {
     /// <summary>Not re-entrant: never call <see cref="HostId"/>, <see cref="Mutate{T}"/> or <see cref="MutateWithReadings{T}"/> while holding it.</summary>
     public IDisposable Lock() => ConfigFileLock.Acquire(LockPath);
 
+    /// <summary>How long a missing registry is looked for again while a save is replacing it. On Windows the
+    /// name can be absent for a moment inside the rename, and a lock-free reader that took that for "no
+    /// accounts" would send its caller to the default layout. A rename takes well under a millisecond.</summary>
+    internal TimeSpan ReplaceWait { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    static readonly TimeSpan ReplacePoll = TimeSpan.FromMilliseconds(5);
+
     public AccountRegistry Load() {
-        if (!File.Exists(RegistryPath)) return new AccountRegistry();
+        if (ReadRegistry() is not { } text) return new AccountRegistry();
         AccountRegistry registry;
-        // Producers read without accounts.lock; a reader denying writers would fail a concurrent save's rename on Windows.
         try {
-            registry = JsonSerializer.Deserialize(File.ReadAllTextShared(RegistryPath), AccountRegistryJsonContext.Default.AccountRegistry)
+            registry = JsonSerializer.Deserialize(text, AccountRegistryJsonContext.Default.AccountRegistry)
                 ?? throw new InvalidDataException($"{RegistryPath} is empty.");
         } catch (JsonException ex) {
             throw new InvalidDataException($"{RegistryPath} is not a valid account registry.", ex);
@@ -44,6 +51,44 @@ public sealed class AccountStore {
 
         var accounts = (registry.Accounts ?? []).Where(Usable).ToList();
         return accounts.Count == registry.Accounts?.Count ? registry : registry with { Accounts = accounts };
+    }
+
+    /// <summary>Null when there is no registry. Takes no lock: <see cref="MutateHeld{T}"/> reads through here
+    /// under <c>accounts.lock</c>, which is not re-entrant.</summary>
+    string? ReadRegistry() {
+        var started = Stopwatch.GetTimestamp();
+
+        while (true) {
+            if (TryReadRegistry() is { } text) return text;
+
+            // Sampled between two reads, so a rename that finishes in between is still read.
+            var replacing = ReplaceInFlight();
+            if (TryReadRegistry() is { } after) return after;
+            if (!replacing || Stopwatch.GetElapsedTime(started) >= ReplaceWait) return null;
+
+            Thread.Sleep(ReplacePoll);
+        }
+    }
+
+    // Producers read without accounts.lock; a reader denying writers would fail a concurrent save's rename on Windows.
+    string? TryReadRegistry() {
+        try {
+            return File.Exists(RegistryPath) ? File.ReadAllTextShared(RegistryPath) : null;
+        } catch (FileNotFoundException) {
+            return null;
+        }
+    }
+
+    /// <summary>A save's temporary beside the missing registry. <c>accounts.lock</c> names a mutex, not a file,
+    /// so the temporary is the only trace a save leaves on disk.</summary>
+    bool ReplaceInFlight() {
+        if (!System.IO.Directory.Exists(Directory)) return false;
+
+        try {
+            return System.IO.Directory.EnumerateFiles(Directory, Path.GetFileName(RegistryPath) + ".*.tmp").Any();
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return false;
+        }
     }
 
     // A hand edit can leave an entry no path lookup can use; dropping it keeps every hook working.

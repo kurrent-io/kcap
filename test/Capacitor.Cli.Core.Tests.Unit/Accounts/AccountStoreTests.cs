@@ -19,6 +19,47 @@ public class AccountStoreTests {
         await Assert.That(registry.Revision).IsEqualTo(0L);
     }
 
+    /// <summary>A save in flight on Windows can leave the name missing for a moment, with its temporary
+    /// beside it. A lock-free read in that gap must wait for the rename, not report no accounts.</summary>
+    [Test]
+    public async Task Load_during_a_replace_waits_for_the_registry_to_reappear() {
+        var store = new AccountStore(Tmp.PathTo("accounts")) { ReplaceWait = TimeSpan.FromSeconds(10) };
+        store.Mutate(r => (r with { Accounts = [Claude("/h/.claude-work")] }, 0));
+        var temporary = store.RegistryPath + ".0123456789abcdef.tmp";
+        File.Move(store.RegistryPath, temporary);
+
+        var renamed = Task.Run(async () => {
+            await Task.Delay(TimeSpan.FromMilliseconds(30));
+            File.Move(temporary, store.RegistryPath);
+        });
+        var loaded = store.Load();
+        await renamed;
+
+        await Assert.That(loaded.Accounts.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A store with no registry and no save in flight is the common machine, and pays no wait.</summary>
+    [Test]
+    public async Task Load_with_no_save_in_flight_does_not_wait() {
+        var store = new AccountStore(Tmp.PathTo("accounts")) { ReplaceWait = TimeSpan.FromSeconds(10) };
+        store.HostId();
+        var started = TimeProvider.System.GetTimestamp();
+
+        var registry = store.Load();
+
+        await Assert.That(registry.Accounts.Count).IsEqualTo(0);
+        await Assert.That(TimeProvider.System.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Load_gives_up_on_a_replace_that_never_finishes() {
+        var store = new AccountStore(Tmp.PathTo("accounts")) { ReplaceWait = TimeSpan.FromMilliseconds(50) };
+        store.Mutate(r => (r with { Accounts = [Claude("/h/.claude-work")] }, 0));
+        File.Move(store.RegistryPath, store.RegistryPath + ".0123456789abcdef.tmp");
+
+        await Assert.That(store.Load().Accounts.Count).IsEqualTo(0);
+    }
+
     [Test]
     public async Task Mutate_persists_and_increments_the_revision() {
         var store = Store();
