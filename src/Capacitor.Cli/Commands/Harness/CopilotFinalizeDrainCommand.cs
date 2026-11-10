@@ -2,6 +2,8 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording.Harness.Copilot;
+using Capacitor.Cli.Workspace;
+using System.Runtime.InteropServices;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -11,11 +13,9 @@ namespace Capacitor.Cli.Commands.Harness;
 /// </summary>
 /// <remarks>
 /// Copilot appends <c>session.shutdown</c>, the per-model input/cache token aggregate, and occasionally
-/// the final assistant turn, to <c>events.jsonl</c> only after the <c>sessionEnd</c> hook starts. On quit
-/// its runtime stops about 2 seconds after that, killing the hook, so the hook's own session-end POST
-/// (which follows a capped drain) can never be relied on. This process survives that kill. The server
-/// watermark and deterministic ids make its drain idempotent, and its end is the hook's own body, which
-/// the server records once whichever arrives first.
+/// the final assistant turn, to <c>events.jsonl</c> only after the <c>sessionEnd</c> hook starts, and on
+/// quit kills the hook soon after. This process survives that kill and carries the hook's end. The server
+/// watermark and deterministic ids make its drain idempotent.
 /// </remarks>
 sealed class CopilotFinalizeDrainCommand(
         ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, WatcherManager watchers, TimeProvider time) {
@@ -50,9 +50,20 @@ sealed class CopilotFinalizeDrainCommand(
         // after the session ends does not deliver SIGHUP before the tail lands.
         ProcessHelpers.DetachFromControllingTerminal();
 
+        // Quitting VS Code terminates the processes it started about a second in, before Copilot has
+        // written session.shutdown. The default action would drop the end this process carries, and its
+        // lifetime is already bounded by the poll budget.
+        using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Ignore);
+        using var sighup  = PosixSignalRegistration.Create(PosixSignal.SIGHUP, Ignore);
+
         await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval, DefaultWatcherStopGrace);
 
         return 0;
+    }
+
+    void Ignore(PosixSignalContext context) {
+        context.Cancel = true;
+        Log($"{context.Signal} ignored; the end still has to be delivered");
     }
 
     /// <summary>
@@ -101,8 +112,8 @@ sealed class CopilotFinalizeDrainCommand(
     }
 
     async Task EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace) {
-        // The hook stops the watcher when it starts this process, and a watcher stopped that way sends no end,
-        // so it gets time to go. One still running after that is a resumed run this end would close, or one
+        // The hook asks the watcher to stop when it starts this process, and a watcher stopped that way sends
+        // no end, so it gets time to go. One still running after that is a resumed run this end would close, or one
         // the hook died before stopping, whose parent-exit path sends the end itself.
         var deadline = time.GetUtcNow() + watcherStopGrace;
 
@@ -134,6 +145,10 @@ sealed class CopilotFinalizeDrainCommand(
                 .PostOrSpoolAsync(route, endBody, "copilot-finalize", spool, sessionId, route);
 
         Log($"session end for {sessionId}: {outcome}");
+
+        // Only after an end the server took: a span must never outlive a lost end.
+        if (outcome == HookPostOutcome.Posted)
+            await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
     }
 
     /// <summary>

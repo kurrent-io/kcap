@@ -83,6 +83,25 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
     }
 
+    /// <summary>A Copilot hook that handed its end to the finalizer leaves the span to it as well.</summary>
+    [Test]
+    public async Task The_Copilot_finalizer_closes_the_span_after_the_end_it_posts() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("events.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+        var end        = new JsonObject { ["session_id"] = Session.Replace("-", ""), ["reason"] = "user_exit" }.ToJsonString();
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync(Session.Replace("-", ""), transcript, end, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        var posts = PostedPaths();
+        await Assert.That(posts).Contains("/hooks/workspace-changes");
+        await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
     [Test]
     public async Task Pi_posts_the_session_end_before_the_span_is_closed() {
         using var sessions = new TempDir("pi-sessions");

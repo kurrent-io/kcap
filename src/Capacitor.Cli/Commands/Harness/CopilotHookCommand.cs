@@ -377,13 +377,15 @@ sealed class CopilotHookCommand(
 
         var end = forwarded.ToJsonString();
 
-        // Copilot writes session.shutdown only after this hook, and on quit stops within seconds of
-        // starting it, killing the hook. The detached finalizer survives that, so it starts first and
-        // carries the end: the server derives its event id from the reason and ended_at, so the two
-        // POSTs of this one body record one SessionEnded.
+        // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
+        // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started
+        // finalizer carries the end and the hook returns at once; the finalizer waits for the watcher to go.
         // VS Code's Local harness writes no shutdown line, so nothing would end that wait.
-        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
-            watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end);
+        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)
+         && watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end)) {
+            watchers.RequestWatcherStop(sessionId);
+
+            return 0;
         }
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes

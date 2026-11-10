@@ -378,6 +378,25 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
+    /// Asks the watcher for <paramref name="key"/> to stop and returns without waiting for it to go, for a caller
+    /// that hands the wait to someone else. Signals nothing a claim or a recycled pid would make wrong.
+    /// </summary>
+    public void RequestWatcherStop(string key) {
+        if (_claims.Read(key) is not RecorderClaimState.None) return;
+
+        try {
+            var lines = File.ReadAllLines(paths.PidFile(key));
+
+            if (lines.Length == 0 || !int.TryParse(lines[0].Trim(), out var pid)) return;
+            if (lines.Length > 1 && lines[1].Trim() is { Length: > 0 } token && ProcessStartToken.Matches(pid, token) == false) return;
+
+            if (!TrySignalTerm(pid)) WatcherStopSignal.TryRequest(pid);
+        } catch {
+            // No pid file, or one that cannot be read: there is no watcher to ask.
+        }
+    }
+
+    /// <summary>
     /// Stops every watcher in <paramref name="keys"/> concurrently (#550, a session watcher's
     /// teardown of its spawned children). <see cref="KillWatcher"/>'s SIGTERM-first gives each
     /// child its final drain; its 5s force-kill bound keeps a wedged child from stalling the caller.
@@ -639,16 +658,15 @@ public sealed partial class WatcherManager(
     /// <summary>
     /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that delivers the transcript
     /// tail Copilot writes after its sessionEnd hook, then <paramref name="endBody"/>. Being detached it
-    /// survives Copilot killing the hook. Fire-and-forget and idempotent; mirrors
-    /// <see cref="SpawnWhatsDoneGenerator"/>.
+    /// survives Copilot killing the hook. False when it did not start.
     /// </summary>
-    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
+    public bool SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
         // A detached child that would poll for up to 45s and then exit 2 on an unusable URL, leaving
         // no marker any assertion could observe. Refuse to launch it at all.
         if (!HookHttp.IsPostable(Url)) {
             Console.Error.WriteLine(
                 UnusableUrlDiagnostic.Build(profiles.Resolution.Source, Url, $"copilot finalize drain not started for {sessionId}"));
-            return;
+            return false;
         }
 
         try {
@@ -676,12 +694,16 @@ public sealed partial class WatcherManager(
             if (starter.StartDetached(psi) is not { } pid) {
                 Console.Error.WriteLine($"Failed to spawn copilot finalize drain for {sessionId}");
 
-                return;
+                return false;
             }
 
             Console.Error.WriteLine($"Spawned copilot finalize drain for {sessionId} (PID {pid})");
+
+            return true;
         } catch (Exception ex) {
             Console.Error.WriteLine($"Failed to spawn copilot finalize drain for {sessionId}: {ex.Message}");
+
+            return false;
         }
     }
 
