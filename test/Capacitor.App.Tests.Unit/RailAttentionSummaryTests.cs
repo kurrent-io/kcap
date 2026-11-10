@@ -30,7 +30,7 @@ public class RailAttentionSummaryTests {
     public async Task A_large_count_stays_compact_while_the_text_retains_the_exact_count() {
         var summary = RailAttentionSummary.Create(105, 0, null, null, null);
 
-        await Assert.That(summary.CountText).IsEqualTo("99+");
+        await Assert.That(summary.CountText).IsEqualTo("9+");
         await Assert.That(summary.Text).IsEqualTo("105 sessions need you");
     }
 }

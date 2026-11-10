@@ -205,6 +205,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
+        // The negative right margin keeps a wide count from widening the toggle's slot and moving Back.
+        var iconInset = (RailClearance.ButtonSize - 16) / 2;
+        RailAttentionMark.Margin = new Thickness(iconInset + 8, iconInset - 4, -24, 0);
         SessionsSurface.SizeChanged += (_, _) => LimitRail();
         Panes.Changed += (_, _) => {
             ApplyRail();

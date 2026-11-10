@@ -7,7 +7,7 @@ public sealed record RailAttentionSummary(int SessionCount, string Text, string 
 
     public bool HasAttention => Text.Length > 0;
     public bool HasSessionCount => SessionCount > 0;
-    public string CountText => SessionCount > 99 ? "99+" : SessionCount.ToString(CultureInfo.InvariantCulture);
+    public string CountText => SessionCount > 9 ? "9+" : SessionCount.ToString(CultureInfo.InvariantCulture);
 
     public static RailAttentionSummary Create(int sessions, int failed, RailAlert? alert, string? backgroundPriority, string? reloadFailure) {
         var parts = new List<string>();

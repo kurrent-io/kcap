@@ -113,22 +113,32 @@
                      pads clear of them through RailClearance. -->
                 <StackPanel x:Name="WindowControls" Orientation="Horizontal"
                             HorizontalAlignment="Left" VerticalAlignment="Top">
-                    <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon" Click="OnRailToggleClick">
-                        <Panel Width="16" Height="16">
+                    <Panel>
+                        <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon" Click="OnRailToggleClick">
                             <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                            <Panel x:Name="RailAttentionMark" IsVisible="False" IsHitTestVisible="False">
-                                <Border Width="6" Height="6" CornerRadius="3" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                        Margin="0,0,-2,-2" Background="{Binding RailAttentionBrush}"
-                                        IsVisible="{Binding !RailAttention.HasSessionCount}" />
-                                <Border MinWidth="12" Height="12" CornerRadius="6" Padding="2,0" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                        Margin="0,0,-4,-4" Background="{Binding RailAttentionBrush}"
-                                        IsVisible="{Binding RailAttention.HasSessionCount}">
-                                    <TextBlock Text="{Binding RailAttention.CountText}" FontSize="9" FontWeight="SemiBold"
-                                               Foreground="{StaticResource KcapOnPrimaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Button>
+                        <!-- Beside the button, not inside it: the button clips its content. The count is
+                             pinned by its left edge just past the icon's chevron, so a wider one grows into
+                             the gap before Back rather than across the icon. The canvas ring cuts the mark
+                             out of the icon's strokes. -->
+                        <Panel x:Name="RailAttentionMark" IsVisible="False" IsHitTestVisible="False"
+                               HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <Ellipse Width="10" Height="10" Margin="1,1,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                     Fill="{Binding RailAttentionBrush}"
+                                     Stroke="{StaticResource KcapCanvasBrush}" StrokeThickness="2"
+                                     IsVisible="{Binding !RailAttention.HasSessionCount}" />
+                            <Border CornerRadius="7" Padding="1.5" Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Background="{StaticResource KcapCanvasBrush}"
+                                    IsVisible="{Binding RailAttention.HasSessionCount}">
+                                <Border MinWidth="11" Height="11" CornerRadius="5.5" Padding="2.5,0"
+                                        Background="{Binding RailAttentionBrush}">
+                                    <TextBlock Text="{Binding RailAttention.CountText}" FontSize="9" FontWeight="Bold" LineHeight="11"
+                                               Foreground="{StaticResource KcapOnPrimaryBrush}"
+                                               VerticalAlignment="Center" HorizontalAlignment="Center" />
                                 </Border>
-                            </Panel>
+                            </Border>
                         </Panel>
-                    </Button>
+                    </Panel>
                     <Button x:Name="BackButton" Classes="kcapGhost kcapIcon" Command="{Binding GoBackCommand}"
                             ToolTip.Tip="{x:Static views:ShortcutLabels.BackTip}" AutomationProperties.Name="Back">
                         <views:AppIcon Kind="ArrowLeft" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
