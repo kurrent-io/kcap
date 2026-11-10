@@ -13,7 +13,7 @@ public class LocalBundleClientTests {
         var urls = new List<string>();
         var client = Client(r => { urls.Add(r.RequestUri!.ToString()); return Reply(HttpStatusCode.OK, "x"u8.ToArray()); });
 
-        await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
+        await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None);
 
         await Assert.That(urls).IsEquivalentTo([
             "https://www.kurrent.io/download/local/osx-arm64/kcap-local-1.3.0-osx-arm64.json",
@@ -24,7 +24,7 @@ public class LocalBundleClientTests {
     [Test]
     public async Task A_missing_manifest_names_the_overrides_off_windows() {
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.NotFound), windows: false).FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: false).FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
         await Assert.That(e.Message).Contains("KCAP_LOCAL_BUNDLE_VERSION");
@@ -37,7 +37,7 @@ public class LocalBundleClientTests {
         using var noVersion = EnvScope.Exclusive(LocalBundleClient.VersionEnvVar, null);
 
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
         await Assert.That(e.Message).IsEqualTo("No local edition is published for kcap 1.3.0 on Windows yet.");
@@ -52,7 +52,7 @@ public class LocalBundleClientTests {
         using var set   = EnvScope.Exclusive(variable, value);
 
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.NotFound), windows: true).FetchManifestAsync("1.3.0", "win-x64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.BundleNotPublished);
         await Assert.That(e.Message).Contains("KCAP_LOCAL_BUNDLE_VERSION");
@@ -66,7 +66,7 @@ public class LocalBundleClientTests {
             : Reply(HttpStatusCode.OK, "x"u8.ToArray()));
 
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+            await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.DownloadFailed);
     }
@@ -74,7 +74,7 @@ public class LocalBundleClientTests {
     [Test]
     public async Task A_server_error_is_a_download_failure() {
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.InternalServerError)).FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.InternalServerError)).FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.DownloadFailed);
     }
@@ -84,7 +84,7 @@ public class LocalBundleClientTests {
         var client = new LocalBundleClient(new(new Handler(_ => throw new HttpRequestException("down"))), TimeProvider.System);
 
         var e = await Assert.ThrowsAsync<LocalBundleException>(async () =>
-            await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+            await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None));
 
         await Assert.That(e!.Code).IsEqualTo(LocalInstallFailureCode.DownloadFailed);
     }
@@ -95,7 +95,7 @@ public class LocalBundleClientTests {
         await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.OK, "x"u8.ToArray())).FetchManifestAsync("1.3.0", "osx-arm64", cts.Token));
+            await Client(_ => Reply(HttpStatusCode.OK, "x"u8.ToArray())).FetchManifestAsync("1.3.0", "osx-arm64", Keep, cts.Token));
     }
 
     [Test]
@@ -104,7 +104,7 @@ public class LocalBundleClientTests {
     [Arguments("1.3.0", "OSX")]
     public async Task Unsafe_url_parts_are_refused(string version, string rid) {
         await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await Client(_ => Reply(HttpStatusCode.OK)).FetchManifestAsync(version, rid, CancellationToken.None));
+            await Client(_ => Reply(HttpStatusCode.OK)).FetchManifestAsync(version, rid, Keep, CancellationToken.None));
     }
 
     /// <summary>Setup looks the manifest up for its model offer and again to stage the bundle; one client asks once.</summary>
@@ -113,9 +113,9 @@ public class LocalBundleClientTests {
         var requests = new List<string>();
         var client = Client(r => { requests.Add(r.RequestUri!.AbsolutePath); return Reply(HttpStatusCode.OK, "x"u8.ToArray()); });
 
-        var first  = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
-        var second = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
-        await client.FetchManifestAsync("1.4.0", "osx-arm64", CancellationToken.None);
+        var first  = await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None);
+        var second = await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None);
+        await client.FetchManifestAsync("1.4.0", "osx-arm64", Keep, CancellationToken.None);
 
         await Assert.That(second.Manifest).IsEquivalentTo(first.Manifest);
         await Assert.That(second.Signature).IsEqualTo(first.Signature);
@@ -127,11 +127,37 @@ public class LocalBundleClientTests {
         var calls = 0;
         var client = Client(_ => ++calls <= 1 ? Reply(HttpStatusCode.InternalServerError) : Reply(HttpStatusCode.OK, "x"u8.ToArray()));
 
-        await Assert.ThrowsAsync<LocalBundleException>(async () => await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
-        var (manifest, _) = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
+        await Assert.ThrowsAsync<LocalBundleException>(async () => await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None));
+        var (manifest, _) = await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None);
 
         await Assert.That(manifest).IsEquivalentTo("x"u8.ToArray());
         await Assert.That(calls).IsEqualTo(3);
+    }
+
+    /// <summary>A proxy page answering 200, or a pair fetched mid-publish, must not answer the retry that would see the fix.</summary>
+    [Test]
+    public async Task A_pair_the_verifier_refuses_is_asked_for_again() {
+        var calls = 0;
+        var client = Client(_ => Reply(HttpStatusCode.OK, ++calls <= 2 ? "bad"u8.ToArray() : "good"u8.ToArray()));
+
+        static (byte[] Manifest, string Signature) Verify(byte[] manifest, string signature) =>
+            signature == "good" ? (manifest, signature) : throw new LocalBundleException(LocalInstallFailureCode.VerificationFailed, "refused");
+
+        await Assert.ThrowsAsync<LocalBundleException>(async () => await client.FetchManifestAsync("1.3.0", "osx-arm64", Verify, CancellationToken.None));
+        var (manifest, _) = await client.FetchManifestAsync("1.3.0", "osx-arm64", Verify, CancellationToken.None);
+        await client.FetchManifestAsync("1.3.0", "osx-arm64", Verify, CancellationToken.None);
+
+        await Assert.That(manifest).IsEquivalentTo("good"u8.ToArray());
+        await Assert.That(calls).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task A_kept_pair_is_verified_again_on_each_call() {
+        var client = Client(_ => Reply(HttpStatusCode.OK, "x"u8.ToArray()));
+        await client.FetchManifestAsync("1.3.0", "osx-arm64", Keep, CancellationToken.None);
+
+        await Assert.ThrowsAsync<LocalBundleException>(async () => await client.FetchManifestAsync<int>("1.3.0", "osx-arm64",
+            (_, _) => throw new LocalBundleException(LocalInstallFailureCode.VerificationFailed, "refused"), CancellationToken.None));
     }
 
     [Test, NotInParallel]
@@ -140,7 +166,7 @@ public class LocalBundleClientTests {
         var url = "";
         var client = Client(r => { url = r.RequestUri!.ToString(); return Reply(HttpStatusCode.OK, "x"u8.ToArray()); });
 
-        await client.FetchManifestAsync("1.3.0", "linux-x64", CancellationToken.None);
+        await client.FetchManifestAsync("1.3.0", "linux-x64", Keep, CancellationToken.None);
 
         await Assert.That(url).StartsWith("https://mirror.test/x/linux-x64/kcap-local-1.3.0-linux-x64.json");
     }
@@ -273,6 +299,8 @@ public class LocalBundleClientTests {
     static LocalBundleManifest ManifestFor(byte[] body) =>
         new("1.3.0", "osx-arm64", "kcap-local-1.3.0-osx-arm64.tar.gz",
             Convert.ToHexStringLower(SHA256.HashData(body)), body.Length, new string('c', 64));
+
+    static (byte[] Manifest, string Signature) Keep(byte[] manifest, string signature) => (manifest, signature);
 
     static LocalBundleClient Client(Func<HttpRequestMessage, HttpResponseMessage> respond, bool? windows = null) =>
         new(new(new Handler(respond)), TimeProvider.System) { Windows = windows ?? OperatingSystem.IsWindows() };

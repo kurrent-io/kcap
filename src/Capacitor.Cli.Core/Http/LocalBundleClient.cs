@@ -36,22 +36,24 @@ public sealed partial class LocalBundleClient(HttpClient http, TimeProvider time
 
     readonly ConcurrentDictionary<(string Version, string Rid), (byte[] Manifest, string Signature)> _manifests = new();
 
-    /// <summary>A fetched manifest is kept for this client's lifetime, so setup's offer lookup and its staging make one
-    /// request; a failure is not kept. The bytes are shared, so callers verify them and never write to them.</summary>
-    public async Task<(byte[] Manifest, string Signature)> FetchManifestAsync(string version, string rid, CancellationToken ct) {
+    /// <summary>A manifest is kept for this client's lifetime once <paramref name="verify"/> accepts it, so setup's offer
+    /// lookup and its staging make one request; a pair it refuses is not kept, or a proxy page or a pair caught mid-publish
+    /// would answer every retry. A kept pair is verified again on each call. The bytes are shared: never write to them.</summary>
+    /// <param name="verify">Throws <see cref="LocalBundleException"/> for a pair that must not be used.</param>
+    public async Task<T> FetchManifestAsync<T>(string version, string rid, Func<byte[], string, T> verify, CancellationToken ct) {
         if (!ReleaseManifest.IsValidVersion(version)) throw new ArgumentException("Not a release version.", nameof(version));
         if (!RidPattern().IsMatch(rid)) throw new ArgumentException("Not a runtime identifier.", nameof(rid));
 
-        if (_manifests.TryGetValue((version, rid), out var kept)) return kept;
+        if (_manifests.TryGetValue((version, rid), out var kept)) return verify(kept.Manifest, kept.Signature);
 
         var url = $"{BaseUrl}/{rid}/kcap-local-{version}-{rid}.json";
 
-        var manifest = await GetBytesAsync(url, notFound: NotPublished(url, version), ct, MaxManifestSize);
-        var sig      = await GetBytesAsync(url + ".sig", notFound: null, ct, MaxManifestSize);
+        var manifest  = await GetBytesAsync(url, notFound: NotPublished(url, version), ct, MaxManifestSize);
+        var signature = System.Text.Encoding.UTF8.GetString(await GetBytesAsync(url + ".sig", notFound: null, ct, MaxManifestSize));
 
-        var fetched = (manifest, System.Text.Encoding.UTF8.GetString(sig));
-        _manifests[(version, rid)] = fetched;
-        return fetched;
+        var verified = verify(manifest, signature);
+        _manifests[(version, rid)] = (manifest, signature);
+        return verified;
     }
 
     string NotPublished(string url, string version) =>
