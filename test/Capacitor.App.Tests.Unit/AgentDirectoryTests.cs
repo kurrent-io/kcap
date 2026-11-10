@@ -495,13 +495,32 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("local:a1").Value.LastActivityAt).IsEqualTo(new DateTime(2026, 10, 24, 9, 30, 0, DateTimeKind.Utc));
     }
 
-    /// A daemon reconnect re-registers every agent, so the registry's time is not when the session was created.
+    /// The registry's session start holds even when no listing names the session, as for a resumed agent the
+    /// server still lists as ended.
+    [Test]
+    public async Task An_unlisted_remote_row_takes_the_registrys_session_start() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        sessions.ViewerIdsSubject.OnNext(new HashSet<string>(StringComparer.Ordinal) { "me" });
+        remote.Cache.AddOrUpdate(Remote("r1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RegisteredAt = new DateTime(2026, 11, 10, 9, 46, 0, DateTimeKind.Utc),
+            SessionStartedAt = new DateTimeOffset(2026, 11, 4, 16, 52, 0, TimeSpan.Zero),
+        });
+
+        await Assert.That(dir.Rows.Lookup("remote:r1").Value.CreatedAt).IsEqualTo(new DateTime(2026, 11, 4, 16, 52, 0, DateTimeKind.Utc));
+    }
+
+    /// A server that sends no session start: a daemon reconnect re-registers every agent, so the registry's
+    /// time is not when the session was created, and the listing's start stands in.
     [Test]
     public async Task A_remote_row_takes_its_listings_start_time() {
         var (_, remote, sessions, _, dir) = BuildWithSessions();
         using var _d = dir;
         using var _s = sessions;
-        remote.Cache.AddOrUpdate(Remote("r1", daemon: "elsewhere", owner: "me", sessionId: "S"));
+        remote.Cache.AddOrUpdate(Remote("r1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RegisteredAt = new DateTime(2026, 11, 10, 9, 46, 0, DateTimeKind.Utc),
+        });
         var row = Listed("S", "active") with { StartedAt = new DateTimeOffset(2026, 10, 20, 8, 0, 0, TimeSpan.Zero) };
         sessions.LiveCache.AddOrUpdate(row);
         sessions.MineLiveCache.AddOrUpdate(row);

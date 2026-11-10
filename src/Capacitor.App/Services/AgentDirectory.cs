@@ -542,9 +542,9 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 OwnerName = dto.Owner?.DisplayName ?? dto.Owner?.Username,
                 OwnerAvatarUrl = dto.Owner?.AvatarUrl,
                 OwnerIsViewer = Ownership(dto, sid),
-                // The registry restamps registered_at whenever the daemon reconnects, so a remote row's
-                // creation time is its session's start.
-                CreatedAt = row.Origin == AgentOrigin.Remote ? dto.StartedAt.UtcDateTime : row.CreatedAt,
+                // A server that sends no session start leaves a remote row its registration time, which a
+                // daemon reconnect moves past the session's start.
+                CreatedAt = row.Origin == AgentOrigin.Remote && dto.StartedAt.UtcDateTime < row.CreatedAt ? dto.StartedAt.UtcDateTime : row.CreatedAt,
                 LastActivityAt = dto.LastActivityAt.UtcDateTime,
                 ListedPullRequests = dto.PullRequests,
                 Branch = row.Branch ?? dto.Branch,

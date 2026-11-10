@@ -80,7 +80,7 @@ public sealed record AgentRow(
         var repo = RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
         return new AgentRow(
             Key: $"remote:{dto.AgentId}", Origin: AgentOrigin.Remote, Id: dto.AgentId, SessionId: dto.SessionId,
-            Kind: "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status), CreatedAt: dto.RegisteredAt,
+            Kind: "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status), CreatedAt: dto.SessionStartedAt?.UtcDateTime ?? dto.RegisteredAt,
             RepoPath: dto.RepoPath, Title: dto.Title is { Length: > 0 } ? dto.Title : TitleFromPrompt(dto.Prompt),
             Model: dto.Model, RequesterDisplay: null,
             WorktreePath: null, WorkLocation: null, BorrowedFrom: null,
