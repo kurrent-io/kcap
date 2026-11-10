@@ -104,7 +104,7 @@
         <Style Selector="Button.railAlertLink:pointerover views|AppIcon, Button.railAlertLink:focus-visible views|AppIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
-        <Style Selector="Button.railAlertLink:pointerover TextBlock#RailAlertText">
+        <Style Selector="Button.railAlertLink:pointerover TextBlock#RailAlertText, Button.railAlertLink:focus-visible TextBlock#RailAlertText">
             <Setter Property="TextDecorations" Value="Underline" />
         </Style>
         <Style Selector="Button#RailFilterButton views|AppIcon">

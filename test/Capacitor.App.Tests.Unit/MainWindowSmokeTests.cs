@@ -1767,8 +1767,9 @@ public class MainWindowSmokeTests {
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            var (actions, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-                tenantName: "kurrent");
+                tenantName: "kurrent", workspaceFactory: id => NewWorkspace(service, actions, id));
             var window = new MainWindow { DataContext = vm };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -1782,10 +1783,20 @@ public class MainWindowSmokeTests {
             var healthyTexts = footer.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
 
+            vm.OpenSession("0123456789abcdef0123456789abcdef");
+            Dispatcher.UIThread.RunJobs();
+            var launcher = window.FindControl<Grid>("LauncherPane")!;
+            var workspaceOpened = vm.CurrentWorkspace is not null && !launcher.IsVisible;
+
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var text = rail.FindControl<TextBlock>("RailAlertText")!;
+            var link = rail.FindControl<Button>("RailAlertLink")!;
+            link.Focus(NavigationMethod.Tab);
+            Dispatcher.UIThread.RunJobs();
+            var focusUnderlined = link.IsFocused && text.TextDecorations == TextDecorations.Underline;
+            ClickFlyoutButton(link);
             var result = (
                 HealthyRow: healthyRow,
                 HealthyConnected: healthyConnected,
@@ -1794,7 +1805,10 @@ public class MainWindowSmokeTests {
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
                 Buttons: row.GetVisualDescendants().OfType<Button>().Count(b => b.IsEffectivelyVisible),
-                OpensLauncher: ReferenceEquals(rail.FindControl<Button>("RailAlertLink")!.Command, vm.NewSessionCommand));
+                OpensLauncher: ReferenceEquals(link.Command, vm.NewSessionCommand),
+                WorkspaceOpened: workspaceOpened,
+                FocusUnderlined: focusUnderlined,
+                LauncherVisibleAfterClick: launcher.IsVisible);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1811,6 +1825,9 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);
         await Assert.That(shown.Buttons).IsEqualTo(1).Because("the alert is its only control; the launcher's banner owns the repair");
         await Assert.That(shown.OpensLauncher).IsTrue();
+        await Assert.That(shown.WorkspaceOpened).IsTrue();
+        await Assert.That(shown.FocusUnderlined).IsTrue();
+        await Assert.That(shown.LauncherVisibleAfterClick).IsTrue();
     }
 
     /// Signed-out is a rail diagnosis; the launcher's Sign in is on the other pane and hidden
