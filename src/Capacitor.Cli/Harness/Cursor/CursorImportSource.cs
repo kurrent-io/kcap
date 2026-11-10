@@ -370,6 +370,12 @@ internal sealed class CursorImportSource : IImportSource {
                 continue;
             }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(MakeClassification(s, meta, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             int? serverLastLine;
             try {
                 serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct);
