@@ -28,7 +28,7 @@
                        TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
             <TextBlock Text="{Binding Detail}" FontSize="13.5" TextAlignment="Center" TextWrapping="Wrap"
                        IsVisible="{Binding HasDetail}" Foreground="{StaticResource KcapMutedBrush}" />
-            <Button Classes="kcapPrimary" Content="{Binding ActionLabel}" Command="{Binding Action}"
+            <Button Classes="kcapChip" Content="{Binding ActionLabel}" Command="{Binding Action}"
                     IsVisible="{Binding HasAction}" HorizontalAlignment="Center" Margin="0,6,0,0" />
         </StackPanel>
         <Panel Classes="compactNotice">
@@ -45,7 +45,7 @@
                         <TextBlock Text="{Binding Detail}" FontSize="13" TextWrapping="Wrap"
                                    IsVisible="{Binding HasDetail}" Foreground="{StaticResource KcapMutedBrush}" />
                     </StackPanel>
-                    <Button Grid.Column="2" Classes="kcapPrimary" Content="{Binding ActionLabel}" Command="{Binding Action}"
+                    <Button Grid.Column="2" Classes="kcapChip" Content="{Binding ActionLabel}" Command="{Binding Action}"
                             IsVisible="{Binding HasAction}" VerticalAlignment="Center" />
                 </Grid>
             </Border>

@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -64,8 +65,18 @@ public class RemoteSessionViewSmokeTests {
                 var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Starting session…" && t.IsEffectivelyVisible);
                 await Assert.That(title.TranslatePoint(new Point(0, 0), host.Window)!.Value.Y).IsGreaterThan(180);
                 var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
-                await Assert.That(action.Classes.Contains("kcapPrimary")).IsTrue();
+                host.Window.MouseMove(new Point(0, 0));
+                host.Settle();
+                var presenter = action.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
+                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapSurfaceRaisedBrush"));
                 CaptureLoading(host, "session-starting");
+                var point = action.TranslatePoint(new Point(action.Bounds.Width / 2, action.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(point);
+                host.Settle();
+                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapBorderBrush"));
+                host.Window.MouseDown(point, MouseButton.Left);
+                host.Window.MouseUp(point, MouseButton.Left);
+                await host.SettleUntilAsync(() => host.Vm.IsTerminalActive, "terminal action opened its pane");
             } finally { await host.Vm.TeardownAsync(); }
             return true;
         });
@@ -100,7 +111,16 @@ public class RemoteSessionViewSmokeTests {
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
-                await host.Vm.RetryConnectionCommand.Execute();
+                var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry"));
+                host.Window.MouseMove(new Point(0, 0));
+                host.Settle();
+                var presenter = retry.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
+                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapSurfaceRaisedBrush"));
+                retry.Focus(NavigationMethod.Tab);
+                await Assert.That(retry.IsFocused).IsTrue();
+                host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                host.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                await host.SettleUntilAsync(() => retries == 1, "keyboard retry reached its callback");
                 await Assert.That(retries).IsEqualTo(1);
                 // Re-establishment must keep the transcript visible too, until the watch answers.
                 var watch = new TaskCompletionSource<HubCallOutcome>();
