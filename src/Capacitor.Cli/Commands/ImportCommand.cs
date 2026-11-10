@@ -1511,7 +1511,7 @@ class ImportCommand(
         var       titlesGenerated    = 0;
         var       titlesSkipped      = 0;
         var       titlesFailed       = 0;
-        var       titlesAllowed      = LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)).Allows(baseUrl);
+        var       modelCallsAllowed  = LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)).Allows(baseUrl);
         var       summariesGenerated = 0;
         var       summariesFailed    = 0;
         var       titleFailures      = new ConcurrentBag<(string SessionId, string Reason)>();
@@ -1522,7 +1522,7 @@ class ImportCommand(
         var       partitionSkipped   = new ConcurrentBag<string>();
         var       partitionFailed    = new ConcurrentBag<string>();
 
-        if (!skipTitle && !titlesAllowed) display.Line($"Not naming sessions with a model: {LocalIntelligenceGate.NotSetUp}.");
+        if ((!skipTitle || generateSummaries) && !modelCallsAllowed) display.Line($"Not naming or summarising sessions with a model: {LocalIntelligenceGate.NotSetUp}.");
 
         void WarnSession(string sessionId, string message) => display.Line(
             $"! {SessionIds.Display(sessionId)}: {message}",
@@ -1561,7 +1561,7 @@ class ImportCommand(
                 var (sid, fp, _, vnd) = t;
 
                 // Titling shells out to the user's own `claude` / `codex`, on their subscription.
-                if (skipTitle || !titlesAllowed) return;
+                if (skipTitle || !modelCallsAllowed) return;
 
                 // Don't schedule a title task for a source that doesn't support it.
                 // Cursor sets SupportsTitleGeneration=false because the composer
@@ -1593,7 +1593,7 @@ class ImportCommand(
                 );
             },
             OnBackgroundWorkReady = t => {
-                if (!t.GenerateWhatsDone || !generateSummaries) return;
+                if (!t.GenerateWhatsDone || !generateSummaries || !modelCallsAllowed) return;
 
                 Interlocked.Increment(ref summaryTaskCount);
                 var sid = t.SessionId;

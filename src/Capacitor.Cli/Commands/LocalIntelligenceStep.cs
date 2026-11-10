@@ -1,4 +1,3 @@
-using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup.Intelligence;
 
