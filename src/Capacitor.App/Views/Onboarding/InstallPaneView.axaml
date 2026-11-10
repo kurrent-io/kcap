@@ -35,7 +35,7 @@
                 <StackPanel Grid.Column="1" Spacing="8">
                     <TextBlock x:Name="ClientProblemText" Classes="onboardingBody" TextWrapping="Wrap"
                                Text="{Binding ClientProblem}" />
-                    <Button x:Name="RepairAgainButton" Classes="onboardingPrimary" Content="Try again" HorizontalAlignment="Left"
+                    <Button x:Name="RepairAgainButton" Classes="onboardingSecondary" Content="Try again" HorizontalAlignment="Left"
                             Command="{Binding RepairAgainCommand}" />
                 </StackPanel>
             </Grid>
@@ -123,7 +123,7 @@
                 <TextBlock x:Name="RetryStatusText" Classes="onboardingDetail" TextWrapping="Wrap" Text="{Binding RetryStatus}"
                            IsVisible="{Binding AutoRetrying}" />
 
-                <Button x:Name="CancelInstallButton" Classes="onboardingLink" Content="Cancel" HorizontalAlignment="Left"
+                <Button x:Name="CancelInstallButton" Classes="onboardingSecondary" Content="Cancel" HorizontalAlignment="Left"
                         AutomationProperties.Name="Cancel the install"
                         Command="{Binding CancelCommand}" IsVisible="{Binding CancelVisible}" />
             </StackPanel>
@@ -145,7 +145,7 @@
                                              TextWrapping="Wrap" FontSize="11" LineHeight="16"
                                              Foreground="{StaticResource OnboardingDimBrush}" />
                     </StackPanel>
-                    <Button x:Name="TryAgainButton" Classes="onboardingPrimary" Content="Try again" HorizontalAlignment="Left"
+                    <Button x:Name="TryAgainButton" Classes="onboardingSecondary" Content="Try again" HorizontalAlignment="Left"
                             Command="{Binding TryAgainCommand}" IsVisible="{Binding TryAgainVisible}" />
                     <Button x:Name="OtherEditionButton" Classes="onboardingPrimary" HorizontalAlignment="Left"
                             Content="{x:Static vm:InstallStepViewModel.OtherEditionLabel}"

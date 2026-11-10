@@ -286,7 +286,9 @@ public class SettingsWindowSmokeTests {
             await Assert.That(menu.IsOpen).IsTrue();
             var items = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().ToList();
             await Assert.That(string.Join(",", items.Select(b => b.Content))).IsEqualTo("Refresh,Rename,Reconnect,Remove");
-            await Assert.That(items.All(b => b.Classes.Contains("kcapGhost"))).IsTrue();
+            await Assert.That(items.Take(2).All(b => b.Classes.Contains("kcapGhost"))).IsTrue();
+            await Assert.That(items[2].Classes.Contains("kcapChip")).IsTrue();
+            await Assert.That(items[3].Classes.Contains("kcapDanger")).IsTrue();
             await Assert.That(items[0].FindAncestorOfType<FlyoutPresenter>()!.Classes.Contains("kcapPanel")).IsTrue();
             MainWindowSmokeTests.ClickFlyoutButton(items[1]);
             Settle(window);
