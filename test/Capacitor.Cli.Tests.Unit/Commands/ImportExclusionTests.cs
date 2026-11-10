@@ -141,10 +141,11 @@ public class ImportExclusionTests {
         using var server = Online(secretStatus);
         using var ansi = new ScriptedConsole().Line("y");
         var probesBeforeAnswer = -1;
-        var stdin = new ObservedReader(answer + "\n", () =>
+        using var stdin = new ObservedReader(answer + "\n", () =>
             probesBeforeAnswer = server.LogEntries.Count(e => e.RequestMessage.Path == $"/api/sessions/{Secret}/last-line"));
-        var error = new StringWriter();
-        var console = new ImportConsole(new StringWriter(), error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console, skipConfirmation: false);
 
@@ -182,9 +183,11 @@ public class ImportExclusionTests {
         var otherExcluded = Tmp.CreateDir("another-secret-project").Path;
         using var server = Online();
         using var ansi = new ScriptedConsole().Line("y");
-        var stdin = new ObservedReader("y\n", () =>
+        using var stdin = new ObservedReader("y\n", () =>
             WriteSession(Tmp.CreateDir("projects").CreateDir("-secret-project"), Secret, otherExcluded));
-        var console = new ImportConsole(new StringWriter(), new StringWriter(), stdin, ansi, OutputRedirected: false, InputRedirected: false);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console,
             skipConfirmation: false, exclusions: [excluded, otherExcluded]);
@@ -212,11 +215,13 @@ public class ImportExclusionTests {
         using var ansi = new ScriptedConsole().Line("y");
         var reads = 0;
         var probesBeforeAnswers = new List<int>();
-        var stdin = new ObservedReader(answers, () => {
+        using var stdin = new ObservedReader(answers, () => {
             reads++;
             probesBeforeAnswers.Add(server.LogEntries.Count(e => e.RequestMessage.Path == $"/api/sessions/{Secret}/last-line"));
         });
-        var console = new ImportConsole(new StringWriter(), new StringWriter(), stdin, ansi, OutputRedirected: false, InputRedirected: false);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console,
             skipConfirmation: false, excludedRepos: ["acme/secret"]);
