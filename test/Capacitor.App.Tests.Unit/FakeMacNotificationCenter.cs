@@ -12,6 +12,7 @@ internal sealed class FakeMacNotificationCenter : IMacNotificationCenter {
     public int DeliveredReads { get; private set; }
     public bool CompleteAdds { get; set; } = true;
     public Exception? PublishFailure { get; set; }
+    public Exception? WithdrawFailure { get; set; }
     public bool CompleteBadges { get; set; } = true;
     public Queue<bool> BadgeResults { get; } = new();
     public List<(DesktopNotification Source, string NativeId, string Category, int? Badge, Action<string?> Complete)> Published { get; } = [];
@@ -35,7 +36,10 @@ internal sealed class FakeMacNotificationCenter : IMacNotificationCenter {
         Published.Add((source, nativeId, category, badge, completed));
         if (CompleteAdds) completed(null);
     }
-    public void Withdraw(string nativeId) => Withdrawn.Add(nativeId);
+    public void Withdraw(string nativeId) {
+        if (WithdrawFailure is { } error) throw error;
+        Withdrawn.Add(nativeId);
+    }
     public void SetBadge(int count, Action<bool> completed) {
         Badges.Add((count, completed));
         if (CompleteBadges) completed(BadgeResults.Count == 0 || BadgeResults.Dequeue());

@@ -367,6 +367,27 @@ public class MacNotificationBadgeLifecycleTests {
     }
 
     [Test]
+    public async Task A_withdrawal_failure_still_releases_the_category_and_preserves_other_notices() {
+        var native = new FakeMacNotificationCenter();
+        using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+        var count = 0;
+        using var watch = sink.BadgeCounts.Subscribe(value => count = value);
+        sink.Show(Notice("a"), _ => { });
+        sink.Show(Notice("b"), _ => { });
+        native.WithdrawFailure = new EntryPointNotFoundException("Native withdrawal unavailable");
+
+        sink.Close("a");
+
+        await Assert.That(count).IsEqualTo(1);
+        await Assert.That(native.Released).IsEquivalentTo([native.Published[0].Category]);
+        native.WithdrawFailure = null;
+        sink.Close("b");
+        await Assert.That(count).IsEqualTo(0);
+        await Assert.That(native.Withdrawn).IsEquivalentTo([native.Published[1].NativeId]);
+        await Assert.That(native.Released).Count().IsEqualTo(2);
+    }
+
+    [Test]
     public async Task A_synchronous_publish_failure_releases_its_registration_and_category() {
         var native = new FakeMacNotificationCenter { PublishFailure = new InvalidOperationException("Native publish failed") };
         using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
