@@ -155,7 +155,8 @@ partial class SessionsCommand(
     /// whole, as for redirected output.</param>
     internal static string Render(
             RepoSessionsResponse page, string repoLabel, SessionsOptions options, bool encodable = true, int? width = null) {
-        var sb = new StringBuilder();
+        var sb         = new StringBuilder();
+        var showAccess = true;
 
         if (page.Items.Count == 0) {
             sb.AppendLine(Empty(repoLabel, options));
@@ -182,7 +183,8 @@ partial class SessionsCommand(
                     : Math.Min(Math.Max(caps[i], head.Length), Math.Max(head.Length, rows.Max(r => r[i]!.Length))))
                 .ToArray();
 
-            Narrow(widths, heads, width);
+            var titleOwnLine = Narrow(widths, heads, width);
+            showAccess = heads.Contains("ACCESS");
 
             string Lead(IReadOnlyList<string?> cells) {
                 var line = new StringBuilder();
@@ -196,19 +198,27 @@ partial class SessionsCommand(
                 return line.ToString();
             }
 
-            var lead = Lead(heads).Length;
+            var header = Lead(heads);
 
-            sb.AppendLine(Lead(heads) + "TITLE");
+            sb.AppendLine(titleOwnLine && header.Length + "TITLE".Length > width - 1 ? header.TrimEnd() : header + "TITLE");
 
-            for (var i = 0; i < rows.Count; i++)
-                sb.AppendLine(Lead(rows[i]) + Title(page.Items[i].Title ?? "(untitled)", lead, encodable, width));
+            for (var i = 0; i < rows.Count; i++) {
+                var title = page.Items[i].Title ?? "(untitled)";
+
+                if (titleOwnLine) {
+                    sb.AppendLine(Lead(rows[i]).TrimEnd());
+                    sb.AppendLine("  " + StatusGlyphs.Fit(title, Math.Max(FewestTitleColumns, width!.Value - 3), encodable));
+                } else {
+                    sb.AppendLine(Lead(rows[i]) + Title(title, header.Length, encodable, width));
+                }
+            }
 
             if (page.Total > page.Items.Count) sb.AppendLine(Overflow(page, options));
         }
 
         if (page.Items.Count > 0) {
             sb.AppendLine();
-            sb.AppendLine("ACCESS is what you may read of a session: overview, activity or full.");
+            if (showAccess) sb.AppendLine("ACCESS is what you may read of a session: overview, activity or full.");
             sb.AppendLine("Details (full access): kcap recap --full <session-id>");
         }
 
@@ -231,23 +241,42 @@ partial class SessionsCommand(
 
     const int FewestTitleColumns = 12;
 
-    /// <summary>Takes columns from the owner, repository and branch, widest first, until a title fits
-    /// beside them on the terminal. The other cells are ids and times, which a cut would make useless.</summary>
-    static void Narrow(int[] widths, string?[] heads, int? width) {
-        if (width is not { } columns) return;
+    /// <summary>Fits a row on the terminal, in order: columns from the owner, repository and branch, widest first;
+    /// then whole columns a reader can spare; then the title moves to a line of its own. Ids, status and the last
+    /// activity are never cut, since a cut one is useless. Returns whether the title has its own line.</summary>
+    static bool Narrow(int[] widths, string?[] heads, int? width) {
+        if (width is not { } columns) return false;
 
-        int[] narrowable = [Array.IndexOf(heads, "OWNER"), Array.IndexOf(heads, "REPO"), Array.IndexOf(heads, "BRANCH")];
-        const int fewest = 10;
+        int Excess(int title) => widths.Sum() + heads.Count(h => h is not null) + title - (columns - 1);
 
-        var excess = widths.Sum() + heads.Count(h => h is not null) + FewestTitleColumns - (columns - 1);
+        Shrink(widths, heads, ["OWNER", "REPO", "BRANCH"], 10, () => Excess(FewestTitleColumns));
 
-        while (excess > 0) {
-            var widest = narrowable.Where(i => i >= 0 && widths[i] > fewest).OrderByDescending(i => widths[i]).FirstOrDefault(-1);
+        foreach (var spare in new[] { "ACCESS", "OWNER", "VENDOR", "STARTED" }) {
+            if (Excess(FewestTitleColumns) <= 0) return false;
+
+            var i = Array.IndexOf(heads, spare);
+            if (i < 0) continue;
+
+            heads[i]  = null;
+            widths[i] = 0;
+        }
+
+        if (Excess(FewestTitleColumns) <= 0) return false;
+
+        Shrink(widths, heads, ["REPO", "BRANCH"], 6, () => Excess(0));
+
+        return true;
+    }
+
+    static void Shrink(int[] widths, string?[] heads, string[] names, int fewest, Func<int> excess) {
+        var columns = names.Select(name => Array.IndexOf(heads, name)).Where(i => i >= 0).ToArray();
+
+        while (excess() > 0) {
+            var widest = columns.Where(i => widths[i] > fewest).OrderByDescending(i => widths[i]).FirstOrDefault(-1);
 
             if (widest < 0) return;
 
             widths[widest]--;
-            excess--;
         }
     }
 

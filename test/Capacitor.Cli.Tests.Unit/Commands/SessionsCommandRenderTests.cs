@@ -200,6 +200,51 @@ public class SessionsCommandRenderTests {
         foreach (var line in text.Split('\n')) await Assert.That(line.TrimEnd('\r').Length).IsLessThan(120);
     }
 
+    /// <summary>Every repository, dashed ids and long owners, repositories and branches: narrowing the cut columns
+    /// alone leaves a lead too wide for 80 to 120 columns, so spare columns go and, at 80, the title gets its own
+    /// line. The time is never cut.</summary>
+    [Test]
+    [Arguments(80)]
+    [Arguments(100)]
+    [Arguments(120)]
+    public async Task Every_line_fits_the_terminal_with_long_cells(int width) {
+        const string title = "Investigate why the nightly billing export drops rows for accounts migrated last quarter";
+        var row = Row("8c1f6e2a9b3d4c5e8f7a6b5c4d3e2f1a", "ended", "overview", "feature/nightly-billing-export",
+            repo: new(Hash, "acme-testbench", "billing-service-api"));
+        row = row with { Title = title, Owner = row.Owner! with { Username = "alexandra-montgomery" } };
+        var page = new RepoSessionsResponse([row, row with { SessionId = "0badf00d0badf00d0badf00d0badf00d" }], 2, 20, 0);
+
+        var text  = SessionsCommand.Render(page, "any repository", Options("all", "all", allRepos: true), width: width);
+        var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+
+        foreach (var line in lines) await Assert.That(line.Length).IsLessThan(width);
+        await Assert.That(lines[0]).Contains("LAST ACTIVITY");
+        await Assert.That(lines[0]).DoesNotContain("ACCESS");
+        await Assert.That(text).DoesNotContain("ACCESS is what you may read");
+        await Assert.That(lines[1]).StartsWith("8c1f6e2a-9b3d-4c5e-8f7a-6b5c4d3e2f1a ");
+
+        if (width == 80) {
+            await Assert.That(lines[2]).StartsWith("  Investigate why");
+            await Assert.That(lines[3]).StartsWith("0badf00d-0bad-f00d-0bad-f00d0badf00d ");
+        } else {
+            await Assert.That(lines[1]).Contains("Investigate why");
+        }
+    }
+
+    [Test]
+    public async Task An_unknown_width_drops_no_column() {
+        var row = Row("8c1f6e2a9b3d4c5e8f7a6b5c4d3e2f1a", "ended", "overview", "feature/nightly-billing-export",
+            repo: new(Hash, "acme-testbench", "billing-service-api"));
+
+        var text   = SessionsCommand.Render(
+            new RepoSessionsResponse([row], 1, 20, 0), "any repository", Options("all", "all", allRepos: true));
+        var header = text.Split('\n')[0];
+
+        foreach (var column in new[] { "ACCESS", "OWNER", "VENDOR", "REPO", "BRANCH", "TITLE" })
+            await Assert.That(header).Contains(column);
+        await Assert.That(text).Contains("ACCESS is what you may read");
+    }
+
     [Test]
     public async Task Redirected_output_keeps_the_whole_title() {
         var title = new string('t', 200);
