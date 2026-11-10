@@ -880,10 +880,10 @@ public class WorkContextViewSmokeTests {
             await Assert.That(numbers).IsEquivalentTo(new[] { "1", "2" }, CollectionOrdering.Matching);
 
             var marks = summary.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
-            var warning = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapWarningBrush")!).Color;
+            var purple = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
             var danger = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapDangerBrush")!).Color;
             await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
-                .IsEquivalentTo(new[] { warning, danger }, CollectionOrdering.Matching);
+                .IsEquivalentTo(new[] { purple, danger }, CollectionOrdering.Matching);
             await Assert.That(summary.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(1);
         });
     }
