@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Capacitor.Cli.Core.Instructions;
 
 /// <summary>
@@ -20,7 +22,7 @@ public static class AgentInstructionsWriter {
     public static Change Write(string path, string body) {
         var block = BeginMarker + "\n" + body.Trim('\n') + "\n" + EndMarker;
         try {
-            var existing = File.Exists(path) ? File.ReadAllText(path) : "";
+            var (existing, bom) = File.Exists(path) ? Read(path) : ("", false);
             var (state, start, end) = FindBlock(existing);
             if (state == BlockState.Malformed) return Change.Failed;   // BEGIN without END — refuse rather than duplicate
 
@@ -31,7 +33,7 @@ public static class AgentInstructionsWriter {
 
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            WriteAtomic(path, updated);
+            WriteAtomic(path, updated, bom);
             return Change.Updated;
         } catch {
             return Change.Failed;
@@ -43,7 +45,7 @@ public static class AgentInstructionsWriter {
     public static Change Remove(string path) {
         try {
             if (!File.Exists(path)) return Change.Unchanged;
-            var existing = File.ReadAllText(path);
+            var (existing, bom) = Read(path);
             var (state, start, end) = FindBlock(existing);
             if (state == BlockState.Malformed) return Change.Failed;   // BEGIN without END — can't safely strip
             if (state == BlockState.Absent) return Change.Unchanged;
@@ -55,7 +57,7 @@ public static class AgentInstructionsWriter {
                 File.Delete(path);
                 return Change.Updated;
             }
-            WriteAtomic(path, stripped);
+            WriteAtomic(path, stripped, bom);
             return Change.Updated;
         } catch {
             return Change.Failed;
@@ -99,9 +101,20 @@ public static class AgentInstructionsWriter {
         return (BlockState.Present, start, end + EndMarker.Length);
     }
 
-    static void WriteAtomic(string path, string content) {
+    /// <summary>The text and whether it starts with a UTF-8 BOM, which a rewrite keeps: an editor or a PowerShell
+    /// 5.1 <c>Set-Content -Encoding UTF8</c> writes one, and dropping it changes a file kcap only appended to.</summary>
+    static (string Text, bool Bom) Read(string path) {
+        var bytes = File.ReadAllBytes(path);
+        var bom   = bytes.AsSpan().StartsWith(Utf8Bom.Preamble);
+        return (Utf8.GetString(bom ? bytes.AsSpan(Utf8Bom.Preamble.Length) : bytes), bom);
+    }
+
+    static readonly UTF8Encoding Utf8    = new(encoderShouldEmitUTF8Identifier: false);
+    static readonly UTF8Encoding Utf8Bom = new(encoderShouldEmitUTF8Identifier: true);
+
+    static void WriteAtomic(string path, string content, bool bom) {
         var tmp = path + ".tmp-" + Environment.ProcessId + "-" + Guid.NewGuid().ToString("N");
-        File.WriteAllText(tmp, content);
+        File.WriteAllText(tmp, content, bom ? Utf8Bom : Utf8);
         try { File.Move(tmp, path, overwrite: true); }
         catch { try { File.Delete(tmp); } catch { /* best-effort */ } throw; }
     }

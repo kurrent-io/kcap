@@ -13,6 +13,32 @@ public class AgentInstructionsWriterTests {
         await Assert.That(KcapAgentInstructions.Body).DoesNotContain("proactively OFFER an independent second-harness review");
     }
 
+    /// The bytes PowerShell 5.1's `Set-Content -Encoding UTF8` writes: a BOM, the text, and its own CRLF after an
+    /// LF-separated body.
+    [Test]
+    public async Task Write_then_remove_gives_back_the_users_file_byte_for_byte() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("copilot-instructions.md");
+        byte[] seed = [0xEF, 0xBB, 0xBF, .. "# Dana's rules\n\nAlways answer in British English.\r\n"u8];
+        File.WriteAllBytes(path, seed);
+
+        await Assert.That(AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(File.ReadAllBytes(path).AsSpan().StartsWith(seed.AsSpan(0, 3))).IsTrue();
+
+        await Assert.That(AgentInstructionsWriter.Remove(path)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(Convert.ToHexString(File.ReadAllBytes(path))).IsEqualTo(Convert.ToHexString(seed));
+    }
+
+    [Test]
+    public async Task A_new_file_has_no_bom() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("AGENTS.md");
+
+        AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body);
+
+        await Assert.That(File.ReadAllBytes(path)[0]).IsEqualTo((byte)'<');
+    }
+
     [Test]
     public async Task Write_creates_file_with_marked_block() {
         using var tmp = new TempDir();
