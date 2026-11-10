@@ -1,132 +1,114 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
-using Avalonia.Threading;
-using static Capacitor.App.Platform.Mac.MacNotificationInterop;
-
+using System.Reactive.Subjects;
 using Capacitor.App.Services.Notifications;
 
 namespace Capacitor.App.Platform.Mac;
 
-/// UserNotifications requires a real application bundle. A development `dotnet run` intentionally
-/// has no native sink; calling currentNotificationCenter from an unbundled process can abort it.
-[SupportedOSPlatform("macos")]
-internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, IDesktopNotificationAccess {
-    sealed record Pending(DesktopNotification Source, string NativeId, string Category, Action<string?> Activated);
-
-    static readonly ConcurrentDictionary<nint, WeakReference<MacOsDesktopNotificationSink>> Delegates = new();
-    const nint AlertOption = 4; // UNAuthorizationOptionAlert
-    static nint _delegateClass;
-    readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
-    readonly MacNotificationCategories _categories;
-    readonly nint _center;
-    readonly nint _delegate;
-    readonly string? _bundleId;
-    bool _disposed;
-
-    public MacOsDesktopNotificationSink() {
-        _categories = new(CreateCategory, RegisterCategories, Release);
-        if (!OperatingSystem.IsMacOSVersionAtLeast(11)) return;
-        try {
-            using var pool = new Pool();
-            var bundle = Send(GetClass("NSBundle"), Selector("mainBundle"));
-            var identifier = Text(Send(bundle, Selector("bundleIdentifier")));
-            var path = Text(Send(bundle, Selector("bundlePath")));
-            if (string.IsNullOrEmpty(identifier) || path?.EndsWith(".app", StringComparison.OrdinalIgnoreCase) != true) return;
-
-            _center = Send(GetClass("UNUserNotificationCenter"), Selector("currentNotificationCenter"));
-            if (_center == 0) return;
-            _bundleId = identifier;
-            _delegate = Send(DelegateClass(), Selector("new"));
-            if (_delegate == 0) throw new InvalidOperationException("Unable to initialize the notification delegate.");
-            Delegates[_delegate] = new(this);
-            SendVoid(_center, Selector("setDelegate:"), _delegate);
-            // Nothing from a previous process can still answer a live request.
-            SendVoid(_center, Selector("removeAllPendingNotificationRequests"));
-            SendVoid(_center, Selector("removeAllDeliveredNotifications"));
-        } catch (Exception error) { DesktopNotifications.Report(error); }
+internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, IDesktopNotificationAccess, IDesktopNotificationBadge {
+    sealed record Pending(DesktopNotification Source, string NativeId, string Category, Action<string?> Activated) {
+        public DateTimeOffset? Accepted { get; set; }
+        public bool Observed { get; set; }
+        public bool Published { get; set; }
     }
 
+    readonly IMacNotificationCenter _center;
+    readonly Action<Action> _dispatch;
+    readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
+    readonly Dictionary<string, (Pending Pending, DateTimeOffset Expires)> _activationResponses = new(StringComparer.Ordinal);
+    readonly BehaviorSubject<int> _counts = new(0);
+    readonly MacNotificationBadge _badge;
+    readonly TimeProvider _time;
+    readonly ITimer _reconcileTimer;
+    bool _disposed, _reconciling;
+    internal static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan DeliveryGrace = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan ResponseGrace = TimeSpan.FromSeconds(30);
+
+    internal MacOsDesktopNotificationSink(IMacNotificationCenter center, Action<Action> dispatch, TimeProvider? time = null) {
+        _center = center;
+        _dispatch = dispatch;
+        _time = time ?? TimeProvider.System;
+        _reconcileTimer = _time.CreateTimer(_ => Post(() => { _ = ReconcileAsync(); }), null,
+            Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _badge = new((count, completed) => center.SetBadge(count, success => Post(() => completed(success))),
+            count => { if (!_disposed) _counts.OnNext(count); });
+        center.Responded += OnResponded;
+        center.Suppressed += OnSuppressed;
+        _badge.Authorize(false);
+    }
+
+    public IObservable<int> BadgeCounts => _counts;
+
     public void Show(DesktopNotification notification, Action<string?> activated) {
-        if (_disposed || _center == 0 || _delegate == 0) return;
+        if (_disposed || !_center.Available) return;
         Close(notification.Id);
+        foreach (var key in _activationResponses.Where(p => p.Value.Pending.Source.Id == notification.Id).Select(p => p.Key).ToArray())
+            _activationResponses.Remove(key);
         try {
-            using var pool = new Pool();
-            var category = _categories.Acquire(notification.Actions);
+            var category = _center.AcquireCategory(notification.Actions);
             var pending = new Pending(notification, Guid.NewGuid().ToString("N"), category, activated);
             _pending.Add(notification.Id, pending);
-            using var block = MacNotificationBlock.Authorization((granted, error) => {
-                var failure = Error(error);
-                Post(() => {
-                    if (!IsCurrent(pending)) return;
-                    if (!granted || failure is not null) {
-                        Close(notification.Id);
-                        if (failure is not null) DesktopNotifications.Report(failure);
-                        return;
-                    }
-                    Publish(pending);
-                });
-            });
-            SendVoid(_center, Selector("requestAuthorizationWithOptions:completionHandler:"), AlertOption, block.Handle);
+            _reconcileTimer.Change(ReconcileInterval, ReconcileInterval);
+            _ = AuthorizeAndPublishAsync(pending);
         } catch (Exception error) {
             Close(notification.Id);
             DesktopNotifications.Report(error);
         }
     }
 
-    public Task<DesktopNotificationAccess> GetAsync() {
-        if (_disposed || _center == 0) return Task.FromResult(DesktopNotificationAccess.Unknown);
-        var result = new TaskCompletionSource<DesktopNotificationAccess>(TaskCreationOptions.RunContinuationsAsynchronously);
+    async Task AuthorizeAndPublishAsync(Pending pending) {
         try {
-            using var pool = new Pool();
-            // The settings object is only ours for the duration of the callback: read it there.
-            using var block = MacNotificationBlock.Completion(settings => {
+            await _center.RequestAsync();
+            var settings = await _center.SettingsAsync();
+            Post(() => {
+                if (!IsCurrent(pending)) return;
+                _badge.Authorize(settings.Badge);
+                if (settings.Access != DesktopNotificationAccess.Allowed) { Close(pending.Source.Id); return; }
+                pending.Published = true;
                 try {
-                    result.TrySetResult(settings == 0 ? DesktopNotificationAccess.Unknown
-                        : Access(Send(settings, Selector("authorizationStatus"))));
+                    _center.Publish(pending.Source, pending.NativeId, pending.Category, settings.Badge ? _badge.Count + 1 : null,
+                        failure => Post(() => {
+                            // An asynchronous add may finish after withdrawal or app activation.
+                            if (!IsCurrent(pending)) { _center.Withdraw(pending.NativeId); _badge.Refresh(); return; }
+                            if (failure is null) {
+                                pending.Accepted = _time.GetUtcNow();
+                                _badge.Delivered(pending.NativeId);
+                            }
+                            else { Close(pending.Source.Id); DesktopNotifications.Report(failure); }
+                        }));
                 } catch (Exception error) {
-                    // The block swallows what escapes it, which would leave the caller waiting forever.
+                    Close(pending.Source.Id);
                     DesktopNotifications.Report(error);
-                    result.TrySetResult(DesktopNotificationAccess.Unknown);
                 }
             });
-            SendVoid(_center, Selector("getNotificationSettingsWithCompletionHandler:"), block.Handle);
         } catch (Exception error) {
+            Post(() => { if (IsCurrent(pending)) Close(pending.Source.Id); });
             DesktopNotifications.Report(error);
-            result.TrySetResult(DesktopNotificationAccess.Unknown);
         }
-        return result.Task;
+    }
+
+    public async Task<DesktopNotificationAccess> GetAsync() {
+        if (_disposed || !_center.Available) return DesktopNotificationAccess.Unknown;
+        var settings = await _center.SettingsAsync();
+        Post(() => { if (!_disposed) _badge.Authorize(settings.Badge); });
+        return settings.Access;
+    }
+
+    public async Task<bool> NeedsRequestAsync() {
+        if (_disposed || !_center.Available) return false;
+        var settings = await _center.SettingsAsync();
+        Post(() => { if (!_disposed) _badge.Authorize(settings.Badge); });
+        return settings.Access == DesktopNotificationAccess.NotDetermined
+            || settings.Access == DesktopNotificationAccess.Allowed && !settings.Badge;
     }
 
     public async Task<DesktopNotificationAccess> RequestAsync() {
-        if (_disposed || _center == 0) return DesktopNotificationAccess.Unknown;
-        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        try {
-            using var pool = new Pool();
-            using var block = MacNotificationBlock.Authorization((_, _) => answered.TrySetResult());
-            SendVoid(_center, Selector("requestAuthorizationWithOptions:completionHandler:"), AlertOption, block.Handle);
-        } catch (Exception error) {
-            DesktopNotifications.Report(error);
-            return DesktopNotificationAccess.Unknown;
-        }
-        await answered.Task;
+        if (_disposed || !_center.Available) return DesktopNotificationAccess.Unknown;
+        await _center.RequestAsync();
         return await GetAsync();
     }
 
-    public void OpenSystemSettings() {
-        if (_bundleId is null) return;
-        var target = "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=" + _bundleId;
-        // Off the caller's thread: Process.Start can block while another spawn in the app is stalled.
-        _ = Task.Run(() => {
-            try {
-                using var process = Process.Start(new ProcessStartInfo("/usr/bin/open") { ArgumentList = { target }, UseShellExecute = false });
-            } catch (Exception error) { DesktopNotifications.Report(error); }
-        });
-    }
+    public void OpenSystemSettings() => _center.OpenSystemSettings();
 
-    // UNAuthorizationStatus: provisional and ephemeral grants deliver too.
     internal static DesktopNotificationAccess Access(nint authorizationStatus) => authorizationStatus switch {
         0 => DesktopNotificationAccess.NotDetermined,
         1 => DesktopNotificationAccess.Denied,
@@ -134,121 +116,95 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
         _ => DesktopNotificationAccess.Unknown,
     };
 
-    void Publish(Pending pending) {
-        using var pool = new Pool();
-        var content = Send(GetClass("UNMutableNotificationContent"), Selector("new"));
-        try {
-            SendVoid(content, Selector("setTitle:"), String(pending.Source.Title));
-            SendVoid(content, Selector("setBody:"), String(pending.Source.Body));
-            SendVoid(content, Selector("setCategoryIdentifier:"), String(pending.Category));
-            var request = Send(GetClass("UNNotificationRequest"), Selector("requestWithIdentifier:content:trigger:"), String(pending.NativeId), content, 0);
-            using var block = MacNotificationBlock.Completion(error => {
-                var failure = Error(error);
-                Post(() => {
-                    // Withdrawal may race the asynchronous add. Withdraw again after it finishes.
-                    if (!IsCurrent(pending)) { Withdraw(pending.NativeId); return; }
-                    if (failure is null) return;
-                    Close(pending.Source.Id);
-                    DesktopNotifications.Report(failure);
-                });
-            });
-            SendVoid(_center, Selector("addNotificationRequest:withCompletionHandler:"), request, block.Handle);
-        } finally { Release(content); }
-    }
-
-    static nint CreateCategory(string key, IReadOnlyList<DesktopNotificationAction> actions) {
-        var nativeActions = Array(actions.Select(a => Send(GetClass("UNNotificationAction"), Selector("actionWithIdentifier:title:options:"),
-            String(key + "." + a.Id), String(a.Label), a.Id == "open" ? 4 : 0)));
-        var category = Send(GetClass("UNNotificationCategory"), Selector("categoryWithIdentifier:actions:intentIdentifiers:options:"),
-            String(key), nativeActions, Array([]), 1); // custom-dismiss callback
-        return Send(category, Selector("retain"));
-    }
-
-    void RegisterCategories(IReadOnlyCollection<nint> categories) {
-        using var pool = new Pool();
-        var set = Send(GetClass("NSSet"), Selector("setWithArray:"), Array(categories));
-        SendVoid(_center, Selector("setNotificationCategories:"), set);
-    }
-
     bool IsCurrent(Pending pending) => !_disposed && _pending.TryGetValue(pending.Source.Id, out var current) && ReferenceEquals(current, pending);
 
-    void Respond(string nativeId, string? nativeAction) {
+    void OnSuppressed(string nativeId) => Post(() => {
         var pending = _pending.Values.FirstOrDefault(p => p.NativeId == nativeId);
+        if (pending is not null) Close(pending.Source.Id);
+    });
+
+    void OnResponded(string nativeId, string? nativeAction) => Post(() => {
+        var pending = _pending.Values.FirstOrDefault(p => p.NativeId == nativeId);
+        if (pending is null && _activationResponses.Remove(nativeId, out var recent) && recent.Expires >= _time.GetUtcNow())
+            pending = recent.Pending;
         if (_disposed || pending is null) return;
-        if (nativeAction == "com.apple.UNNotificationDismissActionIdentifier") { Close(pending.Source.Id); return; }
+        if (nativeAction == "com.apple.UNNotificationDismissActionIdentifier") {
+            if (IsCurrent(pending)) Close(pending.Source.Id);
+            return;
+        }
         string? action = null;
         if (nativeAction != "com.apple.UNNotificationDefaultActionIdentifier") {
             action = pending.Source.Actions.FirstOrDefault(a => pending.Category + "." + a.Id == nativeAction)?.Id;
             if (action is null) return;
         }
-        Close(pending.Source.Id);
+        if (IsCurrent(pending)) Close(pending.Source.Id);
         pending.Activated(action);
+    });
+
+    public void OnActivated() {
+        // App activation can precede the response that opened the app.
+        foreach (var pending in _pending.Values.Where(p => p.Published))
+            _activationResponses[pending.NativeId] = (pending, _time.GetUtcNow() + ResponseGrace);
+        foreach (var id in _pending.Keys.ToArray()) Close(id);
+    }
+
+    internal async Task ReconcileAsync() {
+        if (_disposed || _reconciling) return;
+        foreach (var key in _activationResponses.Where(p => p.Value.Expires < _time.GetUtcNow()).Select(p => p.Key).ToArray())
+            _activationResponses.Remove(key);
+        StopIdleTimer();
+        var snapshot = _pending.Values.Where(p => p.Accepted is not null).ToArray();
+        if (snapshot.Length == 0) return;
+        _reconciling = true;
+        try {
+            var settings = await _center.SettingsAsync().WaitAsync(TimeSpan.FromSeconds(5), _time);
+            var delivered = await _center.DeliveredAsync().WaitAsync(TimeSpan.FromSeconds(5), _time);
+            Post(() => {
+                if (_disposed) return;
+                _badge.Authorize(settings.Badge && delivered is not null);
+                if (delivered is null) return;
+                foreach (var pending in snapshot.Where(IsCurrent)) {
+                    if (delivered.Contains(pending.NativeId)) pending.Observed = true;
+                    // Delivery can follow the asynchronous add's completion.
+                    else if (pending.Observed || _time.GetUtcNow() - pending.Accepted >= DeliveryGrace) Close(pending.Source.Id);
+                }
+                if (settings.Badge) _badge.Refresh();
+            });
+        } catch (Exception error) {
+            Post(() => { if (!_disposed) _badge.Authorize(false); });
+            DesktopNotifications.Report(error);
+        } finally {
+            Post(() => _reconciling = false);
+        }
     }
 
     public void Close(string id) {
         if (!_pending.Remove(id, out var pending)) return;
-        try { Withdraw(pending.NativeId); } catch (Exception error) { DesktopNotifications.Report(error); }
-        try { _categories.Release(pending.Category); } catch (Exception error) { DesktopNotifications.Report(error); }
+        StopIdleTimer();
+        _badge.Remove(pending.NativeId);
+        try { _center.Withdraw(pending.NativeId); } catch (Exception error) { DesktopNotifications.Report(error); }
+        try { _center.ReleaseCategory(pending.Category); } catch (Exception error) { DesktopNotifications.Report(error); }
     }
 
-    void Withdraw(string nativeId) {
-        using var pool = new Pool();
-        var identifiers = Array([String(nativeId)]);
-        SendVoid(_center, Selector("removePendingNotificationRequestsWithIdentifiers:"), identifiers);
-        SendVoid(_center, Selector("removeDeliveredNotificationsWithIdentifiers:"), identifiers);
+    void StopIdleTimer() {
+        if (_pending.Count == 0 && _activationResponses.Count == 0)
+            _reconcileTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
     public void Dispose() {
         if (_disposed) return;
+        OnActivated();
         _disposed = true;
-        foreach (var id in _pending.Keys.ToArray()) Close(id);
-        try { _categories.Dispose(); } catch (Exception error) { DesktopNotifications.Report(error); }
-        if (_delegate == 0) return;
-        Delegates.TryRemove(_delegate, out _);
-        if (Send(_center, Selector("delegate")) == _delegate) SendVoid(_center, Selector("setDelegate:"), 0);
-        Release(_delegate);
+        _activationResponses.Clear();
+        _reconcileTimer.Dispose();
+        _center.Responded -= OnResponded;
+        _center.Suppressed -= OnSuppressed;
+        _center.Dispose();
+        _counts.Dispose();
     }
 
-    static void Post(Action action) {
-        try {
-            Dispatcher.UIThread.Post(() => {
-                try { action(); } catch (Exception error) { DesktopNotifications.Report(error); }
-            });
-        } catch (Exception error) { DesktopNotifications.Report(error); }
-    }
-
-    static unsafe nint DelegateClass() {
-        if (_delegateClass != 0) return _delegateClass;
-        var cls = AllocateClass(GetClass("NSObject"), "KcapUserNotificationCenterDelegate", 0);
-        if (cls == 0) throw new InvalidOperationException("Unable to create the notification delegate.");
-        if (AddProtocol(cls, GetProtocol("UNUserNotificationCenterDelegate")) == 0 ||
-            AddMethod(cls, Selector("userNotificationCenter:willPresentNotification:withCompletionHandler:"),
-                (nint)(delegate* unmanaged[Cdecl]<nint, nint, nint, nint, nint, void>)&WillPresent, "v@:@@@") == 0 ||
-            AddMethod(cls, Selector("userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:"),
-                (nint)(delegate* unmanaged[Cdecl]<nint, nint, nint, nint, nint, void>)&DidRespond, "v@:@@@") == 0)
-            throw new InvalidOperationException("Unable to register notification callbacks.");
-        RegisterClass(cls);
-        return _delegateClass = cls;
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    static void WillPresent(nint self, nint selector, nint center, nint notification, nint completion) {
-        // macOS calls this only while our app is foreground. Suppress a notification whose
-        // asynchronous authorization/delivery raced the user bringing the app forward.
-        try { MacNotificationBlock.Present(completion, 0); }
+    void Post(Action action) {
+        try { _dispatch(() => { try { action(); } catch (Exception error) { DesktopNotifications.Report(error); } }); }
         catch (Exception error) { DesktopNotifications.Report(error); }
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    static void DidRespond(nint self, nint selector, nint center, nint response, nint completion) {
-        try {
-            if (!Delegates.TryGetValue(self, out var reference) || !reference.TryGetTarget(out var sink)) return;
-            var notification = Send(response, Selector("notification"));
-            var request = Send(notification, Selector("request"));
-            var id = Text(Send(request, Selector("identifier")));
-            var action = Text(Send(response, Selector("actionIdentifier")));
-            if (id is not null) Post(() => sink.Respond(id, action));
-        } catch (Exception error) { DesktopNotifications.Report(error); }
-        finally { MacNotificationBlock.Finish(completion); }
     }
 }
