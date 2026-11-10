@@ -219,4 +219,21 @@ public class ImportDiscoverySummaryTests {
         await Assert.That(split.Sum(v => v.SessionCount)).IsEqualTo(s.UnmatchedFolders.Single().Sessions);
         await Assert.That(s.UnmatchedFolderVendors.ContainsKey("/w/kcap")).IsFalse();
     }
+
+    /// A transcript can record a Windows cwd with forward slashes; it is the same folder as its backslash
+    /// spelling, so it is one unmatched folder, named in backslashes.
+    [Test]
+    public async Task Both_spellings_of_a_windows_folder_are_one_unmatched_folder() {
+        var s = ImportDiscoverySummary.Build(
+            [("a", At(-1)), ("b", At(-2))],
+            new Dictionary<string, (string Owner, string Name)?> { ["a"] = null, ["b"] = null },
+            Windows,
+            folderBySession: new Dictionary<string, string> { ["a"] = "C:/Users/me/gone/agent-1", ["b"] = @"C:\Users\me\gone\agent-1" });
+
+        var folder = s.UnmatchedFolders.Single();
+
+        await Assert.That(folder.Folder).IsEqualTo(@"C:\Users\me\gone\agent-1");
+        await Assert.That(folder.Sessions).IsEqualTo(2);
+        await Assert.That(ImportDiscoveryRender.ToText(s)).DoesNotContain("C:/");
+    }
 }
