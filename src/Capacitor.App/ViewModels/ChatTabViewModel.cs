@@ -164,9 +164,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     /// A foreign MCP call: the usual detail keys first, then whatever string it was given.
-    string FirstOrAny(string? inputJson, ToolCategory category) {
-        var known = ToolDetail.From(inputJson, _root, category);
-        return known.Length > 0 ? known : ToolDetail.FirstString(inputJson);
+    (string Text, bool IsPath) FirstOrAny(string? inputJson, ToolCategory category) {
+        var known = ToolDetail.ForRow(inputJson, _root, category);
+        return known.Text.Length > 0 ? known : (ToolDetail.FirstString(inputJson), false);
     }
 
     Action? CardOpener(ToolCard card) {
@@ -1874,13 +1874,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         var isToolSearch = entry is null && KcapToolCatalogue.IsToolSearch(name);
                         var category = entry?.Category ?? ToolSummary.Categorize(name, e.ToolInputJson);
                         var foreignLabel = entry is null && !isToolSearch ? KcapToolCatalogue.ForeignLabel(name) : null;
-                        var detail = entry is not null ? ToolDetail.ForKey(e.ToolInputJson, entry.DetailKey)
-                            : isToolSearch ? TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80)
+                        var (detail, detailIsPath) = entry is not null ? ToolDetail.ForKeyInRow(e.ToolInputJson, entry.DetailKey, _root)
+                            : isToolSearch ? (TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80), false)
                             : foreignLabel is not null ? FirstOrAny(e.ToolInputJson, category)
-                            : ToolDetail.From(e.ToolInputJson, _root, category);
+                            : ToolDetail.ForRow(e.ToolInputJson, _root, category);
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
-                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip) { SessionOver = _ended };
+                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip, detailIsPath) { SessionOver = _ended };
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
