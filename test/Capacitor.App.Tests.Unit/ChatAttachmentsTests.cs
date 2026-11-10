@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -156,6 +157,54 @@ public class ChatAttachmentsTests {
             await Assert.That(h.Chat.Tray.HasAttachments).IsFalse();
             await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
             await h.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("")]
+    [Arguments("  \n ")]
+    public async Task An_older_daemon_refusing_files_only_keeps_the_chips_and_explains_how_to_retry(string text) {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var agent = Agent("a1", "pi", hasTerminal: false, workLocation: "owned") with { Status = "Running" };
+            using var presence = new BehaviorSubject<AgentPresence>(new(agent, false));
+            var ops = new ScriptedLocalControlOps();
+            using var input = new LocalFrameChatInput("a1", daemon, ops, presence);
+            var uploader = new ScriptedUploader();
+            var time = new FakeTimeProvider();
+            var chat = new ChatTabViewModel(
+                "a1", daemon, input, uploader, TranscriptChat.Journal, new RecordingOpener(), time,
+                new FakePermissionService(), new SessionRuns(time));
+            try {
+                daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", "input/2"]));
+                daemon.Agents.AddOrUpdate(agent);
+                await (chat.PendingReadForTesting ?? Task.CompletedTask);
+                var chip = Chip("a.png");
+                chat.Tray.AddAll([chip]);
+                chat.ComposerText = text;
+                ops.QueueSendText(new SendTextResult(false, SendTextReasons.TextEmpty, "text is empty", null));
+
+                await chat.SendCommand.Execute();
+
+                await Assert.That(chat.ComposerHint).IsEqualTo(
+                    "Add text to send these files, or update and restart the daemon to send files without text.");
+                await Assert.That(chat.Tray.Items.Single()).IsSameReferenceAs(chip);
+                await Assert.That(chat.ComposerText).IsEqualTo(text);
+                await Assert.That(chat.HasQueuedMessages).IsFalse();
+                await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+
+                chat.ComposerText = "Please review this file";
+                ops.QueueSendText(new SendTextResult(true, null, null, SendTextOutcomes.Delivered));
+                await chat.SendCommand.Execute();
+
+                await Assert.That(ops.SendTextWithAttachmentsPayloads.Count).IsEqualTo(2);
+                await Assert.That(ops.SendTextWithAttachmentsPayloads[^1].Text).IsEqualTo("Please review this file");
+                await Assert.That(uploader.Calls[^1].Single()).IsSameReferenceAs(chip);
+                await Assert.That(chat.Tray.HasAttachments).IsFalse();
+                await Assert.That(chat.ComposerText).IsEqualTo("");
+                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            } finally { await chat.TeardownAsync(); }
         });
     }
 
