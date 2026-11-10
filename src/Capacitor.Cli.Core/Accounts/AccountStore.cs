@@ -40,6 +40,10 @@ public sealed class AccountStore {
 
     static readonly TimeSpan ReplacePoll = TimeSpan.FromMilliseconds(5);
 
+    // A save killed between creating its temporary and the rename leaves it behind for good; past this age a
+    // temporary is that leftover, and the registry beside it is missing rather than being replaced.
+    static readonly TimeSpan LiveTemporaryAge = TimeSpan.FromSeconds(5);
+
     public AccountRegistry Load() {
         if (ReadRegistry() is not { } text) return new AccountRegistry();
         AccountRegistry registry;
@@ -80,15 +84,28 @@ public sealed class AccountStore {
         }
     }
 
-    /// <summary>A save's temporary beside the missing registry. <c>accounts.lock</c> names a mutex, not a file,
-    /// so the temporary is the only trace a save leaves on disk.</summary>
+    /// <summary>A live save's temporary beside the missing registry. <c>accounts.lock</c> names a mutex, not a
+    /// file, so the temporary is the only trace a save leaves on disk.</summary>
     bool ReplaceInFlight() {
-        if (!System.IO.Directory.Exists(Directory)) return false;
+        var now = Time.GetUtcNow().UtcDateTime;
+        return Temporaries().Any(t => (now - t.LastWriteTimeUtc).Duration() < LiveTemporaryAge);
+    }
+
+    IEnumerable<FileInfo> Temporaries() {
+        if (!System.IO.Directory.Exists(Directory)) return [];
 
         try {
-            return System.IO.Directory.EnumerateFiles(Directory, Path.GetFileName(RegistryPath) + ".*.tmp").Any();
+            return new DirectoryInfo(Directory).EnumerateFiles(Path.GetFileName(RegistryPath) + ".*.tmp").ToList();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return false;
+            return [];
+        }
+    }
+
+    // Only under accounts.lock, which every save holds: no temporary seen there belongs to a live save.
+    void DeleteLeftoverTemporaries() {
+        foreach (var temporary in Temporaries()) {
+            try { temporary.Delete(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }
 
@@ -184,6 +201,7 @@ public sealed class AccountStore {
 
     void Save(AccountRegistry registry) {
         EnsureDirectory();
+        DeleteLeftoverTemporaries();
         AtomicFile.Replace(RegistryPath, JsonSerializer.Serialize(registry, AccountRegistryJsonContext.Default.AccountRegistry), OwnerOnlyFile);
     }
 

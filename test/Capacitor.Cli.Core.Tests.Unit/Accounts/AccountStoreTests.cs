@@ -60,6 +60,32 @@ public class AccountStoreTests {
         await Assert.That(store.Load().Accounts.Count).IsEqualTo(0);
     }
 
+    /// <summary>A save killed before its rename leaves its temporary behind for good. Beside a registry that was
+    /// never written, that leftover must not make every lock-free read wait.</summary>
+    [Test]
+    public async Task Load_beside_a_leftover_temporary_does_not_wait() {
+        var store     = new AccountStore(Tmp.PathTo("accounts")) { ReplaceWait = TimeSpan.FromSeconds(10) };
+        var temporary = Tmp.CreateFile(["accounts", "accounts.json.0123456789abcdef.tmp"], "{}");
+        File.SetLastWriteTimeUtc(temporary, DateTime.UtcNow.AddHours(-1));
+        var started = TimeProvider.System.GetTimestamp();
+
+        var registry = store.Load();
+
+        await Assert.That(registry.Accounts.Count).IsEqualTo(0);
+        await Assert.That(TimeProvider.System.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task A_save_removes_a_leftover_temporary() {
+        var store     = Store();
+        var temporary = Tmp.CreateFile(["accounts", "accounts.json.0123456789abcdef.tmp"], "{}");
+
+        store.Mutate(r => (r with { Accounts = [Claude("/h/.claude-work")] }, 0));
+
+        await Assert.That(File.Exists(temporary)).IsFalse();
+        await Assert.That(store.Load().Accounts.Count).IsEqualTo(1);
+    }
+
     [Test]
     public async Task Mutate_persists_and_increments_the_revision() {
         var store = Store();
