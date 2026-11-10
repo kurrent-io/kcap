@@ -551,6 +551,8 @@ public class WorkContextViewModelTests {
             PeakContextTokens = 142_000, ContextWindow = 200_000, EstimatedCostUsd = 3.456,
         },
         DefaultVisibility = "org_public", DetailLevel = "activity", AgentVisibility = "scoped",
+        StartedAt = new DateTimeOffset(2026, 11, 3, 9, 5, 0, TimeSpan.Zero),
+        LastEventAt = new DateTimeOffset(2026, 11, 10, 14, 32, 0, TimeSpan.Zero),
     };
 
     [Test]
@@ -567,6 +569,8 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.ContextUse).IsEqualTo("142k / 200k (71%)");
             await Assert.That(h.Vm.SessionSharing).IsEqualTo("Org members · Activity");
             await Assert.That(h.Vm.AgentSharing).IsEqualTo("People & teams");
+            await Assert.That(h.Vm.Created).IsEqualTo("3 Nov 2026, 09:05");
+            await Assert.That(h.Vm.Updated).IsEqualTo("10 Nov 2026, 14:32");
             await h.Vm.TeardownAsync();
         });
     }

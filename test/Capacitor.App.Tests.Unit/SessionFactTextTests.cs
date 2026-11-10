@@ -77,6 +77,14 @@ public class SessionFactTextTests {
     }
 
     [Test]
+    public async Task A_timestamp_reads_in_the_viewers_zone() {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("plus2", TimeSpan.FromHours(2), "plus2", "plus2");
+
+        await Assert.That(SessionFactText.Timestamp(new DateTimeOffset(2026, 11, 10, 23, 30, 0, TimeSpan.Zero), zone)).IsEqualTo("11 Nov 2026, 01:30");
+        await Assert.That(SessionFactText.Timestamp(null, zone)).IsEqualTo(SessionFactText.Unknown);
+    }
+
+    [Test]
     public async Task Agent_sharing_is_unknown_when_the_server_does_not_say() {
         await Assert.That(SessionFactText.AgentSharing(null)).IsEqualTo(SessionFactText.Unknown);
         await Assert.That(SessionFactText.AgentSharing("none")).IsEqualTo("Private");

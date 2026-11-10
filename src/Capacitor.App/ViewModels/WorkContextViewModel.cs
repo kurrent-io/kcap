@@ -145,6 +145,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     bool IsLive => _dto is not null && !SessionStatusDots.IsTerminal(_dto.Status);
     double? ContextPercent => SessionFactText.CurrentContextPercent(_stats);
 
+    string _created = SessionFactText.Unknown;
+    public string Created { get => _created; private set => this.RaiseAndSetIfChanged(ref _created, value); }
+    string _updated = SessionFactText.Unknown;
+    public string Updated { get => _updated; private set => this.RaiseAndSetIfChanged(ref _updated, value); }
     string _sessionSharing = SessionFactText.Unknown;
     public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
     string _agentSharing = SessionFactText.Unknown;
