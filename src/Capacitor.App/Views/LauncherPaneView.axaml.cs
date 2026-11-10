@@ -176,16 +176,10 @@ public partial class LauncherPaneView : UserControl {
 
         // Pill sits on the title row only (not vertically centered on title+path), so every
         // repo's badge lines up with "No repository"'s badge. No harness available, no badge.
-        var pill = new Border {
-            Background = this.Brush("KcapMutedBrush"), CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(8, 3), Margin = new Thickness(12, 0, 0, 0),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        var pill = new StatusBadge {
+            Text = HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor),
+            Margin = new Thickness(12, 0, 0, 0),
             IsVisible = HomeViewModel.IsAvailable(vm.Harnesses, option.Vendor),
-            Child = new TextBlock {
-                Text = HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor),
-                FontSize = 11, FontWeight = FontWeight.SemiBold,
-                Foreground = this.Brush("KcapOnPrimaryBrush"),
-            },
         };
 
         var grid = new Grid {
@@ -504,10 +498,7 @@ public partial class LauncherPaneView : UserControl {
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         });
         if (isDefault) {
-            var tag = new TextBlock {
-                Text = "default", FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
-                Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            };
+            var tag = new StatusBadge { Text = "Default", Margin = new Thickness(8, 0, 0, 0) };
             Grid.SetColumn(tag, 1);
             grid.Children.Add(tag);
         }

@@ -146,7 +146,7 @@
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <StackPanel Spacing="2">
                                     <TextBlock Classes="onboardingLabel" Text="{Binding Label}" />
-                                    <TextBlock Classes="onboardingSignal" Text="{Binding Origin}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Classes="kcapStatusWord" Text="{Binding Origin}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                                 <icons:AppIcon Kind="Check" Size="14" Grid.Column="1" Classes="onboardingChoiceMark" VerticalAlignment="Center"
                                                Foreground="{StaticResource OnboardingAccentBrush}" />
