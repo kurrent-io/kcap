@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -17,7 +18,8 @@ public class WhatsDoneCommandTests {
     }
 
     WhatsDoneCommand Command(ICapacitorHttpClient http) =>
-        new(Config.Root, Resolutions.At("https://example.test", Config.Root), TestHarnesses.Under(Home), http, TimeProvider.System);
+        new(Config.Root, Resolutions.At("https://example.test", Config.Root), TestHarnesses.Under(Home), http, TimeProvider.System,
+            LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     /// <summary>A summary reads the session's recap off the server and writes it back.</summary>
     [Test]
@@ -81,10 +83,30 @@ public class WhatsDoneCommandTests {
         var       http    = new RecordingCapacitorHttpClient(handler);
 
         var exit = await new WhatsDoneCommand(
-                Config.Root, Resolutions.At("https://example.test", Config.Root), TestHarnesses.Under(Home), http, TimeProvider.System)
+                Config.Root, Resolutions.At("https://example.test", Config.Root), TestHarnesses.Under(Home), http, TimeProvider.System,
+                LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root))
             .GenerateForSessionAsync("https://example.test", "session-1", _ => { });
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(http.Lanes).IsEquivalentTo(new[] { "ForBackgroundAsync" });
+    }
+
+    /// <summary>A local installation with no background intelligence gets no summary: the run succeeds before it reads the
+    /// recap, so no CLI is reached.</summary>
+    [Test]
+    public async Task A_local_installation_without_intelligence_is_skipped_before_any_request() {
+        const string server = "http://localhost:41999";
+        using var handler = new NotFound();
+        var       http    = new RecordingCapacitorHttpClient(handler);
+        var       log     = new List<string>();
+
+        var exit = await new WhatsDoneCommand(
+                Config.Root, Resolutions.At(server, Config.Root), TestHarnesses.Under(Home), http, TimeProvider.System,
+                new LocalIntelligenceGate(Config.Root, () => Resolutions.InstalledAt(server)))
+            .GenerateForSessionAsync(server, "session-1", log.Add);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(http.Lanes).IsEmpty();
+        await Assert.That(log.Single()).Contains(LocalIntelligenceGate.NotSetUp);
     }
 }

@@ -31,9 +31,17 @@ namespace Capacitor.Cli.Commands.Harness;
 public sealed class ClaudeHookCommand(
         ConfigRoot config, ProfileContext profiles, HookClock clock, UserHome home,
         HarnessRegistry harnesses, HostedAgent hosted, ICapacitorHttpClient http, WatcherManager watchers,
-        IProcessStarter starter, GitProviderRouter router, WorkingDirectory workdir, AccountStore accounts) {
+        IProcessStarter starter, GitProviderRouter router, WorkingDirectory workdir, AccountStore accounts,
+        Func<ProcessIncarnation?>? endingProcess = null) {
 
     string Url => profiles.Resolution.ServerUrl!;
+
+    // The Claude process a SessionEnd reports, read once and only for a session end.
+    readonly Lazy<ProcessIncarnation?> _endingProcess = new(endingProcess ?? ClaudeSessionEndProcess.Current);
+
+    internal Func<string, string?> Env { get; init; } = Environment.GetEnvironmentVariable;
+
+    SessionStartAudience Audience => SessionStartAudience.From(hosted) with { IsHeadless = ClaudeEntrypoint.IsHeadless(Env) };
 
     // Hard ceiling on the best-effort pre-POST drain (watcher kill + inline transcript
     // drain) for session-end / subagent-stop. Session-end runs in the detached continuation
@@ -523,7 +531,7 @@ public sealed class ClaudeHookCommand(
                      source.Equals("compact", StringComparison.OrdinalIgnoreCase));
                 try {
                     await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
-                        agentId: null, cwd: cwd, skipTitle: isResumeOrCompact);
+                        agentId: null, cwd: cwd, skipTitle: isResumeOrCompact, handOffWithin: budget.Remaining);
                 } catch { }
             }
 
@@ -539,9 +547,17 @@ public sealed class ClaudeHookCommand(
             var unusableUrl = !HookHttp.IsPostable(Url);
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
-            if (command is "session-start" or "session-end" && sessionId is not null) {
+            if (command == "session-end" && sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
+                await Console.Error.WriteLineAsync($"[kcap] session-end not spooled: the daemon recording {sessionId} posted it when the session's process exited");
+                _endSettled = true;
+            }
+            else if (command is "session-start" or "session-end" && sessionId is not null) {
                 var spooled = spool.Append(sessionId, command, NormalizeForSpool(body, command));
-                if (command == "session-end") _endSettled = spooled;
+                if (command == "session-end") {
+                    _endSettled = spooled;
+                    if (spooled) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
+                }
+
                 await ReportSpoolAsync(spooled, command, sessionId, reason, unusableUrl);
             }
             else if (command == "subagent-stop" && sessionId is not null && agentId is not null) {
@@ -888,7 +904,7 @@ public sealed class ClaudeHookCommand(
                                 await watchers.KillWatcher(sessionId);
 
                                 if (transcriptPath is not null) {
-                                    await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null);
+                                    await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, from: _endingProcess.Value);
                                 }
                             },
                             effectiveCap
@@ -973,7 +989,7 @@ public sealed class ClaudeHookCommand(
             //    Idempotent — safe to call even if the POST subsequently fails.
             if (sessionId is not null && transcriptPath is not null) {
                 await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
-                    agentId: null, cwd: sessionCwd, skipTitle: isResumeOrCompact);
+                    agentId: null, cwd: sessionCwd, skipTitle: isResumeOrCompact, handOffWithin: budget.Remaining);
             }
             HookTiming.Mark("watcher");
 
@@ -1065,9 +1081,9 @@ public sealed class ClaudeHookCommand(
             // delivered, run the feed, or route passes for output no agent ever sees. Each opt-out is
             // read from the effective profile, which also covers KCAP_URL users. The feed's guidance
             // names kcap-workitems tools, so without them it is neither requested nor rendered.
-            var audience                    = SessionStartAudience.From(hosted);
+            var audience                    = Audience;
             var coordinationNoticesDisabled = activeProfile?.DisableCoordinationNotices is true;
-            var nextWorkDisabled            = activeProfile?.DisableNextWorkNudge is true
+            var nextWorkDisabled            = activeProfile?.DisableNextWorkNudge is true || !audience.GetsNextWork
                                            || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? capabilityNode = null;
             try {
@@ -1197,7 +1213,7 @@ public sealed class ClaudeHookCommand(
                     var disabled        = activeProfile?.DisableSessionGuidelines is true;
                     var lessonsFragment = SessionGuidelinesEmitter.BuildFragment(responseNode, disabled);
                     audience = audience.WithAck(responseNode);
-                    var nextWorkFragment = NextWorkEmitter.BuildFragmentOrInstruction(responseNode, nextWorkDisabled || !audience.GetsDriverGuidance);
+                    var nextWorkFragment = NextWorkEmitter.BuildFragmentOrInstruction(responseNode, nextWorkDisabled || !audience.GetsNextWork, Url);
                     // update_check=false opts out of ALL kcap update nudging, including the
                     // in-agent one — skip emission entirely rather than let a server that still
                     // sends `version` sneak the fragment past a locally-disabled preference.
@@ -1273,11 +1289,18 @@ public sealed class ClaudeHookCommand(
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
             }
 
+            if (sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
+                await Console.Error.WriteLineAsync($"[kcap] session-end not posted: the daemon recording {sessionId} posted it when the session's process exited");
+                _endSettled = true;
+                return 0;
+            }
+
             // Ordering guard: if this session's backlog couldn't fully drain, spool the fresh
             // session-end so a stranded session-start always reaches the server before it.
             if (CurrentSessionHasBacklog(spool, sessionId)) {
                 if (sessionId is not null) {
                     _endSettled = spool.Append(sessionId, "session-end", body);
+                    if (_endSettled) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
                     await Console.Error.WriteLineAsync($"[kcap] session-end spooled (ordering guard); will retry on the next kcap hook ({sessionId})");
                 }
                 return 0;
@@ -1300,18 +1323,23 @@ public sealed class ClaudeHookCommand(
                 if (retryable) {
                     if (sessionId is not null) {
                         _endSettled = spool.Append(sessionId, "session-end", body);
+                        if (_endSettled) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
+
                         await ReportSpoolAsync(_endSettled, "session-end", sessionId, FailureReason(code), unusableUrl: false);
                     } else {
                         await Console.Error.WriteLineAsync("[kcap] session-end transient failure but session_id missing — cannot spool; event dropped");
                     }
                 } else {
-                    // Refused for good, as a deleted session's end is: nothing is left to deliver first.
+                    // Refused for good, as a deleted session's end is: nothing is left to deliver first, or after.
+                    if (sessionId is not null) watchers.SessionEndRefused(sessionId, _endingProcess.Value);
                     _endSettled = true;
                 }
                 return 0;
             }
 
+            if (sessionId is not null) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
             _endSettled = true;
+
             try {
                 var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync());
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true && sessionId is not null)
@@ -1413,7 +1441,7 @@ public sealed class ClaudeHookCommand(
             try { ack = await response.Content.ReadAsStringAsync(); } catch { }
 
             // The block's reason names kcap-workitems tools, so without them it is never sent.
-            var audience         = SessionStartAudience.From(hosted);
+            var audience         = Audience;
             var nextWorkDisabled = activeProfile?.DisableNextWorkNudge is true
                                 || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? payload = null;
@@ -1434,7 +1462,7 @@ public sealed class ClaudeHookCommand(
 
                 if (sessionId is not null && agentId is not null && transcriptPath is not null) {
                     var agentTranscriptPath = ClaudeSubagentFiles.TranscriptPath(transcriptPath, agentId);
-                    await watchers.EnsureWatcherRunning($"{sessionId}-{agentId}", agentTranscriptPath, agentId, sessionId);
+                    await watchers.EnsureWatcherRunning($"{sessionId}-{agentId}", agentTranscriptPath, agentId, sessionId, handOffWithin: budget.Remaining);
                 }
 
                 break;
@@ -1446,7 +1474,7 @@ public sealed class ClaudeHookCommand(
                 var sessionCwd     = node?["cwd"]?.GetValue<string>();
 
                 if (sessionId is not null && transcriptPath is not null) {
-                    await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, cwd: sessionCwd);
+                    await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, cwd: sessionCwd, handOffWithin: budget.Remaining);
                 }
                 HookTiming.Mark("watcher");
 
@@ -1637,10 +1665,7 @@ public sealed class ClaudeHookCommand(
     }
 
     ClaudePaths ClaudeLayoutFor(string? transcriptPath) =>
-        transcriptPath is not null && accounts.TryLoad() is { } registry
-     && AccountPaths.ClaudeForTranscript(transcriptPath, registry, home) is { } paths
-            ? paths
-            : harnesses.Of<ClaudeHarness>().Paths;
+        AccountPaths.ClaudeLayoutFor(transcriptPath, accounts, home, harnesses.Of<ClaudeHarness>().Paths);
 
     static string? ReadPlanFile(string slug, ClaudePaths paths) {
         var planPath = Path.Combine(paths.Plans, $"{slug}.md");

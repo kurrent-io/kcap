@@ -613,6 +613,104 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task Collapsed_sidebar_attention_tracks_hidden_rows_and_a_pointer_click_expands_it() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var directory = new FakeAgentDirectory();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        rail.State = RailState.Ended;
+        var waiting = AgentRow.FromLocal(new AgentStatusDto("a", "agent", "claude", "/repo", "Running", null, null, null,
+            DateTime.UtcNow, null, null, AwaitingInput: true), new RepoIdentity("repo", "repo"));
+        var failed = waiting with { Key = "local:b", Id = "b", Status = "Failed", AwaitingInput = false };
+        directory.Rows.AddOrUpdate([waiting, failed]);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
+        var window = new MainWindow { DataContext = vm };
+        window.Panes.RailCollapsed = true;
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var mark = window.FindControl<Panel>("RailAttentionMark")!;
+            var toggle = window.RailToggleButton;
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(toggle);
+            await Assert.That(rail.Groups).IsEmpty();
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible).Text).IsEqualTo("2");
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar: 2 sessions need attention (1 failed)");
+            ToolTip.SetIsOpen(toggle, true);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(((TextBlock)ToolTip.GetTip(toggle)!).Text).Contains("2 sessions need attention (1 failed)");
+            ToolTip.SetIsOpen(toggle, false);
+
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            var point = toggle.TranslatePoint(new Point(toggle.Bounds.Width / 2, toggle.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            await Assert.That(window.SessionRail.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+            await Assert.That(peer.GetName()).IsEqualTo("Hide sidebar");
+
+            window.Panes.RailCollapsed = true;
+            directory.Rows.RemoveKey(failed.Key);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar: 1 session needs you");
+            directory.Rows.AddOrUpdate(waiting with { AwaitingInput = false });
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar");
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Collapsed_sidebar_surfaces_footer_and_priority_warnings_without_a_session_count() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var background = new BehaviorSubject<bool>(true);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, backgroundPriority: background);
+        var window = new MainWindow { DataContext = vm };
+        window.Panes.RailCollapsed = true;
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var mark = window.FindControl<Panel>("RailAttentionMark")!;
+            var toggle = window.RailToggleButton;
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(toggle);
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible)).IsFalse();
+            await Assert.That(peer.GetName()).Contains(MainWindowViewModel.BackgroundPriorityMessage);
+            background.OnNext(false);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(peer.GetName()).Contains(MainWindowViewModel.DaemonStoppedText);
+            await Assert.That(((TextBlock)ToolTip.GetTip(toggle)!).Text).Contains(MainWindowViewModel.DaemonStoppedText);
+            toggle.Focus();
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            await Assert.That(window.SessionRail.FindControl<StackPanel>("RailAlertRow")!.IsEffectivelyVisible).IsTrue();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         using var directory = new FakeAgentDirectory();
@@ -1107,7 +1205,7 @@ public class MainWindowSmokeTests {
 
     /// The vendor mark, the status word, and the age share one baseline. The age has no extra
     /// padding, or it sits below that line. The row carries the only tip, and it names the
-    /// harness and the model; no child shows a tip of its own.
+    /// harness and the model; no child shows a tip of its own. A screen reader finds the mark by the harness's name.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Vendor_mark_and_running_time_share_the_status_line() {
@@ -1135,6 +1233,8 @@ public class MainWindowSmokeTests {
                     Glyph: Center(glyph),
                     Meta: Center(meta),
                     VendorName: AutomationProperties.GetName(vendor),
+                    VendorPeer: Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(vendor) is var peer && peer.IsControlElement()
+                        ? peer.GetName() : null,
                     VendorLeft: Left(vendor),
                     MarkLeft: Left(mark),
                     MarkRight: Right(mark),
@@ -1150,6 +1250,7 @@ public class MainWindowSmokeTests {
                 return result;
             });
             await Assert.That(seen.VendorName).IsEqualTo("Claude Code");
+            await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
             await Assert.That(seen.RowTipIsStatus).IsTrue();
             await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
@@ -1555,6 +1656,37 @@ public class MainWindowSmokeTests {
 
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    /// The menu takes focus when it opens, so Escape closes it and hands focus back to its button.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Escape_closes_the_rail_help_menu() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            flyout.ShowAt(help);
+            Dispatcher.UIThread.RunJobs();
+            var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
+            var focused = TopLevel.GetTopLevel(docs)?.FocusManager?.GetFocusedElement() as Button;
+            await Assert.That(focused?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+
+            focused!.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(flyout.IsOpen).IsFalse();
+            await Assert.That(help.IsFocused).IsTrue();
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();

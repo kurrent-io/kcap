@@ -75,7 +75,7 @@ public class HubRecorderTransportTests {
         var             transport  = new DetachingTransport(Transport(connection, source.Key), connection);
         hub.ConnectHold = count => count == 1 ? landed.Task : null;
 
-        var host = new RecorderHost(transport, _ => new NoStamps(), _ => new RecorderContext(
+        var host = new RecorderHost(transport, _ => new NoStamps(), (_, _) => new RecorderContext(
             new CapacitorServer(hub.Url, Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(), TimeProvider.System, _ => { }, () => { }), TimeProvider.System);
 
         host.TryAdd(source);

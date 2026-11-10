@@ -82,6 +82,10 @@ public sealed class FakeRecorderTransport : ISilenceableRecorderTransport {
     /// <summary>How many connects have reached <see cref="ConnectHold"/>.</summary>
     public int ConnectsHeld => Volatile.Read(ref _connectsHeld);
 
+    /// <summary>Awaited inside <see cref="ConnectAsync"/> with its token, before the connect fails or lands, so a connect can
+    /// take time on a test's clock.</summary>
+    public Func<CancellationToken, Task>? OnConnect { get; set; }
+
     public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         Interlocked.Increment(ref _connectAttempts);
         ct.ThrowIfCancellationRequested();
@@ -92,6 +96,8 @@ public sealed class FakeRecorderTransport : ISilenceableRecorderTransport {
             Interlocked.Increment(ref _connectsHeld);
             await hold;
         }
+
+        if (OnConnect is { } connecting) await connecting(ct);
 
         if (Interlocked.Decrement(ref _connectFailures) >= 0) throw new InvalidOperationException("The hub is down.");
         Interlocked.Exchange(ref _connectFailures, 0);

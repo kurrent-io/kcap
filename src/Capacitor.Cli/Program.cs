@@ -182,7 +182,7 @@ if (isHook && args.Contains("--claude")) {
 
     if (ClaudeSessionEndHandoff.IsDetached(args)) {
         ClaudeSessionEndHandoff.EnterDetached(claudeHookBody, config);
-    } else if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && ClaudeSessionEndHandoff.TrySpawn(args, claudeHookBody, config, SystemProcessStarter.Instance)) {
+    } else if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && ClaudeSessionEndHandoff.TrySpawn(args, claudeHookBody, config, SystemProcessStarter.Instance, ClaudeSessionEndProcess.Live())) {
         HookTiming.Mark("session-end-handoff");
 
         return 0;
@@ -1115,7 +1115,7 @@ async Task PrintUsage() {
 }
 
 async Task<int> PrintCommandHelp(string cmd) {
-    var text = EmbeddedResources.TryLoad($"help-{cmd}.txt");
+    var text = EmbeddedResources.TryLoadHelp($"help-{cmd}.txt");
 
     if (text is not null) {
         await Console.Out.WriteAsync(text);

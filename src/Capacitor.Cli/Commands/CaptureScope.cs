@@ -7,11 +7,8 @@ namespace Capacitor.Cli.Commands;
 
 /// <summary>
 /// The one place <c>kcap import</c> decides whether a session is inside the profile's capture
-/// scope. Sources discover and classify; none of them holds an opinion about scope, so a source
-/// cannot opt out of it by staying silent — which is the failure this shape exists to prevent.
-///
-/// <para>Runs over every source's classifications at once, so the repo cache is shared across
-/// vendors: two harnesses with sessions in the same directory cost one detection, not two.</para>
+/// scope. Sources ask before probing, and the orchestrator scopes local failures too.
+/// Repository detection is shared and bounded across every source.
 /// </summary>
 sealed class CaptureScope {
     readonly UserHome                               _home;
@@ -21,6 +18,7 @@ sealed class CaptureScope {
     readonly string[]?                              _excludedRepos;
     readonly Func<string, Task<RepositoryPayload?>> _repoDetector;
     readonly ConcurrentDictionary<string, string?> _repoCache = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string, Lazy<Task<string?>>> _repoDetections = new(StringComparer.Ordinal);
 
     public CaptureScope(
             GitProviderRouter router, ConfigRoot config, UserHome home,
@@ -65,6 +63,16 @@ sealed class CaptureScope {
         return [.. classifications.Select(c => Scoped(c) ? Stamp(c, resolvedCwds) : c)];
     }
 
+    public async Task<ImportCommand.SessionClassification?> ExcludeBeforeProbeAsync(
+            ImportCommand.SessionClassification candidate, IReadOnlyDictionary<string, string> resolvedCwds) {
+        if (!Configured) return null;
+
+        var scoped = (await ApplyAsync([candidate], resolvedCwds))[0];
+        return scoped.ExcludedRepoKeys.Count > 0 || scoped.ExcludedPathKey is not null || scoped.OutsideAllowlist
+            ? scoped with { Status = ImportCommand.ClassificationStatus.Excluded }
+            : null;
+    }
+
     /// <summary>
     /// The statuses that can still reach the server this run: <c>BuildImportChains</c> takes New and
     /// Partial, and the routed path additionally re-asserts AlreadyLoaded.
@@ -80,7 +88,7 @@ sealed class CaptureScope {
 
     /// <summary>
     /// Resolves every distinct cwd up front, bounded, so a few hundred workspaces are not a serial
-    /// wall of <c>git</c> invocations between the probe bar clearing and the plan appearing. Each
+    /// wall of <c>git</c> invocations. Each
     /// miss can spawn several processes under a 5s cap, and one unreachable path costs that alone.
     /// </summary>
     async Task WarmRepoCacheAsync(
@@ -97,8 +105,9 @@ sealed class CaptureScope {
 
         await Parallel.ForEachAsync(
             cwds,
-            new ParallelOptions { MaxDegreeOfParallelism = 8 },
-            async (cwd, _) => _repoCache[cwd] = await DetectAsync(cwd));
+            new ParallelOptions { MaxDegreeOfParallelism = classifications.Count == 1 ? 1 : 8 },
+            async (cwd, _) => _repoCache[cwd] = await _repoDetections
+                .GetOrAdd(cwd, path => new Lazy<Task<string?>>(() => DetectAsync(path))).Value);
     }
 
     ImportCommand.SessionClassification Stamp(
@@ -141,9 +150,7 @@ sealed class CaptureScope {
 
     /// <summary>
     /// The best cwd known for a session: the one its transcript reported, else the one decoded from
-    /// the project directory name. Sources that learn the cwd at discovery put it on Meta; Claude
-    /// and Codex only learn it while classifying, which is why scope is applied here and not at the
-    /// discovery fan-out, where their cwd is still null.
+    /// the project directory name. Claude and Codex resolve it from their transcript before probing.
     /// </summary>
     static string? CwdOf(ImportCommand.SessionClassification c) =>
         c.Meta.Cwd ?? (string.IsNullOrEmpty(c.EncodedCwd) ? null : SessionImporter.DecodeCwdFromDirName(c.EncodedCwd));

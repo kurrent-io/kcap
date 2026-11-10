@@ -72,7 +72,9 @@ internal sealed partial class RecordedSourceList(string stateDirectory, ILogger 
         }
     }
 
-    static bool IsWhole(RecordedSource? source) => source is { AgentId: not null, SessionId: not null, TranscriptPath: not null, Vendor: not null };
+    // A terminal source with no process would have nothing to end it.
+    static bool IsWhole(RecordedSource? source) =>
+        source is { SessionId: not null, TranscriptPath: not null, Vendor: not null } && (source.AgentId is not null || source.Process is { StartToken: not null });
 
     bool Write() {
         try {

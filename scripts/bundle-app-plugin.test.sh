@@ -9,6 +9,7 @@ cp "$tmp/app/kcap.exe" "$tmp/kcap.exe.orig"
 bash "$here/bundle-app-plugin.sh" "$tmp/app" 1.3.0-beta.7+abc
 bash "$here/assert-app-plugin.sh" "$tmp/app" 1.3.0-beta.7 >/dev/null
 cmp "$tmp/kcap.exe.orig" "$tmp/app/kcap.exe"
+cmp "$here/../kcap/hooks/hooks.windows.json" "$tmp/app/kcap/hooks/hooks.json"
 if bash "$here/bundle-app-plugin.sh" "$tmp/app" 1.3.0-beta.8 >/dev/null 2>&1; then
   echo "FAIL: overwrote an existing plugin"; exit 1
 fi
@@ -17,4 +18,12 @@ mv "$tmp/app/kcap/hooks/hooks.json" "$tmp/hooks.json"
 if bash "$here/assert-app-plugin.sh" "$tmp/app" 1.3.0-beta.7 >/dev/null 2>&1; then
   echo "FAIL: accepted a missing Windows hook"; exit 1
 fi
+cp "$here/../kcap/hooks/hooks.json" "$tmp/app/kcap/hooks/hooks.json"
+if bash "$here/assert-app-plugin.sh" "$tmp/app" 1.3.0-beta.7 >/dev/null 2>&1; then
+  echo "FAIL: accepted Windows hooks that start through a shell"; exit 1
+fi
+mkdir -p "$tmp/linux/bin"
+write_stub_kcap "$tmp/linux/bin/kcap"
+bash "$here/bundle-app-plugin.sh" "$tmp/linux" 1.3.0-beta.7
+cmp "$here/../kcap/hooks/hooks.json" "$tmp/linux/kcap/hooks/hooks.json"
 echo "ok"

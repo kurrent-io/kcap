@@ -24,13 +24,12 @@ sealed record LocalSetupArgs(
 
     /// <summary>The flags whose next token is their value, which a bare name check must skip.</summary>
     static readonly string[] TakesValue = [
-        "--plugin-scope", "--default-visibility", "--use-provider-api-key", "--daemon-name", EmbeddingModelFlag, IntelligenceFlag, IntelligenceModelFlag,
+        "--plugin-scope", "--default-visibility", "--use-provider-api-key", "--daemon-name", "--skip-import-repo", "--skip-import-folder",
+        EmbeddingModelFlag, IntelligenceFlag, IntelligenceModelFlag,
     ];
 
     public const string ImportOutcomesFlag   = "--import-outcomes";
     public const string NoImportOutcomesFlag = "--no-import-outcomes";
-
-    static readonly string[] InstallConfirmations = ["--single-user", "--yes"];
 
     static readonly string[] ValueFlags = [EmbeddingModelFlag, IntelligenceFlag, IntelligenceModelFlag];
 
@@ -124,15 +123,6 @@ sealed record LocalSetupArgs(
 
         if (rest.Contains(ImportOutcomesFlag) && rest.Contains(NoImportOutcomesFlag))
             return Refuse($"{ImportOutcomesFlag} and {NoImportOutcomesFlag} contradict each other. Drop one of them.");
-
-        // Asked before anything runs: a run that cannot ask would otherwise install a server and leave this unset.
-        if (noPrompt && answer is null) {
-            var alsoMissing = InstallConfirmations.Where(f => !rest.Contains(f)).ToList();
-
-            return Refuse($"--no-prompt needs {IntelligenceFlag} <answer>: who runs background intelligence, one of "
-                        + $"{string.Join(", ", IntelligenceAnswer.Tokens)}."
-                        + (alsoMissing.Count == 0 ? "" : $" Pass {string.Join(" and ", alsoMissing)} too, to install."));
-        }
 
         if (noPrompt && answer?.Vendor is { } vendor && string.IsNullOrWhiteSpace((variable ?? Environment.GetEnvironmentVariable)(vendor.KeyVariable)))
             return Refuse($"{IntelligenceFlag} {vendor.Id} needs the API key in {vendor.KeyVariable} when setup cannot ask for it.");

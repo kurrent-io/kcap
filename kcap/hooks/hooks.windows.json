@@ -1,0 +1,257 @@
+{
+  "description": "kcap — automatic capture, search, and recall sessions",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--pass-notices-capable", "--no-update-check"],
+            "timeout": 9,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--plan-read", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "TaskCreate|TaskUpdate|TodoWrite|Agent|mcp__.*kcap-plans__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--task-list", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*progress.md*)",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--task-list", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--task-list", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--workspace-span", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--plan-edit", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--workspace-span", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--no-update-check"],
+            "timeout": 36000,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--title-prompt", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--pass-notices", "--no-update-check"],
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap.exe",
+            "args": ["hook", "--claude", "--workspace-span", "--no-update-check"],
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ]
+  }
+}

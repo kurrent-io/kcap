@@ -55,6 +55,12 @@ public class ClaudeCompletionNudgeTests {
         await Assert.That(ClaudeCompletionNudge.ShouldBlock(Nudge, nextWorkDisabled: false, Payload(),
             new SessionStartAudience(IsHosted: true, IsFlowParticipant: true))).IsFalse();
 
+    /// <summary>Every other gate agrees, so only the headless mark can withhold the block.</summary>
+    [Test]
+    public async Task A_headless_run_is_never_blocked() =>
+        await Assert.That(ClaudeCompletionNudge.ShouldBlock(Nudge, nextWorkDisabled: false, Payload(),
+            SessionStartAudience.Interactive with { IsHeadless = true })).IsFalse();
+
     [Test]
     public async Task A_hosted_agent_that_is_not_a_participant_is_still_blocked() =>
         await Assert.That(ClaudeCompletionNudge.ShouldBlock(Nudge, nextWorkDisabled: false, Payload(),
