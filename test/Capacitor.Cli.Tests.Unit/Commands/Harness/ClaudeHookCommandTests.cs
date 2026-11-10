@@ -1372,6 +1372,54 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout).DoesNotContain("Review PR #42");
     }
 
+    const string GuidelinesAndNextWorkAck =
+        """{"top_clusters":[{"text":"Run the fast suite first","category":"pattern"}],"next_work":{"rows":[{"label":"Review PR #42","because":"Priya is waiting","href":"/repo/fa1efc1b2ecbbde9/evals","tier":1}],"as_of":"t","arms_not_current":[]}}""";
+
+    async Task<(JsonNode PostedBody, string Context)> StartWithEntrypointAsync(Fixture fx, string? entrypoint) {
+        fx.RegisterClaudeMcpServer("kcap-workitems");
+        fx.Env = key => key == "CLAUDE_CODE_ENTRYPOINT" ? entrypoint : null;
+        var sid = Guid.NewGuid().ToString("N");
+
+        var (exit, stdout) = await RunCapturingStdoutAsync(() =>
+            fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(Tmp)}}","source":"startup"}"""));
+        await Assert.That(exit).IsEqualTo(0);
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
+        return (JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!,
+                JsonNode.Parse(stdout)!["hookSpecificOutput"]!["additionalContext"]!.GetValue<string>());
+    }
+
+    /// <summary><c>claude -p</c> prints its answer as the run's output, so a next-work presentation would land
+    /// in it: neither the list, its instruction-only fallback nor the capability is sent, and the guidelines are.</summary>
+    [Test, NotInParallel]
+    public async Task a_headless_claude_run_gets_no_next_work_and_keeps_the_guidelines() {
+        using var fx = new Fixture(Config.Root) { RespondJson = GuidelinesAndNextWorkAck };
+
+        var (body, ctx) = await StartWithEntrypointAsync(fx, "sdk-cli");
+
+        await Assert.That(body["next_work"]).IsNull();
+        await Assert.That(body["next_work_budget_ms"]).IsNull();
+        await Assert.That(ctx).Contains("Run the fast suite first");
+        await Assert.That(ctx).DoesNotContain("next-work-data");
+        await Assert.That(ctx).DoesNotContain("Review PR #42");
+        await Assert.That(ctx).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+    }
+
+    /// <summary>Only <c>sdk-cli</c> is headless: an interactive session and an SDK host still get the list,
+    /// its server-relative link joined to the server URL.</summary>
+    [Test, NotInParallel]
+    [Arguments("cli")]
+    [Arguments("sdk-ts")]
+    [Arguments(null)]
+    public async Task a_claude_run_that_is_not_headless_still_gets_next_work(string? entrypoint) {
+        using var fx = new Fixture(Config.Root) { RespondJson = GuidelinesAndNextWorkAck };
+
+        var (body, ctx) = await StartWithEntrypointAsync(fx, entrypoint);
+
+        await Assert.That(body["next_work"]?.GetValue<string>()).IsEqualTo("v1");
+        await Assert.That(ctx).Contains($"1. Review PR #42 — Priya is waiting  {fx.MemoryServerUrl.TrimEnd('/')}/repo/fa1efc1b2ecbbde9/evals");
+    }
+
     // ── SessionStart coordination-notices lane: capability advertise + response render ───────
 
     [Test, NotInParallel]
@@ -2265,6 +2313,17 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
+    [Test]
+    public async Task stop_writes_nothing_for_a_headless_claude_run() {
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"completion_nudge":true}""", Env = key => key == "CLAUDE_CODE_ENTRYPOINT" ? "sdk-cli" : null };
+        fx.RegisterClaudeMcpServer("kcap-workitems");
+        var stdout = new StringWriter();
+
+        await fx.HandleAsync(StopWith(WrapUpMessage), stdout: stdout);
+
+        await Assert.That(stdout.ToString()).IsEmpty();
+    }
+
     /// <summary>The ack and the message both ask for the block, so only the missing tools stop it.</summary>
     [Test]
     public async Task stop_writes_nothing_when_the_workitems_tools_are_not_registered() {
@@ -2387,6 +2446,10 @@ public class ClaudeHookCommandTests {
 
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
+
+        /// <summary>The environment Claude Code ran the hook in. Empty by default, so the test host's own
+        /// <c>CLAUDE_CODE_ENTRYPOINT</c> never reaches the hook.</summary>
+        public Func<string, string?> Env { get; set; } = _ => null;
         public int FlowDefinitionsRequestCount => _memoryServer.LogEntries.Count(e => e.RequestMessage.Path == "/api/flows/definitions");
 
         /// <summary>Every request the stub server saw, for a test asserting that none arrived.</summary>
@@ -2441,7 +2504,7 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None) { Env = Env }.HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 
@@ -2449,7 +2512,7 @@ public class ClaudeHookCommandTests {
         /// <param name="clientUnavailable">Client creation fails, which sends the hook down the arm that never reaches HandleCore.</param>
         public Task<int> EnterAsync(string stdin, bool clientUnavailable = false) {
             StubMemoryServer();
-            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None) { Env = Env }
                 .HandleWithDeps(Spool, new StringReader(stdin), () => clientUnavailable
                     ? Task.FromException<AuthAttempt>(new HttpRequestException("unreachable"))
                     : Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));

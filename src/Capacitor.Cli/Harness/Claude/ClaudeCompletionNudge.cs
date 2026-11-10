@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Harness.Claude;
 /// <summary>Whether a Stop hook blocks the stop once, asking the agent to close the loose ends it finished,
 /// declare the rest and present next work. Every gate must agree: the server asked for it in the ack, the profile has not
 /// opted out of next-work, the agent is not already continuing from a Stop block, and its last message
-/// reads as a wrap-up. A flow participant is never blocked, whatever the ack says.</summary>
+/// reads as a wrap-up. A flow participant or a headless run is never blocked, whatever the ack says.</summary>
 static class ClaudeCompletionNudge {
     internal const int LastMessageCap = 4000;
 
@@ -29,7 +29,7 @@ static class ClaudeCompletionNudge {
     }
 
     internal static bool ShouldBlock(string? ackBody, bool nextWorkDisabled, JsonNode? payload, SessionStartAudience audience) {
-        if (!audience.GetsDriverGuidance) return false;
+        if (!audience.GetsNextWork) return false;
         if (nextWorkDisabled || !AckRequestsNudge(ackBody) || payload is not JsonObject hook) return false;
         if (ReadBool(hook, "stop_hook_active")) return false;
 
