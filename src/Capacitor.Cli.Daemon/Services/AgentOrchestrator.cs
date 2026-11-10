@@ -5315,7 +5315,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
 
                 batch   = fetch.Batch;
-                message = $"{text}\n\n{AttachmentTrailer.For(batch.Paths)}";
+                var trailer = AttachmentTrailer.For(batch.Paths);
+                message = string.IsNullOrWhiteSpace(text) ? trailer : $"{text}\n\n{trailer}";
             }
 
             // The files become the agent's only once the prompt naming them has landed: every refusal

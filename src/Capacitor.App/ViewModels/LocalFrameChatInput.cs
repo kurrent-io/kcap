@@ -105,7 +105,10 @@ internal sealed class LocalFrameChatInput : ChatInput {
         }
         if (result.Ok) return Settle(ChatSendOutcome.Accepted, null);
         var outcome = result.Reason == SendTextReasons.Transport ? ChatSendOutcome.Unconfirmed : ChatSendOutcome.Rejected;
-        return Settle(outcome, NoticeFor(result));
+        var notice = result.Reason == SendTextReasons.TextEmpty && attachmentIds.Count > 0 && string.IsNullOrWhiteSpace(text)
+            ? "Add text to send these files, or update the daemon."
+            : NoticeFor(result);
+        return Settle(outcome, notice);
     }
 
     internal static string NoticeFor(SendTextResult result) => result.Reason switch {
