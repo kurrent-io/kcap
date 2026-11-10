@@ -60,7 +60,8 @@ static class LocalPurge {
         }
 
         await LocalStackStop.RunAsync(root, unit, service, home, removeUnit: true, ct);
-        LocalStackStop.Delete(root, "bin", "run", "data", "logs", "models", "cache");
+        await LocalStackStop.DeleteWhenReleasedAsync(root, () => LocalStackStop.Delete(root, "bin", "run", "data", "logs", "models", "cache"),
+            "kcap local uninstall --purge", TimeProvider.System, ct);
         FaultPoints.Hit("purge:after-data");
 
         var config = new ConfigRoot(details.ConfigDir);

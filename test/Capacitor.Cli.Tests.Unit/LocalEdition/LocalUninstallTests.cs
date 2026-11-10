@@ -216,6 +216,47 @@ public class LocalUninstallTests {
         await Assert.That(JournalAbsent()).IsTrue();
     }
 
+    /// <summary>Every stop check can pass while Windows still holds the binaries of a server that has just exited.</summary>
+    [Test]
+    public async Task Uninstall_retries_the_deletion_while_an_exited_server_still_holds_its_files() {
+        await InstallAsync();
+        var attempts = 0;
+        var released = TimeProvider.System.GetTimestamp() + TimeProvider.System.TimestampFrequency / 2;
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                DeleteServerFiles = root => {
+                    attempts++;
+                    if (TimeProvider.System.GetTimestamp() < released) throw new UnauthorizedAccessException("Access to the path 'duckdb.dll' is denied.");
+                    LocalStackStop.Delete(root, "bin", "run");
+                },
+            }.RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Uninstalled);
+        await Assert.That(attempts).IsGreaterThan(1);
+        await Assert.That(Directory.Exists(Dir("bin"))).IsFalse();
+        await Assert.That(Directory.Exists(Dir("run"))).IsFalse();
+    }
+
+    [Test]
+    public async Task Uninstall_whose_files_stay_held_says_to_run_it_again() {
+        await InstallAsync();
+
+        var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders, _time) {
+                DeleteServerFiles = _ => {
+                    _time.Advance(TimeSpan.FromMinutes(1));
+                    throw new UnauthorizedAccessException("Access to the path 'duckdb.dll' is denied.");
+                },
+            }.RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None));
+
+        await Assert.That(refused!.Message).Contains("duckdb.dll");
+        await Assert.That(refused.Message).Contains("Run kcap local uninstall again");
+        await Assert.That(File.Exists(Plist)).IsFalse();
+    }
+
     [Test]
     public async Task The_recorders_stop_before_the_unit_and_the_unit_before_any_deletion() {
         await InstallAsync();

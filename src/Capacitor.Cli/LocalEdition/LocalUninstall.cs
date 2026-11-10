@@ -24,8 +24,6 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
     /// <summary>A server is asked to stop with at least this long, however much of the grace the locks took.</summary>
     static readonly TimeSpan MinimumStopGrace = TimeSpan.FromSeconds(1);
 
-    static readonly TimeSpan DeleteRetryGap = TimeSpan.FromMilliseconds(250);
-
     /// <summary>Removes <c>bin/</c> and <c>run/</c>; replaced in tests to hold a file open as an exiting server does.</summary>
     internal Action<LocalRoot> DeleteServerFiles { get; init; } = root => LocalStackStop.Delete(root, "bin", "run");
 
@@ -62,24 +60,16 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
 
             if (!await LocalStackStop.RunWithinAsync(lease.Root, unit, service, home, Left, ct)) return LocalUninstallOutcome.Unloaded;
 
-            // A server that let go of the root still maps its binaries until its process exits, which on Windows
-            // refuses their deletion for a moment; the rest of the grace waits that out.
-            while (true) {
-                try {
-                    DeleteServerFiles(lease.Root);
-                    return LocalUninstallOutcome.Uninstalled;
-                } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                    if (Remaining() <= DeleteRetryGap) return LocalUninstallOutcome.Unloaded;
-                }
+            var held = await LocalStackStop.DeleteWhenReleasedAsync(() => DeleteServerFiles(lease.Root),
+                () => Remaining() > LocalStackStop.DeleteRetryGap, _time, ct);
 
-                await Task.Delay(DeleteRetryGap, _time, ct);
-            }
+            return held is null ? LocalUninstallOutcome.Uninstalled : LocalUninstallOutcome.Unloaded;
         }
 
         if (!purge) {
             await LocalStackStop.RunAsync(lease.Root, unit, service, home, removeUnit: true, ct);
 
-            LocalStackStop.Delete(lease.Root, "bin", "run");
+            await LocalStackStop.DeleteWhenReleasedAsync(lease.Root, () => DeleteServerFiles(lease.Root), "kcap local uninstall", _time, ct);
             FaultPoints.Hit("uninstall:after-delete");
 
             return LocalUninstallOutcome.Uninstalled;
