@@ -3,7 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Pi;
 
@@ -27,6 +27,19 @@ public class PiSessionStartMemoryTests {
     PiHookCommand Hook(string serverUrl = "http://localhost:5100") =>
         new(Config.Root, Resolutions.At(serverUrl, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(serverUrl, Config.Root), new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory));
     static string Render(string? fragment) => PiHookCommand.RenderMemoryOutput(fragment);
+
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_sessions_end_lifts_an_exclusion_and_no_persons_disable(bool excluded) {
+        const string session = "11111111222233334444555555555555";
+        if (excluded) DisabledSessions.Exclude(session, Config.Root); else DisabledSessions.Mark(session, Config.Root);
+
+        await Hook("http://127.0.0.1:1").Handle(["--event", "session-end", "--file", "/x/11111111-2222-3333-4444-555555555555.jsonl"], TextWriter.Null);
+
+        await Assert.That(DisabledSessions.IsDisabled(session, Config.Root)).IsEqualTo(!excluded);
+    }
 
     // Byte-identical to pre-feature behaviour on every no-index path (opt-out, failure, spent lease):
     // the extension treats marker-prefixed stdout as a fragment, so a placeholder would be appended

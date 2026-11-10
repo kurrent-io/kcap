@@ -6,7 +6,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Claude;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Claude;
 
@@ -103,6 +103,27 @@ public class ClaudeSessionStartClaimTests {
 
         await Assert.That(await ClaudeSessionStartClaim.PrepareAsync(body, Config.Root, () => null, NeverSuppress)).IsEqualTo(body);
         await Assert.That(AgentSessions.OnThisMachine(Config.Root).LiveClaimant(SessionId.Parse(Session)!)).IsNull();
+    }
+
+    /// <summary>The server's deletion is permanent, so nothing about the session's end lifts this. Whether a session was
+    /// ever hosted can't be read from the hook's environment either: a hosted session resumed by hand ends in a terminal,
+    /// and a daemon can resume it after that.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_disabled_session_keeps_its_marker_past_its_end(bool isHosted) {
+        DisabledSessions.Mark(Session, Config.Root);
+        var profiles = Resolutions.None(Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var clock    = new HookClock(TimeProvider.System);
+        var command  = new ClaudeHookCommand(Config.Root, profiles, clock, Home,
+            TestHarnesses.Under(Home), isHosted ? new HostedAgent("agent-1", false, DaemonBridge.None) : HostedAgent.Terminal, http, TestWatchers.For(Config.Root, profiles, http),
+            FakeProcessStarter.Refusing(), new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), TestAccounts.None);
+
+        var suppressed = await command.ShouldSuppressCaptureAsync(Session, "{}", "session-end", profiles.Effective, clock.Budget(ClaudeHookCommand.SessionStartCeiling));
+
+        await Assert.That(suppressed).IsTrue();
+        await Assert.That(DisabledSessions.IsDisabled(Session, Config.Root)).IsTrue();
     }
 
     [Test]

@@ -28,6 +28,70 @@ public class HookSpoolTests {
         await Assert.That(HookSpool.OutcomeOf(status)).IsEqualTo(retryable ? DrainOutcome.TransientStop : DrainOutcome.Drop);
     }
 
+    /// <summary>This drain runs on every Claude hook of every session, so it usually gets to a disabled session's entries
+    /// ahead of the ordered one.</summary>
+    [Test]
+    public async Task the_fifo_drain_posts_nothing_of_a_disabled_session_and_discards_it() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":"disabled"}""");
+        spool.Append(SidB, "session-start", """{"n":"other"}""");
+        DisabledSessions.Mark(SidA, config.Root);
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => { posted.Add(body); return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).IsEquivalentTo(new[] { """{"n":"other"}""" });
+        await Assert.That(spool.HasBacklog(SidA)).IsFalse();
+    }
+
+    /// <summary>This drain delivers only its own temps, so what the ordered drain left of the session goes on entry.</summary>
+    [Test]
+    public async Task the_fifo_drain_discards_what_the_ordered_drain_left_of_a_disabled_session() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        var ordered = Path.Combine(spool.DirectoryPath, $"{SidA}.ordered-1-1");
+        await File.WriteAllTextAsync(ordered, "{\"route\":\"session-end\",\"body\":{}}\n");
+        DisabledSessions.Mark(SidA, config.Root);
+
+        await spool.DrainAllAsync(null, (_, _) => Task.FromResult(DrainOutcome.Delivered), TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(File.Exists(ordered)).IsFalse();
+    }
+
+    [Test]
+    public async Task the_fifo_drain_posts_no_more_of_a_session_disabled_during_its_pass() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        spool.Append(SidA, "session-end", """{"n":2}""");
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => {
+            posted.Add(body);
+            DisabledSessions.Mark(SidA, config.Root);
+
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).IsEquivalentTo(new[] { """{"n":1}""" });
+        await Assert.That(spool.HasBacklog(SidA)).IsFalse();
+    }
+
+    [Test]
+    public async Task the_fifo_drain_delivers_an_excluded_sessions_entries() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        DisabledSessions.Exclude(SidA, config.Root);
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => { posted.Add(body); return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).Contains("""{"n":1}""");
+    }
+
     /// <summary>Either drain sends only what was spooled for its own server, from either spool and
     /// however that server's URL is spelled. What an older build left unpartitioned in the root goes
     /// to whichever server drains first.</summary>
@@ -46,7 +110,7 @@ public class HookSpoolTests {
             Task<DrainOutcome> Post(string body) { seen.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
             var spool = new HookSpool(config.Root, TimeProvider.System, server);
             if (ordered)
-                await LifecycleSpoolDrain.RunAsync(spool, new TranscriptSpool(config.Root, TimeProvider.System, server),
+                await LifecycleSpoolDrain.RunAsync(config.Root, spool, new TranscriptSpool(config.Root, TimeProvider.System, server),
                     currentSessionId: null, (_, body) => Post(body), Post, TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
             else
                 await spool.DrainAllAsync(null, (_, body) => Post(body), TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -288,5 +352,31 @@ public class HookSpoolTests {
         await spool.DrainAllAsync(SidA, (_, _) => Task.FromResult(outcome), TimeSpan.FromSeconds(5), CancellationToken.None);
 
         await Assert.That(spool.IsPolicySnapshotDelivered(SidA, "abc123")).IsFalse();
+    }
+
+    [Test]
+    public async Task A_discard_leaves_the_session_nothing_to_deliver() {
+        using var tmp = new TempDir();
+        const string sid   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
+        spool.Append(sid, "session-start", "{}");
+        spool.Append(other, "session-start", "{}");
+        tmp.CreateFile($"{sid}.0-0.draining", "{}");
+        tmp.CreateFile($"{sid}.ordered-0-0", "{}");
+
+        spool.Discard(sid);
+
+        await Assert.That(spool.HasBacklog(sid)).IsFalse();
+        await Assert.That(spool.SessionIdsWithBacklog()).IsEquivalentTo([other]);
+    }
+
+    [Test]
+    public async Task A_discard_of_a_session_with_nothing_held_does_nothing() {
+        using var tmp = new TempDir();
+
+        new HookSpool(tmp.PathTo("never-made"), time: TimeProvider.System).Discard("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        await Assert.That(Directory.Exists(tmp.PathTo("never-made"))).IsFalse();
     }
 }

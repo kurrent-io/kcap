@@ -1,5 +1,6 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using WireMock.RequestBuilders;

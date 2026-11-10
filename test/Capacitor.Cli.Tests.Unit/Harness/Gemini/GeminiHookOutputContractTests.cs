@@ -2,7 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Gemini;
 
@@ -62,6 +62,21 @@ public class GeminiHookOutputContractTests {
             """);
 
         await AssertNonBlockingJsonObject(stdout);
+    }
+
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test, NotInParallel]
+    public async Task A_sessions_end_lifts_an_exclusion_and_no_persons_disable() {
+        const string disabled = "3f2504e1-4f89-11d3-9a0c-0305e82c3301";
+        var excluded = SessionId.Replace("-", "");
+        DisabledSessions.Exclude(excluded, Config.Root);
+        DisabledSessions.Mark(disabled.Replace("-", ""), Config.Root);
+
+        await RunAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{SessionId}}","cwd":"/tmp"}""");
+        await RunAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{disabled}}","cwd":"/tmp"}""");
+
+        await Assert.That(DisabledSessions.IsDisabled(excluded, Config.Root)).IsFalse();
+        await Assert.That(DisabledSessions.IsDisabledByPerson(disabled.Replace("-", ""), Config.Root)).IsTrue();
     }
 
     [Test, NotInParallel]

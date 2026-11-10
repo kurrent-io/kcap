@@ -248,9 +248,11 @@ public static partial class DaemonRunner {
                 await Console.Error.WriteLineAsync(warning);
         }
 
-        config.DebugFrames = ParseDebugFramesFlag(Environment.GetEnvironmentVariable("KCAP_ACP_DEBUG_FRAMES"));
+        config.DebugFrames = ParseOptInFlag(Environment.GetEnvironmentVariable("KCAP_ACP_DEBUG_FRAMES"));
 
         config.AcpReconnectEnabled = ParseAcpReconnectFlag(Environment.GetEnvironmentVariable("KCAP_ACP_RECONNECT"));
+
+        config.RecordHostedClaude = ParseOptInFlag(Environment.GetEnvironmentVariable(Core.LocalIpc.RecordingIpc.EnabledVar));
 
         // Shared name resolution with the CLI supervisor — the CLI's
         // DaemonCommands and the daemon binary must agree on the name so
@@ -639,6 +641,9 @@ public static partial class DaemonRunner {
             sp.GetServices<IHostedAgentRuntimeFactory>().ToDictionary(f => f.Vendor)
         );
 
+        builder.Services.AddSingleton(sp => DaemonRecorder.Compose(
+            config, sp.GetRequiredService<CapacitorServer>(), sp.GetRequiredService<ServerConnection>(), sp.GetRequiredService<ICapacitorHttpClient>(),
+            harnesses, sp.GetRequiredService<ILoggerFactory>(), time));
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<EvalContextCache>();
         builder.Services.AddSingleton<EvalRunner>();
@@ -1267,18 +1272,15 @@ public static partial class DaemonRunner {
         return int.TryParse(raw, out var secs) && secs >= 0 ? TimeSpan.FromSeconds(secs) : fallback;
     }
 
-    /// <summary>
-    /// Parses <c>KCAP_ACP_DEBUG_FRAMES</c> ("1"/"true", case-insensitive, are On; anything else —
-    /// including unset/blank — is Off) into <see cref="DaemonConfig.DebugFrames"/>. Pulled out as a
-    /// pure predicate (mirroring <see cref="ParseLogLevel"/>) so it's testable without an env var.
-    /// </summary>
-    internal static bool ParseDebugFramesFlag(string? value) =>
+    /// <summary>Parses a switch that is off unless set: "1" and "true", in any case, are on, and anything else, unset or
+    /// blank included, is off.</summary>
+    internal static bool ParseOptInFlag(string? value) =>
         value?.Trim() is { } v && (v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Parses the <c>KCAP_ACP_RECONNECT</c> kill switch into
     /// <see cref="DaemonConfig.AcpReconnectEnabled"/>. Opposite default polarity from
-    /// <see cref="ParseDebugFramesFlag"/>, deliberately: reconnect is ON unless explicitly
+    /// <see cref="ParseOptInFlag"/>, deliberately: reconnect is ON unless explicitly
     /// disabled — only <c>0</c>/<c>false</c> (case-insensitive) turn it off; anything else,
     /// including unset/blank, leaves it on.
     /// </summary>

@@ -6,7 +6,9 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.MistralVibe;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.MistralVibe;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -122,7 +124,7 @@ sealed class MistralVibeHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return;
         }
 

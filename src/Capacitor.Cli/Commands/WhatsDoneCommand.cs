@@ -35,6 +35,8 @@ sealed class WhatsDoneCommand(
     /// </summary>
     /// <param name="vendor">"claude" (default) or "codex" — picks the headless CLI runner.</param>
     public async Task<int> GenerateForSessionAsync(string baseUrl, string sessionId, Action<string> log, string vendor = "claude") {
+        if (IsDisabled(sessionId, log)) return 0;
+
         if (!intelligence.Allows(baseUrl)) {
             log($"Not generating a what's-done summary for session {sessionId}: {LocalIntelligenceGate.NotSetUp}");
 
@@ -103,6 +105,13 @@ sealed class WhatsDoneCommand(
 
         log($"Summary generated ({result.Result.Length} chars), model={result.Model}, input={result.InputTokens}, output={result.OutputTokens}");
 
+        return await PostSummaryAsync(httpClient, baseUrl, sessionId, result, log);
+    }
+
+    internal async Task<int> PostSummaryAsync(HttpClient httpClient, string baseUrl, string sessionId, ClaudeCliResult result, Action<string> log) {
+        // A summary takes longer than a person takes to disable the session, and this process runs on by itself.
+        if (IsDisabled(sessionId, log)) return 0;
+
         // 3. POST result back to server
         var payload = new WhatsDonePayload {
             SessionId        = sessionId,
@@ -132,6 +141,14 @@ sealed class WhatsDoneCommand(
         }
 
         return 0;
+    }
+
+    bool IsDisabled(string sessionId, Action<string> log) {
+        if (!DisabledSessions.IsDisabledByPerson(sessionId, config)) return false;
+
+        log($"Session {sessionId} was disabled, so it gets no summary");
+
+        return true;
     }
 
     static string FormatRecapAsText(List<RecapEntry> entries) {

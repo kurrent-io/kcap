@@ -2,7 +2,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -218,8 +218,9 @@ public class UnusableUrlGuardTests : IDisposable {
             dashless, body, "session-start", activeProfile: null, _clock.Budget(Ceiling))).IsTrue();
     }
 
+    /// <summary>The server's deletion is permanent, and a session can be resumed under the same id after its end.</summary>
     [Test]
-    public async Task Session_end_suppression_also_clears_the_marker() {
+    public async Task Session_end_suppression_leaves_the_marker() {
         var sid    = Guid.NewGuid().ToString("N");
         var marker = Config.CreateFile(Path.Combine("disabled", sid));
 
@@ -228,8 +229,7 @@ public class UnusableUrlGuardTests : IDisposable {
         await Assert.That(await new ClaudeHookCommand(Config.Root, Resolutions.None(Config.Root), _clock, Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).ShouldSuppressCaptureAsync(
             sid, body, "session-end", activeProfile: null, _clock.Budget(Ceiling))).IsTrue();
 
-        // Collapsing the gate into a plain boolean would have dropped this cleanup.
-        await Assert.That(File.Exists(marker)).IsFalse();
+        await Assert.That(File.Exists(marker)).IsTrue();
     }
 
     [Test]

@@ -6,7 +6,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Grok;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -88,7 +89,7 @@ sealed class GrokHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return;
         }
 
@@ -98,7 +99,7 @@ sealed class GrokHookCommand(
             new HookSpool(config, clock.Time, Url), sessionId, route: "session-start/grok");
 
         // A refused start leaves the session unrecorded, so a later Stop must not start capturing it.
-        if (outcome == HookPostOutcome.Failed) DisabledSessions.Mark(sessionId, config);
+        if (outcome == HookPostOutcome.Failed) DisabledSessions.Exclude(sessionId, config);
         if (!AgentHookPoster.ShouldSpawnAfter(outcome, Url) || transcriptPath is null) return;
 
         // A resumed session already has its title.

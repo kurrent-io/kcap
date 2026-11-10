@@ -1,6 +1,7 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Mcp;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli;
 
@@ -9,39 +10,18 @@ namespace Capacitor.Cli;
 /// under the session of the coding agent above it.
 /// </summary>
 static class GitHook {
-    public const string Name = "kcap";
-
     static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(3);
-
-    /// <summary>
-    /// Whether <c>git hook list</c> output names kcap's hook, enabled.
-    /// </summary>
-    public static bool ListedIn(string? hookList) =>
-        hookList?.Split('\n').Any(hook => hook.Trim() == Name) == true;
 
     /// <summary>
     /// The <see cref="CommitObservation"/> a watcher starts with.
     /// </summary>
-    public static async Task<CommitObservation> ObservationAsync(ConfigRoot config, string sessionId, string? agentId, string? cwd, TimeProvider time) {
-        if (!await CoversAsync(config, sessionId, cwd, time)) return new CommitObservation.Uncovered();
+    public static Task<CommitObservation> ObservationAsync(ConfigRoot config, string sessionId, string? agentId, string? cwd, TimeProvider time) =>
+        GitHookProbe.ObservationAsync(config, sessionId, agentId, cwd, AgentSessions.OnThisMachine(config).IsClaimed, HookCommand(), time);
 
-        return agentId is null ? new CommitObservation.Covered(SessionCommits.Of(config, SessionId.Parse(sessionId)!)) : new CommitObservation.Subagent();
-    }
+    public static Task<bool> CoversAsync(ConfigRoot config, string sessionId, string? cwd, TimeProvider time) =>
+        GitHookProbe.CoversAsync(sessionId, cwd, AgentSessions.OnThisMachine(config).IsClaimed, HookCommand(), time);
 
-    public static async Task<bool> CoversAsync(ConfigRoot config, string sessionId, string? cwd, TimeProvider time) =>
-        SessionId.Parse(sessionId) is { } session
-     && AgentSessions.OnThisMachine(config).IsClaimed(session)
-     && await RunsInAsync(cwd ?? "", time);
-
-    // Listed means git runs config hooks and the entry is enabled. The command must also be this
-    // binary's: an entry left by a moved or removed kcap is listed, runs nothing, and would still
-    // stop the server reading commits from the transcript.
-    static async Task<bool> RunsInAsync(string dir, TimeProvider time) {
-        var run = RepositoryDetection.DefaultRunner(time);
-
-        return ListedIn(await run("git", "hook list post-commit", dir, GitTimeout))
-            && await run("git", $"config --get hook.{Name}.command", dir, GitTimeout) == GitHookInstaller.CommandFor(KcapBinaryCommand.Resolve());
-    }
+    static string HookCommand() => GitHookProbe.CommandFor(KcapBinaryCommand.Resolve());
 
     /// <summary>
     /// Always 0 and silent: the commit has already landed.
@@ -54,9 +34,12 @@ static class GitHook {
         return 0;
     }
 
-    internal static async Task RecordAsync(GitHookInvocation invocation, AgentSessions sessions, ConfigRoot config, TimeProvider time) {
+    /// <param name="gitTimeout">Caps each git call; a test on a loaded runner passes a longer one.</param>
+    internal static async Task RecordAsync(
+            GitHookInvocation invocation, AgentSessions sessions, ConfigRoot config, TimeProvider time, TimeSpan? gitTimeout = null) {
         // The hook's clock, not git's: git's dates are whole seconds and the caller can set them.
         var committedAt = time.GetUtcNow();
+        var timeout     = gitTimeout ?? GitTimeout;
 
         if (sessions.Above(invocation.Pid) is not { } session) return;
 
@@ -66,11 +49,11 @@ static class GitHook {
         // post-commit passes no arguments and post-merge its squash flag. A squash merge has committed nothing yet.
         var committed = invocation.Args switch {
             []    => true,
-            ["0"] => await MergedNowAsync(run, dir),
+            ["0"] => await MergedNowAsync(run, dir, timeout),
             _     => false,
         };
 
-        if (!committed || await run("git", "log -1 --format=%H%x1f%B", dir, GitTimeout) is not { } log || log.Split('\x1f', 2) is not [var sha, var body])
+        if (!committed || await run("git", "log -1 --format=%H%x1f%B", dir, timeout) is not { } log || log.Split('\x1f', 2) is not [var sha, var body])
             return;
 
         var repo    = await RepositoryDetection.DetectRepositoryAsync(new(), config, dir, time, detectPullRequest: false);
@@ -88,9 +71,9 @@ static class GitHook {
 
     // A fast-forward moves HEAD onto a commit another ref already holds. A merge git just made is
     // held by the current branch alone.
-    static async Task<bool> MergedNowAsync(CommandRunner run, string dir) {
+    static async Task<bool> MergedNowAsync(CommandRunner run, string dir, TimeSpan timeout) {
         // %(HEAD) prints '*' before the branch HEAD is on.
-        var holders = await run("git", "for-each-ref --contains HEAD --format=%(HEAD)%(refname)", dir, GitTimeout);
+        var holders = await run("git", "for-each-ref --contains HEAD --format=%(HEAD)%(refname)", dir, timeout);
 
         return holders is not null && holders
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)

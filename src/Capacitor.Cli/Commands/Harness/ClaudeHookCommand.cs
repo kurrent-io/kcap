@@ -13,7 +13,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Plans;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -665,10 +666,8 @@ public sealed class ClaudeHookCommand(
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            if (command == "session-end") {
-                // The marker withholds the spans until they are gone; a later hook retries the discard.
-                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId)) DisabledSessions.RemoveMarker(canonicalSessionId, config);
-            }
+            // A person's marker stays for good, so it withholds the spans whether or not this discard takes them.
+            if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId);
             return true;
         }
 
@@ -769,10 +768,7 @@ public sealed class ClaudeHookCommand(
             var disabledSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
-                if (command == "session-end") {
-                    // The marker withholds the spans until they are gone; a later hook retries the discard.
-                    if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId)) DisabledSessions.RemoveMarker(disabledSessionId, config);
-                }
+                if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId);
 
                 return 0;
             }
@@ -1688,7 +1684,10 @@ public sealed class ClaudeHookCommand(
                     } catch { }
                 }
                 return DrainOutcome.Delivered;
-            } catch { return DrainOutcome.TransientStop; }
+            } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+                // One that may have reached the server goes through, for the drain to record.
+                return DrainOutcome.TransientStop;
+            }
         };
 
     /// <summary>

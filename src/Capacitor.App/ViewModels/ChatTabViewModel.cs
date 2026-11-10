@@ -63,6 +63,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     // token it can ask without an ObjectDisposedException.
     readonly CancellationToken _lifetimeToken;
     readonly AvaloniaList<ChatItemViewModel> _items = new();
+    ChatFindViewModel? _find;
+    readonly ChatFindMemory? _findMemory;
     readonly AvaloniaList<QueuedChatMessage> _queuedMessages = new();
     // Keep retired sends eligible for late echoes without letting them consume a later send's receipt.
     readonly List<(QueuedChatMessage Old, QueuedChatMessage Replacement)> _superseded = new();
@@ -139,6 +141,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
+    public ChatFindViewModel Find => _find ??= CreateFind();
+
+    ChatFindViewModel CreateFind() {
+        var find = new ChatFindViewModel(_items, state => _findMemory?.Set(_origin, _agentId, state));
+        if (_findMemory?.Get(_origin, _agentId) is { } state) find.Restore(state);
+        return find;
+    }
     public IAvaloniaReadOnlyList<QueuedChatMessage> QueuedMessages => _queuedMessages;
     public bool HasQueuedMessages => _queuedMessages.Count > 0;
     /// Unmatched server entries have no proven client identity.
@@ -155,9 +164,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     /// A foreign MCP call: the usual detail keys first, then whatever string it was given.
-    string FirstOrAny(string? inputJson, ToolCategory category) {
-        var known = ToolDetail.From(inputJson, _root, category);
-        return known.Length > 0 ? known : ToolDetail.FirstString(inputJson);
+    (string Text, bool IsPath) FirstOrAny(string? inputJson, ToolCategory category) {
+        var known = ToolDetail.ForRow(inputJson, _root, category);
+        return known.Text.Length > 0 ? known : (ToolDetail.FirstString(inputJson), false);
     }
 
     Action? CardOpener(ToolCard card) {
@@ -774,12 +783,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, LocalTranscripts? transcripts = null,
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
-            IObservable<HandoffOutcomeDto?>? handoffOutcome = null, Action<string>? openLink = null)
+            IObservable<HandoffOutcomeDto?>? handoffOutcome = null, Action<string>? openLink = null,
+            ChatFindMemory? findMemory = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
-               signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink) { }
+               signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, findMemory: findMemory) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -791,9 +801,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeDto?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
-            HeldMessagesViewModel? heldMessages = null) {
+            HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
+        _findMemory = findMemory;
         Held = heldMessages;
         if (heldMessages is not null) _disposables.Add(heldMessages);
         _origin = origin;
@@ -1863,13 +1874,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         var isToolSearch = entry is null && KcapToolCatalogue.IsToolSearch(name);
                         var category = entry?.Category ?? ToolSummary.Categorize(name, e.ToolInputJson);
                         var foreignLabel = entry is null && !isToolSearch ? KcapToolCatalogue.ForeignLabel(name) : null;
-                        var detail = entry is not null ? ToolDetail.ForKey(e.ToolInputJson, entry.DetailKey)
-                            : isToolSearch ? TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80)
+                        var (detail, detailIsPath) = entry is not null ? ToolDetail.ForKeyInRow(e.ToolInputJson, entry.DetailKey, _root)
+                            : isToolSearch ? (TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80), false)
                             : foreignLabel is not null ? FirstOrAny(e.ToolInputJson, category)
-                            : ToolDetail.From(e.ToolInputJson, _root, category);
+                            : ToolDetail.ForRow(e.ToolInputJson, _root, category);
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
-                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip) { SessionOver = _ended };
+                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip, detailIsPath) { SessionOver = _ended };
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);

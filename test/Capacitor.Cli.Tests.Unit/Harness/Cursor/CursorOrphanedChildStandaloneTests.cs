@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Cursor;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 

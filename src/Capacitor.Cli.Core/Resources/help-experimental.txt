@@ -16,6 +16,9 @@ Features:
                           pages can be answered. macOS, and Windows with the WebView2 runtime. Read by the
                           desktop app, not the daemon, so the list shows it as desktop app only and
                           enable/disable do not wait to confirm
+  launcher-next-work      Show the server's next-work suggestions under the desktop launcher, as the web
+                          dashboard does, and start a session from one. Needs a server with next work
+                          turned on. Desktop app only, like in-app-pages
 
 The profile in use is the one KCAP_PROFILE names, or else the active profile
 A change reaches the running daemon without a restart; kcap waits a few seconds for it to confirm.

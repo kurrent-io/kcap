@@ -15,8 +15,10 @@ public class GitHookTests {
     // Stops at the test process, so a real agent above it on a developer machine never answers.
     AgentSessions Sessions => field ??= new(Config.Root, _ => null);
 
+    // The production cap is shorter than a loaded Windows runner can take to start git.
     Task Hook(params string[] args) =>
-        GitHook.RecordAsync(new GitHookInvocation(args, Environment.ProcessId, Repo.Path), Sessions, Config.Root, TimeProvider.System);
+        GitHook.RecordAsync(new GitHookInvocation(args, Environment.ProcessId, Repo.Path), Sessions, Config.Root, TimeProvider.System,
+            gitTimeout: TimeSpan.FromMinutes(1));
 
     void Claim() => Sessions.Claim(Environment.ProcessId, Session);
 
@@ -68,12 +70,4 @@ public class GitHookTests {
         await Hook("0");
         await Assert.That(Filed().Single().Sha).IsEqualTo(Repo.Head);
     }
-
-    [Test]
-    [Arguments("kcap", true)]
-    [Arguments("husky\nkcap\n", true)]
-    [Arguments("disabled\tkcap", false)]
-    [Arguments(null, false)]
-    public async Task Only_an_enabled_kcap_entry_counts_as_listed(string? hookList, bool listed) =>
-        await Assert.That(GitHook.ListedIn(hookList)).IsEqualTo(listed);
 }

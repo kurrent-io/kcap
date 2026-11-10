@@ -177,13 +177,15 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
                 continue;
             }
 
-            if (withheld is not null && SessionOf(body) is { } owner && withheld(owner)) {
+            var owner = SessionOf(body);
+
+            if (withheld is not null && owner is not null && withheld(owner)) {
                 WorkspaceFiles.TryDelete(file.FullName);
                 continue;
             }
 
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
-            var status = await SendAsync(() => client.PostOnceAsync(url, content, time, Left(), ct));
+            var status = await PostAsync(owner, () => client.PostOnceAsync(url, content, time, Left(), ct));
             if (status is >= 200 and < 300) {
                 WorkspaceFiles.TryDelete(file.FullName);
                 continue;
@@ -215,6 +217,22 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         try {
             return JsonSerializer.Deserialize(body, WorkspaceJsonContext.Default.WorkspaceChangesRequest)?.SessionId;
         } catch (JsonException) {
+            return null;
+        }
+    }
+
+    // Recorded for its session ahead of the send, as UnansweredPosts says, until its own answer comes.
+    async Task<int?> PostAsync(string? session, Func<Task<HttpResponseMessage>> send) {
+        var attempt = session is null ? null : UnansweredPosts.Begin(partition.DirectoryPath, session);
+
+        try {
+            using var response = await send();
+            UnansweredPosts.End(attempt);
+
+            return (int) response.StatusCode;
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException) {
+            if (!UnansweredPosts.Sent(ex)) UnansweredPosts.End(attempt);
+
             return null;
         }
     }

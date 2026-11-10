@@ -12,6 +12,7 @@ public class LauncherNoticesTests {
         public readonly BehaviorSubject<(bool, LauncherNotices.Kind)> Stack = new(Off);
         public readonly BehaviorSubject<(bool, LauncherNotices.Kind)> Server = new(Off);
         public readonly BehaviorSubject<(bool, LauncherNotices.Kind)> Connection = new(Off);
+        public readonly BehaviorSubject<(bool, LauncherNotices.Kind)> History = new(Off);
         public readonly BehaviorSubject<bool> Update = new(false);
         public readonly LauncherNotices Notices = new();
 
@@ -20,10 +21,14 @@ public class LauncherNoticesTests {
             Notices.TrackServer(Server);
             Notices.TrackConnection(Connection);
             Notices.TrackUpdate(Update);
+            Notices.TrackHistory(History);
         }
 
         public (bool Stack, bool Server, bool Connection) Shown =>
             (Notices.ShowStack, Notices.ShowServer, Notices.ShowConnection);
+
+        public (bool Stack, bool Server, bool Connection, bool Update, bool History) AllShown =>
+            (Notices.ShowStack, Notices.ShowServer, Notices.ShowConnection, Notices.ShowUpdate, Notices.ShowHistory);
 
         public void Dispose() => Notices.Dispose();
     }
@@ -95,4 +100,161 @@ public class LauncherNoticesTests {
             await Assert.That(rig.Shown).IsEqualTo((!serverShown, serverShown, false));
         });
     }
+
+    /// Import is last among equals. An unfinished import needs attention without obscuring
+    /// infrastructure progress, while running imports and attention both outrank passive notes.
+    [Test]
+    [Arguments(Progress, Problem, false)]
+    [Arguments(Progress, Progress, false)]
+    [Arguments(Progress, Note, true)]
+    [Arguments(Attention, Problem, false)]
+    [Arguments(Attention, Progress, false)]
+    [Arguments(Attention, Attention, false)]
+    [Arguments(Attention, Note, true)]
+    [Arguments(Note, Problem, false)]
+    [Arguments(Note, Progress, false)]
+    [Arguments(Note, Note, false)]
+    public async Task History_priority_applies_to_each_infrastructure_source(
+            LauncherNotices.Kind historyKind, LauncherNotices.Kind infrastructureKind, bool historyShown) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            for (var slot = 0; slot < 3; slot++) {
+                using var rig = new Rig();
+                var system = slot switch { 0 => rig.Stack, 1 => rig.Server, _ => rig.Connection };
+
+                rig.History.OnNext((true, historyKind));
+                await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+
+                system.OnNext((true, infrastructureKind));
+                await Assert.That(rig.AllShown).IsEqualTo((
+                    slot == 0 && !historyShown,
+                    slot == 1 && !historyShown,
+                    slot == 2 && !historyShown,
+                    false, historyShown));
+
+                system.OnNext(Off);
+                await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+            }
+        });
+    }
+
+    [Test]
+    [Arguments(Progress)]
+    [Arguments(Attention)]
+    [Arguments(Note)]
+    public async Task A_finishing_update_preempts_every_history_kind_then_reveals_the_next_notice(
+            LauncherNotices.Kind historyKind) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var rig = new Rig();
+            rig.History.OnNext((true, historyKind));
+            rig.Update.OnNext(true);
+            rig.Stack.OnNext((true, Problem));
+            rig.Server.OnNext((true, Problem));
+            rig.Connection.OnNext((true, Progress));
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, true, false));
+
+            rig.Update.OnNext(false);
+            await Assert.That(rig.AllShown).IsEqualTo((true, false, false, false, false));
+
+            rig.Stack.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, true, false, false, false));
+
+            rig.Server.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, true, false, false));
+
+            rig.Connection.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+        });
+    }
+
+    /// A hidden run can fail or finish before infrastructure recovers. Selection must use that
+    /// latest kind, rather than queueing the running notice that was first preempted.
+    [Test]
+    [Arguments(Attention, true)]
+    [Arguments(Note, false)]
+    public async Task Hidden_history_keeps_its_latest_state(LauncherNotices.Kind latestKind, bool historyShown) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var rig = new Rig();
+            rig.History.OnNext((true, Progress));
+            rig.Connection.OnNext((true, Progress));
+            rig.Stack.OnNext((true, Note));
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, true, false, false));
+
+            rig.History.OnNext((true, latestKind));
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, true, false, false));
+
+            rig.Connection.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((!historyShown, false, false, false, historyShown));
+
+            rig.Stack.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+        });
+    }
+
+    /// Dismissal belongs to the run's visibility feed. Changes to a withdrawn candidate must not
+    /// resurrect it; a genuinely new candidate can still show and reveal the next notice on dismissal.
+    [Test]
+    public async Task Withdrawn_history_stays_off_until_a_new_candidate_arrives() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var rig = new Rig();
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, false));
+
+            rig.History.OnNext((true, Progress));
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+
+            rig.History.OnNext((false, Progress));
+            rig.History.OnNext((false, Attention));
+            rig.History.OnNext((false, Note));
+            rig.Connection.OnNext((true, Problem));
+            rig.Connection.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, false));
+
+            rig.Stack.OnNext((true, Note));
+            rig.Update.OnNext(true);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, true, false));
+            rig.Update.OnNext(false);
+            await Assert.That(rig.AllShown).IsEqualTo((true, false, false, false, false));
+
+            rig.History.OnNext((true, Progress));
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+            rig.History.OnNext((false, Progress));
+            await Assert.That(rig.AllShown).IsEqualTo((true, false, false, false, false));
+        });
+    }
+
+    [Test]
+    public async Task Import_attention_does_not_disrupt_stack_server_absorption() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var rig = new Rig();
+            rig.History.OnNext((true, Attention));
+            rig.Server.OnNext((true, Problem));
+            rig.Stack.OnNext((true, Progress));
+            await Assert.That(rig.AllShown).IsEqualTo((true, false, false, false, false));
+
+            rig.Stack.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, true, false, false, false));
+
+            rig.Server.OnNext(Off);
+            await Assert.That(rig.AllShown).IsEqualTo((false, false, false, false, true));
+        });
+    }
+    [Test]
+    public async Task Replacing_and_releasing_history_ownership_cannot_clear_a_newer_owner() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var notices = new LauncherNotices();
+            using var old = new BehaviorSubject<(bool, LauncherNotices.Kind)>((true, Progress));
+            using var current = new BehaviorSubject<(bool, LauncherNotices.Kind)>((true, Attention));
+            var oldLease = notices.TrackHistory(old);
+            var currentLease = notices.TrackHistory(current);
+            oldLease.Dispose();
+            old.OnNext(Off);
+            await Assert.That(notices.ShowHistory).IsTrue();
+            currentLease.Dispose();
+            await Assert.That(notices.ShowHistory).IsFalse();
+            notices.Dispose();
+            notices.TrackHistory(current).Dispose();
+            current.OnNext((true, Note));
+            await Assert.That(notices.ShowHistory).IsFalse();
+        });
+    }
+
 }

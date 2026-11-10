@@ -5,7 +5,8 @@ using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -138,7 +139,7 @@ sealed class OpenCodeHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
 

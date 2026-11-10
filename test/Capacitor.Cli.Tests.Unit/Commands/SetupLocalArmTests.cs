@@ -10,7 +10,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.LocalEdition;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Tests.Unit.LocalEdition.Fakes;
 using Spectre.Console;
 using TUnit.Assertions.Enums;

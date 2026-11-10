@@ -83,6 +83,7 @@ Publish a self-contained HTML page — a plan, a report, a comparison, the artif
 | Tool | Description |
 |------|-------------|
 | `publish_page` | Publish a page (`title`, and either `html` or a local `path`); optional `description`, `visibility`, `grants`, `session_ids`, `response_schema` to make it answerable, and `update_id` to revise an existing page without changing its URL |
+| `get_page_guide` | How a page people answer sends its answers — the `postMessage` protocol, the rules every answer is checked against, and a worked example, served by the kcap server. Read it before publishing with a `response_schema` |
 | `await_page_responses` | Block until people have answered — the human checkpoint. Returns on a respondent count, on a close, or on a timeout (which is not an error) |
 | `get_page_results` | Tallies and each person's current answer, without waiting |
 | `close_page_responses` | Freeze a version's answers; `closed: false` reopens and clears any deadline |
@@ -93,7 +94,7 @@ Publish a self-contained HTML page — a plan, a report, a comparison, the artif
 
 A page is private to its owner until visibility says otherwise. The current session is cited automatically from `KCAP_SESSION_ID`, so a publish is attributed to the work that produced it.
 
-Declaring a `response_schema` turns the page into a form the server validates and tallies: fields of type `choice`, `multi`, `score` or `text`, plus a `results_mode` deciding what other viewers see — `owner` (default, only you), `aggregate` (tallies, no names or free text) or `named` (who said what). Who answered is always the authenticated viewer; there is no field for it to forge. A page read with `get_page` comes back marked as its author's words, to be treated as data rather than instructions. Version history and takedown stay in the web UI.
+Declaring a `response_schema` turns the page into a form the server validates and tallies: fields of type `choice`, `multi`, `score` or `text`, plus a `results_mode` deciding what other viewers see — `owner` (default, only you), `aggregate` (tallies, no names or free text) or `named` (who said what). The page sends answers through the viewer's `postMessage` bridge, never a form or `fetch`; `get_page_guide` has the protocol. Who answered is always the authenticated viewer; there is no field for it to forge. A page read with `get_page` comes back marked as its author's words, to be treated as data rather than instructions. Version history and takedown stay in the web UI.
 
 `kcap mcp judge` is intentionally not auto-registered. Add it with `claude mcp add kcap-judge -- kcap mcp judge` if you want it.
 

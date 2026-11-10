@@ -8,7 +8,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Workspace;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -510,6 +510,34 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(HookPosts("/hooks/").Count).IsEqualTo(0);
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(0);
+    }
+
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test]
+    public async Task SessionEnd_lifts_an_exclusion() {
+        StubHooks();
+        DisabledSessions.Exclude(ParentDashless, Config.Root);
+        using var stdin  = new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
+        using var stdout = new StringWriter();
+
+        await Command().Handle(stdin, stdout, _ => null, Today);
+
+        await Assert.That(DisabledSessions.IsDisabled(ParentDashless, Config.Root)).IsFalse();
+        await Assert.That(HookPosts("/hooks/").Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task SessionEnd_leaves_a_persons_disable() {
+        StubHooks();
+        DisabledSessions.Mark(ParentDashless, Config.Root);
+        using var stdin  = new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
+        using var stdout = new StringWriter();
+
+        await Command().Handle(stdin, stdout, _ => null, Today);
+
+        await Assert.That(DisabledSessions.IsDisabledByPerson(ParentDashless, Config.Root)).IsTrue();
     }
 
     [Test]

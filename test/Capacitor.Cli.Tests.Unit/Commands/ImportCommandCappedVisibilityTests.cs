@@ -1,6 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Claude;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;

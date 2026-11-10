@@ -1,4 +1,7 @@
 using System.Text.Json;
+using Capacitor.App.Platform.Mac;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.App.Services.LocalSetup;
 
@@ -18,6 +21,15 @@ public static class LocalOllamaAvailability {
     public static bool Installed() => Installed(path => Directory.Exists(path) || File.Exists(path));
 
     public static bool Installed(Func<string, bool> exists) => InstallPaths.Any(exists);
+
+    public static Task<bool> InstalledAsync(CancellationToken ct) {
+        var windows = OperatingSystem.IsWindows();
+        return new LocalOllamaInstallation(
+            windows ? null : new LoginShellProbe(new ProcessRunner(TimeProvider.System), Environment.GetEnvironmentVariable),
+            () => OperatingSystem.IsMacOS() && MacApplicationDiscovery.Installed("com.electron.ollama"),
+            path => BinaryProbe.Searching(windows ? Environment.GetEnvironmentVariable("PATH") : path).Finds("ollama"),
+            Installed, TimeProvider.System).CheckAsync(ct);
+    }
 
     public static Task<bool> CheckAsync(CancellationToken ct) =>
         CheckAsync(Http, new Uri("http://localhost:11434/api/version"), ct);

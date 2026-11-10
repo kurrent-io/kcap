@@ -43,6 +43,17 @@ public class ExperimentalSettingsStoreTests {
         await Assert.That(Store.Load("default").IsEnabled("codex-app-server")).IsTrue();
     }
 
+    /// <summary>A reader holding the file open, as the daemon's watcher and the app's re-read do, does not
+    /// refuse a save. Windows refuses a plain move over an open file, so only that leg can fail.</summary>
+    [Test]
+    public async Task A_reader_holding_the_file_does_not_refuse_a_save() {
+        await Store.SetAsync("default", "codex-app-server", false, CancellationToken.None);
+        using var reader = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        await Assert.That(await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None)).IsTrue();
+        await Assert.That(Store.Load("default").IsEnabled("codex-app-server")).IsTrue();
+    }
+
     [Test]
     public async Task Set_preserves_unknown_profiles_and_ids() {
         await File.WriteAllTextAsync(FilePath, """{"work":{"future-x":true},"default":{"future-y":false}}""");

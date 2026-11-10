@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -162,7 +163,7 @@ public class LiveWatchHardeningAcceptanceTests {
     /// <para><c>LifecycleSpoolDrainTests.drains_start_then_transcript_then_end_for_a_session_with_no_further_hook</c>
     /// and <c>...delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap</c> already
     /// prove this exact ordering against injected poster delegates; this test proves the SAME
-    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>'s
+    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>'s
     /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping,
     /// the needs-import route literally hitting the wire) — the part the delegate-injected test
     /// can't reach.</para>
@@ -188,7 +189,7 @@ public class LiveWatchHardeningAcceptanceTests {
         // currentSessionId: null — this drain pass belongs to a DIFFERENT vendor's own
         // invocation; `sid`'s session never fires another hook of its own.
         await LifecycleSpoolDrain.RunAsync(
-            Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
+            Config.Root, Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         var hits = server.LogEntries.Select(e => e.RequestMessage).ToList();
@@ -218,12 +219,12 @@ public class LiveWatchHardeningAcceptanceTests {
     /// every intermediate consuming read attempt — never sent-and-advanced — and only consumed
     /// once it actually finishes.
     ///
-    /// <para><see cref="FinalDrainCompletionSignalTests"/>/<see cref="SplitNewCompleteLinesTests"/>/
-    /// <see cref="ReadNewCompleteLinesAsyncTests"/> already cover
+    /// <para><c>FinalDrainCompletionSignalTests</c>/<c>SplitNewCompleteLinesTests</c>/
+    /// <c>ReadNewCompleteLinesAsyncTests</c> already cover
     /// <c>IsFinalLineComplete</c>/<c>SplitNewCompleteLines</c>/<c>ReadNewCompleteLinesAsync</c> in
     /// isolation, including a growth-after-probe TOCTOU case. This test's value-add is combining
-    /// the bounded PROBE (<see cref="WatchCommand.WaitForFinalLineCompletionAsync"/>) with the
-    /// actual CONSUMING read (<see cref="WatchCommand.ReadNewCompleteLinesAsync"/>) against one
+    /// the bounded PROBE (<see cref="TranscriptReader.WaitForFinalLineCompletionAsync"/>) with the
+    /// actual CONSUMING read (<see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>) against one
     /// real file that grows while the probe is parked between reads — the full shutdown
     /// final-drain flow, not either half alone.</para>
     /// </summary>
@@ -245,7 +246,7 @@ public class LiveWatchHardeningAcceptanceTests {
         // The writer finishes the record while the probe is parked between reads, inside its window.
         var clock  = new FakeTimeProvider();
         var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var probe  = WatchCommand.WaitForFinalLineCompletionAsync(path, new DelayObservingTime(clock, parked), attempts: 8, delayMs: 25);
+        var probe  = TranscriptReader.WaitForFinalLineCompletionAsync(path, new DelayObservingTime(clock, parked), attempts: 8, delayMs: 25);
         await parked.Task;
 
         await File.WriteAllTextAsync(path, "{\"a\":1}\n{\"b\":\"still writing\"}\n");
@@ -261,10 +262,10 @@ public class LiveWatchHardeningAcceptanceTests {
         await Assert.That(final.HeldIncompleteFinalLine).IsFalse();
     }
 
-    static async Task<WatchCommand.NewTranscriptLines> ReadFinalDrainAsync(string path, int linesProcessed) {
+    static async Task<NewTranscriptLines> ReadFinalDrainAsync(string path, int linesProcessed) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return await WatchCommand.ReadNewCompleteLinesAsync(
-            stream, linesProcessed, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
+        return await TranscriptReader.ReadNewCompleteLinesAsync(
+            stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
     }
 
     // ── 6. Heartbeat staleness story: wedged reaped, healthy/reconnecting and grace not reaped ──
@@ -296,7 +297,7 @@ public class LiveWatchHardeningAcceptanceTests {
         await Assert.That(wedged).IsTrue();
 
         // Healthy/reconnecting: past the grace, but the heartbeat was touched just before the
-        // threshold would lapse (mirrors WatchCommand.HeartbeatSlices keeping every connect-retry
+        // threshold would lapse (mirrors TranscriptRecorder.HeartbeatSlices keeping every connect-retry
         // chunk under the threshold) → never reads stale.
         var reconnecting = WatcherHeartbeat.IsStale(
             lastBeat: start.AddSeconds(89), startupAt: start, now: start.AddSeconds(90),

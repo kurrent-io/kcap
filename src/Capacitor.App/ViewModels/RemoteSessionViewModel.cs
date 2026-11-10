@@ -288,7 +288,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<ITerminalSurface>? surfaceFactory = null, IPlanArtifactSource? planArtifacts = null,
             SessionRunActivity? commands = null, IPullRequestSource? pullRequests = null,
             Action? requestSignIn = null, Action? linkGitHub = null, IObservable<Unit>? signInCompleted = null, IPlanSource? plans = null,
-            ComposerDrafts? drafts = null, Func<string, Action>? inputSending = null,
+            ComposerDrafts? drafts = null, ChatFindMemory? finds = null, Func<string, Action>? inputSending = null,
             LastReads<PullRequestSnapshot>? pullRequestSnapshots = null, Action<string>? pullRequestLinksChanged = null,
             SubagentEventsReader? readSubagent = null, AccountReadings? readings = null, IMessageSenderSource? senders = null,
             IRemoteAgentsService? remoteAgents = null, IAppNotifier? notifier = null, IObservable<string?>? appSubject = null,
@@ -376,7 +376,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
         Chat.Tasks.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
@@ -390,7 +390,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
             .Subscribe(_ => WorkContext.AgentInputAvailabilityChanged()).DisposeWith(_disposables);
         Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor)
-            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory, viewer)
+            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory,
+                _rows.Select(r => r.TerminalInput), viewer)
             : null;
         if (Terminal is not null) Chat.ShowTerminal = () => ActiveTab = RemoteTab.Terminal;
         Apply(row);

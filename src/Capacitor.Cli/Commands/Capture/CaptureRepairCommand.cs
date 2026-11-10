@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands.Capture.Wire;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
