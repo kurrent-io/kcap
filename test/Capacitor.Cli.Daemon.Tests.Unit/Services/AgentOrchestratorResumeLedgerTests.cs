@@ -284,6 +284,55 @@ public class AgentOrchestratorResumeLedgerTests {
         await Assert.That(agent.SessionId).IsNull();
     }
 
+    /// <summary>A killed daemon writes nothing at its stop, so the entry has to follow the agent's waiting state
+    /// as it changes, or its successor reads every killed agent as cut off mid-turn and starts a turn for it.</summary>
+    [Test]
+    public async Task Waiting_edges_write_the_agents_state_to_its_entry() {
+        await using var orch = Build();
+        var agent = orch.SeedAgentForTest("ledger-waiting");
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        orch.SetResolvedTitle(agent, "Named since launch");
+
+        agent.ActivityClock.SetAwaitingInput(true);
+        var idle = await EntryOnceAsync(orch, "ledger-waiting", e => e.AwaitingInput == true);
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        var busy = await EntryOnceAsync(orch, "ledger-waiting", e => e.AwaitingInput == false);
+
+        await Assert.That(idle.AwaitingInput).IsTrue();
+        await Assert.That(idle.Launch.Title).IsEqualTo("Named since launch");
+        await Assert.That(busy.AwaitingInput).IsFalse();
+        await Assert.That(busy.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>The written value is read when the write runs, so a quick run of edges ends on the latest one.</summary>
+    [Test]
+    public async Task A_burst_of_waiting_edges_settles_on_the_last() {
+        await using var orch = Build();
+        var agent = orch.SeedAgentForTest("ledger-burst");
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+
+        for (var i = 0; i < 50; i++) agent.ActivityClock.SetAwaitingInput(i % 2 == 0);
+        agent.ActivityClock.SetAwaitingInput(true);
+
+        var entry = await EntryOnceAsync(orch, "ledger-burst", e => e.AwaitingInput == true);
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        await Assert.That(entry.AwaitingInput).IsTrue();
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-burst")!.AwaitingInput).IsTrue();
+    }
+
+    static async Task<ResumeLedgerEntry> EntryOnceAsync(AgentOrchestrator orch, string agentId, Func<ResumeLedgerEntry, bool> done) {
+        var started = TimeProvider.System.GetTimestamp();
+
+        while (true) {
+            var entry = orch.ResumeLedger!.TryRead(agentId)!;
+            if (done(entry) || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(10)) return entry;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+        }
+    }
+
     static AgentOrchestrator Build() => AgentOrchestratorHarness.BuildOrchestrator(
         new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
 }

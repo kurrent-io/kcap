@@ -323,6 +323,41 @@ internal partial class AgentOrchestrator {
         }
     }
 
+    /// <summary>Records on the agent's entry whether it has anything in flight, so a successor of a daemon that was
+    /// killed rather than stopped resumes an idle agent without a turn. Written off the edge's thread, which can be
+    /// the PTY read loop: a ledger write waits on the entry lock, and that loop must never wait.</summary>
+    void PersistWaitingSoon(AgentActivityClock clock) {
+        if (ResumeLedger is null) return;
+        if (_agents.Values.FirstOrDefault(a => ReferenceEquals(a.ActivityClock, clock)) is not { } agent || !IsInteractive(agent)) return;
+
+        if (Interlocked.Increment(ref agent.UnpersistedWaitEdges) == 1) _ = Task.Run(() => PersistWaiting(agent));
+    }
+
+    /// <summary>Each pass writes the clock's value at that moment, so the edges counted before it are covered by it.
+    /// Never throws.</summary>
+    void PersistWaiting(AgentInstance agent) {
+        var seen = Volatile.Read(ref agent.UnpersistedWaitEdges);
+
+        do {
+            try {
+                lock (_ledgerLock) {
+                    if (agent.IsCleanupStarted) return;
+
+                    var waiting = agent.ActivityClock.NothingInFlight;
+                    var result  = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry =>
+                        // A stop has marked the entry for its successor; what the agent does while it ends must not undo that.
+                        entry.State != ResumeState.Running || entry.AwaitingInput == waiting ? null
+                            : entry with { AwaitingInput = waiting, UpdatedAt = _time.GetUtcNow(), Launch = WithShownTitle(entry.Launch, agent) },
+                        EntryLockWait);
+
+                    if (result == LockedUpdate.LockTimeout) LogResumeLedgerFailed(new IOException("the entry stayed locked"), "writing", agent.Id);
+                }
+            } catch (Exception ex) {
+                LogResumeLedgerFailed(ex, "writing", agent.Id);
+            }
+        } while ((seen = Interlocked.Add(ref agent.UnpersistedWaitEdges, -seen)) > 0);
+    }
+
     /// <summary>The successor registers and shows the entry's title until it reads the server's: a launch-time
     /// title, a cut of the goal, would stand over the title the session has been given since.</summary>
     static ResumeLaunchDescriptor WithShownTitle(ResumeLaunchDescriptor launch, AgentInstance agent) =>
@@ -400,6 +435,7 @@ internal partial class AgentOrchestrator {
 
         return NewRunningEntry(agent.Id, agent.Vendor, agent.RuntimeTransport, agent.SessionId, agent.VendorSession, launch, prior) with {
             HasTerminal = agent.Runtime.EmitsTerminalOutput, TranscriptFormat = TranscriptFormatOf(agent),
+            AwaitingInput = agent.ActivityClock.NothingInFlight,
             StartedAt = StartedAtOf(agent),
             Participant = IsInteractive(agent) ? null : ParticipantOf(agent, cmd, prior?.Participant),
         };
@@ -936,7 +972,7 @@ internal partial class AgentOrchestrator {
 
     void SortResumeLedger(IReadOnlyList<ResumeLedgerEntry> entries) {
         var blocked = (_orphanReaper?.BlockedCandidates() ?? []).Select(c => c.AgentId).ToHashSet(StringComparer.Ordinal);
-        var beat    = DaemonHeartbeat.LastBeat(_config.Store, _config.Name);
+        var beat    = _predecessorBeat = DaemonHeartbeat.LastBeat(_config.Store, _config.Name);
         var now     = _time.GetUtcNow();
 
         foreach (var stale in entries.Where(e => e.State == ResumeState.Interrupted && now - e.UpdatedAt > InterruptedRetention))
@@ -965,6 +1001,12 @@ internal partial class AgentOrchestrator {
             }
         }
     }
+
+    /// <summary>The predecessor's last heartbeat, read once at boot before this daemon's own beat overwrites it. A
+    /// killed daemon wrote its entries last at launch, so without it a nudge names the launch as the interruption.</summary>
+    DateTimeOffset? _predecessorBeat;
+
+    DateTimeOffset InterruptedAt(ResumeLedgerEntry entry) => LastAlive(entry, _predecessorBeat);
 
     /// <summary>The latest of the entry's write, its resuming stamp and the last heartbeat. A heartbeat file
     /// outlives the incarnation that wrote it, so it never hides a newer write.</summary>
@@ -1383,7 +1425,7 @@ internal partial class AgentOrchestrator {
         await using var lease = leaseToken is not null ? KeepSourceLease(leaseToken, entry.SessionId!) : null;
 
         var resume  = new ResumeLaunch(entry, ResumedWorktree(entry)) { Token = ct, StartsWaiting = silent };
-        var command = BuildResumeCommand(entry, LastAlive(entry, null), _server.CurrentConnectionId) is var built && silent
+        var command = BuildResumeCommand(entry, InterruptedAt(entry), _server.CurrentConnectionId) is var built && silent
             ? built with { Prompt = "" }
             : built;
         var outcome = await LaunchAdmittedAsync(command, consent, hold, resume, cancel: CancellationToken.None); // the resume's own token ends its start
@@ -1476,7 +1518,7 @@ internal partial class AgentOrchestrator {
                 await Task.Delay(_config.ResumeReadinessWindow / 2, _time, _shutdownCts.Token);
             }
 
-            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
+            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(InterruptedAt(entry), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
             if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
             else LogResumeNudgeDropped(null, agent.Id, outcome.Error ?? outcome.Reason ?? "");
         } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) {
@@ -1556,7 +1598,7 @@ internal partial class AgentOrchestrator {
         ct.ThrowIfCancellationRequested();
 
         var summary = await ReadPreviousSummaryAsync(entry.SessionId, ct);
-        var prompt  = ContinuePrompt.Build(entry.Launch.Prompt, entry.SessionId, reason, summary, LastAlive(entry, null));
+        var prompt  = ContinuePrompt.Build(entry.Launch.Prompt, entry.SessionId, reason, summary, InterruptedAt(entry));
 
         var launch   = await LaunchContinuationAsync(entry, Guid.NewGuid().ToString("N"), prompt, ct);
         var agent    = launch?.Agent;
@@ -1661,7 +1703,7 @@ internal partial class AgentOrchestrator {
             Launch = entry.Launch with { HandoffSource = null }
         };
         var launch  = new ResumeLaunch(successor, ResumedWorktree(entry)) { AttemptOf = entry.AgentId, DefersLedger = true, Token = ct };
-        var cmd     = BuildResumeCommand(entry, LastAlive(entry, null), _server.CurrentConnectionId) with { AgentId = agentId, Prompt = prompt, ResumeSessionId = null };
+        var cmd     = BuildResumeCommand(entry, InterruptedAt(entry), _server.CurrentConnectionId) with { AgentId = agentId, Prompt = prompt, ResumeSessionId = null };
         var outcome = await LaunchAdmittedAsync(cmd, consent, hold, launch, cancel: CancellationToken.None); // the resume's own token ends its start
 
         return launch.Agent is not null && outcome.Kind == CommandOutcomeKind.LaunchExecuted ? launch : null;
@@ -1830,8 +1872,7 @@ internal partial class AgentOrchestrator {
                 EndCommittedAt        = null,
                 EndCommittedEpoch     = null,
                 EndCommittedSession   = null,
-                // Waiting is a fact about the stop it was recorded at; a crash before the next one proves nothing.
-                AwaitingInput         = null
+                AwaitingInput         = agent.ActivityClock.NothingInFlight
             }, newRun: true);
         }
     }

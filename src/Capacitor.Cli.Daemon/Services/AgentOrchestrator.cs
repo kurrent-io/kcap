@@ -119,6 +119,9 @@ internal record AgentInstance(
     /// Stops in progress, under the orchestrator's ledger lock; the last to settle sends the owed report.
     public int                  StopsInFlight;
 
+    /// Waiting edges not yet written to the resume ledger; the edge that raises it from zero starts the writer.
+    public int                  UnpersistedWaitEdges;
+
     /// Orders a reconnect's status send against a stop's report: whichever starts its sends first is sent first.
     public readonly Lock        StatusSendGate = new();
 
@@ -1373,6 +1376,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 if (agent.Status != "Running" || !agent.Runtime.EmitsTerminalOutput) continue;
                 if (agent.ActivityClock.TryMarkQuiet(AgentActivityClock.QuietTurn)) {
                     marked = true;
+                    PersistWaitingSoon(agent.ActivityClock);
                     continue;
                 }
                 if (agent.ActivityClock.QuietDue(AgentActivityClock.QuietTurn) is { } due &&
@@ -2460,8 +2464,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <see cref="SendStatusReportNowAsync"/>. EVERY launch path must route through here — a path that
     /// builds its own clock silently loses the stage-report wiring. Shared with
     /// <see cref="SeedAgentForTest"/> so tests exercise the same wiring, never a test-only hookup.</summary>
-    AgentActivityClock CreateActivityClock(ulong initialSeq = 1, ulong priorAgeMs = 0) =>
-        new(_time, initialSeq, priorAgeMs) {
+    AgentActivityClock CreateActivityClock(ulong initialSeq = 1, ulong priorAgeMs = 0) {
+        AgentActivityClock? clock = null;
+
+        return clock = new(_time, initialSeq, priorAgeMs) {
             OnLaunchStageChanged   = () => { _statusNotifier.Pulse(); _ = SendStatusReportNowAsync(); },
             OnTurnEnded            = () => _ = SendStatusReportNowAsync(),
             // The flag rides the local status payload; the clock already holds the new value when
@@ -2469,9 +2475,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             OnAwaitingInputChanged = _ => {
                 _statusNotifier.Pulse();
                 RescheduleQuietTurn();
+                PersistWaitingSoon(clock!);
             },
             OnTurnAttestedChanged  = _statusNotifier.Pulse,
         };
+    }
 
     /// <summary>Test-only seam — insert a minimal <see cref="AgentInstance"/> (Noop
     /// PTY runtime, no real process/worktree) so unit tests can exercise <see cref="BuildLiveAgents"/>
