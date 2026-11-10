@@ -11,13 +11,15 @@ namespace Capacitor.Cli.LocalEdition;
 /// returns as the same installation on the same port. A purge removes nothing until it has retired the installation
 /// (see <see cref="LocalPurge"/>).
 /// </summary>
-sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoingRecorders recorders) {
+sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoingRecorders recorders, TimeProvider? time = null) {
     /// <summary>Set, the uninstall gets this long, counted from this object's creation and so including every wait for a
     /// lock, before the server's unit is removed regardless; what is still running keeps <c>bin/</c> and <c>run/</c>.
     /// For an app uninstaller with a deadline; it cannot purge.</summary>
     public TimeSpan? QuickGrace { get; init; }
 
-    readonly long _created = TimeProvider.System.GetTimestamp();
+    readonly TimeProvider _time = time ?? TimeProvider.System;
+
+    readonly long _created = (time ?? TimeProvider.System).GetTimestamp();
 
     /// <summary>A server is asked to stop with at least this long, however much of the grace the locks took.</summary>
     static readonly TimeSpan MinimumStopGrace = TimeSpan.FromSeconds(1);
@@ -55,7 +57,7 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
         var unit = LocalServerUnit.ForInstallation(lease.Root, installation.Port);
 
         if (QuickGrace is { } grace) {
-            TimeSpan Remaining() => grace - TimeProvider.System.GetElapsedTime(_created);
+            TimeSpan Remaining() => grace - _time.GetElapsedTime(_created);
             TimeSpan Left() => Remaining() > MinimumStopGrace ? Remaining() : MinimumStopGrace;
 
             if (!await LocalStackStop.RunWithinAsync(lease.Root, unit, service, home, Left, ct)) return LocalUninstallOutcome.Unloaded;
@@ -70,7 +72,7 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
                     if (Remaining() <= DeleteRetryGap) return LocalUninstallOutcome.Unloaded;
                 }
 
-                await Task.Delay(DeleteRetryGap, ct);
+                await Task.Delay(DeleteRetryGap, _time, ct);
             }
         }
 
