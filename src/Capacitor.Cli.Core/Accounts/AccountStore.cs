@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.Harness;
@@ -37,6 +36,8 @@ public sealed class AccountStore {
     /// accounts" would send its caller to the default layout. A rename takes well under a millisecond.</summary>
     internal TimeSpan ReplaceWait { get; init; } = TimeSpan.FromMilliseconds(50);
 
+    internal TimeProvider Time { get; init; } = TimeProvider.System;
+
     static readonly TimeSpan ReplacePoll = TimeSpan.FromMilliseconds(5);
 
     public AccountRegistry Load() {
@@ -56,7 +57,7 @@ public sealed class AccountStore {
     /// <summary>Null when there is no registry. Takes no lock: <see cref="MutateHeld{T}"/> reads through here
     /// under <c>accounts.lock</c>, which is not re-entrant.</summary>
     string? ReadRegistry() {
-        var started = Stopwatch.GetTimestamp();
+        var started = Time.GetTimestamp();
 
         while (true) {
             if (TryReadRegistry() is { } text) return text;
@@ -64,7 +65,7 @@ public sealed class AccountStore {
             // Sampled between two reads, so a rename that finishes in between is still read.
             var replacing = ReplaceInFlight();
             if (TryReadRegistry() is { } after) return after;
-            if (!replacing || Stopwatch.GetElapsedTime(started) >= ReplaceWait) return null;
+            if (!replacing || Time.GetElapsedTime(started) >= ReplaceWait) return null;
 
             Thread.Sleep(ReplacePoll);
         }
