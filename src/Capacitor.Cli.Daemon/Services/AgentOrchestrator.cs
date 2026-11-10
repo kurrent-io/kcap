@@ -3117,13 +3117,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     var snapshotGitRoot = auth.CanonicalGitRoot
                         ?? throw new InvalidOperationException("borrow_auth_failed: not_a_git_repository");
                     worktree = await _worktreeManager.CreateBorrowedSnapshotAsync(
-                        snapshotGitRoot, borrowedSnapshotSource, $"borrowed-{agentId}", _shutdownCts.Token);
+                        snapshotGitRoot, borrowedSnapshotSource, AgentWorkspaceNames.BorrowedSnapshot(agentId), _shutdownCts.Token);
                 } else {
                     // Direct borrowed runtimes have their own certified read-only boundary.
                     worktree = WorktreeInfo.Borrowed(auth.CanonicalCwd!);
                 }
             } else if (cmd.ScratchWorkspace) {
-                worktree = await _worktreeManager.CreateScratchAsync($"scratch-{agentId}", _shutdownCts.Token);
+                worktree = await _worktreeManager.CreateScratchAsync(AgentWorkspaceNames.Scratch(agentId), _shutdownCts.Token);
             } else {
                 worktree = await _worktreeManager.CreateAsync(sourceRepo, baseRef: baseRef);
             }
