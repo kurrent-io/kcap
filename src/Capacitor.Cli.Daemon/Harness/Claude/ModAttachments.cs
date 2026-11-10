@@ -322,7 +322,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
             if (Barred(record.AgentId, SessionIds.Canonical(record.SessionId)!, record.ProcessKey, record.ReplacesAgentId) is { } barred) return barred;
 
-            if (_live.TryGetValue(record.AgentId, out var current) && current.ProcessKey == record.ProcessKey) {
+            var current = _live.GetValueOrDefault(record.AgentId);
+
+            if (current is not null && current.ProcessKey == record.ProcessKey) {
                 current.Reattach(record);
             } else {
                 current?.DropHeld();
