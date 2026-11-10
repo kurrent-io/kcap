@@ -3242,7 +3242,7 @@ class ImportCommand(
             }
 
             var result = await TitleGeneration.GenerateAsync(
-                userText, assistantText, time, _ => { }, profiles.Resolution.Profile, harnesses, vendor.VendorId);
+                userText, assistantText, time, _ => { }, profiles.Resolution.Profile, harnesses, config, vendor.VendorId);
 
             if (result is null) {
                 return TitleResult.Skipped;

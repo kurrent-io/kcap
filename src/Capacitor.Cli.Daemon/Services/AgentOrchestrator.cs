@@ -6728,11 +6728,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ? new HarnessTitlePost(title.Title, title.IsRename ? HarnessTitleKind.Rename : HarnessTitleKind.Auto, title.IsRename ? title.ChangedAt : null)
             : null;
 
-    async Task<string?> GenerateTitleForAsync(TitleAgentView agent, CancellationToken ct) {
+    internal async Task<string?> GenerateTitleForAsync(TitleAgentView agent, CancellationToken ct) {
         var result = await TitleGeneration.GenerateAsync(
             agent.Prompt!, null, _time, msg => _logger.LogDebug("Title generation ({AgentId}): {Message}", agent.Id, msg),
-            _config.Profiles.Resolution.Profile, _harnesses,
-            vendor: agent.Vendor == "codex" ? "codex" : "claude", ct: ct);
+            _config.Profiles.Resolution.Profile, _harnesses, _configRoot,
+            vendor: agent.Vendor, ct: ct);
 
         return result?.Result;
     }

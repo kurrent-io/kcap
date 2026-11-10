@@ -72,8 +72,8 @@ public sealed class TranscriptRecorder(
     // From the stop request, which a kill follows 5s later; the rest covers the drain-complete signal and the close.
     static readonly TimeSpan ShutdownTitleDeadline = TimeSpan.FromSeconds(4);
 
-    // Nothing kills the recorder on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
-    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
+    // Nothing kills the recorder on any other exit; the title's own budget ends it first.
+    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TitleGeneration.Budget;
 
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }

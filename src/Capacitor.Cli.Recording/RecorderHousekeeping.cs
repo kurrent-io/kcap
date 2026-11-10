@@ -294,7 +294,7 @@ public sealed class RecorderHousekeeping(
         host.ReadAntigravityUsage(dbPath, afterIdx, createdAt);
 
     public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
-        TitleGeneration.GenerateAsync(userText, assistantText, time, _log, profiles.Resolution.Profile, harnesses, source.Vendor, ct);
+        TitleGeneration.GenerateAsync(userText, assistantText, time, _log, profiles.Resolution.Profile, harnesses, config, source.Vendor, ct);
 
     public void HandOffTitle(string transcriptPath) => host.HandOffTitle(source.SessionId, source.Vendor, transcriptPath);
 

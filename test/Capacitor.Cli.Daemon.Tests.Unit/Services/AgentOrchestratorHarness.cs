@@ -2,6 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Hosting;
@@ -48,7 +49,9 @@ internal static class AgentOrchestratorHarness {
             DaemonConfig?                                       sharedConfig           = null,
             AccountReadingSink?                                 readings               = null,
             // Given the config this harness finished building, whose directories it owns.
-            Func<DaemonConfig, DaemonRecorder>?                 recorder               = null
+            Func<DaemonConfig, DaemonRecorder>?                 recorder               = null,
+            // Where the orchestrator's harness registry finds vendor CLIs; nothing by default.
+            BinaryProbe?                                        harnessBinaries        = null
         ) {
         var daemonStore    = new TempDaemonStore();
         var configRoot   = new TempConfigRoot();
@@ -122,7 +125,8 @@ internal static class AgentOrchestratorHarness {
             deferProcessorPublication,
             time,
             readings,
-            recorder?.Invoke(config)
+            recorder?.Invoke(config),
+            harnessBinaries ?? TestBinaries.None
         );
     }
 
@@ -156,11 +160,12 @@ internal static class AgentOrchestratorHarness {
                 bool                                                    deferProcessorPublication,
                 TimeProvider                                            time,
                 AccountReadingSink?                                     readings,
-                DaemonRecorder?                                         recorder
+                DaemonRecorder?                                         recorder,
+                BinaryProbe                                             harnessBinaries
             ) : base(
             config,
             configRoot.Root,
-            TestHarnesses.Under(home),
+            TestHarnesses.Under(home, harnessBinaries),
             server,
             worktreeManager,
             repoMatcher,
