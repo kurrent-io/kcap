@@ -203,11 +203,7 @@ partial class SessionsCommand(
             for (var i = 0; i < rows.Count; i++)
                 sb.AppendLine(Lead(rows[i]) + Title(page.Items[i].Title ?? "(untitled)", lead, encodable, width));
 
-            if (page.Total > page.Items.Count)
-                sb.AppendLine(
-                    options.Windowed
-                        ? $"Showing {page.Items.Count} of {page.Total} in this period."
-                        : $"Showing {page.Items.Count} of {page.Total}; raise --limit or narrow with --mine / --touching.");
+            if (page.Total > page.Items.Count) sb.AppendLine(Overflow(page, options));
         }
 
         if (page.Items.Count > 0) {
@@ -219,6 +215,18 @@ partial class SessionsCommand(
         if (page.NextCursor is { } next) sb.AppendLine(NextPage(options, repoLabel, next));
 
         return sb.ToString();
+    }
+
+    /// <summary>Only a period listing pages, so a listing without one already at the largest limit names that
+    /// way rather than a --limit it cannot raise.</summary>
+    static string Overflow(RepoSessionsResponse page, SessionsOptions options) {
+        var showing = $"Showing {page.Items.Count} of {page.Total}";
+
+        if (options.Windowed) return $"{showing} in this period.";
+
+        return options.Limit < SessionsArgs.MaxLimit
+            ? $"{showing}; raise --limit (up to {SessionsArgs.MaxLimit}), page by period with --since/--until, or narrow with --mine / --touching."
+            : $"{showing}; page by period with --since/--until, which prints the next page's command.";
     }
 
     const int FewestTitleColumns = 12;

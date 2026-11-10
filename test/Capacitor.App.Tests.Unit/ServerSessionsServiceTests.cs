@@ -1054,4 +1054,60 @@ public class ServerSessionsServiceTests {
         await Assert.That(read.Outcome).IsEqualTo(ServerReadOutcome.Unauthorized);
         await Assert.That(parked).IsEquivalentTo([6]);
     }
+
+    static async Task ShowFivePages(FakeServerLane lane, ScriptedListing listing, ServerSessionsService service) {
+        ScriptDefault(listing, pagesScripted: 5);
+        Connect(lane);
+        await Eventually(() => service.Ended.Count == 20, "first page");
+        for (var shown = 40; shown <= 100; shown += 20) {
+            await service.ShowMoreAsync();
+            await Eventually(() => service.Ended.Count == shown, $"{shown} rows");
+        }
+    }
+
+    /// A Load more re-reads every page it shows, so they go out together, four at a time, rather than one round
+    /// trip after another; a session on two pages still keeps its copy from the earlier page.
+    [Test]
+    public async Task Ended_pages_are_read_four_at_a_time_and_merged_in_page_order() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        await ShowFivePages(lane, listing, service);
+        listing.Answer("ended", "me", 0, 212, [Row("dup") with { Title = "first page" }, .. Rows("s", 1, 19)]);
+        listing.Answer("ended", "me", 20, 212, [Row("dup") with { Title = "second page" }, .. Rows("s", 21, 19)]);
+        var gates = Enumerable.Range(0, 5).ToDictionary(page => page * 20,
+            _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        int EndedCalls() => listing.Calls.Count(q => q.State == "ended");
+        var before = EndedCalls();
+        listing.Gate = q => q.State == "ended" ? gates[q.Offset].Task : Task.CompletedTask;
+
+        var reconcile = service.ReconcileAsync();
+        await Eventually(() => EndedCalls() - before == 4, "four pages in flight");
+        await Task.Delay(50);
+        await Assert.That(EndedCalls() - before).IsEqualTo(4);
+
+        foreach (var offset in new[] { 60, 40, 20, 0 }) gates[offset].SetResult();
+        await Eventually(() => EndedCalls() - before == 5, "the fifth page once the first is merged");
+        gates[80].SetResult();
+        await reconcile;
+
+        await Assert.That(service.Ended.Lookup("dup").Value.Title).IsEqualTo("first page");
+        await Assert.That(service.Ended.Lookup("s80").HasValue).IsTrue();
+    }
+
+    /// A page that answered after a failed one is dropped, as a one-by-one read would never have asked for it.
+    [Test]
+    public async Task A_failed_page_drops_the_pages_read_after_it() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        await ShowFivePages(lane, listing, service);
+        listing.Answer("ended", "me", 0, 213, [Row("n1"), .. Rows("s", 1, 19)]);
+        listing.Fail("ended", "me", 40);
+        listing.Answer("ended", "me", 60, 213, [Row("late"), .. Rows("s", 61, 19)]);
+
+        await service.ReconcileAsync();
+
+        await Assert.That(service.Ended.Lookup("n1").HasValue).IsTrue();
+        await Assert.That(service.Ended.Lookup("late").HasValue).IsFalse();
+        await Assert.That(Enumerable.Range(21, 80).All(i => service.Ended.Lookup($"s{i}").HasValue)).IsTrue();
+    }
 }

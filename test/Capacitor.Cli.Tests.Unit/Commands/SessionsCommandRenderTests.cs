@@ -66,7 +66,20 @@ public class SessionsCommandRenderTests {
 
         var text = SessionsCommand.Render(page, "acme/widgets", Options());
 
-        await Assert.That(text).Contains("Showing 1 of 5; raise --limit or narrow with --mine / --touching.");
+        await Assert.That(text).Contains(
+            "Showing 1 of 5; raise --limit (up to 100), page by period with --since/--until, or narrow with --mine / --touching.");
+    }
+
+    /// <summary>A listing without a period cannot page, and at the largest limit there is no --limit left to
+    /// raise, so the line names the period listing, the one that prints a next-page command.</summary>
+    [Test]
+    public async Task At_the_largest_limit_the_overflow_line_offers_only_a_period() {
+        var rows = Enumerable.Range(0, 100).Select(i => Row($"s-{i}", "ended", "full", "main")).ToList();
+
+        var text = SessionsCommand.Render(new RepoSessionsResponse(rows, 107, 100, 0), "acme/widgets", Options("all", limit: 100));
+
+        await Assert.That(text).Contains("Showing 100 of 107; page by period with --since/--until, which prints the next page's command.");
+        await Assert.That(text).DoesNotContain("raise --limit");
     }
 
     [Test]
