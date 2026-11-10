@@ -91,7 +91,8 @@ public class ClaudeCompletionNudgeTests {
         // session_id lists the ends a session sighted, which is no claim on them.
         await Assert.That(decision["reason"]!.GetValue<string>()).DoesNotContain("session_id or");
         await Assert.That(decision["reason"]!.GetValue<string>()).Contains("(2) declare any remaining loose ends with declare_loose_end");
-        await Assert.That(decision["reason"]!.GetValue<string>()).Contains("unless it says this session's attached work is still open");
+        await Assert.That(decision["reason"]!.GetValue<string>()).Contains("unless it says this session's attached work is still open and the user has neither asked for work outside it nor said they are done with or parking it, tell the user");
+        await Assert.That(decision["reason"]!.GetValue<string>()).Contains("or the user done with it or parking it");
         await Assert.That(decision["reason"]!.GetValue<string>()).Contains("(3) call get_next_work");
 
         // Closing what is finished comes before declaring what is left, and both before next work.
