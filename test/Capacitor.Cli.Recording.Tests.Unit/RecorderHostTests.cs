@@ -22,6 +22,7 @@ public class RecorderHostTests {
     readonly RecordingTime _time = new(new DateTimeOffset(2026, 11, 5, 12, 0, 0, TimeSpan.Zero));
 
     readonly ConcurrentDictionary<string, int> _ticks = new();
+    readonly ConcurrentDictionary<string, int> _afterDrains = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _beforeDrain = new();
     readonly ConcurrentDictionary<string, TimeProvider> _clocks = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
@@ -42,16 +43,19 @@ public class RecorderHostTests {
 
     RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), _time);
 
+    /// <param name="watched">False for a test that sums the clock's timers, to which each watch adds its own, or whose clock
+    /// jumps minutes at a step while a tick or drain runs on real time, which the watchdog would take for a source stuck
+    /// that long.</param>
     RecorderHost NewHost(
         Func<string, FileStream>? open = null, Action<string>? factoryHook = null, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null,
-        Func<RecordingSource, bool>? keepsClaimOffline = null) => new(
+        Func<RecordingSource, bool>? keepsClaimOffline = null, bool watched = true) => new(
         _transport,
         _ => {
             factoryHook?.Invoke("stamper");
 
             return new NoStamps();
         },
-        source => {
+        (source, _) => {
             factoryHook?.Invoke("context");
 
             return new RecorderContext(
@@ -67,6 +71,7 @@ public class RecorderHostTests {
 
                     return _beforeDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask;
                 },
+                OnAfterDrain = () => _afterDrains.AddOrUpdate(source.Key, 1, (_, n) => n + 1),
             },
             _clocks.GetValueOrDefault(source.Key, TimeProvider.System), message => {
                 if (_logThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the log is broken");
@@ -79,7 +84,7 @@ public class RecorderHostTests {
                 _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
             });
         },
-        _time, open, claims, attemptEnded ?? _ended.Enqueue, keepsClaimOffline);
+        _time, open, claims, attemptEnded ?? _ended.Enqueue, keepsClaimOffline) { Watchdog = watched ? RecorderHost.WedgedAfter : Timeout.InfiniteTimeSpan };
 
     static RecordingSource Source(string path, string? agentId = null, string? sessionId = null) =>
         new(sessionId ?? Guid.NewGuid().ToString("N"), agentId, path, "claude", null);
@@ -340,7 +345,7 @@ public class RecorderHostTests {
     public async Task A_source_that_ends_by_itself_detaches_from_the_server(bool lostClaim) {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
         Claims.TryTake(source.Key, "daemon", isHosted: true);
-        var host = NewHost(claims: Claims);
+        var host = NewHost(claims: Claims, watched: lostClaim);
 
         host.TryAdd(source);
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
@@ -467,7 +472,7 @@ public class RecorderHostTests {
     [Test]
     public async Task The_owner_hears_a_source_went_idle() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
-        var host   = NewHost();
+        var host   = NewHost(watched: false);
 
         host.TryAdd(source);
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
@@ -628,7 +633,7 @@ public class RecorderHostTests {
         var heldSource = Source(Tmp.CreateFile("held.jsonl", $"{Prompt}\n"), "a1");
         var freeSource = Source(Tmp.CreateFile("free.jsonl", $"{Prompt}\n"), "a2");
         _clocks[heldSource.Key] = stalled;
-        var host = NewHost();
+        var host = NewHost(watched: false);
 
         host.TryAdd(heldSource);
         host.TryAdd(freeSource);
@@ -648,6 +653,447 @@ public class RecorderHostTests {
 
         var heldText = string.Concat(_transport.Batches.Where(batch => batch.SessionId == heldSource.SessionId).SelectMany(batch => batch.Lines));
         await Assert.That(heldText).DoesNotContain(Secret);
+    }
+
+    bool GivenUp(string key) => _log.Any(line => line.StartsWith($"{key}: ", StringComparison.Ordinal) && line.Contains("without a beat", StringComparison.Ordinal));
+
+    int AfterDrains(string key) => _afterDrains.GetValueOrDefault(key);
+
+    /// <summary>Holds the source's next tick in its housekeeping, which ignores its token as a git call that never returns
+    /// would. The ticks after it run.</summary>
+    void StickNextTick(string key) {
+        var calls = 0;
+        _beforeDrain[key] = () => Interlocked.Increment(ref calls) == 1 ? new TaskCompletionSource().Task : Task.CompletedTask;
+    }
+
+    /// <summary>Nothing would ever take this key again from a recorder stuck where no token reaches. Past the threshold the
+    /// host gives the attempt up and starts the next, as after a failure, and says so once.</summary>
+    [Test]
+    public async Task A_source_that_stops_beating_is_restarted() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        StickNextTick(source.Key);
+        await Eventually(() => _transport.Connects == 2, "the next attempt", TimeSpan.FromSeconds(1));
+
+        var givenUp = _log.Where(line => line.Contains("without a beat", StringComparison.Ordinal)).ToList();
+        await Assert.That(givenUp).HasSingleItem();
+        await Assert.That(givenUp[0]).Contains($"Recording {source.Key} went 50s without a beat");
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(host.TryAdd(source)).IsFalse();
+    }
+
+    /// <summary>A call that never returns can come before the recorder's first await, as a file read on a stalled mount in
+    /// its preparation would. The watch has to be running by then, or the host waits on that call with it. The stuck attempt
+    /// never connected, so the one connect is the next attempt's.</summary>
+    [Test]
+    public async Task A_source_stuck_before_its_first_await_is_restarted() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var prepares = 0;
+        using var gate = new ManualResetEventSlim();
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) == 1) gate.Wait();
+
+            return Task.CompletedTask;
+        };
+        var host = NewHost();
+
+        try {
+            host.TryAdd(source);
+            await Eventually(() => LinesSent(source.SessionId) == 1, "the next attempt's line", TimeSpan.FromSeconds(1));
+
+            await Assert.That(GivenUp(source.Key)).IsTrue();
+            await Assert.That(_transport.Connects).IsEqualTo(1);
+        } finally {
+            gate.Set();
+        }
+    }
+
+    /// <summary>What the stuck attempt read is not taken as sent: the next one starts where the server says.</summary>
+    [Test]
+    public async Task A_restarted_source_resumes_from_the_server_cursor() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the first lines");
+
+        StickNextTick(source.Key);
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Later}\n");
+        _transport.ResumeFrom = 2;
+        await Eventually(() => LinesSent(source.SessionId) == 3, "the line after the cursor", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.Connects).IsEqualTo(2);
+        await Assert.That(_transport.Batches[^1].LineNumbers).IsEquivalentTo([2]);
+    }
+
+    /// <summary>The stuck attempt wakes in the middle of a batch, with the next attempt about to start. The chunk in flight
+    /// can't be recalled; the next is the next attempt's to send, and a beat from here would keep a claim fresh for nobody.
+    /// That attempt then records from the server's cursor, so the source was given up on and not the attempt alone.</summary>
+    [Test]
+    public async Task A_superseded_attempt_that_wakes_sends_nothing() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var sending  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restart  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sends    = 0;
+        var prepares = 0;
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) == 1) return Task.CompletedTask;
+
+            starting.TrySetResult();
+
+            return restart.Task;
+        };
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        _transport.OnSend = _ => {
+            if (Interlocked.Increment(ref sends) != 1) return Task.CompletedTask;
+
+            sending.TrySetResult();
+
+            return release.Task;
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, string.Concat(Enumerable.Repeat($"{Reply}\n", 250)));
+        await Eventually(() => sending.Task.IsCompleted, "the batch's first chunk", TimeSpan.FromSeconds(1));
+        await Eventually(() => starting.Task.IsCompleted, "the next attempt", TimeSpan.FromSeconds(1));
+
+        File.SetLastWriteTimeUtc(Claims.ClaimFile(source.Key), (_time.GetUtcNow() - TimeSpan.FromMinutes(5)).UtcDateTime);
+        var batches = _transport.Batches.Count;
+        var beats   = _beats[source.Key];
+        var drains  = AfterDrains(source.Key);
+        release.SetResult();
+        await Eventually(() => AfterDrains(source.Key) > drains, "the stuck attempt to finish its tick");
+
+        await Assert.That(_transport.Batches.Count).IsEqualTo(batches + 1);
+        await Assert.That(_beats[source.Key]).IsEqualTo(beats);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsFalse();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+
+        _transport.ResumeFrom = LinesSent(source.SessionId);
+        restart.SetResult();
+        await Eventually(() => LinesSent(source.SessionId) == 251, "the next attempt to send the rest", TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>A line held for redaction stops its source advancing for as long as its retries take, and that is waiting,
+    /// not hung: the loop goes on beating round it.</summary>
+    [Test]
+    public async Task A_source_waiting_on_a_redaction_retry_is_not_restarted() {
+        var stalled = new SwitchableRedactionClock { Exhausted = false };
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _clocks[source.Key] = stalled;
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        stalled.Exhausted = true;
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Held}\n{Later}\n");
+        await Eventually(() => _log.Any(line => line.Contains("Holding line 1 back", StringComparison.Ordinal)), "the hold", TimeSpan.FromSeconds(1));
+        var held = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - held > RecorderHost.WedgedAfter * 2, "the hold to outlast the threshold twice", TimeSpan.FromSeconds(1));
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+
+        stalled.Exhausted = false;
+        await Eventually(() => LinesSent(source.SessionId) == 3, "the held line", TimeSpan.FromSeconds(1));
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+    }
+
+    /// <summary>A send can take its transport's whole bound, which stays short of the threshold, and the source beats on
+    /// either side of it.</summary>
+    [Test]
+    public async Task A_slow_send_within_its_bound_is_not_restarted() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        var sends  = 0;
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        _transport.OnSend = ct => Interlocked.Increment(ref sends) == 1 ? Task.Delay(RecorderHost.WedgedAfter - TimeSpan.FromSeconds(5), _time, ct) : Task.CompletedTask;
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the slow send", TimeSpan.FromSeconds(1));
+        var sent = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - sent > RecorderHost.WedgedAfter, "a threshold past it", TimeSpan.FromSeconds(1));
+
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+        await Assert.That(_ended).IsEmpty();
+    }
+
+    /// <summary>A source with nothing to send sends nothing for as long as it is quiet, and is no less alive for it.</summary>
+    [Test]
+    public async Task An_idle_source_with_nothing_to_send_is_not_restarted() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var sent = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - sent > RecorderHost.WedgedAfter * 3, "three thresholds of nothing", TimeSpan.FromSeconds(1));
+
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+        await Assert.That(_ended).IsEmpty();
+    }
+
+    /// <summary>A first drain over a long backlog can take longer than the threshold before its first send. Given up on, it
+    /// would resume from the same cursor and take as long again, for ever, so what counts is that it gets through its lines.
+    /// Here each line's redaction moves the host's clock on.</summary>
+    [Test]
+    public async Task A_large_backlog_is_not_restarted() {
+        const int Backlog = 500;
+        var source  = Source(Tmp.CreateFile("t.jsonl", string.Concat(Enumerable.Repeat($"{Reply}\n", Backlog))), "a1");
+        var started = _time.GetUtcNow();
+        _clocks[source.Key] = new SlowRedactionClock(_time, TimeSpan.FromMilliseconds(100));
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == Backlog, "the backlog");
+
+        await Assert.That(_time.GetUtcNow() - started > RecorderHost.WedgedAfter * 2).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+    }
+
+    /// <summary>Neither waits on a beat. A backoff is the host's own, here with the transport up, so nothing excuses it, and
+    /// each failing connect taking half the threshold, so a watch carried across a backoff into the next attempt would see
+    /// more than the threshold. A connect the server never answers is the transport's to retry while it is down: the
+    /// source gets the whole threshold again once the transport is back.</summary>
+    [Test]
+    public async Task A_backoff_and_an_unanswered_connect_are_not_wedges() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 8;
+        _transport.OnConnect       = ct => Task.Delay(RecorderHost.WedgedAfter / 2, _time, ct);
+        var started = _time.GetUtcNow();
+        var host    = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 8, "eight failed connects and their backoffs, two of them at the cap", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_time.GetUtcNow() - started > RecorderHost.WedgedAfter).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+
+        _transport.OnConnect    = null;
+        _transport.IsConnected  = false;
+        _transport.ConnectHangs = true;
+        await Eventually(() => _transport.ConnectAttempts == 9, "the connect nobody answers", TimeSpan.FromSeconds(1));
+        var asked = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - asked > RecorderHost.WedgedAfter * 2, "the connect to outlast the threshold twice", TimeSpan.FromSeconds(1));
+
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(9);
+        await Assert.That(_ended.Count).IsEqualTo(8);
+        await Assert.That(_ended.All(ended => ended.Failure?.Message == "The hub is down.")).IsTrue();
+    }
+
+    /// <summary>Preparation and the connect wait on bounds of their own, and a slow pair of them outlasts the threshold
+    /// together. The source beats between the two.</summary>
+    [Test]
+    public async Task A_slow_preparation_and_a_slow_connect_are_not_a_wedge() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var slow   = RecorderHost.WedgedAfter * 0.6;
+        _prepare[source.Key]  = () => Task.Delay(slow, _time);
+        _transport.OnConnect  = ct => Task.Delay(slow, _time, ct);
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the line", TimeSpan.FromSeconds(1));
+
+        await Assert.That(slow * 2 > RecorderHost.WedgedAfter).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+    }
+
+    /// <summary>A source waiting out an outage in a call that never returns beats nothing of its own, and a claim its owner
+    /// keeps offline, as a hosted session's is, stays fresh all the same. One not kept offline goes stale, as it does in a
+    /// backoff.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_source_stuck_through_an_outage_keeps_its_claim_only_if_kept_offline(bool keptOffline) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: keptOffline);
+        var host = NewHost(claims: Claims, keepsClaimOffline: _ => keptOffline);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+        var down = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - down > RecorderClaims.Grace * 3, "an outage past the grace three times", TimeSpan.FromSeconds(1));
+
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(keptOffline ? RecorderClaimState.DaemonFresh : RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>Time while the transport is down isn't held against a source, but the source still went that long without
+    /// a beat, and the log of its wedge has to say so.</summary>
+    [Test]
+    public async Task A_source_given_up_after_an_outage_reports_all_the_time_it_went_without_a_beat() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+        var down = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - down > RecorderHost.WedgedAfter * 2, "an outage past the threshold twice", TimeSpan.FromSeconds(1));
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+
+        _transport.IsConnected = true;
+        await Eventually(() => GivenUp(source.Key), "the source to be given up", TimeSpan.FromSeconds(1));
+
+        var givenUp = _log.Single(line => line.Contains("without a beat", StringComparison.Ordinal));
+        var quiet   = int.Parse(System.Text.RegularExpressions.Regex.Match(givenUp, @"went (\d+)s without a beat").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        await Assert.That(quiet).IsGreaterThan((int)(RecorderHost.WedgedAfter * 2).TotalSeconds);
+    }
+
+    /// <summary>Whoever asked for the finish is waiting, and a second drain could race the stuck one, so the import is
+    /// what recovers its lines. That holds whether the drain was the run's own or the fresh one a source that never
+    /// connected gets.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_wedge_in_the_final_drain_marks_the_source_for_import_and_ends_it(bool connected) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        if (!connected) _transport.ConnectFailures = 1;
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => connected ? LinesSent(source.SessionId) == 1 : _ended.Count == 1, connected ? "the first line" : "the failed attempt");
+
+        _transport.OnSend = _ => new TaskCompletionSource().Task;
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+        await finish;
+
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(_log.Single(line => line.Contains("without a beat", StringComparison.Ordinal))).Contains("marked for import");
+        await Assert.That(_ended.Last() is { SourceEnded: true, LostClaim: false, Failure: TimeoutException }).IsTrue();
+    }
+
+    /// <summary>A final drain stuck in its housekeeping is past its sends and its spool, and given up on there. Woken, it
+    /// would tell the server the drain is complete, releasing a stop held for whichever recorder has the source next.</summary>
+    [Test]
+    public async Task A_final_drain_that_wakes_after_it_was_given_up_tells_the_server_nothing() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var stuck  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _afterFinalDrain[source.Key] = () => stuck.Task;
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the drain to be given up", TimeSpan.FromSeconds(1));
+        var batches = _transport.Batches.Count;
+        var backlog = Spool.HasBacklog(source.SessionId);
+
+        stuck.SetResult();
+        await Eventually(() => _transport.DrainCompletes > 0 || _log.Any(line => line.Contains("is no longer this recorder's", StringComparison.Ordinal)),
+            "the woken drain to reach its end");
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(_transport.Batches.Count).IsEqualTo(batches);
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsEqualTo(backlog);
+    }
+
+    /// <summary>A source that never connected drains through a fresh recorder, which can be stuck before its first await
+    /// as a run can. Given up on there, it is marked for import and ends; woken, it must not register the key, which
+    /// nothing would detach once its source has ended.</summary>
+    [Test]
+    public async Task A_single_drain_stuck_in_its_preparation_is_given_up_and_never_registers() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var prepares = 0;
+        using var gate = new ManualResetEventSlim();
+        _transport.ConnectFailures = 1;
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) == 2) gate.Wait();
+
+            return Task.CompletedTask;
+        };
+        var host = NewHost();
+
+        try {
+            host.TryAdd(source);
+            await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+            var finish = host.FinishAsync(source.Key, CancellationToken.None);
+            await Eventually(() => finish.IsCompleted, "the drain to be given up", TimeSpan.FromSeconds(1));
+            await finish;
+
+            await Assert.That(GivenUp(source.Key)).IsTrue();
+            await Assert.That(Spool.NeedsImport(source.SessionId)).IsTrue();
+            await Assert.That(host.ActiveKeys).IsEmpty();
+        } finally {
+            gate.Set();
+        }
+
+        await Eventually(() => _log.Any(line => line.Contains("is no longer this recorder's", StringComparison.Ordinal)), "the woken drain to reach its connect");
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(_transport.Connects).IsEqualTo(0);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+    }
+
+    /// <summary>The stuck attempt is left behind with nothing of the source's: the finish is the fresh attempt's, which
+    /// drains the tail and tells the server.</summary>
+    [Test]
+    public async Task Finishing_a_source_after_a_restart_drains_through_the_fresh_attempt() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        StickNextTick(source.Key);
+        _transport.ResumeFrom = 1;
+        await Eventually(() => _transport.Connects == 2, "the next attempt", TimeSpan.FromSeconds(1));
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+        await Assert.That(_ended.Last() is { SourceEnded: true, Failure: null }).IsTrue();
+    }
+
+    /// <summary>The owner settles nothing on a failed attempt, so a wedge must not read as a lost claim or an end. What the
+    /// stuck attempt started is still the owner's to stop: the next attempt knows nothing of it.</summary>
+    [Test]
+    public async Task The_owner_hears_a_wedge_as_a_failed_attempt() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _attemptChildren.Enqueue(["started-by-the-stuck-attempt"]);
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        StickNextTick(source.Key);
+        await Eventually(() => _ended.Count == 1, "the attempt to end", TimeSpan.FromSeconds(1));
+
+        var ended = _ended.Single();
+        await Assert.That(ended.SourceEnded).IsFalse();
+        await Assert.That(ended.LostClaim).IsFalse();
+        await Assert.That(ended.EndedIdle).IsFalse();
+        await Assert.That(ended.LeftLines).IsFalse();
+        await Assert.That(ended.SpawnedChildKeys).IsEquivalentTo(["started-by-the-stuck-attempt"]);
+        await Assert.That(ended.Failure).IsTypeOf<TimeoutException>();
+        await Assert.That(ended.Failure!.Message).Contains($"{source.Key} went 50s without a beat");
+        await Eventually(() => _transport.Connects == 2, "the next attempt", TimeSpan.FromSeconds(1));
     }
 
     TranscriptSpool Spool => new(Config, _time, "http://127.0.0.1:1");
@@ -1742,7 +2188,7 @@ public class RecorderHostTests {
     public async Task Backoff_doubles_to_its_cap_and_resets_after_a_long_run() {
         var capped = Source(Tmp.CreateFile("capped.jsonl", $"{Prompt}\n"), "a1");
         _transport.ConnectFailures = 100;
-        var host = NewHost();
+        var host = NewHost(watched: false);
 
         host.TryAdd(capped);
         await Eventually(() => _transport.ConnectAttempts == 8, "eight attempts", TimeSpan.FromSeconds(1));
@@ -1771,7 +2217,7 @@ public class RecorderHostTests {
 
             return Task.CompletedTask;
         };
-        var host = NewHost();
+        var host = NewHost(watched: false);
 
         host.TryAdd(source);
         await Eventually(() => timersAtFailure >= 0 && _transport.ConnectAttempts == 4, "the failure and the next attempt", TimeSpan.FromSeconds(31));
@@ -2230,7 +2676,7 @@ public class RecorderHostTests {
     [Test]
     public async Task A_source_that_goes_idle_leaves_and_stops_listening() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
-        var host   = NewHost();
+        var host   = NewHost(watched: false);
 
         host.TryAdd(source);
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
@@ -2306,6 +2752,18 @@ public class RecorderHostTests {
         await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
         await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
         await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
+    }
+
+    /// <summary>A record-budget clock that never runs out, and moves <paramref name="host"/> on at every read, so redaction
+    /// takes that long on the host's clock.</summary>
+    sealed class SlowRedactionClock(FakeTimeProvider host, TimeSpan perRead) : TimeProvider {
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() {
+            host.Advance(perRead);
+
+            return 0;
+        }
     }
 
     /// <summary>A fake clock that remembers the timers armed on it and how many connects had been tried by then.</summary>
