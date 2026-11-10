@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
@@ -587,27 +588,35 @@ public class WorkspaceViewModelTests {
         });
     }
 
-    /// The banner layer (session-ended card, detach/reattach controls) is Terminal-tab-only: a
-    /// non-PTY session's chat surface owns the pane on every other tab, so it must never render
-    /// underneath ChatHost.
+    /// One banner at a time: none over the chat, which shows its own; the daemon's notice over the
+    /// terminal's, since a down daemon is the cause of any terminal state; the terminal's once it is back.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task ShowsTerminalBanners_is_true_only_on_the_Terminal_tab_pty_or_not() {
+    public async Task The_banner_shows_one_notice_and_the_daemon_outranks_the_terminal() {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
-            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
-
-            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: false));
-            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
-            await Assert.That(vm.ShowsTerminalBanners).IsFalse();
-            await vm.ShowTerminalCommand.Execute();
-            await Assert.That(vm.ShowsTerminalBanners).IsTrue();
-
+            var attach = new FakeTerminalAttachClientFactory();
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), attach, new FakeTimeProvider());
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
-            await Assert.That(vm.ShowsTerminalBanners).IsTrue();
+            await vm.ShowTerminalCommand.Execute();
+            attach.Created[^1].Result.SetResult(new AttachOutcome.Detached());
+            await vm.Terminal.CurrentRunForTesting!;
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("Detached from the terminal");
+
+            daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("The daemon isn’t running");
+
             await vm.ShowChatCommand.Execute();
-            await Assert.That(vm.ShowsTerminalBanners).IsFalse();
+            await Assert.That(vm.HasBannerNotice).IsFalse();
+
+            await vm.ShowTerminalCommand.Execute();
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("Detached from the terminal");
 
             await vm.TeardownAsync();
         });

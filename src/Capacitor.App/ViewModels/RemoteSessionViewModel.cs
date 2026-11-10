@@ -203,12 +203,17 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     bool _hasEstablishedAccess;
     bool _connectionFailed;
+    readonly LocalServerRecoveryViewModel? _localServer;
     public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
     public bool HasConnectionNotice => ConnectionNotice is not null;
     public SessionConnectionPresentation? ConnectionNotice => OriginChangedToLocal ? null : Access switch {
         RemoteSessionAccess.NoSession when !SessionEnded => SessionConnectionPresentation.Starting(
             "Waiting for the agent to register.", ShowsTerminalTab ? ShowTerminalCommand : null),
         RemoteSessionAccess.Connecting when !_hasEstablishedAccess => SessionConnectionPresentation.Connecting(),
+        RemoteSessionAccess.Connecting or RemoteSessionAccess.Offline when _localServer is { IsLocalServer: true, IsStarting: true } =>
+            SessionConnectionPresentation.LocalServerStarting(),
+        RemoteSessionAccess.Offline when _connectionFailed && _localServer is { IsLocalServer: true, ServerDown: true, StartOffered: true } =>
+            SessionConnectionPresentation.LocalServerStopped(_localServer.StartCommand),
         RemoteSessionAccess.Offline when _connectionFailed => SessionConnectionPresentation.Failed(RetryConnectionCommand),
         RemoteSessionAccess.Connecting or RemoteSessionAccess.Offline => SessionConnectionPresentation.Reconnecting(),
         _ => null,
@@ -325,7 +330,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
-            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null) {
+            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -335,6 +340,10 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             else if (SessionId is { } sessionId) AcquireLease(sessionId);
         });
         _disposables.Add(RetryConnectionCommand);
+        _localServer = localServer;
+        if (localServer is not null)
+            localServer.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.StartOffered)
+                .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         _permissions = permissions;
         _readSubagent = readSubagent;
         _row = row;

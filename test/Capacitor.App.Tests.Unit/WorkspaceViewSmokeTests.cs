@@ -95,6 +95,17 @@ public class WorkspaceViewSmokeTests {
                 daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
+                await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "The daemon isn’t running")).IsTrue();
+                await vm.StartDaemonCommand.Execute();
+                await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
+                daemon.StartBehavior = _ => Task.FromResult(new StartDaemonResult(false, "kcap CLI not found"));
+                await vm.StartDaemonCommand.Execute();
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(vm.ConnectionNotice!.Title).IsEqualTo("The daemon didn’t start");
+                await Assert.That(vm.ConnectionNotice.Detail).IsEqualTo("kcap CLI not found");
+                daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_incompatible", null));
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
                 await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 await vm.RetryConnectionCommand.Execute();
                 await Assert.That(daemon.RestartCount).IsEqualTo(1);
@@ -151,6 +162,10 @@ public class WorkspaceViewSmokeTests {
     /// Effectively visible under this window. A name that never gets realized into the visual
     /// tree — a collapsed surface's own controls — reads as not visible rather than throwing.
     static bool Visible(Window window, string name) => Find<Control>(window, name) is { IsEffectivelyVisible: true };
+
+    static Control Banner(Window window) => Find<Control>(window, "ConnectionBanner")!;
+    static T BannerPart<T>(Window window, string name) where T : Control =>
+        Banner(window).GetVisualDescendants().OfType<T>().First(c => c.Name == name);
 
     static bool IsOffscreen(Control control) =>
         Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(control).IsOffscreen();
@@ -217,11 +232,7 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
-    /// Run-and-observe: drives the fake attach client's Result straight to AttachOutcome.Detached
-    /// (TerminalTabViewModelTests' own idiom) and checks the view actually renders the combined
-    /// Detached/Failed banner -- ReattachButton sits inside a Border whose OWN IsVisible is bound
-    /// to the phase, so IsEffectivelyVisible (not IsVisible) is required to see the ancestor's
-    /// collapse, same as MainWindowSmokeTests' shell-vs-workspace check.
+    /// A detached terminal renders in the session banner, with Reattach as its one action.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Detached_state_shows_the_reattach_banner() {
@@ -231,15 +242,10 @@ public class WorkspaceViewSmokeTests {
             window.Show();
             Dispatcher.UIThread.RunJobs();
 
-            var reattachButton = Find<Control>(window, "ReattachButton")!;
-            var detachButton = Find<Control>(window, "DetachButton")!;
-
             daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await vm.ShowTerminalCommand.Execute();
             Dispatcher.UIThread.RunJobs();
-
-            await Assert.That(reattachButton.IsEffectivelyVisible).IsFalse();
 
             var client = attach.Created[^1];
             client.Result.SetResult(new AttachOutcome.Detached());
@@ -247,8 +253,9 @@ public class WorkspaceViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
 
             await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Detached);
-            await Assert.That(reattachButton.IsEffectivelyVisible).IsTrue();
-            await Assert.That(detachButton.IsEffectivelyVisible).IsFalse();
+            await Assert.That(Banner(window).IsEffectivelyVisible).IsTrue();
+            await Assert.That(BannerPart<TextBlock>(window, "NoticeTitle").Text).IsEqualTo("Detached from the terminal");
+            await Assert.That(BannerPart<Button>(window, "NoticeAction").Content).IsEqualTo("Reattach");
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -268,9 +275,6 @@ public class WorkspaceViewSmokeTests {
             window.Show();
             Dispatcher.UIThread.RunJobs();
 
-            var detachButton = Find<Control>(window, "DetachButton")!;
-            var bannerText = Find<TextBlock>(window, "AttachBannerText")!;
-
             daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await vm.ShowTerminalCommand.Execute();
@@ -282,8 +286,7 @@ public class WorkspaceViewSmokeTests {
 
             await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Attached);
             await Assert.That(vm.Terminal.State.ReadOnly).IsFalse();
-            await Assert.That(detachButton.IsEffectivelyVisible).IsFalse();
-            await Assert.That(bannerText.IsEffectivelyVisible).IsFalse();
+            await Assert.That(Banner(window).IsEffectivelyVisible).IsFalse();
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -291,9 +294,8 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
-    /// Companion to the read-write test above: a read-only attach (TriggerAttached with a reason)
-    /// is the ONE mode that shows the banner — warning copy with the daemon's reason, plus the
-    /// Detach button (the only action a read-only session has).
+    /// Companion to the read-write test above: a read-only attach (TriggerAttached with a reason) is
+    /// the one attached mode with a banner, carrying the daemon's reason and Detach.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Read_only_attached_state_shows_the_warning_banner_and_detach_button() {
@@ -302,9 +304,6 @@ public class WorkspaceViewSmokeTests {
             var window = new Window { Content = view };
             window.Show();
             Dispatcher.UIThread.RunJobs();
-
-            var detachButton = Find<Control>(window, "DetachButton")!;
-            var bannerText = Find<TextBlock>(window, "AttachBannerText")!;
 
             daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
@@ -317,8 +316,10 @@ public class WorkspaceViewSmokeTests {
 
             await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Attached);
             await Assert.That(vm.Terminal.State.ReadOnly).IsTrue();
-            await Assert.That(detachButton.IsEffectivelyVisible).IsTrue();
-            await Assert.That(bannerText.Text).IsEqualTo("Read-only: review");
+            await Assert.That(BannerPart<TextBlock>(window, "NoticeTitle").Text).IsEqualTo("Read-only terminal");
+            await Assert.That(vm.BannerNotice!.Detail).IsEqualTo("review");
+            await Assert.That(BannerPart<Button>(window, "NoticeAction").IsEffectivelyVisible).IsTrue();
+            await Assert.That(BannerPart<Button>(window, "NoticeAction").Content).IsEqualTo("Detach");
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -334,7 +335,7 @@ public class WorkspaceViewSmokeTests {
         await RunOnUiAsync(async () => {
             var (window, vm, _, _) = await ShowPtyAsync();
             var chatHost = Find<Control>(window, "ChatHost")!;
-            var banners = Find<Control>(window, "TerminalBanners")!;
+            var banners = Banner(window);
             var terminalHost = Find<Control>(window, "TerminalHost")!;
 
             await Assert.That(vm.IsChatActive).IsTrue();
@@ -391,8 +392,7 @@ public class WorkspaceViewSmokeTests {
             window.UpdateLayout();
 
             await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.SessionEnded);
-            await Assert.That(Find<Control>(window, "TerminalBanners")!.IsEffectivelyVisible).IsFalse();
-            await Assert.That(Find<Control>(window, "SessionEndedNote")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(Banner(window).IsEffectivelyVisible).IsFalse();
             await Assert.That(chatHost.IsEffectivelyVisible).IsTrue();
             await Assert.That(vm.Chat!.ComposerHint).IsEqualTo("This session has ended");
 
@@ -512,15 +512,13 @@ public class WorkspaceViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
 
             var composer = Find<TextBox>(window, "ComposerInput")!;
-            var detach = Find<Control>(window, "DetachButton")!;
-            var reattach = Find<Control>(window, "ReattachButton")!;
+            var banner = Banner(window);
             var send = Find<Control>(window, "SendButton")!;
             var terminalHost = Find<Control>(window, "TerminalHost")!;
 
             var ringFromComposer = TabRing(window, composer);
             await Assert.That(ringFromComposer).Contains(composer);
-            await Assert.That(ringFromComposer).DoesNotContain(detach);
-            await Assert.That(ringFromComposer).DoesNotContain(reattach);
+            await Assert.That(ringFromComposer.Any(c => c is Visual v && (v == banner || v.GetVisualAncestors().Contains(banner)))).IsFalse();
 
             await vm.ShowTerminalCommand.Execute();
             Dispatcher.UIThread.RunJobs();

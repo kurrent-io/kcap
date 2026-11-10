@@ -137,6 +137,26 @@ public class RemoteSessionViewSmokeTests {
         });
     }
 
+    /// A stopped local server is the cause a Retry cannot repair, so the notice offers its start instead.
+    [Test]
+    public async Task A_stopped_local_server_offers_start_server_instead_of_retry() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var starts = 0;
+            LocalServerRecoveryViewModel? local = null;
+            using var host = new Host(localServer: lane => local = new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
+                _ => { starts++; return Task.FromResult(new Capacitor.Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
+                await Assert.That(host.Vm.ConnectionNotice!.ActionLabel).IsEqualTo("Start server");
+                host.Vm.ConnectionNotice.Action!.Execute(null);
+                await host.SettleUntilAsync(() => starts == 1, "start requested");
+            } finally { await host.Vm.TeardownAsync(); local?.Dispose(); }
+            return true;
+        });
+    }
+
     [Test]
     public async Task Slow_context_shows_loading_then_failure_and_retry_restores_an_explained_empty_state() {
         await AvaloniaSession.DispatchAsync(async () => {
@@ -185,7 +205,8 @@ public class RemoteSessionViewSmokeTests {
         public readonly Window Window;
 
         public Host(IPlanArtifactSource? planArtifacts = null, string sessionId = "s1", IWindowImpl? windowImpl = null, bool realTerminal = false,
-                AgentRow? row = null, Func<AgentRow, HandoffComposerViewModel>? handoff = null, FakeWorkContextSource? workSource = null, SessionDetailDto? detail = null, Func<Task>? retryConnection = null) {
+                AgentRow? row = null, Func<AgentRow, HandoffComposerViewModel>? handoff = null, FakeWorkContextSource? workSource = null, SessionDetailDto? detail = null, Func<Task>? retryConnection = null,
+                Func<FakeServerLane, LocalServerRecoveryViewModel>? localServer = null) {
             _access = new SessionAccessService(Lane, Time);
             Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
             row ??= AgentRow.FromRemote(new AgentInstanceDto {
@@ -196,7 +217,8 @@ public class RemoteSessionViewSmokeTests {
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
                 (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
-                remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection);
+                remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
+                localServer: localServer?.Invoke(Lane));
             View = new RemoteSessionView { DataContext = Vm };
             Window = windowImpl is null ? new Window() : new Window(windowImpl);
             Window.Content = View;

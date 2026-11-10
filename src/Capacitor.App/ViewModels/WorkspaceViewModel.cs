@@ -20,6 +20,8 @@ public enum WorkspaceTab { Chat, Terminal, PullRequest, Artefacts }
 /// Ended or removed agents retain their last known session context.
 public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     const string UnresolvedKind = "unresolved";
+    /// The attach's own word for no daemon answering on the socket, which Start daemon repairs.
+    const string DaemonStoppedReason = "daemon_unreachable";
 
     SessionConnectionPresentation? _connectionNotice;
     public SessionConnectionPresentation? ConnectionNotice {
@@ -28,6 +30,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaiseAndSetIfChanged(ref _connectionNotice, value);
             this.RaisePropertyChanged(nameof(HasConnectionNotice));
             this.RaisePropertyChanged(nameof(ShowsStartingNotice));
+            RaiseBannerNotice();
             if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
             if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
         }
@@ -36,6 +39,19 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsStartingNotice => IsStarting && !HasConnectionNotice;
     public SessionConnectionPresentation StartingNotice => SessionConnectionPresentation.Starting(StartingText);
     public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
+    public ReactiveCommand<Unit, Unit> StartDaemonCommand { get; }
+
+    SessionConnectionPresentation? _terminalNotice;
+    /// The one notice above every surface but the chat, which shows its own: the daemon's state is the
+    /// cause of any terminal state, so it outranks the Terminal tab's.
+    public SessionConnectionPresentation? BannerNotice =>
+        ShowsChat ? null : ConnectionNotice ?? (IsTerminalActive ? _terminalNotice : null);
+    public bool HasBannerNotice => BannerNotice is not null;
+
+    void RaiseBannerNotice() {
+        this.RaisePropertyChanged(nameof(BannerNotice));
+        this.RaisePropertyChanged(nameof(HasBannerNotice));
+    }
 
     public string AgentId { get; }
 
@@ -93,6 +109,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaiseAndSetIfChanged(ref _subagent, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
+            RaiseBannerNotice();
         }
     }
 
@@ -101,6 +118,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         private set {
             this.RaiseAndSetIfChanged(ref _chat, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
+            RaiseBannerNotice();
         }
     }
 
@@ -139,7 +157,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaisePropertyChanged(nameof(IsPullRequestActive));
             this.RaisePropertyChanged(nameof(ShowsPullRequestTab));
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
-            this.RaisePropertyChanged(nameof(ShowsTerminalBanners));
+            RaiseBannerNotice();
             this.RaisePropertyChanged(nameof(IsArtefactsActive));
             Artefacts.IsShown = IsArtefactsActive;
             PullRequests?.SetReaderVisible(value == WorkspaceTab.PullRequest);
@@ -154,7 +172,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public bool IsTerminalActive => ActiveTab == WorkspaceTab.Terminal;
     public bool IsPullRequestActive => ActiveTab == WorkspaceTab.PullRequest;
     public bool IsArtefactsActive => ActiveTab == WorkspaceTab.Artefacts;
-    public bool ShowsTerminalBanners => IsTerminalActive;
 
     public ReactiveCommand<Unit, Unit> ShowChatCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
@@ -229,16 +246,33 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(_lease);
         RetryConnectionCommand = ReactiveCommand.CreateFromTask(daemon.RestartLoopAsync);
         _disposables.Add(RetryConnectionCommand);
-        daemon.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
-            ConnectionNotice = status.State switch {
-                AttachState.Connected => null,
-                AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.Reason =>
-                    SessionConnectionPresentation.Reconnecting("The daemon is restarting. Retrying automatically."),
-                AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.StartingReason =>
-                    SessionConnectionPresentation.Reconnecting("The daemon is starting. Retrying automatically."),
-                AttachState.Unreachable => SessionConnectionPresentation.Failed(RetryConnectionCommand),
-                _ => ConnectionNotice,
-            };
+        var startFailure = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+        _disposables.Add(startFailure);
+        StartDaemonCommand = ReactiveCommand.CreateFromTask(async ct => {
+            startFailure.OnNext(null);
+            var result = await daemon.StartDaemonAsync(ct);
+            if (!result.Ok) startFailure.OnNext(result.Message ?? "The daemon didn’t start.");
+        });
+        _disposables.Add(StartDaemonCommand);
+        daemon.Status.CombineLatest(StartDaemonCommand.IsExecuting, RetryConnectionCommand.IsExecuting, startFailure)
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(t => {
+                var (status, starting, retrying, failure) = t;
+                ConnectionNotice = status.State switch {
+                    AttachState.Connected => null,
+                    AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.Reason =>
+                        SessionConnectionPresentation.Reconnecting("The daemon is restarting. Retrying automatically."),
+                    AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.StartingReason || starting =>
+                        SessionConnectionPresentation.DaemonStarting(),
+                    AttachState.Unreachable when retrying => SessionConnectionPresentation.Reconnecting(),
+                    AttachState.Unreachable when status.Reason == DaemonStoppedReason =>
+                        SessionConnectionPresentation.DaemonStopped(StartDaemonCommand, failure),
+                    AttachState.Unreachable => SessionConnectionPresentation.Failed(RetryConnectionCommand),
+                    _ => ConnectionNotice,
+                };
+            }).DisposeWith(_disposables);
+        Terminal.WhenAnyValue(t => t.State).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(state => {
+            _terminalNotice = TerminalNotices.For(state, Terminal.ReattachCommand, Terminal.DetachCommand, Terminal.RetryResolveCommand);
+            RaiseBannerNotice();
         }).DisposeWith(_disposables);
 
         var presence = daemon.Agents.Connect()
