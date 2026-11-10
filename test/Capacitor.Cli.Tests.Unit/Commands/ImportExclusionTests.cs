@@ -45,6 +45,7 @@ public class ImportExclusionTests {
         ]);
     }
 
+    // An accepted persistent-404 session is probed at classification, ledger recording, then final confirmation.
     static WireMockServer Online(int secretStatus = 404) {
         var server = WireMockServer.Start();
 
@@ -131,7 +132,7 @@ public class ImportExclusionTests {
 
     [Test]
     [NotInParallel]
-    [Arguments("y", 404, 2, 0, 2, 0, 0)]
+    [Arguments("y", 404, 2, 0, 3, 0, 0)]
     [Arguments("n", 404, 1, 1, 0, 0, 0)]
     [Arguments("y", 200, 2, 0, 2, 1, 0)]
     [Arguments("y", 204, 1, 0, 1, 0, 1)]
@@ -205,7 +206,7 @@ public class ImportExclusionTests {
     [NotInParallel]
     [Arguments("y\nn\n", 1, 1, 0)]
     [Arguments("n\ny\n", 1, 1, 0)]
-    [Arguments("y\ny\n", 2, 0, 2)]
+    [Arguments("y\ny\n", 2, 0, 3)]
     public async Task A_probe_waits_until_both_repository_and_path_exclusions_are_opted_in(
             string answers, int imported, int excludedCount, int probes) {
         var (projects, excluded) = Fixture();
