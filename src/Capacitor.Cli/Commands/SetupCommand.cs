@@ -1932,8 +1932,8 @@ sealed class SetupCommand(
         if (!inputs.NoPrompt && found is not null && inputs.ChooseProjects is { } choose) {
             var choices = SetupImportChoice.From(found, skip);
 
-            // One project is what the yes just answered for; a list is a question only with two.
-            if (choices.Count > 1) {
+            // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
+            if (choices.Count > 1 || choices is [{ Included: false }]) {
                 var kept = choose(choices);
 
                 if (kept.Count == 0) {

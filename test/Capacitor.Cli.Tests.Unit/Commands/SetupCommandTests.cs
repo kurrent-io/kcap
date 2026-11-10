@@ -1503,6 +1503,20 @@ public class SetupCommandTests {
 
     /// <summary>Every repository and every named folder is offered ticked, so confirming the list as it
     /// stands imports everything, with nothing left out.</summary>
+    /// <summary>A saved exclusion of the only project would otherwise outlast a yes to the import that never showed it.</summary>
+    [Test]
+    public async Task A_lone_project_left_out_by_a_saved_answer_is_offered_again() {
+        var runner  = FakeImportRunner.Succeeding().Discovering(Discovered(1, 3, 0));
+        var spawner = FakeBackgroundImportSpawner.Running();
+        IReadOnlyList<SetupImportChoice>? offered = null;
+
+        await Command(runner, spawner, FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(leaveOut: new ImportSkip([("owner0", "repo0")], []), choose: choices => offered = choices));
+
+        await Assert.That(offered).IsNotNull();
+        await Assert.That(runner.Captured!.Skip!.IsEmpty).IsTrue();
+    }
+
     [Test]
     public async Task Every_discovered_project_starts_ticked_and_an_untouched_list_leaves_nothing_out() {
         var runner  = FakeImportRunner.Succeeding().Discovering(DiscoveredProjects());
