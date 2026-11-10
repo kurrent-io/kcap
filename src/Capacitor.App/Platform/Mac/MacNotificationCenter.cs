@@ -12,6 +12,8 @@ namespace Capacitor.App.Platform.Mac;
 
 /// UserNotifications requires a real application bundle. A development `dotnet run` intentionally
 /// has no native sink; calling currentNotificationCenter from an unbundled process can abort it.
+/// Setup failures must leave desktop startup usable, and native callbacks must contain managed
+/// exceptions while completing their callers with unavailable results.
 [SupportedOSPlatform("macos")]
 internal sealed class MacNotificationCenter : IMacNotificationCenter {
     static readonly ConcurrentDictionary<nint, WeakReference<MacNotificationCenter>> Delegates = new();

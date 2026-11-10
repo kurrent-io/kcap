@@ -171,6 +171,7 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
                 if (settings.Badge) _badge.Refresh();
             });
         } catch (Exception error) {
+            // Timer-driven reconciliation must release Dock retention on any failed native read.
             Post(() => { if (!_disposed) _badge.Authorize(false); });
             DesktopNotifications.Report(error);
         } finally {

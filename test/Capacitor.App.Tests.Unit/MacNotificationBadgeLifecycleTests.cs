@@ -264,6 +264,31 @@ public class MacNotificationBadgeLifecycleTests {
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_native_snapshot_failure_releases_Dock_retention_and_allows_the_next_reconciliation(bool throwsSynchronously) {
+        var native = new FakeMacNotificationCenter {
+            ReadDelivered = () => throwsSynchronously
+                ? throw new InvalidOperationException("Native snapshot failed")
+                : Task.FromException<IReadOnlySet<string>?>(new InvalidOperationException("Native snapshot failed")),
+        };
+        using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+        var count = 0;
+        using var watch = sink.BadgeCounts.Subscribe(value => count = value);
+        sink.Show(Notice("a"), _ => { });
+        await Assert.That(count).IsEqualTo(1);
+
+        await sink.ReconcileAsync();
+
+        await Assert.That(count).IsEqualTo(0);
+        await Assert.That(native.Badges.Last().Count).IsEqualTo(0);
+        native.ReadDelivered = null;
+        await sink.ReconcileAsync();
+        await Assert.That(count).IsEqualTo(1);
+        await Assert.That(native.DeliveredReads).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Native_callbacks_are_dispatched_before_mutating_badge_state() {
         var posted = new ConcurrentQueue<Action>();
         var native = new FakeMacNotificationCenter();
