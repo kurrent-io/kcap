@@ -1764,12 +1764,15 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
         var shown = await AvaloniaSession.DispatchAsync(() => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+                () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
             var (actions, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-                tenantName: "kurrent", workspaceFactory: id => NewWorkspace(service, actions, id));
+                tenantName: "kurrent", home: home, workspaceFactory: id => NewWorkspace(service, actions, id));
             var window = new MainWindow { DataContext = vm };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -1808,7 +1811,9 @@ public class MainWindowSmokeTests {
                 OpensLauncher: ReferenceEquals(link.Command, vm.NewSessionCommand),
                 WorkspaceOpened: workspaceOpened,
                 FocusUnderlined: focusUnderlined,
-                LauncherVisibleAfterClick: launcher.IsVisible);
+                LauncherVisibleAfterClick: launcher.IsVisible,
+                StartDaemonVisibleAfterClick: window.FindDescendantOfType<LauncherPaneView>()!
+                    .FindControl<Button>("StartDaemonButton")!.IsEffectivelyVisible);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1828,6 +1833,7 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.WorkspaceOpened).IsTrue();
         await Assert.That(shown.FocusUnderlined).IsTrue();
         await Assert.That(shown.LauncherVisibleAfterClick).IsTrue();
+        await Assert.That(shown.StartDaemonVisibleAfterClick).IsTrue();
     }
 
     /// Signed-out is a rail diagnosis; the launcher's Sign in is on the other pane and hidden
