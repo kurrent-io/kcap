@@ -80,6 +80,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// the footer says Connected instead.
     public RailAlert? Alert => _alert?.Value;
 
+    ObservableAsPropertyHelper<RailAttentionSummary>? _railAttention;
+    public RailAttentionSummary RailAttention => _railAttention?.Value ?? RailAttentionSummary.None;
+
+    ObservableAsPropertyHelper<IBrush>? _railAttentionBrush;
+    public IBrush RailAttentionBrush => _railAttentionBrush?.Value ?? Paint(StatusColors.Unavailable);
+
     ObservableAsPropertyHelper<IBrush>? _statusBrush;
     /// The alert's tone. The text carries the status, so it is painted rather than given a dot.
     public IBrush StatusBrush => _statusBrush?.Value ?? Paint(StatusColors.Unavailable);
@@ -692,6 +698,18 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .CombineLatest(failureText, (bg, text) => bg || text is not null)
                 .DistinctUntilChanged()
                 .ToProperty(this, x => x.ShowsReloadBlock, false)
+                .DisposeWith(disposables);
+
+            var sessionAttention = Rail?.WhenAnyValueUnsafe(x => x.Attention) ?? Observable.Return((Count: 0, Failed: 0));
+            var railAttention = sessionAttention.CombineLatest(alert, backgroundWhileConnected, failureText,
+                    (attention, currentAlert, background, failure) => RailAttentionSummary.Create(attention.Count, attention.Failed,
+                        currentAlert, background ? BackgroundPriorityMessage : null, failure))
+                .DistinctUntilChanged().Replay(1).RefCount();
+            _railAttention = railAttention
+                .ToProperty(this, x => x.RailAttention, RailAttentionSummary.None)
+                .DisposeWith(disposables);
+            _railAttentionBrush = railAttention.Select(attention => Paint(attention.Tone))
+                .ToProperty(this, x => x.RailAttentionBrush, Paint(StatusColors.Unavailable))
                 .DisposeWith(disposables);
 
             _state = status.Select(s => s.State)
