@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Microsoft.Extensions.Logging;
-using Bound = (System.Net.Sockets.Socket Listener, System.Threading.CancellationTokenSource Stop,
+using Bound = (System.Net.Sockets.Socket Listener, System.Threading.CancellationTokenSource Stop, System.Threading.SemaphoreSlim Slots,
     System.Threading.Tasks.Task Accepting, System.Collections.Generic.HashSet<System.Threading.Tasks.Task> Connections);
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -85,7 +85,7 @@ internal sealed partial class SteeringEndpoint(
             var slots       = new SemaphoreSlim(MaxConnections, MaxConnections);
             var accepting   = Task.Run(() => AcceptAsync(listener, slots, connections, stop.Token));
 
-            _bound = (listener, stop, accepting, connections);
+            _bound = (listener, stop, slots, accepting, connections);
             LogBound(socketPath);
 
             return true;
@@ -115,7 +115,8 @@ internal sealed partial class SteeringEndpoint(
         await retiring;
     }
 
-    /// <summary>Cuts off what a closed listener was serving and waits for it to stop.</summary>
+    /// <summary>Cuts off what a closed listener was serving and waits for it to stop. Every connection released its slot
+    /// by then: the accept loop has ended, so no connection is missing from the set.</summary>
     static async Task RetireAsync(Bound bound) {
         await bound.Stop.CancelAsync();
         await bound.Accepting;
@@ -125,6 +126,7 @@ internal sealed partial class SteeringEndpoint(
         await Task.WhenAll(open);
 
         bound.Stop.Dispose();
+        bound.Slots.Dispose();
     }
 
     public ValueTask DisposeAsync() => new(UnbindAsync());
