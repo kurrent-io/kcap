@@ -254,6 +254,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             if (!result.Ok) startFailure.OnNext(result.Message ?? "The daemon didn’t start.");
         });
         _disposables.Add(StartDaemonCommand);
+        daemon.Status.Where(s => s.State == AttachState.Connected)
+            .Subscribe(_ => startFailure.OnNext(null)).DisposeWith(_disposables);
         daemon.Status.CombineLatest(StartDaemonCommand.IsExecuting, RetryConnectionCommand.IsExecuting, startFailure)
             .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(t => {
                 var (status, starting, retrying, failure) = t;

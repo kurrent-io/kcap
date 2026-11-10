@@ -118,6 +118,9 @@ public class WorkspaceViewSmokeTests {
                 daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(vm.Chat.PhaseNote).IsNotEmpty();
+                daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(vm.ConnectionNotice!.Title).IsEqualTo("The daemon isn’t running");
             } finally { window.Close(); await vm.TeardownAsync(); }
         });
     }
