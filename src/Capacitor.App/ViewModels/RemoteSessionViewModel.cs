@@ -473,9 +473,9 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         });
         var stopKey = AgentActionService.StopKey(AgentOrigin.Remote, row.Id);
         var canStop = _sessionEndedChanges
-            .CombineLatest(_originChangedChanges, actions.StopsInFlight, viewer,
-                (ended, movedLocal, inFlight, access) => !IsSessionOnly && !ended && !movedLocal && !inFlight.Contains(stopKey)
-                    && access.CanPressKeys);
+            .CombineLatest(_originChangedChanges, actions.StopsInFlight, viewer, _rows.Select(r => r.Status == AgentRow.DaemonDownStatus),
+                (ended, movedLocal, inFlight, access, daemonDown) => !IsSessionOnly && !ended && !movedLocal && !inFlight.Contains(stopKey)
+                    && access.CanPressKeys && !daemonDown);
         StopCommand = ReactiveCommand.Create(
             () => actions.RequestStop(row.Id, $"{_row.Vendor} · {_row.RepoGroupLabel}", _row.Kind, AgentOrigin.Remote,
                 accepted: () => RxSchedulers.MainThreadScheduler.Schedule(() => {

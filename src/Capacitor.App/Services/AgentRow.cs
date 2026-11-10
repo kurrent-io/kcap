@@ -58,6 +58,10 @@ public sealed record AgentRow(
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
         AgentViewerRightsDto? ViewerRights = null) {
 
+    /// A registry row of the local daemon while that daemon neither serves nor starts: the registry still
+    /// lists it live until the server notices the disconnect, and nothing can stop or message it meanwhile.
+    public const string DaemonDownStatus = "DaemonDown";
+
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
 

@@ -234,7 +234,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         lock (_lock) {
             return row.Origin switch {
                 AgentOrigin.Local => _localConnected && _onAppServer.Value,
-                AgentOrigin.Remote => _registryCurrent,
+                AgentOrigin.Remote => _registryCurrent && row.Status != AgentRow.DaemonDownStatus,
                 _ => false,
             };
         }
@@ -408,8 +408,11 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var hidden = _localConnected
                 ? FrozenDictionary<string, AgentStatusDto>.Empty
                 : _localAgents.Where(a => twinIds.Contains(a.Id)).ToFrozenDictionary(a => a.Id, StringComparer.Ordinal);
+            // The registry lists a dead daemon's agents live until the server notices the disconnect.
+            var twinDown = twinProven && !_localConnected && !_localStarting;
             var remoteRows = remote.Select(a => {
                 var row = AgentRow.FromRemote(a);
+                if (twinDown && OnTwin(a)) row = row with { Status = AgentRow.DaemonDownStatus };
                 return OnTwin(a) && hidden.TryGetValue(a.AgentId, out var own)
                     ? row with { WorktreePath = own.WorktreePath, WorkLocation = own.WorkLocation, BorrowedFrom = own.BorrowedFrom }
                     : row;
@@ -577,7 +580,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                         return false;
                     }
                     suppressServer = true;
-                    hostedNow = true;
+                    hostedNow = row.Status != AgentRow.DaemonDownStatus;
                     return false;
                 }
                 if (!_localConnected) {
