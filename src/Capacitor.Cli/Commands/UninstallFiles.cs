@@ -3,9 +3,10 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Commands;
 
 static class UninstallFiles {
-    // The local root retains its lifecycle lock and retired-origin registry. Deleting either
-    // would let concurrent installers take different locks or reuse a retired endpoint.
-    public static void DeleteConfig(string directory, string? localRoot) {
+    // The local root retains its lifecycle lock and retired-origin registry, and the user-wide record of retired
+    // ports stays too. Deleting any of them would let concurrent installers take different locks or reuse a
+    // retired endpoint.
+    public static void DeleteConfig(string directory, string? localRoot, string? keepFile = null) {
         var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
         var keep = localRoot is null ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(localRoot));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -14,12 +15,15 @@ static class UninstallFiles {
             throw new IOException("Cannot resolve the configuration and local installation paths safely.");
         var physicalKeep = keep is null ? null : CanonicalPath.Resolve(keep);
         if (physicalKeep is not null && physicalPath.Equals(physicalKeep, comparison)) return;
-        if (keep is not null && physicalKeep!.StartsWith(physicalPath + Path.DirectorySeparatorChar, comparison)) {
+        var file = keepFile is not null && File.Exists(keepFile) ? Path.GetFullPath(keepFile) : null;
+        var holdsRoot = keep is not null && physicalKeep!.StartsWith(physicalPath + Path.DirectorySeparatorChar, comparison);
+        var holdsFile = file is not null && file.StartsWith(path + Path.DirectorySeparatorChar, comparison);
+        if (holdsRoot || holdsFile) {
             if (new DirectoryInfo(path).LinkTarget is not null)
                 throw new IOException($"Cannot remove linked config directory {path} while preserving the local installation.");
             foreach (var entry in Directory.EnumerateFileSystemEntries(path)) {
-                if (Directory.Exists(entry)) DeleteConfig(entry, keep);
-                else File.Delete(entry);
+                if (Directory.Exists(entry)) DeleteConfig(entry, keep, file);
+                else if (file is null || !Path.GetFullPath(entry).Equals(file, comparison)) File.Delete(entry);
             }
             return;
         }

@@ -44,6 +44,16 @@ static class LocalPurge {
         lease.PublishRegistry(Retire(lease, details));
         FaultPoints.Hit("purge:after-retire");
 
+        // After the root's own retirement is durable, and again on every recovery, since the append is idempotent.
+        using (await LocalUnitLock.AcquireAsync(home, LocalUnitLock.Wait, TimeProvider.System, ct)) {
+            try {
+                RetiredPorts.Append(home, new RetiredInstallation(details.InstallationId, details.Port, details.ServerUrl));
+            } catch (LocalLifecycleException ex) {
+                throw new LocalLifecycleException(
+                    $"{ex.Message} Its data is not deleted yet, and the purge journal is kept. Fix or remove that file, then run kcap local uninstall --purge again.", ex);
+            }
+        }
+
         if (entry.Phase == LocalPurgeJournal.Retiring) {
             lease.Advance(entry, LocalPurgeJournal.Retired, ServerStart.Deny);
             FaultPoints.Hit("purge:after-retired");

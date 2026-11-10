@@ -413,7 +413,7 @@ sealed class UninstallCommand(
                         "Investigate the errors above, then re-run `kcap uninstall` to finish.");
                 } else if (Directory.Exists(configDir)) {
                     try {
-                        UninstallFiles.DeleteConfig(configDir, localRoot);
+                        UninstallFiles.DeleteConfig(configDir, localRoot, Core.LocalEdition.RetiredPorts.PathFor(home));
                         await console.Out.WriteLineAsync($"Removed configuration from: {configDir}");
                         if (keptLocal is not null)
                             await console.Out.WriteLineAsync($"Kept the local server and its data in {keptLocal}.");
