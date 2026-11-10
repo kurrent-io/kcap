@@ -403,8 +403,9 @@ export const register: Register = on => {
         void connect()
       },
 
-      // Only an exit ends the process; `/clear` and resume go on under a new session id that `classic.SessionStart`
-      // brings. The chain shares one short bound, so this keeps to half of what is left of it.
+      // Only an exit ends the process, and `/logout` exits once it has signed out; `/clear` and resume go on under a new
+      // session id that `classic.SessionStart` brings. The chain shares one short bound, so this keeps to half of what is
+      // left of it.
       ended: async (sessionId, reason, budgetMs) => {
         if (sessionId !== entry.sessionId) return
 
@@ -414,7 +415,7 @@ export const register: Register = on => {
           await save()
           return
         }
-        if (reason !== 'prompt_input_exit' && reason !== 'other') return
+        if (reason !== 'prompt_input_exit' && reason !== 'logout' && reason !== 'other') return
 
         retired = true
         timer?.cancel()

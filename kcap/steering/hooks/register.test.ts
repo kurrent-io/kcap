@@ -449,6 +449,20 @@ test('Session_end_on_exit_detaches', async ($, on) => {
   expect(w.sent('/next')).toHaveLength(1)
 })
 
+// `/logout` shuts the process down once it has signed out.
+test('Session_end_on_logout_detaches', async ($, on) => {
+  const w = world(on)
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await $.session.end({ reason: 'logout', sessionId: SESSION, resume: { id: SESSION } })
+  expect(w.sent('/detach')).toEqual([{ agentId: AGENT, processKey: KEY }])
+  expect(w.store.has(ENTRY)).toBe(false)
+
+  await w.clock.advance(5000)
+  expect(w.sent('/next')).toHaveLength(1)
+})
+
 test('A_refused_attach_retries_until_the_first_process_has_gone', async ($, on) => {
   const w = world(on)
   let refusals = 2
