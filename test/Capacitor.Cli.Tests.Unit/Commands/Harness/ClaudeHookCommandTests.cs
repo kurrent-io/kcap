@@ -379,6 +379,30 @@ public class ClaudeHookCommandTests {
         await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
     }
 
+    /// <summary>The server refusing the end it claimed is as final as taking it, so the daemon does not take the claim over
+    /// to post an end of its own. The claim is stale already, so only a settled record stops that take-over.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_settles_its_claim() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    [Test]
+    public async Task A_session_end_the_server_refused_with_no_claim_leaves_no_record() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.Exists(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude)).IsFalse();
+    }
+
     /// <summary>A resumed run in another process owes its own end, however soon after the first it comes.</summary>
     [Test]
     public async Task An_end_the_daemon_posted_for_another_process_does_not_hold_back_this_one() {

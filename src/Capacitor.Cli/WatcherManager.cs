@@ -438,6 +438,12 @@ public sealed partial class WatcherManager(
         if (process is not null) SessionEndRecord.MarkPosted(paths, sessionId, process, time.GetUtcNow());
     }
 
+    /// <summary>The server refused the end this hook claimed for good, so nobody takes the claim over to post one again.
+    /// A hook that claimed nothing leaves nothing.</summary>
+    public void SessionEndRefused(string sessionId, ProcessIncarnation? process) {
+        if (process is not null && SessionEndRecord.Exists(paths, sessionId, process)) SessionEndRecord.Settle(paths, sessionId, process, time.GetUtcNow());
+    }
+
     internal bool PidAlive(string key) => _liveness.PidAlive(key);
 
     internal bool IsWatcherAlive(string key) => _liveness.IsWatcherAlive(key);

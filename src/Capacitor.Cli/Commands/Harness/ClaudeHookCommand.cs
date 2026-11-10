@@ -1330,7 +1330,8 @@ public sealed class ClaudeHookCommand(
                         await Console.Error.WriteLineAsync("[kcap] session-end transient failure but session_id missing — cannot spool; event dropped");
                     }
                 } else {
-                    // Refused for good, as a deleted session's end is: nothing is left to deliver first.
+                    // Refused for good, as a deleted session's end is: nothing is left to deliver first, or after.
+                    if (sessionId is not null) watchers.SessionEndRefused(sessionId, _endingProcess.Value);
                     _endSettled = true;
                 }
                 return 0;

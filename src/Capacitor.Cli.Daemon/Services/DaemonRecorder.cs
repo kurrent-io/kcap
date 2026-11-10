@@ -945,6 +945,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var delivery = await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal));
 
         if (delivery is SessionEndDelivery.Delivered) SessionEndRecord.MarkPosted(_paths, source.SessionId, exited, _time.GetUtcNow());
+        if (delivery is SessionEndDelivery.Rejected) SessionEndRecord.Settle(_paths, source.SessionId, exited, _time.GetUtcNow());
         if (delivery is SessionEndDelivery.Lost) LogEndNotPosted(source.Key);
 
         return delivery is not SessionEndDelivery.Lost;

@@ -505,7 +505,7 @@ public class DaemonRecorderTests {
     }
 
     /// <summary>An end the server refused drops, as any refused hook post does: the source is let go, and the end is not
-    /// sent again however long the daemon runs.</summary>
+    /// sent again however long the daemon runs, nor by a hook that comes after the claim has gone stale.</summary>
     [Test]
     public async Task A_session_end_the_server_refused_is_not_tried_again() {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
@@ -523,6 +523,7 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
         await Assert.That(UndeliveredCount).IsEqualTo(1);
         await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
     }
 
     /// <summary>A daemon killed between its claim of the end and its post left the claim, the list entry and its own
