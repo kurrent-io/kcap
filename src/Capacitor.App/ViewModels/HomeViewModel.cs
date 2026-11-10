@@ -506,6 +506,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Same lane for the action cluster: false until AttachDaemonRecovery subscribes the real predicates.
     readonly BehaviorSubject<bool> _daemonStartVisibleFeed = new(false);
     readonly BehaviorSubject<bool> _daemonRetryVisibleFeed = new(false);
+    readonly BehaviorSubject<bool> _daemonSignInOffered = new(false);
+    internal void SetDaemonSignInOffered(bool offered) => _daemonSignInOffered.OnNext(offered);
     readonly BehaviorSubject<bool> _daemonRepairVisibleFeed = new(false);
 
     /// Wired by AttachDaemonRecovery to MainWindow's Start/Reconnect commands.
@@ -1113,7 +1115,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
         var signInVisible = signInState
             .CombineLatest(_catchUpTimedOut, _localServer, (t, timedOut, local) => SignInOffered(
-                local, t.Awaiting, t.Expired, timedOut, t.Foreign, t.Availability, t.Lane));
+                local, t.Awaiting, t.Expired, timedOut, t.Foreign, t.Availability, t.Lane))
+            .CombineLatest(_daemonSignInOffered, _machineSelectionChanges, _localServer, _awaitingServerAfterSignIn,
+                (normal, daemonSignIn, selection, local, awaiting) => normal || (daemonSignIn && !selection.Remote && !local && !awaiting));
         _signInVisible = signInVisible
             .ToProperty(this, x => x.SignInVisible, initialValue: false)
             .DisposeWith(_disposables);
@@ -1476,6 +1480,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         _daemonStartMessageFeed.Dispose();
         _daemonStartVisibleFeed.Dispose();
         _daemonRetryVisibleFeed.Dispose();
+        _daemonSignInOffered.Dispose();
         _daemonRepairVisibleFeed.Dispose();
         _openHarnessesSettings.Dispose();
         _retryServer.Dispose();

@@ -223,6 +223,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// and points the launcher at the repository of the session selected in the rail.
     /// Pressed over the launcher already showing, it nudges the launcher so the press visibly lands.
     public ReactiveCommand<Unit, Unit> NewSessionCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenRailAlertCommand { get; }
+    bool _localDaemonRecoveryAvailable;
+    bool _daemonSignInRecoveryAvailable;
 
     /// Places the user navigated away from: the launcher and sessions, each with its tab.
     public NavigationHistory History { get; } = new();
@@ -440,6 +443,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         TenantName = ProfileLabelForRail(tenantName);
         CloseWorkspaceCommand = ReactiveCommand.Create(CloseWorkspace);
         NewSessionCommand = ReactiveCommand.CreateFromTask(NewSessionAsync);
+        OpenRailAlertCommand = ReactiveCommand.CreateFromTask(OpenRailAlertAsync);
         GoBackCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: true), History.WhenAnyValue(h => h.CanGoBack));
         GoForwardCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: false), History.WhenAnyValue(h => h.CanGoForward));
         Search = sessions is null ? null : searchFactory?.Invoke(OpenSearchHitAsync);
@@ -526,6 +530,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ObserveOn(RxSchedulers.MainThreadScheduler));
 
         this.WhenActivated(disposables => {
+            canStart.CombineLatest(canRetry, (startVisible, retryVisible) => startVisible || retryVisible)
+                .Subscribe(available => _localDaemonRecoveryAvailable = available)
+                .DisposeWith(disposables);
             HistoryImportBanner?.Watch().DisposeWith(disposables);
             var status    = service.Status.ObserveOn(RxSchedulers.MainThreadScheduler);
             var snapshots = service.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -581,9 +588,14 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                         ? HomeViewModel.DaemonOnOtherServerNotice(foreign, _appServerUrl) : null)
                 .DistinctUntilChanged();
 
+            var daemonSignInRecovery = daemonSignIn.CombineLatest(otherServerWhileConnected,
+                (daemon, otherServer) => daemon is { SignedOut: true, OursToRepair: true } && otherServer is null && offersSignIn);
+            daemonSignInRecovery.Subscribe(offered => {
+                _daemonSignInRecoveryAvailable = offered;
+                Home?.SetDaemonSignInOffered(offered);
+            }).DisposeWith(disposables);
             var signInVisible = signInExpired
-                .CombineLatest(daemonSignIn, otherServerWhileConnected,
-                    (app, daemon, otherServer) => (app || (daemon is { SignedOut: true, OursToRepair: true } && otherServer is null)) && offersSignIn);
+                .CombineLatest(daemonSignInRecovery, (app, daemon) => (app || daemon) && offersSignIn);
             _signInVisible = signInVisible
                 .ToProperty(this, x => x.SignInVisible, false)
                 .DisposeWith(disposables);
@@ -791,6 +803,22 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         ReleasePinUnless(sessionId ?? SessionOfOpen());
         if (record) RecordLeaving(from);
         return true;
+    }
+
+    async Task OpenRailAlertAsync() {
+        var localRecovery = _localDaemonRecoveryAvailable
+            && Alert?.Text is DaemonStoppedText or DaemonMismatchText or DaemonUnreachableText;
+        var daemonSignIn = _daemonSignInRecoveryAvailable && Alert?.Text == SignInRequiredText;
+        if (Home is not { } home || !(localRecovery || daemonSignIn)) {
+            await NewSessionAsync();
+            return;
+        }
+        if (_navigation.ShutdownLatched) return;
+        var from = Here();
+        CloseSearch();
+        CloseWorkspace();
+        RecordLeaving(from);
+        await home.SelectMachineAsync(_service.DaemonName, isLocal: true);
     }
 
     // Closes even over the launcher: the swap bumps the navigation generation, which keeps an

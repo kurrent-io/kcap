@@ -329,7 +329,7 @@
                     <StackPanel x:Name="RailAlertRow"
                                 IsVisible="{Binding Alert, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Button x:Name="RailAlertLink" Classes="kcapGhost railAlertLink" HorizontalAlignment="Left"
-                                Command="{Binding NewSessionCommand}"
+                                Command="{Binding OpenRailAlertCommand}"
                                 AutomationProperties.Name="{Binding Alert.Text, StringFormat='{}{0}: open the launcher', FallbackValue={x:Null}}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"

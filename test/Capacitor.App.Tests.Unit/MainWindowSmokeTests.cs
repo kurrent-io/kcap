@@ -1940,7 +1940,7 @@ public class MainWindowSmokeTests {
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
                 Buttons: row.GetVisualDescendants().OfType<Button>().Count(b => b.IsEffectivelyVisible),
-                OpensLauncher: ReferenceEquals(link.Command, vm.NewSessionCommand),
+                OpensLauncher: ReferenceEquals(link.Command, vm.OpenRailAlertCommand),
                 WorkspaceOpened: workspaceOpened,
                 FocusUnderlined: focusUnderlined,
                 LauncherVisibleAfterClick: launcher.IsVisible,
@@ -1967,6 +1967,96 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.LauncherVisibleAfterClick).IsTrue();
         await Assert.That(shown.StartDaemonVisibleAfterClick).IsTrue();
     }
+
+    [Test]
+    [Arguments("daemon_unreachable", false, "StartDaemonButton")]
+    [Arguments("socket_refused", false, "RetryDaemonButton")]
+    [Arguments("daemon_incompatible", false, "RetryDaemonButton")]
+    [Arguments("daemon_unreachable", true, null)]
+    [Arguments(ExpectedDaemonRestart.Reason, false, null)]
+    [Arguments(ExpectedDaemonRestart.StartingReason, false, null)]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_reaches_local_recovery_without_repairing_the_remote_machine(
+            string reason, bool moving, string? actionName) => AvaloniaSession.DispatchAsync(async () => {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([new() { Name = "box", OwnerUserId = "u1", Connected = true, SupportedVendors = ["claude"] }]);
+        using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+            () => Task.FromResult(Array.Empty<string>()), TimeProvider.System,
+            daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+        await home.SelectMachineAsync("box", isLocal: false);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            home: home, movingToWindowsService: Observable.Return(moving));
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, reason, null));
+            Dispatcher.UIThread.RunJobs();
+            var launcher = window.FindDescendantOfType<LauncherPaneView>()!;
+            await Assert.That(home.RemoteMachineSelected).IsTrue();
+            await Assert.That(launcher.FindControl<Button>("StartDaemonButton")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(launcher.FindControl<Button>("RetryDaemonButton")!.IsEffectivelyVisible).IsFalse();
+
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(actionName is null);
+            if (actionName is not null) {
+                var action = launcher.FindControl<Button>(actionName)!;
+                await Assert.That(action.IsEffectivelyVisible).IsTrue();
+                ClickFlyoutButton(action);
+            }
+            await Assert.That(service.StartDaemonCallCount).IsEqualTo(actionName == "StartDaemonButton" ? 1 : 0);
+            await Assert.That(service.RestartCount).IsEqualTo(actionName == "RetryDaemonButton" ? 1 : 0);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    [Test]
+    [Arguments(false, "work", false, true)]
+    [Arguments(true, "work", false, true)]
+    [Arguments(true, "other", false, false)]
+    [Arguments(false, "other", false, false)]
+    [Arguments(true, "work", true, false)]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_reaches_daemon_sign_in_only_for_the_apps_profile_and_server(
+            bool remoteSelected, string daemonProfile, bool foreignServer, bool offered) => AvaloniaSession.DispatchAsync(async () => {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        const string server = "https://app.example";
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: daemonProfile,
+            serverUrl: foreignServer ? "https://other.example" : server));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([new() { Name = "box", OwnerUserId = "u1", Connected = true, SupportedVendors = ["claude"] }]);
+        var lane = new FakeServerLane();
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+        var signIns = 0;
+        using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+            () => Task.FromResult(Array.Empty<string>()), TimeProvider.System,
+            daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status,
+            requestSignIn: () => signIns++, appServerUrl: server);
+        if (remoteSelected) await home.SelectMachineAsync("box", isLocal: false);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            tenantName: "work", home: home, laneStatus: lane.Status, requestSignIn: () => signIns++, appServerUrl: server);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected && !offered);
+            var action = window.FindDescendantOfType<LauncherPaneView>()!.FindControl<Button>("HomeSignInButton")!;
+            await Assert.That(action.IsEffectivelyVisible).IsEqualTo(offered);
+            if (offered) ClickFlyoutButton(action);
+            await Assert.That(signIns).IsEqualTo(offered ? 1 : 0);
+        } finally { window.Close(); }
+        return true;
+    });
 
     /// Signed-out is a rail diagnosis; the launcher's Sign in is on the other pane and hidden
     /// once a workspace is open, so the help flyout has to offer the same action (not the footer).
