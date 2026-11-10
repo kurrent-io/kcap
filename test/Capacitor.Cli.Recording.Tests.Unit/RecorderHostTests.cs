@@ -1898,6 +1898,18 @@ public class RecorderHostTests {
         await Assert.That(failure).DoesNotContain("retry");
     }
 
+    // The host's own read of the lines just appended holds the file shared for a moment, and an exclusive open fails
+    // while it does.
+    static async Task<FileStream> HoldExclusivelyAsync(string path) {
+        for (var attempt = 0;; attempt++) {
+            try {
+                return new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            } catch (IOException) when (attempt < 200) {
+                await Task.Delay(10);
+            }
+        }
+    }
+
     /// <summary>An exclusive holder makes every shared open fail with an IOException, as a failing disk would. Neither
     /// read can say what is left, so only a mark stands between those lines and silence.</summary>
     [Test]
@@ -1909,7 +1921,7 @@ public class RecorderHostTests {
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
 
-        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
@@ -1929,7 +1941,7 @@ public class RecorderHostTests {
         await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
-        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
