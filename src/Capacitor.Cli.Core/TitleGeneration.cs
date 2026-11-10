@@ -164,12 +164,15 @@ public static partial class TitleGeneration {
     }
 
     /// <summary>
-    /// Strips markdown formatting, trailing question marks, and caps length.
+    /// Strips markdown syntax, trailing question marks, and caps length. Only syntax goes: a <c>#</c> or <c>_</c>
+    /// inside the text is part of it, as in "C#", "#2131" or "snake_case".
     /// Returns null if the output looks like a refusal preamble rather than a title —
     /// the caller can retry or fall back instead of persisting garbage.
     /// </summary>
     internal static string? CleanTitle(string raw) {
-        var title = MarkdownRx().Replace(raw, "").Trim();
+        var title = HeadingRx().Replace(raw.Trim(), "");
+        title = StrongRx().Replace(title, "$2").Replace("`", "", StringComparison.Ordinal);
+        title = WrappingEmphasisRx().Replace(title.Trim(), "$2").Trim();
         title = title.TrimEnd('?').TrimEnd();
 
         if (LooksLikeRefusal(title)) {
@@ -211,8 +214,14 @@ public static partial class TitleGeneration {
         return sb.ToString();
     }
 
-    [GeneratedRegex("[*_`#]+")]
-    private static partial Regex MarkdownRx();
+    [GeneratedRegex(@"^#{1,6}\s+")]
+    private static partial Regex HeadingRx();
+
+    [GeneratedRegex(@"(?<!\w)(\*\*|__)(?=\S)(.+?)(?<=\S)\1(?!\w)")]
+    private static partial Regex StrongRx();
+
+    [GeneratedRegex(@"^([*_])(?=\S)(.+)(?<=\S)\1$")]
+    private static partial Regex WrappingEmphasisRx();
 
     [GeneratedRegex(@"^(?:I\s+(?:cannot|can't|can\s+only|am\s+(?:unable|not\s+able))\b|I'?m\s+(?:sorry|unable)\b|Sorry[,\s]|My\s+(?:instructions|role|job)\b|As\s+an?\s+\w+,?\s+I\b|Unfortunately[,\s])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
