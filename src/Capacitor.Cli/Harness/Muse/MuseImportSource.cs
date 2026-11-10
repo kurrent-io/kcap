@@ -241,6 +241,12 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             if (nonBlank == 0) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, lastLine: 0, "empty transcript")); continue; }
             if (nonBlank < ctx.MinLines) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank, lastIdx)); continue; }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Classify(s, meta, ImportCommand.ClassificationStatus.New, nonBlank, lastIdx)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             int? serverLastLine;
             try { serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct); }
             catch (SessionDeletedException) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank, lastIdx)); continue; }

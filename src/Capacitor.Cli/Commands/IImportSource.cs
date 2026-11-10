@@ -29,10 +29,8 @@ internal sealed record DiscoveredSession(
     IReadOnlyDictionary<string, object?>    SourceMeta);
 
 /// <summary>
-/// Dependencies passed to ClassifyAsync. Carries no capture scope: whether a session may be
-/// imported is decided once in <see cref="CaptureScope"/>, over every source's classifications,
-/// so a source cannot opt out of it by not asking. Home is what a <c>~</c> in a user-configured
-/// path expands to.
+/// Dependencies passed to ClassifyAsync. The scope callback withholds excluded sessions before
+/// their server probe; the orchestrator also scopes local failures. Home expands configured paths.
 /// Reimport carries the effective <c>--reimport</c> flag: when true, a source
 /// that skips already-loaded sessions via a local completeness ledger must
 /// bypass that ledger so the selected sessions re-classify as New/Partial and
@@ -49,6 +47,9 @@ internal sealed record ClassifyContext(
     public TextWriter? Stderr { get; init; }
 
     public TranscriptImportLedger? TranscriptLedger { get; init; }
+
+    /// <summary>Every source consults this after resolving local eligibility and before any server request.</summary>
+    public Func<ImportCommand.SessionClassification, Task<ImportCommand.SessionClassification?>>? ExcludeBeforeProbeAsync { get; init; }
 }
 
 /// <summary>
@@ -119,8 +120,7 @@ internal readonly record struct ImportSessionResult(ImportOutcome Outcome, bool 
 /// <summary>
 /// Per-vendor import pipeline: discover candidate sessions on the local
 /// machine, classify them against the server's existing state, then import
-/// the ones that need work. Three implementations: ClaudeImportSource,
-/// CodexImportSource, CursorImportSource.
+/// the ones that need work.
 /// </summary>
 internal interface IImportSource {
     /// <summary>Stamped onto every produced classification.</summary>

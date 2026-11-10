@@ -1235,6 +1235,35 @@ class ImportCommand(
         var excludedPaths = profile?.ExcludedPaths;
         var allowedPaths  = profile?.AllowedPaths;
         var allowedRepos  = profile?.AllowedRepos;
+        var captureScope = new CaptureScope(router, config, home,
+                                            allowedPaths, excludedPaths, allowedRepos, excludedRepos, time);
+        using var exclusionGate = new SemaphoreSlim(8);
+
+        string? ResolveClassifiedCwd(SessionClassification candidate) =>
+            ResolveCwd(candidate, sessionCwds: null) is { } raw
+                ? ResolveCwd(raw, cwdRemap, worktreeAttributed: null, candidate.SessionId)
+                : null;
+
+        void RefreshClassifiedCwds(IEnumerable<SessionClassification> candidates) {
+            if (!captureScope.Configured) return;
+
+            foreach (var candidate in candidates) {
+                if (ResolveClassifiedCwd(candidate) is { } cwd) sessionCwds[candidate.SessionId] = cwd;
+                else sessionCwds.Remove(candidate.SessionId);
+            }
+        }
+
+        async Task<SessionClassification?> ExcludeBeforeProbeAsync(SessionClassification candidate) {
+            await exclusionGate.WaitAsync();
+            try {
+                IReadOnlyDictionary<string, string> currentCwd = ResolveClassifiedCwd(candidate) is { } cwd
+                    ? new Dictionary<string, string> { [candidate.SessionId] = cwd }
+                    : FrozenDictionary<string, string>.Empty;
+                return await captureScope.ExcludeBeforeProbeAsync(candidate, currentCwd);
+            } finally {
+                exclusionGate.Release();
+            }
+        }
 
         var classifyCtx = new ClassifyContext(
             HttpClient: httpClient,
@@ -1242,7 +1271,11 @@ class ImportCommand(
             MinLines: minLines,
             Home: home,
             Reimport: reimport
-        ) { Stderr = console.Error, TranscriptLedger = TranscriptImportLedger.Load(config) };
+        ) {
+            Stderr = console.Error,
+            TranscriptLedger = TranscriptImportLedger.Load(config),
+            ExcludeBeforeProbeAsync = captureScope.Configured ? ExcludeBeforeProbeAsync : null,
+        };
 
         IReadOnlyList<SessionClassification>[] classificationsPerSource;
 
@@ -1258,11 +1291,7 @@ class ImportCommand(
                         var probeTasks = sources.Select(async (s, idx) => {
                                     var slice = filteredPerSource[idx];
                                     var res   = await s.ClassifyAsync(slice, classifyCtx, CancellationToken.None);
-                                    // Per-source progress accounting: each ClassifyAsync produces
-                                    // one classification per discovered session, so we tick the
-                                    // bar by the slice size when the task completes. Per-probe
-                                    // ticks would require threading a callback through the
-                                    // IImportSource interface — we punt that to a follow-up.
+                                    // Excluded sessions count as classified without a server request.
                                     bar.Increment(slice.Count);
 
                                     return (idx, res);
@@ -1312,6 +1341,7 @@ class ImportCommand(
 
         // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
+        RefreshClassifiedCwds(classifications);
 
         // One vendor can have a source per account root, so a session is routed back to the source that
         // discovered it rather than to its vendor.
@@ -1321,21 +1351,14 @@ class ImportCommand(
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
 
-        // Capture scope is decided here, over every source's output at once, and nowhere else.
-        var captureScope = new CaptureScope(router, config, home,
-                                            allowedPaths, excludedPaths, allowedRepos, excludedRepos, time);
-
+        // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
 
         // --- Resolve excluded-repo / excluded-path prompts (interactive without --yes only) ---
         // Repo and path exclusions are independent gates: a session is included only when
         // EVERY applicable exclusion key has been opted-in. Without that, opting into a
         // repo would silently bypass a path the user had explicitly ignored.
-        // Every session this run could still send, which is the same set CaptureScope stamps: an
-        // already-loaded one re-asserts its lifecycle hooks, so it is as much a question for the
-        // user as a new one, it counts toward what an answer withholds, and — since the block below
-        // only opens when a bucket is non-empty — it must be able to open it on its own.
-        var actionable = classifications.Where(CaptureScope.Actionable).ToList();
+        var actionable = classifications.Where(c => CaptureScope.Actionable(c) || c.Status == ClassificationStatus.Excluded).ToList();
 
         var excludedByRepo = actionable
             .SelectMany(c => c.ExcludedRepoKeys.Select(key => (Key: key, Session: c)))
@@ -1396,8 +1419,31 @@ class ImportCommand(
             }
         }
 
-        // Outside the prompt block: a session whose probe failed is never asked about, and must still
-        // land in Excluded when nothing opted its exclusion in.
+        // Only an explicit opt-in releases an excluded session for its server classification.
+        var optedIn = classifications
+            .Where(c => c.Status == ClassificationStatus.Excluded
+                     && !ShouldExclude(c, includedRepoKeys, includedPathKeys, includeOutsideAllowlist))
+            .Select(c => (c.Vendor, c.SessionId))
+            .ToHashSet();
+
+        if (optedIn.Count > 0) {
+            async Task<SessionClassification?> ExcludeUnlessApprovedAsync(SessionClassification candidate) {
+                var excluded = await ExcludeBeforeProbeAsync(candidate);
+                return excluded is not null && ShouldExclude(excluded, includedRepoKeys, includedPathKeys, includeOutsideAllowlist)
+                    ? excluded
+                    : null;
+            }
+
+            var optedInContext = classifyCtx with { ExcludeBeforeProbeAsync = ExcludeUnlessApprovedAsync };
+            var resumed = await Task.WhenAll(sources.Select((s, idx) => s.ClassifyAsync(
+                [.. filteredPerSource[idx].Where(d => optedIn.Contains((d.Vendor, d.SessionId)))],
+                optedInContext, CancellationToken.None)));
+            var bySession = resumed.SelectMany(r => r).ToDictionary(c => (c.Vendor, c.SessionId));
+
+            classifications = [.. classifications.Select(c => bySession.GetValueOrDefault((c.Vendor, c.SessionId)) ?? c)];
+            RefreshClassifiedCwds(classifications);
+        }
+
         for (var i = 0; i < classifications.Count; i++) {
             var c = classifications[i];
 
@@ -1407,11 +1453,6 @@ class ImportCommand(
         }
 
         // --- Plan grid ---
-        // Re-slice classifications by vendor for the sub-grid AFTER any
-        // post-classification mutations (--since prune, excluded-repo flips).
-        // The classifications list reflects every per-source-array entry by
-        // reference identity, but the per-source arrays were captured before
-        // the excluded-repo prompt — so rebuild from the flat list.
         var planCounts = ComputeCounts(classifications);
 
         Dictionary<string, ClassificationCounts>? planBySource = null;
