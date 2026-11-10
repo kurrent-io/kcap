@@ -97,9 +97,9 @@ sealed class LocalIntelligenceStep(
     Task<IntelligenceSetupOutcome> ApplyAsync(IntelligenceSetupRequest request) => apply(request);
 
     IntelligenceSetupResponse Applied(IntelligenceSetupResponse applied) {
-        new LocalIntelligenceRecord(installationId, applied.Mode).Save(config);
-
         foreach (var line in LocalIntelligenceCommand.Summary(applied)) say(line);
+
+        if (!LocalIntelligenceCommand.Record(config, installationId, applied)) say(LocalIntelligenceCommand.RecordNotSavedLine);
 
         return applied;
     }

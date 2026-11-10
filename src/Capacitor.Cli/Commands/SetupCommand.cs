@@ -1416,7 +1416,7 @@ sealed class SetupCommand(
         // Unnumbered, like the browser leg: only the local edition asks it.
         IntelligenceSetupResponse? intelligence = null;
 
-        if (local is not null) {
+        if (local is not null && remembered is { } localAnswers) {
             AnsiConsole.Write(new Rule("[yellow]Background intelligence[/]").LeftJustified());
             _json?.Started(SetupJsonReport.Intelligence);
 
@@ -1427,7 +1427,7 @@ sealed class SetupCommand(
                 Environment.GetEnvironmentVariable,
                 canAskIntelligence ? IntelligenceQuestions ?? new IntelligenceQuestions() : null,
                 line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"),
-                config, remembered!.InstallationId).RunAsync(local, existing: localReused);
+                config, localAnswers.InstallationId).RunAsync(local, existing: localReused);
 
             _json?.Completed(outcome: intelligence?.Mode ?? "skipped");
 
@@ -1465,7 +1465,10 @@ sealed class SetupCommand(
             SkipImport:          skipImport,
             NoPrompt:            noPrompt,
             PromptYesNo:         () => AnsiConsole.Prompt(new ConfirmationPrompt(ImportPrompt) { DefaultValue = true }),
-            PromptNameSessions:  () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false }),
+            // Naming runs the user's own agent, which an installation without background intelligence never does.
+            PromptNameSessions:  LocalIntelligenceGate.For(config, localRoot).Allows(serverUrl)
+                ? () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false })
+                : null,
             Profiles:            saved,
             ProfileName:         activeName,
             ServerUrl:           serverUrl,

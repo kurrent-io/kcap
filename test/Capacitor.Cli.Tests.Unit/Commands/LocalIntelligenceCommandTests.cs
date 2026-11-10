@@ -110,6 +110,20 @@ public class LocalIntelligenceCommandTests {
         await Assert.That(LocalIntelligenceRecord.For(Config.Root, InstallationId)).IsEqualTo(new LocalIntelligenceRecord(InstallationId, mode));
     }
 
+    /// <summary>An unsaved none reads the same as a saved one, so only a mode that runs a model warns.</summary>
+    [Test]
+    [Arguments("local_agent", "claude", true)]
+    [Arguments("none", "none", false)]
+    public async Task An_applied_answer_that_cannot_be_recorded_warns_only_when_it_runs_a_model(string mode, string answer, bool warns) {
+        Directory.CreateDirectory(Config.Root.Path(LocalIntelligenceRecord.FileName));
+        using var server = Serve(200, Applied.Replace("\"local_agent\"", $"\"{mode}\""));
+        using var console = ConsoleOutput.StartFullCapture();
+
+        await Command(server.Url).HandleAsync(["local", "intelligence", answer, "--json"]);
+
+        await Assert.That(console.GetCapturedError().Contains(LocalIntelligenceCommand.RecordNotSavedLine)).IsEqualTo(warns);
+    }
+
     [Test]
     public async Task A_refused_answer_keeps_the_recorded_mode() {
         new LocalIntelligenceRecord(InstallationId, "local_agent").Save(Config.Root);

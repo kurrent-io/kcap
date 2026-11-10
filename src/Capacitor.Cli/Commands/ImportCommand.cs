@@ -1510,6 +1510,7 @@ class ImportCommand(
         var       titlesGenerated    = 0;
         var       titlesSkipped      = 0;
         var       titlesFailed       = 0;
+        var       titlesAllowed      = LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)).Allows(baseUrl);
         var       summariesGenerated = 0;
         var       summariesFailed    = 0;
         var       titleFailures      = new ConcurrentBag<(string SessionId, string Reason)>();
@@ -1519,6 +1520,8 @@ class ImportCommand(
         var       partitionSucceeded = new ConcurrentBag<string>();
         var       partitionSkipped   = new ConcurrentBag<string>();
         var       partitionFailed    = new ConcurrentBag<string>();
+
+        if (!skipTitle && !titlesAllowed) display.Line($"Sessions keep their first prompt as a title: {LocalIntelligenceGate.NotSetUp}.");
 
         void WarnSession(string sessionId, string message) => display.Line(
             $"! {SessionIds.Display(sessionId)}: {message}",
@@ -1557,7 +1560,7 @@ class ImportCommand(
                 var (sid, fp, _, vnd) = t;
 
                 // Titling shells out to the user's own `claude` / `codex`, on their subscription.
-                if (skipTitle) return;
+                if (skipTitle || !titlesAllowed) return;
 
                 // Don't schedule a title task for a source that doesn't support it.
                 // Cursor sets SupportsTitleGeneration=false because the composer

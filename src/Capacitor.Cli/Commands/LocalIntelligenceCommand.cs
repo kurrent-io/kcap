@@ -44,8 +44,8 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root,
         var outcome = await IntelligenceSetupClient.ApplyAsync(
             http.Loopback(), installation.ServerUrl, parsed.Answer.Request(parsed.Model, key, parsed.ImportOutcomes), CancellationToken.None);
 
-        if (outcome is IntelligenceSetupOutcome.Applied { Response: var applied })
-            new LocalIntelligenceRecord(installation.Id, applied.Mode).Save(config);
+        if (outcome is IntelligenceSetupOutcome.Applied { Response: var applied } && !Record(config, installation.Id, applied))
+            Console.Error.WriteLine($"  ! {RecordNotSavedLine}");
 
         return outcome switch {
             IntelligenceSetupOutcome.Applied { Response: var r } => Print(json, r),
@@ -53,6 +53,16 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root,
             IntelligenceSetupOutcome.Failed { Problem: var problem } => Report(json, Failed, $"Could not reach the local server: {problem}"),
             _ => Failed,
         };
+    }
+
+    internal const string RecordNotSavedLine =
+        "Could not save this answer, so kcap makes no model calls of its own for this installation's sessions. Run kcap local intelligence again.";
+
+    /// <summary>False only when a mode that runs a model went unsaved: an unsaved none reads the same as a saved one.</summary>
+    internal static bool Record(ConfigRoot config, string installationId, IntelligenceSetupResponse applied) {
+        var record = new LocalIntelligenceRecord(installationId, applied.Mode);
+
+        return record.Save(config) || !record.RunsModels;
     }
 
     internal static string AskKey(IntelligenceVendor vendor) =>

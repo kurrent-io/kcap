@@ -204,6 +204,17 @@ public class LocalIntelligenceStepTests {
         await Assert.That(LocalIntelligenceRecord.For(Config.Root, Installation)).IsEqualTo(new LocalIntelligenceRecord(Installation, "local_agent"));
     }
 
+    /// <summary>An answer the server took but this CLI could not record leaves its model calls off, so the person is told.</summary>
+    [Test]
+    public async Task An_applied_answer_that_cannot_be_recorded_says_so() {
+        Directory.CreateDirectory(Config.Root.Path(LocalIntelligenceRecord.FileName));
+        var (step, said) = Step(new Server(new IntelligenceSetupOutcome.Applied(Took)), null);
+
+        await step.RunAsync(Args("claude"));
+
+        await Assert.That(said).Contains(LocalIntelligenceCommand.RecordNotSavedLine);
+    }
+
     /// <summary>Not now posts nothing and a refused answer applies nothing, so the mode an earlier run recorded stands.</summary>
     [Test]
     [Arguments(IntelligenceAnswer.NoneToken)]
