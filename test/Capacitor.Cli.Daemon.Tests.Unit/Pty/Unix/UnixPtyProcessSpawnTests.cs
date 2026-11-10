@@ -182,6 +182,30 @@ public class UnixPtyProcessSpawnTests {
         }
     }
 
+    /// <summary>Output still buffered when the leader is reaped is all read, though the reap came first: the
+    /// writes are spaced so they arrive as separate reads, and reading starts only once the exit is observed.
+    /// Linux only: macOS holds the leader's exit until its terminal output has been read.</summary>
+    [Test]
+    public async Task Output_buffered_when_the_leader_is_reaped_is_all_read() {
+        if (!OperatingSystem.IsLinux()) return;
+
+        using var spawner = new UnixSpawnerThread();
+        var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
+        var proc = factory.Spawn(
+            "/bin/sh", ["-c", "printf one-; sleep 0.3; printf two-; sleep 0.3; printf three; exit 0"], AppContext.BaseDirectory);
+        try {
+            await proc.WaitForExitAsync(TimeSpan.FromSeconds(10));
+            await Assert.That(proc.HasExited).IsTrue();
+
+            var (output, ended) = await ReadToEndAsync(proc, TimeSpan.FromSeconds(10));
+
+            await Assert.That(ended).IsTrue();
+            await Assert.That(output).IsEqualTo("one-two-three");
+        } finally {
+            await proc.DisposeAsync();
+        }
+    }
+
     /// <summary>Everything the process wrote, and whether its output ended before <paramref name="limit"/>.</summary>
     static async Task<(string Output, bool Ended)> ReadToEndAsync(Capacitor.Cli.Daemon.Pty.IPtyProcess proc, TimeSpan limit) {
         using var cts    = new CancellationTokenSource(limit);

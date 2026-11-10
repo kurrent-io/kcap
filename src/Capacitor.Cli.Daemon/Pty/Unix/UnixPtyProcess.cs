@@ -220,7 +220,7 @@ public sealed class UnixPtyProcess : IPtyProcess {
         ) {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
 
-        while (!linked.Token.IsCancellationRequested && !HasExited) {
+        while (!linked.Token.IsCancellationRequested) {
             byte[]? chunk;
 
             try {

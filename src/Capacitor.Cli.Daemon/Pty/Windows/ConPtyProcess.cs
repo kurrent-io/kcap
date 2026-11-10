@@ -466,13 +466,13 @@ public sealed class ConPtyProcess : IPtyProcess {
                             ClosePseudoConsole(_hPC);
                         }
 
-                        if (PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0) {
-                            if (ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
-                                var finalData = new byte[finalRead];
-                                Array.Copy(buf, finalData, (int)finalRead);
+                        // More than one read's worth can be left once the console closes.
+                        while (PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0
+                            && ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
+                            var finalData = new byte[finalRead];
+                            Array.Copy(buf, finalData, (int)finalRead);
 
-                                yield return finalData;
-                            }
+                            yield return finalData;
                         }
 
                         break;
