@@ -5,7 +5,7 @@ using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services.Voice;
 using Capacitor.App.ViewModels;
 
-namespace Capacitor.App.Tests.Unit.ViewModels;
+namespace Capacitor.App.Tests.Unit;
 
 public class VoiceIndicatorViewModelTests {
     [TempDir] public required TempDir Tmp { get; init; }
