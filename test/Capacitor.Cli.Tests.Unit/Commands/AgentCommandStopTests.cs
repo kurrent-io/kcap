@@ -82,7 +82,8 @@ public class AgentCommandStopTests {
     public async Task The_confirmation_names_what_happens_to_each() {
         Out.GetStringBuilder().Clear();
         _ = FakeControlSocket.AnswerInOrder(Daemons.Store, "ask", [List]);
-        await Assert.That(await Command(new StringReader("n\n")).HandleAsync(["agent", "stop", "--all", "--force", "--daemon", "ask"], baseUrl: null)).IsEqualTo(0);
+        using var input = new StringReader("n\n");
+        await Assert.That(await Command(input).HandleAsync(["agent", "stop", "--all", "--force", "--daemon", "ask"], baseUrl: null)).IsEqualTo(0);
 
         await Assert.That(Out.ToString()).Contains(
             "Will disconnect steering from 1 terminal session(s); their Claude Code sessions keep running:\n"

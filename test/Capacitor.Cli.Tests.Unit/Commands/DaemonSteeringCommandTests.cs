@@ -270,8 +270,7 @@ public class DaemonSteeringCommandTests {
         var exit = await SteeringAsync(SteeringIpc.On);
 
         await Assert.That(exit).IsEqualTo(0);
-        foreach (var dir in wired) {
-            var settings = AccountLayouts.Claude(Home, dir).UserSettings;
+        foreach (var settings in wired.Select(dir => AccountLayouts.Claude(Home, dir).UserSettings)) {
             await Assert.That(Enabled(settings)!.GetValue<bool>()).IsTrue();
             await Assert.That(Out.ToString()).Contains($"Installed the kcap-steering plugin for Claude Code in {settings}");
         }
