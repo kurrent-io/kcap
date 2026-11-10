@@ -142,8 +142,7 @@ public class RemoteSessionViewSmokeTests {
     public async Task A_stopped_local_server_offers_start_server_instead_of_retry() {
         await AvaloniaSession.DispatchAsync(async () => {
             var starts = 0;
-            LocalServerRecoveryViewModel? local = null;
-            using var host = new Host(localServer: lane => local = new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
+            using var host = new Host(localServer: lane => new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
                 _ => { starts++; return Task.FromResult(new Capacitor.Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
             try {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
@@ -152,7 +151,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.ConnectionNotice!.ActionLabel).IsEqualTo("Start server");
                 host.Vm.ConnectionNotice.Action!.Execute(null);
                 await host.SettleUntilAsync(() => starts == 1, "start requested");
-            } finally { await host.Vm.TeardownAsync(); local?.Dispose(); }
+            } finally { await host.Vm.TeardownAsync(); }
             return true;
         });
     }
@@ -189,12 +188,13 @@ public class RemoteSessionViewSmokeTests {
         host.Window.FocusManager?.Focus(null);
         host.Settle();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-        host.Window.CaptureRenderedFrame()!.Save(Path.Combine(dir, name + ".png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        host.Window.CaptureRenderedFrame()!.Save(Path.Join(dir, name + ".png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
     }
 
     sealed class Host : IDisposable {
         readonly SessionAccessService _access;
         readonly FakeAgentDirectory _directory = new();
+        readonly LocalServerRecoveryViewModel? _localServer;
 
         public readonly FakeServerLane Lane = new();
         public readonly FakePermissionService Permissions = new();
@@ -214,11 +214,12 @@ public class RemoteSessionViewSmokeTests {
                 Vendor = "claude", OwnerUserId = "u1", RegisteredAt = DateTime.UtcNow,
             });
             _directory.Rows.AddOrUpdate(row);
+            _localServer = localServer?.Invoke(Lane);
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
                 (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
                 remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
-                localServer: localServer?.Invoke(Lane));
+                localServer: _localServer);
             View = new RemoteSessionView { DataContext = Vm };
             Window = windowImpl is null ? new Window() : new Window(windowImpl);
             Window.Content = View;
@@ -247,6 +248,7 @@ public class RemoteSessionViewSmokeTests {
 
         public void Dispose() {
             Window.Close();
+            _localServer?.Dispose();
             _access.Dispose();
             Permissions.Dispose();
             _directory.Dispose();

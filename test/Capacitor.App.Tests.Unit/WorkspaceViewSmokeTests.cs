@@ -90,7 +90,7 @@ public class WorkspaceViewSmokeTests {
                 if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is { } dir) {
                     window.SetRenderScaling(2);
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                    window.CaptureRenderedFrame()!.Save(Path.Combine(dir, "daemon-restarting.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                    window.CaptureRenderedFrame()!.Save(Path.Join(dir, "daemon-restarting.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
                 }
                 daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
                 Dispatcher.UIThread.RunJobs();
@@ -111,7 +111,7 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(daemon.RestartCount).IsEqualTo(1);
                 if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is { } failedDir) {
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                    window.CaptureRenderedFrame()!.Save(Path.Combine(failedDir, "daemon-connection-failed.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                    window.CaptureRenderedFrame()!.Save(Path.Join(failedDir, "daemon-connection-failed.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
                 }
                 daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
                 Dispatcher.UIThread.RunJobs();
