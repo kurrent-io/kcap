@@ -47,6 +47,19 @@ public class SessionsCommandRenderTests {
         await Assert.That(Cell(lines[0], s2Line, "BRANCH")).IsEmpty();
     }
 
+    /// <summary>`claude --resume` and the other vendors' resumes take a GUID only dashed, so the listing prints the
+    /// server's 32-hex id in that form; an opaque vendor id is printed as the server holds it.</summary>
+    [Test]
+    public async Task A_guid_session_id_prints_dashed_and_an_opaque_one_as_is() {
+        var page = new RepoSessionsResponse(
+            [Row("34a36f6f788b475ca46449e62a0678f8", "ended", "full", "main"), Row("ses_7f3a9c", "ended", "full", "main")], 2, 20, 0);
+
+        var lines = SessionsCommand.Render(page, "acme/widgets", Options("all")).Split('\n');
+
+        await Assert.That(lines[1]).StartsWith("34a36f6f-788b-475c-a464-49e62a0678f8 ");
+        await Assert.That(lines[2]).StartsWith("ses_7f3a9c ");
+    }
+
     [Test]
     public async Task Table_shows_the_overflow_line_when_total_exceeds_the_page() {
         var page = new RepoSessionsResponse([Row("s-1", "active", "full", "main")], 5, 1, 0);

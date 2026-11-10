@@ -161,7 +161,7 @@ partial class SessionsCommand(
             sb.AppendLine(Empty(repoLabel, options));
         } else {
             var rows = page.Items.Select(string?[] (row) => [
-                    row.SessionId,
+                    SessionIds.Display(row.SessionId),
                     row.Status == "active" && row.Stale ? "stale" : row.Status,
                     row.AccessLevel,
                     row.Owner?.Username ?? row.Owner?.UserId ?? "",
