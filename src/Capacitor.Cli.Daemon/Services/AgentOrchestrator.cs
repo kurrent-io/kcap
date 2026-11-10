@@ -2478,6 +2478,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 PersistWaitingSoon(clock!);
             },
             OnTurnAttestedChanged  = _statusNotifier.Pulse,
+            OnSubagentsSettledChanged = () => PersistWaitingSoon(clock!),
         };
     }
 

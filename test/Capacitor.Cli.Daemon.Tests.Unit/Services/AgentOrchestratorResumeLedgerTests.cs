@@ -322,6 +322,41 @@ public class AgentOrchestratorResumeLedgerTests {
         await Assert.That(orch.ResumeLedger!.TryRead("ledger-burst")!.AwaitingInput).IsTrue();
     }
 
+    /// <summary>A background subagent keeps an agent that ended its turn in flight, so its reports move the entry
+    /// without any waiting edge: a stop settles it, and a subagent first reported after the turn ended unsettles it.</summary>
+    [Test]
+    public async Task Subagent_reports_write_the_agents_state_to_its_entry() {
+        await using var orch  = Build();
+        var             agent = orch.SeedAgentForTest("ledger-subagent");
+        var             relay = orch.PermissionBridgeForTest.SubagentHandler!;
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        static long Now() => TimeProvider.System.GetUtcNow().ToUnixTimeMilliseconds();
+
+        relay(agent.Id, "child-a", true, Now());
+        agent.ActivityClock.SetAwaitingInput(true);
+        // The edge's own write must land first, or it would read the settled state and prove nothing.
+        await WritesDrainedAsync(agent);
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-subagent")!.AwaitingInput).IsNotEqualTo(true);
+
+        relay(agent.Id, "child-a", false, Now() + 1);
+        var settled = await EntryOnceAsync(orch, "ledger-subagent", e => e.AwaitingInput == true);
+        await WritesDrainedAsync(agent);
+
+        relay(agent.Id, "child-b", true, Now());
+        var unsettled = await EntryOnceAsync(orch, "ledger-subagent", e => e.AwaitingInput == false);
+
+        await Assert.That(settled.AwaitingInput).IsTrue();
+        await Assert.That(unsettled.AwaitingInput).IsFalse();
+        await Assert.That(agent.ActivityClock.AwaitingInput).IsTrue();
+    }
+
+    static async Task WritesDrainedAsync(AgentInstance agent) {
+        var started = TimeProvider.System.GetTimestamp();
+
+        while (Volatile.Read(ref agent.UnpersistedWaitEdges) > 0 && TimeProvider.System.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+    }
+
     static async Task<ResumeLedgerEntry> EntryOnceAsync(AgentOrchestrator orch, string agentId, Func<ResumeLedgerEntry, bool> done) {
         var started = TimeProvider.System.GetTimestamp();
 
