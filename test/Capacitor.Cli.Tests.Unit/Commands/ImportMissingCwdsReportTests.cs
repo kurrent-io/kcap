@@ -324,9 +324,10 @@ public class ImportMissingCwdsReportTests {
 
         var output = Capture(d => ImportCommand.ReportMissingCwds(sessionCwds, cwdRemap: null, d, new UserHome(@"C:\Users\me")));
         var lines  = output.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var section = new TestImportTerminal().Display().Indented;
 
         await Assert.That(output).Contains("2 sessions reference 1 path that no longer exists on disk:");
-        await Assert.That(lines.Count(l => l == @"  ~\gone\a")).IsEqualTo(1);
+        await Assert.That(lines.Count(l => l == $@"{section}  ~\gone\a")).IsEqualTo(1);
         await Assert.That(output).DoesNotContain("C:/");
     }
 
