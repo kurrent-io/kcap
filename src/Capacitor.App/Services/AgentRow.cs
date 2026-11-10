@@ -53,6 +53,8 @@ public sealed record AgentRow(
         // Where the listing says the session was recorded; null below ownership, from an older server, and on a daemon row.
         RepoSessionRecordingDto? Recording = null,
         string? AccountLabel = null,
+        // Whether the hosted agent's terminal takes typed input from this viewer's hub.
+        bool TerminalInput = false,
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
         AgentViewerRightsDto? ViewerRights = null) {
 
@@ -91,7 +93,7 @@ public sealed record AgentRow(
                 : null,
             OwnerUserId: dto.OwnerUserId,
             AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel,
-            ViewerRights: dto.ViewerRights);
+            TerminalInput: dto.TerminalInput, ViewerRights: dto.ViewerRights);
     }
 
     /// A row from the server's listing. The status is the daemon vocabulary the rail already reads:
