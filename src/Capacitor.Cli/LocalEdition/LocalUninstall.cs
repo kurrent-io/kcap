@@ -22,6 +22,11 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
     /// <summary>A server is asked to stop with at least this long, however much of the grace the locks took.</summary>
     static readonly TimeSpan MinimumStopGrace = TimeSpan.FromSeconds(1);
 
+    static readonly TimeSpan DeleteRetryGap = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Removes <c>bin/</c> and <c>run/</c>; replaced in tests to hold a file open as an exiting server does.</summary>
+    internal Action<LocalRoot> DeleteServerFiles { get; init; } = root => LocalStackStop.Delete(root, "bin", "run");
+
     /// <summary>Throws <see cref="LocalLifecycleException"/> naming what stopped it; nothing is deleted before the
     /// stops are verified.</summary>
     public async Task<LocalUninstallOutcome> RunAsync(LifecycleLease lease, LocalStackState state, bool purge, bool force, string configDir,
@@ -49,21 +54,23 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
         var unit = LocalServerUnit.ForInstallation(lease.Root, installation.Port);
 
         if (QuickGrace is { } grace) {
-            TimeSpan Left() {
-                var left = grace - TimeProvider.System.GetElapsedTime(_created);
-                return left > MinimumStopGrace ? left : MinimumStopGrace;
-            }
+            TimeSpan Remaining() => grace - TimeProvider.System.GetElapsedTime(_created);
+            TimeSpan Left() => Remaining() > MinimumStopGrace ? Remaining() : MinimumStopGrace;
 
             if (!await LocalStackStop.RunWithinAsync(lease.Root, unit, service, home, Left, ct)) return LocalUninstallOutcome.Unloaded;
 
-            try {
-                LocalStackStop.Delete(lease.Root, "bin", "run");
-            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // The server let go of the root but its process has not exited yet, and its files are still open.
-                return LocalUninstallOutcome.Unloaded;
-            }
+            // A server that let go of the root still maps its binaries until its process exits, which on Windows
+            // refuses their deletion for a moment; the rest of the grace waits that out.
+            while (true) {
+                try {
+                    DeleteServerFiles(lease.Root);
+                    return LocalUninstallOutcome.Uninstalled;
+                } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                    if (Remaining() <= DeleteRetryGap) return LocalUninstallOutcome.Unloaded;
+                }
 
-            return LocalUninstallOutcome.Uninstalled;
+                await Task.Delay(DeleteRetryGap, ct);
+            }
         }
 
         if (!purge) {

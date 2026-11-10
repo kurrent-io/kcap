@@ -538,6 +538,47 @@ public class LocalUninstallTests {
         await Assert.That(Directory.Exists(Dir("run"))).IsTrue();
     }
 
+    /// <summary>A server that let go of the root can still hold its binaries open for a moment; the deletion is retried
+    /// within the grace rather than leaving <c>bin/</c> behind a removed unit.</summary>
+    [Test]
+    public async Task A_quick_uninstall_retries_the_deletion_while_an_exiting_server_holds_its_files() {
+        await InstallAsync();
+        var attempts = 0;
+        var released = TimeProvider.System.GetTimestamp() + TimeProvider.System.TimestampFrequency / 2;
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                QuickGrace = TimeSpan.FromSeconds(5),
+                DeleteServerFiles = root => {
+                    attempts++;
+                    if (TimeProvider.System.GetTimestamp() < released) throw new IOException("kcap-server.exe is in use");
+                    LocalStackStop.Delete(root, "bin", "run");
+                },
+            }.RunAsync(lease, state, purge: false, force: true, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Uninstalled);
+        await Assert.That(attempts).IsGreaterThan(1);
+        await Assert.That(Directory.Exists(Dir("bin"))).IsFalse();
+        await Assert.That(Directory.Exists(Dir("run"))).IsFalse();
+    }
+
+    [Test]
+    public async Task A_quick_uninstall_leaves_files_held_past_the_grace() {
+        await InstallAsync();
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                QuickGrace        = TimeSpan.FromSeconds(1),
+                DeleteServerFiles = _ => throw new IOException("kcap-server.exe is in use"),
+            }.RunAsync(lease, state, purge: false, force: true, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Unloaded);
+        await Assert.That(File.Exists(Plist)).IsFalse();
+        await Assert.That(Directory.Exists(Dir("bin"))).IsTrue();
+    }
+
     /// <summary>The waits before the stop come out of the same grace, so an app uninstaller's deadline holds; the server
     /// still gets a moment to stop however long they took.</summary>
     [Test]
