@@ -92,10 +92,9 @@ public sealed class AccountStore {
     }
 
     IEnumerable<FileInfo> Temporaries() {
-        if (!System.IO.Directory.Exists(Directory)) return [];
-
         try {
-            return new DirectoryInfo(Directory).EnumerateFiles(Path.GetFileName(RegistryPath) + ".*.tmp").ToList();
+            var (directory, pattern) = AtomicFile.Temporaries(RegistryPath);
+            return System.IO.Directory.Exists(directory) ? new DirectoryInfo(directory).EnumerateFiles(pattern).ToList() : [];
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return [];
         }

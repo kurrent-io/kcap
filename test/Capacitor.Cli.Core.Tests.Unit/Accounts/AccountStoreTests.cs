@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Accounts;
 
@@ -84,6 +85,47 @@ public class AccountStoreTests {
 
         await Assert.That(File.Exists(temporary)).IsFalse();
         await Assert.That(store.Load().Accounts.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A registry linked to another name saves its temporary beside the link target, so a read in the
+    /// rename gap must look for it there.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Load_during_a_replace_through_a_linked_registry_waits_for_the_target() {
+        var store  = new AccountStore(Tmp.PathTo("accounts")) { ReplaceWait = TimeSpan.FromSeconds(10) };
+        var target = LinkRegistry(store);
+        store.Mutate(r => (r with { Accounts = [Claude("/h/.claude-work")] }, 0));
+        var temporary = target + ".0123456789abcdef.tmp";
+        File.Move(target, temporary);
+
+        var renamed = Task.Run(async () => {
+            await Task.Delay(TimeSpan.FromMilliseconds(30));
+            File.Move(temporary, target);
+        });
+        var loaded = store.Load();
+        await renamed;
+
+        await Assert.That(loaded.Accounts.Count).IsEqualTo(1);
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_save_through_a_linked_registry_removes_a_leftover_temporary_beside_the_target() {
+        var store     = Store();
+        var target    = LinkRegistry(store);
+        var temporary = Tmp.CreateFile(["elsewhere", "registry.json.0123456789abcdef.tmp"], "{}");
+
+        store.Mutate(r => (r with { Accounts = [Claude("/h/.claude-work")] }, 0));
+
+        await Assert.That(File.Exists(temporary)).IsFalse();
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(store.Load().Accounts.Count).IsEqualTo(1);
+    }
+
+    string LinkRegistry(AccountStore store) {
+        Tmp.CreateDir("accounts");
+        Tmp.CreateDir("elsewhere");
+        var target = Tmp.PathTo("elsewhere", "registry.json");
+        File.CreateSymbolicLink(store.RegistryPath, target);
+        return target;
     }
 
     [Test]
