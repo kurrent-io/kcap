@@ -11,6 +11,8 @@ namespace Capacitor.Cli.Daemon.Pty.Unix;
 /// </summary>
 sealed class UnixPtyReaderThread {
     const int PollTimeoutMs = 200;
+    // A write the child made just before exiting can reach the master a moment after the exit is seen.
+    const int DrainPollMs   = 50;
     const int ChunkSize     = 4096;
 
     readonly int                  _masterFd;
@@ -25,6 +27,8 @@ sealed class UnixPtyReaderThread {
     /// the thread directly, without a pool worker in between.</summary>
     readonly object _creditGate = new();
     bool            _credit     = true;
+
+    bool _childGone;
 
     /// <param name="childExited">Reaps the child if it has exited. Asked whenever the terminal is idle: a
     /// descendant that inherited the terminal keeps it open after the child dies, so no hangup comes.</param>
@@ -101,7 +105,7 @@ sealed class UnixPtyReaderThread {
 
         while (!_stop.IsCancellationRequested) {
             pfd.revents = 0;
-            var pollResult = UnixPtyInterop.poll(ref pfd, 1, PollTimeoutMs);
+            var pollResult = UnixPtyInterop.poll(ref pfd, 1, _childGone ? DrainPollMs : PollTimeoutMs);
 
             if (pollResult < 0) {
                 var errno = Marshal.GetLastPInvokeError();
@@ -111,7 +115,10 @@ sealed class UnixPtyReaderThread {
             }
 
             if (pollResult == 0) {
-                if (_childExited()) return 0;
+                if (_childGone) return 0;
+
+                // Read on until the master has nothing left, so the child's last output is not dropped.
+                _childGone = _childExited();
 
                 continue;
             }
