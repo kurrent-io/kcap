@@ -45,6 +45,7 @@ public class ImportExclusionTests {
         ]);
     }
 
+    // An accepted persistent-404 session is probed at classification, ledger recording, then final confirmation.
     static WireMockServer Online(int secretStatus = 404) {
         var server = WireMockServer.Start();
 
