@@ -46,7 +46,7 @@ public static class CommandServices {
         services.AddSingleton<IWatcherSpawner, ProcessWatcherSpawner>();
 
         // Singleton deliberately: per-resolution routers would each start with an empty memo.
-        services.AddSingleton<GitProviderRouter>();
+        services.AddSingleton(sp => new GitProviderRouter(sp.GetRequiredService<TimeProvider>()));
 
         // Factories because only a handful of commands take either. The registry is built over the
         // same probe instance, so a harness binary and a configured path search one PATH.
@@ -95,6 +95,8 @@ public static class CommandServices {
     /// </summary>
     public static IServiceCollection AddCapacitorCommands(this IServiceCollection services) {
         // Shared by every hook lane and carrying no per-run state, unlike the commands below.
+        services.AddSingleton<IDaemonRecordingClient>(sp => new LocalDaemonRecording(
+            sp.GetRequiredService<DaemonStore>(), sp.GetRequiredService<HostedAgent>(), Environment.GetEnvironmentVariable(DaemonNameResolver.NameVar)));
         services.AddSingleton<WatcherManager>();
 
         services.AddTransient<AccountsCommand>();
@@ -108,6 +110,7 @@ public static class CommandServices {
         services.AddTransient<DaemonCommands>();
         services.AddTransient<ErrorsCommand>();
         services.AddTransient<SetTitleCommand>();
+        services.AddTransient<DisableCommand>();
         services.AddTransient<EvalCommand>();
         services.AddTransient(sp => new FeedbackCommand(
             sp.GetRequiredService<IFeedbackApi>(),

@@ -56,6 +56,10 @@ public class DaemonHeartbeatLoopTests {
 
         public Task<bool> CredentialChangedAsync(CancellationToken ct) =>
             CredentialChangedHandler is null ? Task.FromResult(false) : CredentialChangedHandler();
+
+        public int SignInChangedReports { get; private set; }
+
+        public void ReportSignInChanged() => SignInChangedReports++;
     }
 
     static DaemonHeartbeatLoop CreateLoop(FakePort port, TimeSpan? deadline = null)
@@ -313,6 +317,7 @@ public class DaemonHeartbeatLoopTests {
         await CreateLoop(port).TickAsync(CancellationToken.None);
 
         await Assert.That(port.ForceReconnectCalls).IsEqualTo(reconnects);
+        await Assert.That(port.SignInChangedReports).IsEqualTo(reconnects);
     }
 
     [Test]

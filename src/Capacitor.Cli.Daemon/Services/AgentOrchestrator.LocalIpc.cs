@@ -4,6 +4,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Microsoft.Extensions.Logging;
@@ -421,6 +422,7 @@ internal partial class AgentOrchestrator {
             return RefuseRename(SessionRenameReasons.Malformed);
         if (!_agents.TryGetValue(agentId, out var agent)) return RefuseRename(SessionRenameReasons.UnknownAgent);
         if (agent.IsPrivate) return RefuseRename(SessionRenameReasons.PrivateAgent);
+        if (RunsDisabledSession(agent)) return RefuseRename(SessionRenameReasons.NoSession);
         if (dto.ExpectedUserSubject is not { } expected || expected != UserSubject)
             return RefuseRename(SessionRenameReasons.IdentityMismatch);
         if ((agent.SessionId ?? (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId) is not { Length: > 0 } sessionId)
@@ -631,6 +633,7 @@ internal partial class AgentOrchestrator {
         DateTime      spawnedAtUtc;
         WorktreeInfo? ownedWorktree = null; // tracked so a failure after creation cleans it up
         string?       permissionMode;
+        RecordedSource? recording   = null;
 
         try {
             var worktree = work == WorkLocation.OwnedWorktree
@@ -673,6 +676,9 @@ internal partial class AgentOrchestrator {
                 ? VendorHomeEnv.Apply(env, vendor, account, _config.Home)
                 : FrozenSet<string>.Empty;
 
+            // The process's first hook can run before anything after the spawn has, so the claim comes first.
+            recording = await ClaimRecordingAsync(agentId, vendor, built.SessionId, isPrivate, worktree, resolution.Account, skipTitle: false);
+
             spawnedAtUtc = _time.GetUtcNow().UtcDateTime;
             var pty     = _ptyFactory.Spawn(launcher.CliPath, built.Args, worktree.Path, env, cols, rows, removeEnv);
             var runtime = new PtyHostedAgentRuntime(vendor, pty, _time, logger: _logger);
@@ -696,7 +702,10 @@ internal partial class AgentOrchestrator {
                     : AttachmentPlacement.Worktree
             };
             PublishAgent(agent);
+            if (recording is not null) _recorder!.StartForAgent(recording);
         } catch (Exception ex) {
+            if (recording is not null) _recorder!.ReleaseClaim(recording);
+
             // Don't leak a daemon-created worktree if Prepare / passthrough-arg building /
             // spawn fails after the worktree was created (mirrors the server launch path).
             if (ownedWorktree is { } leaked) {
@@ -718,6 +727,131 @@ internal partial class AgentOrchestrator {
         _ = DetectSessionIdAsync(agent, vendor, spawnedAtUtc);
         await AttachClientLoopAsync(agent, stream, ct);
     }
+
+    /// <summary>A hosted agent's hook handing over a source it found no recorder for: a subagent, or a session the agent
+    /// moved to. Refused for anything but a live hosted Claude agent of this daemon and a transcript of that agent's, and
+    /// the hook then starts a watcher, as it does for any source the daemon won't take.</summary>
+    public async Task HandleLocalRecordSourceAsync(string payload, Stream stream, CancellationToken ct) {
+        RecordSourceDto? source = null;
+
+        try {
+            source = JsonSerializer.Deserialize(payload, RecordingIpcJsonContext.Default.RecordSourceDto);
+        } catch (JsonException) {
+            // Refused below.
+        }
+
+        var answer = source is null ? RecordingIpc.Refused : await RecordHandedSourceAsync(source, ct);
+
+        await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(answer), ct);
+    }
+
+    async Task<string> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
+        if (_recorder is not { } recorder || !IsClaude(source.Vendor) || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
+
+        var handed = new RecordedSource(source.AgentId, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle);
+
+        // A source held here stays this daemon's whatever its server last said, and a hook told otherwise would take its
+        // claim and start a second recorder. Short of that, no answer from the server decides nothing.
+        if (recorder.Holds(handed.Key)) {
+            if (_agents.TryGetValue(source.AgentId, out var holder)) holder.MovedTo.TryAdd(session, 0);
+
+            return RecordingIpc.Recording;
+        }
+        if (recorder.Undecided) return RecordingIpc.NotYet;
+
+        if (!recorder.Enabled || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted) return RecordingIpc.Refused;
+
+        var paths = ClaudePathsFor(agent.Account);
+
+        if (HandedTranscript.Locate(source.TranscriptPath, session, source.SubagentId, paths.Projects) is not { } transcript)
+            return Disown(agent, source, "it is not a transcript of that session under the agent's Claude projects");
+
+        if (RefusalOf(source, agent, session, paths, transcript.Project) is { } refusal) return Disown(agent, source, refusal);
+
+        if (!await recorder.TryRecordAsync(handed with { TranscriptPath = transcript.Path }, ct)) return RecordingIpc.Refused;
+
+        agent.MovedTo.TryAdd(session, 0);
+
+        return RecordingIpc.Recording;
+    }
+
+    string Disown(AgentInstance agent, RecordSourceDto source, string refusal) {
+        LogHandedSourceRefused(agent.Id, source.TranscriptPath, refusal);
+
+        return RecordingIpc.NotTheAgents;
+    }
+
+    string? RefusalOf(RecordSourceDto source, AgentInstance agent, string session, ClaudePaths paths, string project) {
+        if (_agents.Values.Any(other => other.Id != agent.Id && IsSessionOf(other, session))) return "that session is another agent's";
+
+        if (!IsSessionOf(agent, session) && !IsProjectOf(agent, paths, project)) return "that session is neither the agent's nor in its project";
+
+        if (source.Cwd is { } cwd && !CanonicalPath.IsWithin(cwd, agent.Worktree.Path) && !CanonicalPath.IsWithin(cwd, agent.RepoPath))
+            return "its working directory is outside the agent's checkout";
+
+        return null;
+    }
+
+    static bool IsSessionOf(AgentInstance agent, string session) =>
+        new[] { agent.SessionId, agent.VendorSession, agent.ResumedSessionId }.Any(id => SessionIds.Canonical(id) == session);
+
+    // Claude's own spelling of the directory is what discovery found, and a link in the checkout's path spells it another way.
+    static bool IsProjectOf(AgentInstance agent, ClaudePaths paths, string project) =>
+        new[] { paths.ProjectDir(agent.Worktree.Path), paths.ProjectDir(CanonicalPath.Resolve(agent.Worktree.Path)), Path.GetDirectoryName(agent.TranscriptPath) }
+            .Any(directory => directory is not null && PathComparison.Equal(CanonicalPath.Resolve(directory), project));
+
+    /// <summary>A hook's ask for a source's final drain. A hook that stops waiting has still asked, so the drain runs
+    /// with nobody left to answer. This daemon's own stop is what ends the wait, and the drain outlives that too.</summary>
+    public async Task HandleLocalFinishSourceAsync(string key, Stream stream, CancellationToken ct) {
+        var finished = _recorder is { } recorder && await recorder.FinishAsync(key, ct, hurried: true);
+
+        try {
+            await FrameCodec.WriteAsync(stream, LocalFrame.FinishSourceAck(finished ? RecordingIpc.Finished : RecordingIpc.NotHeld), ct);
+        } catch (IOException) {
+            // The hook's budget ran out first.
+        }
+    }
+
+    /// <summary><c>kcap disable</c> on a session this daemon may be recording. Off every lane an agent's launch or a
+    /// server's command runs on, and the recorder answers within its own bound. A command that stops waiting has still
+    /// asked, and the stop has already happened.</summary>
+    public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
+        // Where this daemon reads it, which a daemon under another config directory doesn't share: a restart would otherwise
+        // pick the session up again. The id names a file, and any local process can send the frame.
+        var markFailed = false;
+
+        if (Guid.TryParse(sessionId, out var guid) && guid.ToString("N") is var session) {
+            try {
+                DisabledSessions.Mark(session, _config.ConfigRoot);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                LogDisableMarkFailed(ex, session);
+                markFailed = true;
+            }
+        }
+
+        var outcome = _recorder is { } recorder ? await recorder.DisableSessionAsync(sessionId, ct) : RecordingDisable.NotHeld;
+
+        var answer = new DisableSessionAckDto(outcome switch {
+            RecordingDisable.Stopped       => RecordingIpc.Stopped,
+            RecordingDisable.SendInFlight  => RecordingIpc.SendInFlight,
+            RecordingDisable.StillStopping => RecordingIpc.StillStopping,
+            _                              => RecordingIpc.NotHeld,
+        }, HostsLiveOutput(sessionId), _config.ServerUrl, markFailed);
+
+        try {
+            await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(JsonSerializer.Serialize(answer, RecordingIpcJsonContext.Default.DisableSessionAckDto)), ct);
+        } catch (IOException) {
+            // The command's budget ran out first.
+        }
+    }
+
+    // A disable leaves a live agent's output going, whichever runtime carries it, so the person has to be told: a PTY's
+    // terminal mirror, or an ACP agent's transcript, whose forwarder starts at the bind and sends what came before it.
+    bool HostsLiveOutput(string sessionId) =>
+        SessionIds.Canonical(sessionId) is { } session && _agents.Values.Any(agent =>
+            agent is { IsServerSilent: false, IsCleanupStarted: false }
+         && (agent.CloudSink is not null || agent.Runtime is IAcpTranscriptSource)
+         && SessionIdsOf(agent).Any(id => SessionIds.Canonical(id) == session));
 
     /// <summary>Attach an existing agent to a local client (used by <c>kcap agent attach</c>).</summary>
     public Task HandleLocalAttachAsync(string agentId, Stream stream, CancellationToken ct, bool reportRuntime = false) {
@@ -929,4 +1063,7 @@ internal partial class AgentOrchestrator {
             agent.CurrentRows = r;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Disable: session {SessionId} could not be marked where this daemon reads it")]
+    partial void LogDisableMarkFailed(Exception ex, string sessionId);
 }

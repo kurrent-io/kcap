@@ -46,6 +46,16 @@ public class CursorMarkersTests {
         await Assert.That(marker!.Value.Reason).IsEqualTo("rewrite detected");
     }
 
+    [Test, NotInParallel]
+    public async Task A_hook_hears_of_a_quarantine_it_could_not_write_on_stderr() {
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        Config.CreateFile("cursor-quarantine");
+
+        Markers.Quarantine(NewSessionId(), "rewrite detected");
+
+        await Assert.That(stderr.GetCapturedError()).Contains("cursor_quarantine_marker_write_failed");
+    }
+
     [Test]
     public async Task Quarantine_keeps_the_first_reason_on_a_second_call() {
         var sid = NewSessionId();

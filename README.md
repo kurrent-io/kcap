@@ -720,7 +720,7 @@ A plain title is a rename: it ranks with a rename made in the dashboard, and the
 
 ### Disable recording
 
-Stop the watcher, silence future hooks, and delete server-side data for a session.
+Stop recording, silence future hooks, and delete server-side data for a session. Nothing that records it comes back: not a hook, a restart of the daemon, or a resume of a hosted agent.
 
 ```bash
 kcap disable                 # current session
@@ -728,6 +728,29 @@ kcap disable <sessionId>     # specific session
 ```
 
 This is irreversible on the server side; the local transcript file is untouched.
+
+A session the daemon records stops at once with its subagents, with no final drain. Every daemon on this machine is asked, whatever its profile, and the command waits a few seconds for their answers before it deletes anything. It also waits a few seconds for a pass already sending what hooks spooled, which may have read the session as not disabled a moment before the command marked it. The first line says `Recording stopped` only when every daemon that could be recording answered, no watcher outlived the stop, no live agent's output goes on, and no daemon holds the session for another server.
+
+The command exits `1`, and says why, when something stays unconfirmed:
+
+- A batch already on its way when recording stopped had no answer from the server, so it may still have landed, or the daemon was still stopping the session when the command stopped waiting.
+- The daemon recording the session did not confirm it stopped, or another daemon on this machine did not answer.
+- A pass sending what hooks spooled was still running when the command stopped waiting, so a send of the session may still land.
+- A send of the session that hooks spooled has had no answer from the server, so it may still land. Every later run says so, as it does for an unconfirmed deletion, even when the server found nothing to delete.
+- A watcher recording the session could not be stopped, the session could not be marked disabled (by this command, or by a daemon under another config directory, whose agents' hooks read its own marker), or kcap could not read what records it.
+- A daemon that recorded the session or hosts its agent sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
+- An earlier run deleted the session before it could confirm recording had stopped. Anything that landed after that deletion may still be on the server, and kcap can't tell or remove it from here; the server's administrator can check. Every later run says so.
+- An earlier run found a daemon sending the session to another server. This command can't delete data there, and every later run names that server. Run `kcap disable` under the profile for that server.
+- kcap could not record one of the two facts above, so later runs won't say it.
+
+A server that can't be reached is no failure: the local steps are done, the command says the server data was not deleted, and it exits `0` unless something above applies. Run it again to delete. A profile with no usable server URL exits `2` after the same local steps.
+
+Each run asks every daemon afresh and says what that run found. A daemon that didn't answer before and answers now settles what is running, not what may have landed behind an earlier deletion.
+
+`kcap disable` does not stop:
+
+- A live hosted agent's own output and tools until it ends: a terminal agent's remote terminal, the transcript of an agent hosted over ACP, and anything the agent sends through kcap's tools. The command says so when an agent is running the session. Stop the agent to end it.
+- The agent's status and heartbeat, which carry no session content.
 
 ### Error extraction
 

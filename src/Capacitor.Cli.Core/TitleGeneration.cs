@@ -14,6 +14,10 @@ namespace Capacitor.Cli.Core;
 /// import paths and by the daemon's title resolution.
 /// </summary>
 public static partial class TitleGeneration {
+    /// <summary>The <c>kcap</c> verb that finishes a title for a recorder that can't: it takes the session, the vendor
+    /// and the transcript's path, never the prompt.</summary>
+    public const string HandOffCommand = "generate-title";
+
     static readonly TimeSpan ClaudeTimeout = TimeSpan.FromSeconds(15);
 
     // The claude fallback's process start, which its timeout does not count, and a pi cleanup running past its limit:

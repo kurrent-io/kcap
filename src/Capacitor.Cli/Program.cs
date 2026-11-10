@@ -699,45 +699,7 @@ switch (command) {
             return 1;
         }
 
-        // 1. Kill the watcher (and any subagent watchers)
-        var watchers = sp.GetRequiredService<WatcherManager>();
-        await watchers.KillWatcher(sessionId);
-
-        // Also kill subagent watchers — scan PID files matching "{sessionId}-*"
-        var watcherDir = watchers.GetWatcherDir();
-
-        if (Directory.Exists(watcherDir)) {
-            foreach (var pidFile in Directory.GetFiles(watcherDir, $"{sessionId}-*.pid")) {
-                var subKey = Path.GetFileNameWithoutExtension(pidFile);
-                await watchers.KillWatcher(subKey);
-            }
-        }
-
-        // 2. Mark session as disabled (prevents future hook calls from sending data)
-        DisabledSessions.Mark(sessionId, config);
-
-        // 3. Tell server to delete session data
-        try {
-            switch (await Api().DeleteSessionAsync(sessionId)) {
-                case DeleteSessionResponse.Deleted:
-                    await Console.Out.WriteLineAsync($"Session {sessionId} disabled. Recording stopped and server data deleted.");
-
-                    break;
-                case DeleteSessionResponse.NotFound:
-                    await Console.Out.WriteLineAsync($"Session {sessionId} disabled. No server data found (may have already been deleted).");
-
-                    break;
-            }
-        } catch (CapacitorApiException ex) {
-            Console.Error.WriteLine(ex.Message);
-
-            // Local state has already changed, so a server that was never reached is not a failure.
-            if (ex.Status is not null) return 1;
-
-            await Console.Out.WriteLineAsync("Session disabled locally (watcher stopped, hooks silenced). Server data not deleted.");
-        }
-
-        return 0;
+        return await Run<DisableCommand>().Handle(sessionId, Api, Console.Out, Console.Error);
     }
     case "hide": {
         // The sessionId is forwarded into a server URL path but we keep the

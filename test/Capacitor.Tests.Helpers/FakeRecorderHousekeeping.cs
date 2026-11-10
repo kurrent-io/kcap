@@ -10,6 +10,8 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public int Connected { get; private set; }
 
+    public IReadOnlyCollection<string> SpawnedChildKeys { get; set; } = [];
+
     /// <summary>Awaited inside <see cref="BeforeDrainAsync"/>, which ignores its token as repository detection
     /// does, so a test can hold the recorder in a call a stop can't interrupt.</summary>
     public Func<Task>? BeforeDrain { get; set; }
@@ -39,7 +41,13 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) => [];
 
-    public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) => Task.FromResult<ClaudeCliResult?>(null);
+    /// <summary>Replaces <see cref="GenerateTitleAsync"/>, so a test can hold a title in progress.</summary>
+    public Func<string, Task<ClaudeCliResult?>>? OnGenerateTitle { get; set; }
 
-    public void HandOffTitle(string transcriptPath) { }
+    public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
+        OnGenerateTitle?.Invoke(userText) ?? Task.FromResult<ClaudeCliResult?>(null);
+
+    public Action? OnHandOffTitle { get; set; }
+
+    public void HandOffTitle(string transcriptPath) => OnHandOffTitle?.Invoke();
 }

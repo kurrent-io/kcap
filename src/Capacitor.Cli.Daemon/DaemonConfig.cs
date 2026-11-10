@@ -582,6 +582,10 @@ public class DaemonConfig {
     /// </summary>
     public bool AcpReconnectEnabled { get; set; } = true;
 
+    /// <summary>Whether this daemon records its hosted Claude sessions itself rather than leave them to a watcher, read
+    /// from <c>KCAP_DAEMON_RECORDING</c>. Off by default: a session then records exactly as it would without it.</summary>
+    public bool RecordHostedClaude { get; set; }
+
     /// <summary>
     /// Path to the kcap CLI binary. Used by the daemon to spawn auxiliary
     /// processes (e.g. <c>generate-whats-done</c>) when claude didn't fire its

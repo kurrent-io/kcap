@@ -15,7 +15,7 @@ public static class LifecycleSpoolDrain {
     // Ordering is enforced by draining the lifecycle spool's START routes first, then the transcript
     // spool, then the lifecycle END routes — per session.
     public static async Task RunAsync(
-            HookSpool lifecycle, TranscriptSpool transcript, string? currentSessionId,
+            ConfigRoot config, HookSpool lifecycle, TranscriptSpool transcript, string? currentSessionId,
             Func<string, string, Task<DrainOutcome>> lifecyclePoster,
             Func<string, Task<DrainOutcome>>         transcriptPoster,
             TimeSpan budget, TimeProvider time, CancellationToken ct) {
@@ -31,24 +31,45 @@ public static class LifecycleSpoolDrain {
         foreach (var sid in OrderedSessions(lifecycle, transcript, currentSessionId)) {
             if (Expired()) return;
 
+            // Here rather than at the disable: this reaches whatever was spooled, by whoever, whenever, and what a pass
+            // caught by the marker wrote back on a transient stop goes on the next.
+            if (DisabledSessions.IsDisabledByPerson(sid, config)) {
+                lifecycle.Discard(sid);
+                transcript.Discard(sid);
+
+                continue;
+            }
+
+            // Read before each post, for a pass under way when the person disables the session. Both spools' posts are
+            // recorded where the pass holds its lease.
+            Task<DrainOutcome> PostLifecycle(string route, string body) =>
+                DisabledSessions.IsDisabledByPerson(sid, config)
+                    ? Task.FromResult(DrainOutcome.Drop)
+                    : UnansweredPosts.TrackAsync(lifecycle.DirectoryPath, sid, () => lifecyclePoster(route, body));
+
+            Task<DrainOutcome> PostTranscript(string body) =>
+                DisabledSessions.IsDisabledByPerson(sid, config)
+                    ? Task.FromResult(DrainOutcome.Drop)
+                    : UnansweredPosts.TrackAsync(lifecycle.DirectoryPath, sid, () => transcriptPoster(body));
+
             // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
             // must not follow a later run's start: both are settled before the phases run.
-            if (!await lifecycle.SettleEarlierRunsAsync(sid, lifecyclePoster, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
+            if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
 
             // Phase 1: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
-            await lifecycle.DrainRoutesAsync(sid, isTerminal: false, lifecyclePoster, Expired, ct);
+            await lifecycle.DrainRoutesAsync(sid, isTerminal: false, PostLifecycle, Expired, ct);
             if (Expired()) return;
             // Phase 2: transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
-            await transcript.DrainAsync(sid, transcriptPoster, Expired, ct);
+            await transcript.DrainAsync(sid, PostTranscript, Expired, ct);
             if (transcript.HasBacklog(sid)) continue;
-            if (transcript.NeedsImport(sid)) await DeliverNeedsImportAsync(sid, lifecyclePoster);
+            if (transcript.NeedsImport(sid)) await DeliverNeedsImportAsync(sid, PostLifecycle);
             if (Expired()) return;
             // Phase 3: session-end LAST. A non-zero consumed count means a terminal entry was truly
             // resolved (delivered or permanently dropped) in THIS call — not merely left for a retry
             // by a TransientStop/budget — so the session can be durably marked ended.
             string? ended = null;
             var consumed = await lifecycle.DrainRoutesAsync(sid, isTerminal: true, async (route, body) => {
-                var outcome = await lifecyclePoster(route, body);
+                var outcome = await PostLifecycle(route, body);
                 if (outcome != DrainOutcome.TransientStop) ended = body;
                 return outcome;
             }, Expired, ct);
@@ -83,11 +104,11 @@ public static class LifecycleSpoolDrain {
     /// silently drop the what's-done generation. Callers that don't need it (or can't reach the
     /// process-spawning helper — the daemon has its own) may omit it.</para>
     /// </summary>
-    public static Task RunAsync(CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
+    public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
                                 TimeProvider time, CancellationToken ct,
                                 Action<string, string>? onWhatsDoneRequested = null)
-        => RunAsync(lifecycle, transcript, currentSessionId,
+        => RunAsync(config, lifecycle, transcript, currentSessionId,
             lifecyclePoster: (route, body) => PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested),
             transcriptPoster: body => PostTranscript(markers, client, baseUrl, body, time, ct),
             budget, time, ct);
@@ -110,7 +131,10 @@ public static class LifecycleSpoolDrain {
                 return DrainOutcome.Delivered;
             }
             return HookSpool.OutcomeOf((int)resp.StatusCode);
-        } catch { return DrainOutcome.TransientStop; }
+        } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+            // One that may have reached the server goes through, for the pass to record.
+            return DrainOutcome.TransientStop;
+        }
     }
 
     // "session-end/kiro" → "kiro"; literal "session-end" (Claude's own naming, no vendor suffix) →

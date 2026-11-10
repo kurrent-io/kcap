@@ -32,9 +32,13 @@ public sealed class RecorderHousekeeping(
         RecordingSource source, bool skipTitle, int? parentPid, IRecorderHost host,
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http,
         GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home,
-        Action<string> log, Action beat) : IRecorderHousekeeping {
+        Action<string> unguardedLog, Action unguardedBeat) : IRecorderHousekeeping {
+    // These reach here apart from the recorder's context, so its host's guards don't cover them.
+    readonly Action<string> _log  = RecorderHost.Guarded(unguardedLog);
+    readonly Action         _beat = RecorderHost.Guarded(unguardedBeat);
+
     readonly WatcherPaths        _paths = WatcherPaths.FromEnvironment(config);
-    readonly SubagentScanContext _scans = new(host, config, profiles, http, time, log);
+    readonly SubagentScanContext _scans = new(host, config, profiles, http, time, RecorderHost.Guarded(unguardedLog));
 
     IHarnessTitleStore? _titleStore;
 
@@ -76,7 +80,7 @@ public sealed class RecorderHousekeeping(
 
     string Url => profiles.Resolution.ServerUrl!;
 
-    /// <summary>The child sources this recorder started, which its host has to stop when the recorder is done.</summary>
+    /// <inheritdoc/>
     public IReadOnlyCollection<string> SpawnedChildKeys => _spawnedChildWatcherKeys;
 
     /// <summary>The end a Muse SessionEnd hook handed over, for the host to post after the final drain.</summary>
@@ -165,17 +169,17 @@ public sealed class RecorderHousekeeping(
         }
 
         if (time.GetUtcNow() - state.LastSubagentCheckoutScan >= SubagentCheckoutScanGap) {
-            ObserveSubagentCheckouts(state, log);
+            ObserveSubagentCheckouts(state, _log);
             state.LastSubagentCheckoutScan = time.GetUtcNow();
         }
 
         if (SecondaryProbeDue(state, time.GetUtcNow())) {
-            await LinkSecondaryPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, beat);
+            await LinkSecondaryPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, _beat);
             state.LastSecondaryProbe = time.GetUtcNow();
         }
 
         if (state.PendingCreatedPullRequests.Count > 0 && time.GetUtcNow() >= state.NextCreatedPullRequestLink) {
-            await LinkCreatedPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, lastChance: false, beat);
+            await LinkCreatedPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, lastChance: false, _beat);
             // Only a PR left pending waits; one created after a clean pass goes at once.
             state.NextCreatedPullRequestLink = state.PendingCreatedPullRequests.Count > 0 ? time.GetUtcNow() + TimeSpan.FromSeconds(60) : default;
         }
@@ -184,14 +188,14 @@ public sealed class RecorderHousekeeping(
         if (agentId is null && TranscriptTitleLines.MayNeedHarnessTitles(vendor) && state.ServerRecordsHarnessTitles is null
          && time.GetUtcNow() - state.LastHarnessTitleProbe >= HarnessTitleRetryGap) {
             state.LastHarnessTitleProbe      = time.GetUtcNow();
-            state.ServerRecordsHarnessTitles = await ProbeHarnessTitlesAsync(ct, beat);
+            state.ServerRecordsHarnessTitles = await ProbeHarnessTitlesAsync(ct, _beat);
         }
 
         // Read once before the first drain, so a store title the server records latches HarnessTitleSeen
         // before that drain can trigger LLM titling.
         if (_titleStore is not null && state.LastHarnessTitleRead == default) {
             state.LastHarnessTitleRead = time.GetUtcNow();
-            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, beat);
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat);
         }
     }
 
@@ -202,7 +206,7 @@ public sealed class RecorderHousekeeping(
         // while the transcript stays idle.
         if (_titleStore is not null && (drained.Count > 0 || time.GetUtcNow() - state.LastHarnessTitleRead >= HarnessTitleRetryGap)) {
             state.LastHarnessTitleRead = time.GetUtcNow();
-            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, beat);
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat);
         }
 
         // Live subagent discovery: only the parent watcher scans; child watchers just stream their file.
@@ -228,7 +232,7 @@ public sealed class RecorderHousekeeping(
             await MuseSubagentScan.StopFinishedMuseChildren(_scans, sessionId, transcriptPath, drained, _museChildren);
 
             if (MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time) is { } handed) {
-                log("Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
+                _log("Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
                 _museEndRequest = handed;
                 host.StopRun();
             }
@@ -248,7 +252,7 @@ public sealed class RecorderHousekeeping(
 
             if (await CodexSubagentScan.PostCodexSubagentStopAsync(_scans, sessionId, agentId, _codexChildAgentType, transcriptPath, ct)) {
                 state.CodexSubagentTurn.StopPosted = true;
-                log($"Codex subagent {agentId} ({_codexChildAgentType}) turn complete + idle "
+                _log($"Codex subagent {agentId} ({_codexChildAgentType}) turn complete + idle "
                   + $"{_codexSubagentStopGrace.TotalMinutes:F0}m; posted subagent-stop");
             } else {
                 _codexStopNextAttemptAt = time.GetUtcNow() + CodexSubagentScan.CodexSubagentStopRetryInterval;
@@ -274,23 +278,23 @@ public sealed class RecorderHousekeeping(
 
         // A store the transcript does not carry can change after the loop's last read; this is its last chance.
         if (_titleStore is not null) {
-            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, beat,
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted));
         }
 
         // A PR is usually opened in the session's last turn, after the previous 60s probe.
         await LinkCreatedPullRequestsAsync(state, sessionId,
-            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, lastChance: true, beat);
-        ObserveSubagentCheckouts(state, log, final: true);
+            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, lastChance: true, _beat);
+        ObserveSubagentCheckouts(state, _log, final: true);
         await LinkSecondaryPullRequestsAsync(state, sessionId,
-            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, beat);
+            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, _beat);
     }
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) =>
         host.ReadAntigravityUsage(dbPath, afterIdx, createdAt);
 
     public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
-        TitleGeneration.GenerateAsync(userText, assistantText, time, log, profiles.Resolution.Profile, harnesses, config, source.Vendor, ct);
+        TitleGeneration.GenerateAsync(userText, assistantText, time, _log, profiles.Resolution.Profile, harnesses, config, source.Vendor, ct);
 
     public void HandOffTitle(string transcriptPath) => host.HandOffTitle(source.SessionId, source.Vendor, transcriptPath);
 
@@ -598,7 +602,7 @@ public sealed class RecorderHousekeeping(
 
                 return await HarnessTitleClient.PostOrFallBackAsync(client, time, Url, sessionId, owed, token, remaining);
             },
-            budget ?? SecondaryProbeBudget, time, beat, log, ct);
+            budget ?? SecondaryProbeBudget, time, beat, _log, ct);
 
     async Task<bool?> ProbeHarnessTitlesAsync(CancellationToken ct, Action beat) {
         beat();
@@ -615,7 +619,7 @@ public sealed class RecorderHousekeeping(
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch (Exception ex) {
-            log($"Harness title probe failed: {ex.Message}");
+            _log($"Harness title probe failed: {ex.Message}");
             return null;
         }
     }
@@ -637,14 +641,14 @@ public sealed class RecorderHousekeeping(
             using var resp    = await client.PostWithRetryAsync(
                 $"{Url}/api/sessions/{Uri.EscapeDataString(sessionId)}/pull-requests", content, time, ct: ct, retryStatuses: true);
 
-            if (resp.IsSuccessStatusCode) log($"Linked {pr.Owner}/{pr.RepoName}#{pr.PrNumber} {source}");
-            else log($"Linking {pr.Owner}/{pr.RepoName}#{pr.PrNumber} failed: HTTP {(int)resp.StatusCode}");
+            if (resp.IsSuccessStatusCode) _log($"Linked {pr.Owner}/{pr.RepoName}#{pr.PrNumber} {source}");
+            else _log($"Linking {pr.Owner}/{pr.RepoName}#{pr.PrNumber} failed: HTTP {(int)resp.StatusCode}");
 
             return resp.IsSuccessStatusCode;
         } catch (OperationCanceledException) {
             throw;
         } catch (Exception ex) {
-            log($"Linking {pr.Owner}/{pr.RepoName}#{pr.PrNumber} failed: {ex.Message}");
+            _log($"Linking {pr.Owner}/{pr.RepoName}#{pr.PrNumber} failed: {ex.Message}");
             return false;
         }
     }
