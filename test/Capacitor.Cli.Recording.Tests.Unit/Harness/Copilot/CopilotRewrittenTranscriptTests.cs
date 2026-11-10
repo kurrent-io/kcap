@@ -49,6 +49,19 @@ public class CopilotRewrittenTranscriptTests {
         await Assert.That(state.LinesProcessed).IsEqualTo(13);
     }
 
+    [Test]
+    public async Task A_rewrite_after_trailing_blank_lines_sends_the_line_written_where_they_were() {
+        var path  = Tmp.CreateFile("events.jsonl", Lines("a", 0, 4) + new string('\n', 6));
+        var state = new WatchState { ThresholdReached = true };
+        Recorders.Transport.IsConnected = true;
+        await Drain(path, state);
+
+        await File.WriteAllTextAsync(path, Lines("a", 0, 4) + Lines("b", 0, 1));
+        await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(4).ToArray()).IsEquivalentTo(new[] { (10, Line("b", 0)) });
+    }
+
     /// <summary>The rewritten file can grow past the old cursor before any poll sees it shorter.</summary>
     [Test]
     public async Task A_rewrite_that_regrew_past_the_cursor_between_polls_sends_every_new_line() {

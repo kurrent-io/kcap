@@ -1407,7 +1407,8 @@ public sealed class TranscriptRecorder(
                     }
                 }
             } else {
-                map.Observe(read.Lines, read.LineNumbers);
+                // Only lines no watcher here has read yet, since every read records the lines through its end.
+                map.Observe(read.Lines, read.LineNumbers, Math.Min(read.NextPosition, cursor));
                 if (read.NextPosition < cursor) rewrittenAt = read.NextPosition;
             }
 
@@ -1419,7 +1420,7 @@ public sealed class TranscriptRecorder(
                 continue;
             }
 
-            map.Observe(read.Lines, read.LineNumbers);
+            map.Observe(read.Lines, read.LineNumbers, read.NextPosition);
 
             var lines   = new List<string>(read.Lines.Count);
             var numbers = new List<int>(read.Lines.Count);

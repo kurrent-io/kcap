@@ -39,8 +39,11 @@ public sealed class TranscriptLineMap {
         return sentLine;
     }
 
-    /// <summary>Records lines read at their file line numbers; a gap between two of them is blank lines.</summary>
-    public void Observe(IReadOnlyList<string> lines, IReadOnlyList<int> fileLines) {
+    /// <summary>
+    /// Records lines read at their file line numbers. Every other line below <paramref name="nextLine"/>, where the
+    /// read ended, is blank, and is recorded as blank: a cursor that moved past it must be able to tell it changed.
+    /// </summary>
+    public void Observe(IReadOnlyList<string> lines, IReadOnlyList<int> fileLines, int nextLine) {
         for (var i = 0; i < lines.Count; i++) {
             var at = fileLines[i];
             while (_hashes.Count < at) _hashes.Add(BlankHash);
@@ -48,6 +51,8 @@ public sealed class TranscriptLineMap {
             if (at < _hashes.Count) _hashes[at] = Hash(lines[i]);
             else _hashes.Add(Hash(lines[i]));
         }
+
+        while (_hashes.Count < nextLine) _hashes.Add(BlankHash);
     }
 
     /// <summary>Whether <paramref name="fileLine"/> still reads <paramref name="line"/>, null meaning blank.</summary>

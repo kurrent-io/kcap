@@ -51,7 +51,7 @@ public class TranscriptLineMapTests {
         using var tmp  = new TempDir();
         var       path = tmp.CreateFile("t.jsonl", "a\n\nc\nd\n");
         var       map  = new TranscriptLineMap();
-        map.Observe(["a", "c", "d"], [0, 2, 3]);
+        map.Observe(["a", "c", "d"], [0, 2, 3], 4);
 
         await File.WriteAllTextAsync(path, "a\n\nx\n");
 
@@ -64,7 +64,7 @@ public class TranscriptLineMapTests {
         using var tmp  = new TempDir();
         var       path = tmp.CreateFile("t.jsonl", "a\nb\n");
         var       map  = new TranscriptLineMap();
-        map.Observe(["a", "b", "c"], [0, 1, 2]);
+        map.Observe(["a", "b", "c"], [0, 1, 2], 3);
 
         await Assert.That(await map.FirstChangedLineAsync(path, 3, CancellationToken.None)).IsEqualTo(2);
     }
