@@ -26,6 +26,17 @@ internal static class WaitHarness {
         await Assert.That(condition()).IsTrue();
     }
 
+    /// <summary>For a condition that has to be awaited: each check is bounded too, or one that never completes would hang
+    /// the run with the deadline never looked at.</summary>
+    /// <param name="step">What a check waits for, as it should read in the failure.</param>
+    internal static async Task PollUntilAsync(Func<Task<bool>> condition, string step) {
+        var deadline = DateTime.UtcNow + PollBound;
+        while (!await condition().WithinDeadlineAsync(step) && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+
+        await Assert.That(await condition().WithinDeadlineAsync(step)).IsTrue();
+    }
+
     internal static async Task SpinUntilAsync(Func<bool> condition, TimeSpan timeout) {
         var deadline = DateTime.UtcNow + timeout;
         while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);

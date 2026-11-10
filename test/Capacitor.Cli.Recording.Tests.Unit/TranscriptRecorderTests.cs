@@ -17,9 +17,11 @@ public class TranscriptRecorderTests {
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
-    TranscriptRecorder Recorder(string path, string? agentId = null, string vendor = "claude") => new(
+    TranscriptRecorder Recorder(string path, string? agentId = null, string vendor = "claude", RecorderClaims? claims = null) => new(
         new RecordingSource(Sid, agentId, path, vendor, null), _transport, new NoStamps(), TimeProvider.System,
-        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }));
+        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }), claims);
+
+    RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), TimeProvider.System);
 
     async Task LinesSent(int count) {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
@@ -53,6 +55,93 @@ public class TranscriptRecorderTests {
         await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
         await Assert.That(_housekeeping.Prepared).IsEqualTo(1);
         await Assert.That(_housekeeping.Connected).IsEqualTo(1);
+    }
+
+    /// <summary>Registering would replace the watcher that took the source: the server keeps the newest connection.</summary>
+    [Test]
+    public async Task A_recorder_whose_claim_has_gone_never_registers() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        using var recorder = Recorder(path, "a1", claims: Claims);
+
+        await recorder.RunAsync(CancellationToken.None).WithinDeadlineAsync("the recorder to stop");
+
+        await Assert.That(recorder.LostClaim).IsTrue();
+        await Assert.That(recorder.Stopping.IsCancellationRequested).IsTrue();
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_drain_once_whose_claim_has_gone_sends_nothing() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        using var recorder = Recorder(path, "a1", claims: Claims);
+
+        await recorder.DrainOnceAsync(CancellationToken.None).WithinDeadlineAsync("the drain");
+
+        await Assert.That(recorder.LostClaim).IsTrue();
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(0);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>A stop can reach the loop before its next tick does, so the final drain looks for itself.</summary>
+    [Test]
+    public async Task A_stop_that_beats_the_tick_still_sends_no_final_drain() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var key  = $"{Sid}-a1";
+        Claims.TryTake(key, "daemon", isHosted: false);
+        using var recorder = Recorder(path, "a1", claims: Claims);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        Claims.Release(key);
+        await stop.CancelAsync();
+        await run.WithinDeadlineAsync("the recorder to stop");
+
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+        await recorder.FinishAsync(CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(recorder.LostClaim).IsTrue();
+        await Assert.That(_transport.Batches.Sum(batch => batch.Lines.Length)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>A transport reconnects as a laptop wakes, and registering again would take the server's slot from the
+    /// watcher already running.</summary>
+    [Test]
+    public async Task A_reconnect_after_the_claim_has_gone_does_not_register_again() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var key  = $"{Sid}-a1";
+        Claims.TryTake(key, "daemon", isHosted: false);
+        using var recorder = Recorder(path, "a1", claims: Claims);
+
+        var run = recorder.RunAsync(CancellationToken.None);
+        await LinesSent(1);
+        Claims.Release(key);
+        await _transport.RaiseReconnectedAsync();
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await run.WithinDeadlineAsync("the recorder to stop");
+        await Assert.That(recorder.LostClaim).IsTrue();
+    }
+
+    /// <summary>Stale is only what a hook may act on. Until one does, the source is still this recorder's, as it is
+    /// for a daemon that woke up first.</summary>
+    [Test]
+    public async Task A_stale_claim_nobody_took_keeps_its_recorder_sending() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var key  = $"{Sid}-a1";
+        Claims.TryTake(key, "daemon", isHosted: false);
+        File.SetLastWriteTimeUtc(Claims.ClaimFile(key), DateTime.UtcNow - TimeSpan.FromHours(1));
+        await Assert.That(Claims.Read(key)).IsEqualTo(RecorderClaimState.DaemonStale);
+        using var recorder = Recorder(path, "a1", claims: Claims);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        await stop.CancelAsync();
+        await run.WithinDeadlineAsync("the recorder to stop");
+
+        await Assert.That(recorder.LostClaim).IsFalse();
     }
 
     [Test]
@@ -138,6 +227,28 @@ public class TranscriptRecorderTests {
         });
 
         await Assert.That(stopping).IsTrue();
+    }
+
+    /// <summary>A watcher has one connection and no retry around it: it carries on, and the next reconnect tries again.</summary>
+    [Test]
+    public async Task A_bare_recorder_outlives_a_failed_re_registration() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }));
+        using var stop = new CancellationTokenSource();
+        var run = recorder.RunAsync(stop.Token);
+        await Eventually(() => _transport.Connects == 1);
+
+        _transport.ConnectFailures = 1;
+        await _transport.RaiseReconnectedAsync();
+        await _transport.RaiseReconnectedAsync();
+
+        await Eventually(() => _transport.Connects == 2);
+        await Assert.That(run.IsCompleted).IsFalse();
+
+        await stop.CancelAsync();
+        await run.WithinDeadlineAsync("the run");
     }
 
     [Test]

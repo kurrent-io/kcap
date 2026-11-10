@@ -441,7 +441,7 @@ public sealed class CursorHookCommand(
                 if (await RepoExclusion.IsOutOfScopeAsync(
                         router, config, new JsonObject { ["cwd"] = workspaceRoot }.ToJsonString(),
                         activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time, budget.Remaining)) {
-                    if (sessionId is not null) DisabledSessions.Mark(sessionId, config);
+                    if (sessionId is not null) DisabledSessions.Exclude(sessionId, config);
 
                     return EmptyOrNull();
                 }
@@ -486,7 +486,10 @@ public sealed class CursorHookCommand(
                             return DrainOutcome.Delivered;
                         }
                         return HookSpool.OutcomeOf((int)resp.StatusCode);
-                    } catch { return DrainOutcome.TransientStop; }
+                    } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+                        // One that may have reached the server goes through, for the drain to record.
+                        return DrainOutcome.TransientStop;
+                    }
                 }, budget.Remaining, ct);
             }
 

@@ -209,9 +209,10 @@ public class StatusCommandHooksTests {
         await Assert.That(line).Contains("installed, not trusted");
         await Assert.That(line).Contains("records nothing");
         await Assert.That(line).Contains("`codex exec` never asks");
+        await Assert.That(line).Contains("`kcap plugin install --codex`");
         await Assert.That(line).Contains("run `codex` once");
         await Assert.That(line).Contains("/hooks");
-        await Assert.That(line).Contains("Settings → Hooks");
+        await Assert.That(line).Contains("Settings > Hooks");
     }
 
     /// Every harness the build knows appears on the line — a tenth would too, since the line is

@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reactive;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -217,6 +218,8 @@ public partial class App : Application {
     IDesktopNotificationSink? _notificationSink;
     IDesktopNotificationAccess? _notificationAccess;
     IDisposable? _notificationAccessPrompt;
+    IDisposable? _notificationBadgeSubscription;
+    DesktopWindowLifecycle? _windowLifecycle;
     DesktopNotificationCoordinator? _desktopNotifications;
     readonly Subject<string?> _viewedAgent = new();
     /// Sessions with a workspace open in the main window; notification leases establish access
@@ -338,6 +341,7 @@ public partial class App : Application {
             desktop.ShutdownRequested += OnShutdownRequested;
             var windowLifecycle = new DesktopWindowLifecycle(this.TryGetFeature<IActivatableLifetime>(),
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
+            _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
             Program.Host.SingleInstance.ShowRequested += () => Dispatcher.UIThread.Post(() => {
                 if (_uninstallRun is not null && desktop.MainWindow is { } uninstallWindow) {
@@ -1447,6 +1451,13 @@ public partial class App : Application {
             var notificationAccess = DesktopNotifications.AccessOf(notificationSink);
             _notificationSink = notificationSink;
             _notificationAccess = notificationAccess;
+            if (notificationSink is IDesktopNotificationBadge badge) {
+                _notificationBadgeSubscription = new CompositeDisposable(
+                    badge.BadgeCounts.Subscribe(count => _windowLifecycle?.SetPendingNotificationCount(count)),
+                    Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault())
+                        .Subscribe(_ => badge.OnActivated()));
+                if (desktop.Windows.Any(window => window.IsActive)) badge.OnActivated();
+            }
             _notificationAccessPrompt = new DesktopNotificationAccessPrompt(
                 notificationAccess, notificationSettings.Changes,
                 Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault())
@@ -3092,6 +3103,8 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _notificationBadgeSubscription?.Dispose();
+        _windowLifecycle?.SetPendingNotificationCount(0);
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
         _navigation.Latch();
     }

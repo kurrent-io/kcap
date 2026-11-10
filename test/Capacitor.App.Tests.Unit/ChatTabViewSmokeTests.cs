@@ -1277,6 +1277,166 @@ public class ChatTabViewSmokeTests {
     static object? Brush(bool isError) =>
         ToolOutcomeBrushConverter.Instance.Convert(isError, typeof(IBrush), null, CultureInfo.InvariantCulture);
 
+    [Test]
+    [Arguments("Read", "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt", "/", "Read file", 320, 460)]
+    [Arguments("Read", @"C:\Users\developer\AppData\Local\Temp\a-deliberately-long-worktree-name-for-the-session-bd54\scratchpad\demo.txt", @"\", "Read file", 320, 460)]
+    [Arguments("get_file_context", "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt", "/", "Read file context", 460, 640)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Path_rows_elide_once_and_keep_the_target_when_resized(string name, string path, string separator, string label, int filenameWidth, int parentWidth) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(path)!.ToJsonString();
+                var call = ReadCallLine.Replace("\"Read\"", "\"" + name + "\"")
+                    .Replace("\"/repo/x/src/a.cs\"", encoded);
+                if (name == "get_file_context") call = call.Replace("file_path", "path");
+                await host.LoadAsync(Tmp.CreateFile("paths.jsonl", [call, ReadResultLine]));
+
+                foreach (var width in new[] { 320, 460, 640, 980, 460 }) {
+                    host.Window.Width = width;
+                    host.Settle();
+                    var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
+                    var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
+
+                    await Assert.That(detail.Text).IsEqualTo(path);
+                    await Assert.That(rendered.Count(c => c == '…')).IsEqualTo(1);
+                    if (width >= filenameWidth)
+                        await Assert.That(rendered).EndsWith("demo.txt")
+                            .Because($"window width {width}, detail width {detail.Bounds.Width}");
+                    if (width >= parentWidth)
+                        await Assert.That(rendered).EndsWith("scratchpad" + separator + "demo.txt");
+                }
+
+                var toggle = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle");
+                await Assert.That(AutomationProperties.GetName(toggle)).IsEqualTo("Show details: " + label + " " + path);
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Patch_rows_keep_the_target_and_additional_file_count_when_resized() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                const string path = "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt";
+                var patch = $"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
+                var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
+                var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
+                await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
+
+                foreach (var width in new[] { 460, 640, 980, 460 }) {
+                    host.Window.Width = width;
+                    host.Settle();
+                    var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
+                    var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
+
+                    await Assert.That(rendered.Count(c => c == '…')).IsEqualTo(1);
+                    await Assert.That(rendered).EndsWith("demo.txt +1 more");
+                    if (width >= 640)
+                        await Assert.That(rendered).EndsWith("scratchpad/demo.txt +1 more");
+                }
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_opened_large_tool_output_scrolls_with_pointer_and_keyboard(bool wrapped) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var output = string.Join(wrapped ? " " : "\n", Enumerable.Repeat("recorded output", 800));
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var result = ToolResultLine.Replace("\"ok\"", encoded);
+                await host.LoadAsync(Tmp.CreateFile("large-output.jsonl", [ToolCallLine, result, UserLine]));
+                var row = ToolRows(host.View).Single();
+                var toggle = row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle");
+                Click(host, toggle);
+
+                var body = row.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolInspection");
+                var scroll = body.GetVisualDescendants().OfType<ScrollViewer>().Single();
+                await Assert.That(scroll.Extent.Height).IsGreaterThan(scroll.Viewport.Height);
+                var chatOffset = host.Scroll.Offset.Y;
+                host.Window.MouseWheel(PresentAndLocate(host, scroll), new Vector(0, -1));
+                host.Settle();
+                await Assert.That(scroll.Offset.Y).IsGreaterThan(0);
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(chatOffset);
+
+                var pointerOffset = scroll.Offset.Y;
+                scroll.Focus();
+                await Assert.That(body.BorderBrush).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapInfoBrush"));
+                host.Press(PhysicalKey.PageDown);
+                host.Settle();
+                await Assert.That(scroll.Offset.Y).IsGreaterThan(pointerOffset);
+
+                toggle.Focus();
+                host.Press(PhysicalKey.Enter);
+                host.Settle();
+                await Assert.That(body.IsEffectivelyVisible).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Returning_from_tool_details_by_keyboard_reveals_the_collapse_toggle_without_following_new_messages() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var output = string.Join("\n", Enumerable.Repeat("recorded output", 800));
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var result = ToolResultLine.Replace("\"ok\"", encoded);
+                var path = Tmp.CreateFile("return-from-output.jsonl",
+                    [.. Enumerable.Repeat(UserLine, 4), ToolCallLine, result, .. Enumerable.Repeat(UserLine, 30)]);
+                await host.LoadAsync(path);
+                WheelUp(host);
+                host.Settle();
+                var row = ToolRows(host.View).Single();
+                var toggle = row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle");
+                Click(host, toggle);
+                var body = row.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolInspection");
+                var inner = body.GetVisualDescendants().OfType<ScrollViewer>().Single();
+                toggle.Focus(NavigationMethod.Tab);
+                host.Press(PhysicalKey.PageDown);
+                host.Settle();
+                var hiddenTop = toggle.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(hiddenTop + toggle.Bounds.Height).IsLessThan(0);
+                var pagedOffset = host.Scroll.Offset.Y;
+
+                inner.Focus(NavigationMethod.Pointer);
+                toggle.Focus(NavigationMethod.Pointer);
+                host.Settle();
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(pagedOffset);
+
+                inner.Focus(NavigationMethod.Tab);
+                host.Press(PhysicalKey.PageDown);
+                host.Settle();
+                var outputOffset = inner.Offset.Y;
+                await Assert.That(outputOffset).IsGreaterThan(0);
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(pagedOffset);
+                host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
+                host.Settle();
+
+                await Assert.That(toggle.IsFocused).IsTrue();
+                var visibleTop = toggle.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(visibleTop).IsGreaterThanOrEqualTo(0);
+                await Assert.That(visibleTop + toggle.Bounds.Height).IsLessThanOrEqualTo(host.Scroll.Viewport.Height);
+                await Assert.That(inner.Offset.Y).IsEqualTo(outputOffset);
+                var focusedOffset = host.Scroll.Offset.Y;
+                await host.AppendAndTickAsync(path, 5);
+                host.Settle();
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(focusedOffset);
+                await Assert.That(host.AtBottom()).IsFalse();
+                host.Press(PhysicalKey.Enter);
+                host.Settle();
+                await Assert.That(body.IsEffectivelyVisible).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
     /// A click on a tool row opens what its call recorded — status, command and output, each
     /// selectable — and a second click closes it.
     [Test]
@@ -1923,7 +2083,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.HasDetail).IsTrue();
             var pulse = ToolRows(host.View)[0].GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("toolRunning") && b.IsVisible);
-            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapWarningBrush"));
+            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);

@@ -194,9 +194,10 @@ sealed class CopilotHookCommand(
         // must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
             if (eventName == "sessionEnd") {
-                // The marker withholds the spans until they are gone; a later hook retries the discard.
-                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+                // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
             }
+
             return 0;
         }
 
@@ -282,7 +283,7 @@ sealed class CopilotHookCommand(
         // session so per-turn agentStop events skip via DisabledSessions.
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
 

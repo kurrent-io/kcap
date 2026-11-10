@@ -117,6 +117,34 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
     }
 
+    /// <summary>An append can stall on the disk, and a recorder given up on there spools no more of its tail when it wakes:
+    /// the chunks after it are whichever recorder's has the source next. Here the host gives it up after the first chunk.</summary>
+    [Test]
+    public async Task A_recorder_given_up_on_mid_spool_spools_no_further_chunk() {
+        using var tmp = new TempDir();
+        var transcript = tmp.CreateFile("transcript.jsonl", string.Concat(Enumerable.Range(0, 250).Select(i => $"{{\"line\":{i}}}\n")));
+        var spool      = new TranscriptSpool(tmp.PathTo("spool"), time: TimeProvider.System);
+        var checks     = 0;
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, transcript, "kiro", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
+            new RecorderContext(
+                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                TimeProvider.System, _ => { }, () => { })) {
+            Abandoned = () => Interlocked.Increment(ref checks) > 1,
+        };
+
+        await recorder.SpoolUndeliveredTranscriptTailAsync(spool, 0, new CommitObservation.Uncovered(), CancellationToken.None);
+
+        var spooled = 0;
+        await spool.DrainAsync(Sid, body => {
+            spooled += System.Text.Json.Nodes.JsonNode.Parse(body)!["lines"]!.AsArray().Count;
+
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, () => false, CancellationToken.None);
+
+        await Assert.That(spooled).IsEqualTo(TranscriptBatchBuffer.MaxLines);
+    }
+
     [Test]
     public async Task shutdown_with_nothing_undelivered_is_a_noop() {
         using var tmp = new TempDir();

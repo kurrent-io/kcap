@@ -4,14 +4,13 @@ namespace Capacitor.Cli.Core;
 
 /// <summary>
 /// Pure heartbeat read/write + staleness policy backing the watcher wedge-detection
-/// probe. Today <c>WatcherManager.IsWatcherAlive</c> only checks that
-/// the PID exists, so a <b>wedged</b> watcher — main loop hung but the process still
-/// alive — is never restarted; the hook self-heal only recovers dead/absent watchers.
+/// probe: a pid alone can't show a <b>wedged</b> watcher, its main loop hung but the
+/// process still alive.
 ///
 /// <para>The watcher touches its own <c>{key}.heartbeat</c> file (mtime, via the
 /// content written here) every main-loop iteration — including no-content drains and
 /// while reconnecting — so "stale" unambiguously means the loop itself is wedged, not
-/// merely idle. A hook-side staleness probe (<c>WatcherManager.IsWatcherAlive</c> /
+/// merely idle. A hook-side staleness probe (<see cref="WatcherLiveness.IsWatcherAlive"/> /
 /// <c>EnsureWatcherRunning</c>) reads it back and decides whether to kill + respawn.</para>
 ///
 /// <para>Kept pure and side-effect-free apart from the file read/write themselves, so

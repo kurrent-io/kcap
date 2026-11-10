@@ -144,6 +144,9 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
+        <Style Selector="TextBlock.toolLine.path">
+            <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.PathEllipsis}" />
+        </Style>
         <!-- Must stay after .toolLine: same specificity, so the later rule is the one that wins. -->
         <Style Selector="SelectableTextBlock.toolLine.prose,
                          TextBlock.toolLine.prose">
@@ -165,6 +168,9 @@
             <Setter Property="BorderThickness" Value="2,0,0,0" />
             <Setter Property="Margin" Value="6,2,0,6" />
             <Setter Property="Padding" Value="12,0,0,0" />
+        </Style>
+        <Style Selector="Border.toolInspection:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
         </Style>
         <Style Selector="TextBlock.toolInspectionHeading">
             <Setter Property="FontSize" Value="12" />
@@ -414,6 +420,7 @@
                                  and the opened body below is where the text is copied from. -->
                             <Button x:Name="ToolRowToggle" Classes="toolSummary toolRow"
                                     Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
+                                    GotFocus="OnToolRowGotFocus"
                                     AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -427,6 +434,7 @@
                                                IsVisible="{Binding HasLabel}" />
                                     <TextBlock x:Name="ToolRowDetail" Grid.Column="1" Classes="toolLine"
                                                Classes.prose="{Binding DetailIsProse}"
+                                               Classes.path="{Binding DetailIsPath}"
                                                Classes.labelled="{Binding HasLabel}"
                                                Text="{Binding Detail}"
                                                IsVisible="{Binding HasDetail}" />
@@ -449,7 +457,7 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapWarningBrush}" />
+                                                Background="{StaticResource KcapPurpleBrush}" />
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
@@ -468,18 +476,21 @@
                             </Button>
                             <views:ToolImagePreview Grid.Row="1" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
                             <Border x:Name="ToolInspection" Grid.Row="2" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
-                                <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:ToolInspectionSection">
-                                            <StackPanel Spacing="2" Margin="0,4,0,2">
-                                                <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
-                                                <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
-                                                                     Text="{Binding Text}" />
-                                                <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                              AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
+                                    <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ToolInspectionSection">
+                                                <StackPanel Spacing="2" Margin="0,4,0,2">
+                                                    <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
+                                                    <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
+                                                                         Text="{Binding Text}" />
+                                                    <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </Border>
                         </Grid>
                         <Border x:Name="ToolCard" Classes="toolCard" IsVisible="{Binding HasCard}">

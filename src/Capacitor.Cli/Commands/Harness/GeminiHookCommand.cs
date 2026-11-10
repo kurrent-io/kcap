@@ -263,9 +263,10 @@ sealed class GeminiHookCommand(
         // silence — these paths are not stderr-free (Program.cs drains the spool before dispatch).
         if (DisabledSessions.IsDisabled(sessionId, config)) {
             if (eventName == "SessionEnd") {
-                // The marker withholds the spans until they are gone; a later hook retries the discard.
-                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+                // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
             }
+
             return 0;
         }
 
@@ -335,7 +336,7 @@ sealed class GeminiHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
 

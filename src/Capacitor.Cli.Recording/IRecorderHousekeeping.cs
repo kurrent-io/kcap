@@ -6,6 +6,9 @@ namespace Capacitor.Cli.Recording;
 /// <summary>What a recorder calls between drains that is not itself recording: repository and pull request
 /// detection, harness titles and subagent discovery. <see cref="RecorderHousekeeping"/> is the implementation.</summary>
 public interface IRecorderHousekeeping {
+    /// <summary>The child sources this recorder started, which its host has to stop when the recorder is done.</summary>
+    IReadOnlyCollection<string> SpawnedChildKeys { get; }
+
     /// <summary>Fills in <paramref name="state"/> before the recorder connects.</summary>
     Task PrepareAsync(WatchState state, CancellationToken ct);
 

@@ -80,6 +80,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// the footer says Connected instead.
     public RailAlert? Alert => _alert?.Value;
 
+    ObservableAsPropertyHelper<RailAttentionSummary>? _railAttention;
+    public RailAttentionSummary RailAttention => _railAttention?.Value ?? RailAttentionSummary.None;
+
+    ObservableAsPropertyHelper<IBrush>? _railAttentionBrush;
+    public IBrush RailAttentionBrush => _railAttentionBrush?.Value ?? Paint(StatusColors.Unavailable);
+
     ObservableAsPropertyHelper<IBrush>? _statusBrush;
     /// The alert's tone. The text carries the status, so it is painted rather than given a dot.
     public IBrush StatusBrush => _statusBrush?.Value ?? Paint(StatusColors.Unavailable);
@@ -299,17 +305,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetupCommand { get; }
     public bool CanOpenSetup { get; }
-    public HistoryImportRun? HistoryImport { get; }
-    public bool HistoryImportVisible => HistoryImport is not null;
-    public bool HistoryImportRunning => HistoryImport is { Running: true };
-    /// Counts against the same total setup showed, so the figure reads as one run across both windows.
-    public string HistoryImportStatus => HistoryImport is not { } run ? ""
-        : run.Running ? $"Importing history · {run.ProcessedOfExpected} {run.SessionsNoun} processed"
-        : run.State is ImportRunState.Failed or ImportRunState.Cancelled
-            ? $"History import didn't finish · {run.ProcessedOfExpected} {run.SessionsNoun} processed. Reopen setup to retry"
-        : $"History imported · {run.Processed:N0} {(run.Processed == 1 ? "session" : "sessions")} processed";
-
-    public double HistoryImportProgress => HistoryImport?.Progress ?? 0;
+    public HistoryImportBannerViewModel? HistoryImportBanner { get; }
 
     ObservableAsPropertyHelper<bool>? _signInVisible;
     /// True while the rail reads Signed out and a sign-in action exists — the help flyout
@@ -484,7 +480,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         SignInCommand       = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         CanOpenSetup = requestSetup is not null;
         SetupCommand = ReactiveCommand.Create(() => requestSetup?.Invoke());
-        HistoryImport = historyImport;
+        HistoryImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
         var offersSignIn    = requestSignIn is not null;
 
         // ReactiveCommand's own CanExecute observable already ANDs the supplied canExecute with
@@ -534,15 +530,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ObserveOn(RxSchedulers.MainThreadScheduler));
 
         this.WhenActivated(disposables => {
-            if (historyImport is not null)
-                historyImport.WhenAnyValue(x => x.State, x => x.Processed, x => x.PassesDone, (state, processed, passes) => (state, processed, passes))
-                    .ObserveOn(RxSchedulers.MainThreadScheduler)
-                    .Subscribe(_ => {
-                        this.RaisePropertyChanged(nameof(HistoryImportStatus));
-                        this.RaisePropertyChanged(nameof(HistoryImportRunning));
-                        this.RaisePropertyChanged(nameof(HistoryImportProgress));
-                    })
-                    .DisposeWith(disposables);
+            HistoryImportBanner?.Watch().DisposeWith(disposables);
             var status    = service.Status.ObserveOn(RxSchedulers.MainThreadScheduler);
             var snapshots = service.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler);
 
@@ -710,6 +698,18 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .CombineLatest(failureText, (bg, text) => bg || text is not null)
                 .DistinctUntilChanged()
                 .ToProperty(this, x => x.ShowsReloadBlock, false)
+                .DisposeWith(disposables);
+
+            var sessionAttention = Rail?.WhenAnyValueUnsafe(x => x.Attention) ?? Observable.Return((Count: 0, Failed: 0));
+            var railAttention = sessionAttention.CombineLatest(alert, backgroundWhileConnected, failureText,
+                    (attention, currentAlert, background, failure) => RailAttentionSummary.Create(attention.Count, attention.Failed,
+                        currentAlert, background ? BackgroundPriorityMessage : null, failure))
+                .DistinctUntilChanged().Replay(1).RefCount();
+            _railAttention = railAttention
+                .ToProperty(this, x => x.RailAttention, RailAttentionSummary.None)
+                .DisposeWith(disposables);
+            _railAttentionBrush = railAttention.Select(attention => Paint(attention.Tone))
+                .ToProperty(this, x => x.RailAttentionBrush, Paint(StatusColors.Unavailable))
                 .DisposeWith(disposables);
 
             _state = status.Select(s => s.State)
