@@ -49,7 +49,7 @@ public class LocalUpgradeCommandTests {
     public async Task Without_an_installation_json_reports_nothing_to_do_and_exits_3() {
         var (exit, output) = await RunAsync("1.3.0", "--json");
 
-        await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.NothingToDo);
+        await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.NotInstalled);
         await Assert.That(output.Trim()).IsEqualTo("""{"v":1,"event":"nothing_to_do","version":"1.3.0","reason":"not_installed"}""");
     }
 
@@ -57,7 +57,7 @@ public class LocalUpgradeCommandTests {
     public async Task If_installed_is_silent_without_an_installation() {
         var (exit, output) = await RunAsync("1.3.0", "--if-installed");
 
-        await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.NothingToDo);
+        await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.NotInstalled);
         await Assert.That(output).IsEmpty();
     }
 
@@ -67,6 +67,23 @@ public class LocalUpgradeCommandTests {
 
         await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.Failed);
         await Assert.That(output).Contains("\"code\":\"invalid_arguments\"");
+    }
+
+    /// <summary>A stack already at this version is a success: scripts and the bench read a non-zero exit as a failure.</summary>
+    [Test]
+    public async Task A_stack_already_at_this_version_exits_0_with_nothing_to_do() {
+        Root.EnsureCreated();
+        Core.LocalEdition.LocalStateFiles.PublishRegistry(Root,
+            Core.LocalEdition.InstallRegistry.Empty.WithActive(new("0123456789abcdef0123456789abcdef", 47391, "http://localhost:47391", "1.3.0")));
+        Tmp.CreateFile(["r", "bin", "1.3.0", "kcap-server"]);
+        LocalBin.Switch(Root, "1.3.0");
+        Service.Install(LocalServerUnit.ForInstallation(Root, 47391));
+
+        var (exit, output) = await RunAsync("1.3.0", "--json");
+
+        await Assert.That(exit).IsEqualTo(LocalUpgradeCommand.Upgraded);
+        await Assert.That(output).Contains("\"event\":\"nothing_to_do\"");
+        await Assert.That(output).Contains("\"reason\":\"current\"");
     }
 
     /// <summary>A CLI release can reach its channel before its bundle; that is not an upgrade failure.</summary>

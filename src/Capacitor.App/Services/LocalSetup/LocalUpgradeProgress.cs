@@ -46,6 +46,8 @@ public sealed class LocalUpgradeProgress : ReactiveObject {
 
     public string? SkipReason { get; private set; }
 
+    public bool NothingToDo { get; private set; }
+
     public string? FailedCode { get; private set; }
 
     public string? FailedMessage { get; private set; }
@@ -116,7 +118,8 @@ public sealed class LocalUpgradeProgress : ReactiveObject {
                 ServerUrl = root.Str("server_url") ?? ServerUrl;
                 break;
             case "nothing_to_do":
-                SkipReason = root.Str("reason");
+                NothingToDo = true;
+                SkipReason  = root.Str("reason");
                 To         = root.Str("version") ?? To;
                 From       = root.Str("installed_version") ?? From;
                 break;

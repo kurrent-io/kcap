@@ -600,10 +600,10 @@ A run that changes nothing ends with `{"v":1,"event":"nothing_to_do","version":"
 
 | Exit | Meaning |
 | -- | -- |
-| 0 | Upgraded: the stack runs this `kcap`'s version |
+| 0 | Upgraded, or nothing to do: the stack runs this `kcap`'s version or a newer one |
 | 1 | Failed before the switch: the old version is selected, and running again if it was |
 | 2 | Failed after the switch: the new version is selected and stopped, or its switch is finished by the next command |
-| 3 | Nothing to do: already at this version, newer than it, or not installed |
+| 3 | Not installed: there is no installation to upgrade |
 | 4 | No bundle is published for this version yet (`bundle_not_published`); nothing changed |
 
 ### Approval policy
@@ -1500,7 +1500,7 @@ That guarantee covers the unit and the directory holding it. It does **not** ext
 
 > Verified against `oauth-personal` (Gemini Code Assist) with a project. The `gemini-api-key`, `vertex-ai` and `gateway` auth methods are not verified; their variables are carried so they *can* work, which is not the same as knowing they do.
 
-Because the service auto-restarts, stop a service-managed daemon with `kcap daemon service stop` (or `uninstall`) rather than `kcap daemon stop` — a raw stop would be relaunched immediately, so `kcap daemon stop` refuses it, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. The desktop app starts a stopped daemon service when it opens, not while it is open. `kcap daemon status` and `kcap daemon doctor` both report installed services.
+Because the service auto-restarts, a raw stop of a service-managed daemon would be relaunched immediately. So `kcap daemon stop` stops a daemon under launchd, systemd --user or a Windows Scheduled Task through that manager, as `kcap daemon service stop` does, and says so; it starts again at sign-in or with `kcap daemon service start`. Under `kcap-service` it refuses, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. The desktop app starts a stopped daemon service when it opens, not while it is open. `kcap daemon status` and `kcap daemon doctor` both report installed services.
 
 Each daemon process holds an exclusive `flock` on `~/.config/kcap/daemons/<name>.lock` for its entire lifetime. The kernel releases the lock automatically when the daemon exits (including `SIGKILL` or power-off), so leftover lock files on disk are never a blocker — only a live process holding the kernel-level lock can prevent another daemon from acquiring the same name.
 
