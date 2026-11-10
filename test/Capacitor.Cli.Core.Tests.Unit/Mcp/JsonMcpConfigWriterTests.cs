@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Mcp;
 
@@ -71,6 +72,23 @@ public class JsonMcpConfigWriterTests {
         var bytes = File.ReadAllBytes(path);
         await Assert.That(bytes.AsSpan().StartsWith(Bom)).IsFalse();
         await Assert.That(File.ReadAllText(path).Split('\n')[1]).StartsWith("  \"mcpServers\"");
+    }
+
+    /// The bytes PowerShell 5.1's `ConvertTo-Json > mcp-config.json` writes: UTF-16 LE with a BOM, which does not parse
+    /// when decoded as UTF-8.
+    [Test]
+    public async Task A_utf16_file_registers_and_keeps_the_users_entry() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("mcp-config.json");
+        File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes("{\"mcpServers\":{\"my-notes\":{\"command\":\"notes-mcp\"}}}\r\n")]);
+
+        var change = JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.Copilot, null, new FakeMarker());
+
+        await Assert.That(change).IsEqualTo(JsonMcpConfigWriter.Change.Updated);
+        var servers = (JsonObject)Read(path)["mcpServers"]!;
+        await Assert.That(servers.ContainsKey("my-notes")).IsTrue();
+        await Assert.That(servers.ContainsKey("kcap-review")).IsTrue();
+        await Assert.That(File.ReadAllBytes(path)[0]).IsEqualTo((byte)'{');
     }
 
     [Test]

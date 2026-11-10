@@ -17,11 +17,9 @@ sealed record JsonFileStyle(bool Bom, bool Indented, int IndentSize, char Indent
     public static JsonFileStyle New { get; } = new(false, true, 2, ' ', Environment.NewLine, false);
 
     public static (string Text, JsonFileStyle Style) Read(string path) {
-        var bytes = File.ReadAllBytes(path);
-        var bom   = bytes.AsSpan().StartsWith(Preamble);
-        var text  = Utf8.GetString(bom ? bytes.AsSpan(Preamble.Length) : bytes);
+        var file = TextFileContent.Read(path);
 
-        return (text, Detect(text, bom));
+        return (file.Text, Detect(file.Text, file.Utf8Bom));
     }
 
     public static JsonFileStyle Detect(string text, bool bom) {

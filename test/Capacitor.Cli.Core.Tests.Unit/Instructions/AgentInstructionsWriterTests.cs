@@ -1,3 +1,4 @@
+using System.Text;
 using Capacitor.Cli.Core.Instructions;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Instructions;
@@ -37,6 +38,23 @@ public class AgentInstructionsWriterTests {
         AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body);
 
         await Assert.That(File.ReadAllBytes(path)[0]).IsEqualTo((byte)'<');
+    }
+
+    /// The bytes PowerShell 5.1's `>` writes: UTF-16 LE with a BOM. Decoded as UTF-8 the text would be NUL-interleaved,
+    /// no marker would match, and the file would come back as mojibake plus a UTF-8 block.
+    [Test]
+    public async Task A_utf16_file_keeps_its_text_through_write_and_remove() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("copilot-instructions.md");
+        const string text = "# Dana's rules\r\n\r\nAlways answer in British English.\r\n";
+        File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)]);
+
+        await Assert.That(AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(File.ReadAllText(path)).StartsWith(text + "\n" + AgentInstructionsWriter.BeginMarker);
+        await Assert.That(AgentInstructionsWriter.IsInstalled(path)).IsTrue();
+
+        await Assert.That(AgentInstructionsWriter.Remove(path)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(Convert.ToHexString(File.ReadAllBytes(path))).IsEqualTo(Convert.ToHexString(Encoding.UTF8.GetBytes(text)));
     }
 
     [Test]
