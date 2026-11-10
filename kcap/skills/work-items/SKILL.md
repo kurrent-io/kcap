@@ -151,9 +151,10 @@ declaring loose ends you expect to continue yourself in this session.
 
 While this session's work is still open, "what's next?" asks for the next step of that
 work, not for something else to do. Answer from its plan (`get_plan`), its declared parts
-or its PR, and do not call `get_next_work`. Read next work only when the user asks for
-work outside this session's scope ("what else could I pick up?") or says they are done
-with or parking it. If `get_next_work` says this session's attached work is still open,
+or its PR, and do not call `get_next_work`. While that work stays open, read next work
+only when the user asks for work outside this session's scope ("what else could I pick
+up?") or says they are done with or parking it; once it reaches a terminal state, present
+as above. If `get_next_work` says this session's attached work is still open,
 do not present unless one of those holds.
 
 | Request | Piece of work | Terminal? | Present? |
