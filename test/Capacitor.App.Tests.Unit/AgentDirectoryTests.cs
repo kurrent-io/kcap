@@ -495,6 +495,20 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("local:a1").Value.LastActivityAt).IsEqualTo(new DateTime(2026, 10, 24, 9, 30, 0, DateTimeKind.Utc));
     }
 
+    /// A daemon reconnect re-registers every agent, so the registry's time is not when the session was created.
+    [Test]
+    public async Task A_remote_row_takes_its_listings_start_time() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        remote.Cache.AddOrUpdate(Remote("r1", daemon: "elsewhere", owner: "me", sessionId: "S"));
+        var row = Listed("S", "active") with { StartedAt = new DateTimeOffset(2026, 10, 20, 8, 0, 0, TimeSpan.Zero) };
+        sessions.LiveCache.AddOrUpdate(row);
+        sessions.MineLiveCache.AddOrUpdate(row);
+
+        await Assert.That(dir.Rows.Lookup("remote:r1").Value.CreatedAt).IsEqualTo(new DateTime(2026, 10, 20, 8, 0, 0, DateTimeKind.Utc));
+    }
+
     /// The tone cache marks a hosted row from its listing, so the daemon row carries the listing's PR links.
     [Test]
     public async Task A_hosted_row_takes_its_listings_pull_requests() {
