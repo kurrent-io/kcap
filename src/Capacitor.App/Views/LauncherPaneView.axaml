@@ -41,13 +41,20 @@
             <Setter Property="Margin" Value="0,4,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="StackPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Spacing" Value="8" />
+        <Style Selector="StackPanel.noticeActions, WrapPanel.noticeActions">
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Margin" Value="0,10,0,0" />
         </Style>
-        <Style Selector="StackPanel.noticeActions > Button">
+        <Style Selector="StackPanel.noticeActions">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
+        </Style>
+        <Style Selector="WrapPanel.noticeActions">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="ItemSpacing" Value="8" />
+            <Setter Property="LineSpacing" Value="4" />
+        </Style>
+        <Style Selector="StackPanel.noticeActions > Button, WrapPanel.noticeActions Button">
             <Setter Property="Padding" Value="12,5" />
             <Setter Property="FontSize" Value="12.5" />
         </Style>
@@ -88,22 +95,16 @@
                         </Panel>
                         <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
-                        <Panel Height="8">
-                            <ProgressBar x:Name="HistoryImportProgressBar" Classes="noticeProgress" Minimum="0" Maximum="100"
-                                         Value="{Binding Progress}" IsVisible="{Binding Running}"
-                                         Background="{StaticResource KcapBorderBrush}" AutomationProperties.Name="History import progress" />
-                        </Panel>
-                        <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <Button x:Name="HistoryImportDismissButton" Classes="kcapChip" Content="Dismiss" Margin="0,0,8,4"
-                                    Padding="12,5" FontSize="12.5"
+                        <WrapPanel Classes="noticeActions">
+                            <Button x:Name="HistoryImportDismissButton" Classes="kcapChip" Content="Dismiss"
                                     Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
                             <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
-                            <Panel Margin="0,0,0,4">
+                            <Panel>
                                 <Button Classes="kcapChip" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
-                                        Padding="12,5" FontSize="12.5" Opacity="0" IsHitTestVisible="False" Focusable="False"
+                                        Opacity="0" IsHitTestVisible="False" Focusable="False"
                                         IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
                                 <Button x:Name="HistoryImportSetupButton" Classes="kcapChip"
-                                        Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}" Padding="12,5" FontSize="12.5"
+                                        Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
                                         Command="{Binding ReopenSetupCommand}" IsVisible="{Binding ShowsReopenSetup}" />
                             </Panel>
                         </WrapPanel>
