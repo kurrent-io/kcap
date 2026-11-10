@@ -294,7 +294,7 @@ changes.
   Another Claude/Codex config dir       - (kcap accounts add)   no
   Keep provider API keys                --use-provider-api-key  kept
   Daemon name                           --daemon-name           suggested
-  Import past sessions                  --skip-import           yes
+  Import past sessions                  --skip-import           yes***
   Which projects to import              --skip-import-repo,     every one***
                                         --skip-import-folder
   Name imported sessions with your      -                       no
@@ -346,10 +346,10 @@ for an install). Its sessions default to private visibility without a question,
 unless the profile holds another value someone chose or --default-visibility
 names one. Running it again reuses the existing installation, and a run that
 cannot ask repeats what earlier setups of that installation were answered: a
-"no" to installing kcap into the harnesses, the projects the import left out,
-and a --default-visibility. A flag on the run replaces the remembered answer;
-an interactive run asks again. The answers are kept in local-setup-v1.json in
-the config directory.
+"no" to installing kcap into the harnesses or to importing past sessions, the
+projects the import left out, and a --default-visibility. A flag on the run
+replaces the remembered answer; an interactive run asks again. The answers are
+kept in local-setup-v1.json in the config directory.
 Usage data: the local edition sends none until you choose to share it. Setup
 asks before the install, with no default answer, and saves the answer for every
 kcap command and the desktop app; a saved choice is not asked again. A run that

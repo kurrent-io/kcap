@@ -15,7 +15,7 @@ public class LocalSetupAnswersTests {
     [Test]
     public async Task Answers_round_trip_for_their_installation() {
         var saved = new LocalSetupAnswers(Installation, Harnesses: false,
-            LeftOut: new ImportSkip([("acme", "secret")], [Path.Combine("work", "secret-project")]), Visibility: "project");
+            LeftOut: new ImportSkip([("acme", "secret")], [Path.Combine("work", "secret-project")]), Visibility: "project", Import: false);
 
         await Assert.That(saved.Save(Config)).IsTrue();
 
@@ -41,6 +41,18 @@ public class LocalSetupAnswersTests {
             $$"""{"installation_id":"{{Installation}}","harnesses":false,"visibility":"everyone"}""");
 
         await Assert.That(LocalSetupAnswers.For(Config, Installation)).IsEqualTo(new LocalSetupAnswers(Installation, Harnesses: false));
+    }
+
+    /// <summary>A file written before setup remembered the import answer reads as nobody having answered it, which leaves
+    /// an unattended run importing as it always did, while the other answers stand.</summary>
+    [Test]
+    public async Task A_file_without_the_import_answer_reads_it_as_unanswered() {
+        Directory.CreateDirectory(Config.Directory);
+        File.WriteAllText(Config.Path(LocalSetupAnswers.FileName),
+            $$$"""{"installation_id":"{{{Installation}}}","harnesses":false,"left_out":{"repos":[],"folders":["secret-project"]}}""");
+
+        await Assert.That(LocalSetupAnswers.For(Config, Installation))
+            .IsEqualTo(new LocalSetupAnswers(Installation, Harnesses: false, LeftOut: new ImportSkip([], ["secret-project"])));
     }
 
     [Test]

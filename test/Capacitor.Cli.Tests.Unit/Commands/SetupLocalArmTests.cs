@@ -422,6 +422,24 @@ internal sealed class SetupLocalArmTests : IDisposable {
         await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo("org_public");
     }
 
+    /// <summary>A skipped import holds for a scripted rerun without the flag, which would otherwise import every session on
+    /// the machine; the import runner here throws if it is reached.</summary>
+    [Test]
+    public async Task A_skipped_import_is_kept_by_a_rerun_without_the_flag() {
+        await Assert.That((await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ])).Exit).IsEqualTo(SetupExit.Done);
+
+        var (exit, stdout, spectre, stderr) = await Run([
+            "setup", "--local", "--no-prompt", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
+        await Assert.That(said).Contains("Not importing past sessions");
+    }
+
     /// <summary>An interactive local setup goes from sign-in to harnesses without asking who may read new sessions.</summary>
     [Test]
     public async Task Interactive_local_setup_asks_no_visibility_question() {

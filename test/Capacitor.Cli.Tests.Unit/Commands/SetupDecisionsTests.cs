@@ -20,6 +20,18 @@ public class SetupDecisionsTests {
         await Assert.That(SetupDecisions.RepeatsHarnessDecline(detected, noPrompt, remembered)).IsEqualTo(expected);
     }
 
+    /// <summary>Only a run that cannot ask repeats a remembered no; a yes or no answer leaves the unattended import in
+    /// place, and <c>--skip-import</c> skips under its own name.</summary>
+    [Test]
+    [Arguments(false, true, false, true)]
+    [Arguments(false, false, false, false)]
+    [Arguments(false, true, true, false)]
+    [Arguments(false, true, null, false)]
+    [Arguments(true, true, false, false)]
+    public async Task RepeatsImportDecline_only_for_a_remembered_no_that_nobody_can_revisit(
+            bool skipImport, bool noPrompt, bool? remembered, bool expected) =>
+        await Assert.That(SetupDecisions.RepeatsImportDecline(skipImport, noPrompt, remembered)).IsEqualTo(expected);
+
     /// <summary>A rerun with no skip flag parses to an empty skip, and must still leave out what the last setup did.</summary>
     [Test]
     public async Task A_rerun_without_skip_flags_leaves_out_what_the_last_setup_did() {

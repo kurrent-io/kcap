@@ -1483,7 +1483,10 @@ sealed class SetupCommand(
             ImportOutcomes:      local?.ImportOutcomes,
             // A run that cannot ask imports what the flags chose; it never opens a prompt to find out.
             ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null,
-            LeftOut:             remembered is { } answers ? leftOut => (answers with { LeftOut = leftOut }).Save(config) : null));
+            RememberedImport:    remembered?.Import,
+            // Both saves build on the answers as they stand, so the second keeps what the first recorded.
+            ImportAnswered:      remembered is null ? null : import => (remembered = remembered with { Import = import }).Save(config),
+            LeftOut:             remembered is null ? null : leftOut => (remembered = remembered with { LeftOut = leftOut }).Save(config)));
 
         _json?.Completed(outcome: importResult.Ran ? "ran" : "skipped");
 
@@ -1682,6 +1685,12 @@ sealed class SetupCommand(
     internal const string LeftOutNotSavedLine =
         "Could not save what this import leaves out, so a later setup would import it. Pass --skip-import-repo or --skip-import-folder to it again.";
 
+    internal const string RememberedImportDeclineLine =
+        "Not importing past sessions: an earlier setup of this installation was told not to. Run kcap import --all to import them, or kcap setup --local at a terminal to be asked again.";
+
+    internal const string ImportDeclineNotSavedLine =
+        "Could not save this answer, so a later unattended setup would import every past session on this machine. Pass --skip-import to it.";
+
     /// <summary>A decline that is not saved is the one that matters: an unattended run without it installs.</summary>
     internal static LocalSetupAnswers RememberHarnesses(LocalSetupAnswers remembered, bool install, ConfigRoot config) {
         var answers = remembered with { Harnesses = install };
@@ -1799,6 +1808,8 @@ sealed class SetupCommand(
         IntelligenceSetupResponse?    Intelligence = null,
         bool?                         ImportOutcomes = null,
         Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null,
+        bool?                         RememberedImport = null,
+        Func<bool, bool>?             ImportAnswered = null,
         Func<ImportSkip, bool>?       LeftOut = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
@@ -1844,6 +1855,18 @@ sealed class SetupCommand(
                 "  [dim]· Nothing chosen to import in the browser. Run[/] [cyan]kcap import --all[/] [dim]to import past sessions later.[/]");
 
             return new ImportStepResult(false, null, null, null);
+        }
+
+        if (SetupDecisions.RepeatsImportDecline(inputs.SkipImport, inputs.NoPrompt, inputs.RememberedImport)) {
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(RememberedImportDeclineLine)}[/]");
+
+            return new ImportStepResult(false, null, null, null);
+        }
+
+        // A "no" that is not saved is the one that matters: an unattended run without it imports everything.
+        void RememberImport(bool import) {
+            if (inputs.ImportAnswered?.Invoke(import) == false && !import)
+                AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(ImportDeclineNotSavedLine)}");
         }
 
         var                     unattributedOnDisk = 0;
@@ -1894,6 +1917,9 @@ sealed class SetupCommand(
                 ? $"  [dim]Skipping import — {Markup.Escape(reason)}.[/]"
                 : "  [dim]Run [cyan]kcap import --all[/] any time.[/]");
 
+            // A null reason is a declined prompt; the only other answer is the flag.
+            if (inputs.SkipImport || decision.SkipReason is null) RememberImport(false);
+
             return new ImportStepResult(false, null, null, null);
         }
 
@@ -1908,6 +1934,7 @@ sealed class SetupCommand(
 
                 if (kept.Count == 0) {
                     AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
+                    RememberImport(false);
 
                     return new ImportStepResult(false, null, null, null);
                 }
@@ -1920,6 +1947,9 @@ sealed class SetupCommand(
          && ImportCostLine(found.Repos.Sum(r => r.SessionCount) + found.UnmatchedCount
               - SetupImportChoice.From(found, skip).Where(c => !c.Included).Sum(c => c.Sessions), applied) is { } cost)
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
+
+        // An unattended run took the default rather than answering, so only an asked run records its yes.
+        if (!inputs.NoPrompt) RememberImport(true);
 
         // Recorded once the import is certain to run, empty included, so ticking a project again is remembered too.
         var leftOutSaved = inputs.LeftOut?.Invoke(skip) ?? false;

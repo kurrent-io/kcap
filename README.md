@@ -351,7 +351,7 @@ everyone:
 
 The first version is for a machine with one user: on a shared machine, other OS users can open the web UI and act as its admin. Setup therefore asks you to confirm that (`--single-user`) and to confirm the install itself (`--yes`); `--no-prompt` and `--json` cannot ask, so they require both for an install. Re-running `kcap setup --local` reuses the existing installation, which needs neither.
 
-**Answers a re-run repeats.** A run that cannot ask (`--no-prompt`, `--json --no-prompt`) on an installation an earlier setup answered repeats those answers rather than taking the unattended defaults: a "no" to installing kcap into the detected harnesses, the projects the import left out, and a `--default-visibility` it was given. A flag on the run replaces the remembered answer (`--skip-import-repo`/`--skip-import-folder` replace the left-out list), and an interactive run asks again, starting the project checklist with the remembered ones unticked. The answers are kept in `local-setup-v1.json` in the config directory, tied to the installation; a new installation, or one set up before they were kept, starts with the defaults.
+**Answers a re-run repeats.** A run that cannot ask (`--no-prompt`, `--json --no-prompt`) on an installation an earlier setup answered repeats those answers rather than taking the unattended defaults: a "no" to installing kcap into the detected harnesses or to importing past sessions (`kcap import --all` imports them later), the projects the import left out, and a `--default-visibility` it was given. A flag on the run replaces the remembered answer (`--skip-import-repo`/`--skip-import-folder` replace the left-out list), and an interactive run asks again, starting the project checklist with the remembered ones unticked. The answers are kept in `local-setup-v1.json` in the config directory, tied to the installation; a new installation, or one set up before they were kept, starts with the defaults.
 
 **Visibility.** A local installation has one user, so setup does not ask who may read its sessions: Step 3 records `private`, unless the profile already holds another value someone chose or `--default-visibility` names one.
 
@@ -465,7 +465,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | Record another Claude/Codex config directory? | — (`kcap accounts add` afterwards) | no; the command is printed |
 | Keep `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` in headless calls? | `--use-provider-api-key` | the profile's setting |
 | Daemon name | `--daemon-name` | the suggestion; a held `--daemon-name` fails |
-| Import past sessions? | `--skip-import` | yes |
+| Import past sessions? | `--skip-import` | yes; with `--local`, no when an earlier setup of the installation was told no |
 | Which projects to import? | `--skip-import-repo <owner/name>`, `--skip-import-folder <path>` (each repeatable; this import only) | every one; with `--local`, what an earlier setup of the installation left out |
 | Name imported sessions with your coding agent? | — | no; not asked once the local server titles them |
 | Open an agent to follow the import? | — | not offered |

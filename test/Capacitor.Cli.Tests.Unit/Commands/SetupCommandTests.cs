@@ -1601,6 +1601,60 @@ public class SetupCommandTests {
         await Assert.That(console.Flat.Contains("--skip-harnesses")).IsEqualTo(!install);
     }
 
+    /// <summary>The import answer is kept only when someone gave one: a declined prompt, the flag and an emptied checklist
+    /// are a no, an accepted prompt is a yes that replaces an earlier no, and an unattended run that took the default keeps
+    /// nothing.</summary>
+    [Test]
+    [Arguments(false, false, false, false, false)]
+    [Arguments(false, true, true, false, false)]
+    [Arguments(false, false, true, true, false)]
+    [Arguments(false, false, true, false, true)]
+    [Arguments(true, false, true, false, null)]
+    public async Task The_import_answer_is_kept_only_when_someone_gave_one(bool noPrompt, bool skip, bool yes, bool keepNothing, bool? expected) {
+        bool? kept = null;
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: noPrompt, skip: skip, prompt: () => yes, choose: choices => keepNothing ? [] : choices)
+                with { ImportAnswered = import => { kept = import; return true; } });
+
+        await Assert.That(kept).IsEqualTo(expected);
+    }
+
+    /// <summary>A run that cannot ask repeats an earlier no: it neither scans nor imports, and says how to import or be
+    /// asked again.</summary>
+    [Test, NotInParallel]
+    public async Task An_unattended_run_repeats_a_remembered_import_decline() {
+        using var console = new SpectreCapture();
+        var       runner  = FakeImportRunner.Succeeding().Discovering(DiscoveredProjects());
+
+        var result = await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, prompt: () => throw new InvalidOperationException("must not prompt"))
+                with { RememberedImport = false });
+
+        await Assert.That(result.Ran).IsFalse();
+        await Assert.That(runner.Calls).IsEqualTo(0);
+        await Assert.That(runner.DiscoverCalls).IsEqualTo(0);
+        await Assert.That(console.Flat).Contains("Not importing past sessions");
+        await Assert.That(console.Flat).Contains("kcap import --all");
+        await Assert.That(console.Flat).Contains("kcap setup --local at a terminal");
+    }
+
+    /// <summary>A decline that cannot be saved names the flag that keeps a later unattended run from importing; a yes
+    /// costs nothing unsaved, since such a run imports anyway.</summary>
+    [Test, NotInParallel]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task An_import_decline_that_cannot_be_saved_names_the_flag(bool import) {
+        using var console = new SpectreCapture();
+
+        await Command(FakeImportRunner.Succeeding().Discovering(Discovered(1, 2, 0)), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(prompt: () => import) with { ImportAnswered = _ => false });
+
+        await Assert.That(console.Flat.Contains("Pass --skip-import to it")).IsEqualTo(!import);
+    }
+
     /// <summary>A project a flag left out starts unticked; ticking it again imports it, and a flag naming
     /// something discovery did not offer still holds.</summary>
     [Test]

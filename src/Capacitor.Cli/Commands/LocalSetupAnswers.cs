@@ -15,7 +15,9 @@ namespace Capacitor.Cli.Commands;
 /// <param name="Harnesses">Whether kcap was to be installed into the detected harnesses; null when nobody answered.</param>
 /// <param name="LeftOut">What the last import left out; null when no import ran.</param>
 /// <param name="Visibility">A <c>--default-visibility</c> a run was given; null when none was.</param>
-sealed partial record LocalSetupAnswers(string InstallationId, bool? Harnesses = null, ImportSkip? LeftOut = null, string? Visibility = null) {
+/// <param name="Import">Whether past sessions were to be imported; null when nobody answered.</param>
+sealed partial record LocalSetupAnswers(
+    string InstallationId, bool? Harnesses = null, ImportSkip? LeftOut = null, string? Visibility = null, bool? Import = null) {
     public const string FileName = "local-setup-v1.json";
 
     /// <summary>The answers recorded for <paramref name="installationId"/>, or none.</summary>
@@ -55,7 +57,8 @@ sealed partial record LocalSetupAnswers(string InstallationId, bool? Harnesses =
 
         var visibility = wire.Visibility?.ToLowerInvariant();
 
-        return new(installationId, wire.Harnesses, leftOut, visibility is not null && AppConfig.ValidVisibilities.Contains(visibility) ? visibility : null);
+        return new(installationId, wire.Harnesses, leftOut, visibility is not null && AppConfig.ValidVisibilities.Contains(visibility) ? visibility : null,
+            wire.Import);
     }
 
     Wire ToWire() =>
@@ -64,6 +67,7 @@ sealed partial record LocalSetupAnswers(string InstallationId, bool? Harnesses =
             Harnesses      = Harnesses,
             LeftOut        = LeftOut is null ? null : new() { Repos = [.. LeftOut.Repos.Select(r => $"{r.Owner}/{r.Name}")], Folders = [.. LeftOut.Folders] },
             Visibility     = Visibility,
+            Import         = Import,
         };
 
     internal sealed class Wire {
@@ -77,6 +81,9 @@ sealed partial record LocalSetupAnswers(string InstallationId, bool? Harnesses =
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? Visibility { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? Import { get; set; }
     }
 
     internal sealed class LeftOutWire {
