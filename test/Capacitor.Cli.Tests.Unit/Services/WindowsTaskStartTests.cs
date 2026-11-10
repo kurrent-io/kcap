@@ -1,5 +1,5 @@
 using Capacitor.Cli.Services;
-using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Tests.Unit.LocalEdition.Fakes;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 
@@ -18,10 +18,12 @@ public class WindowsTaskStartTests {
     async Task<List<string>> StartWhile(Func<int, string> stateAtQuery, int? daemonPid = null, IReadOnlyDictionary<int, WindowsProcessEntry>? table = null) =>
         (await StartWhileWithResult(stateAtQuery, daemonPid, table)).Calls;
 
-    /// <summary>Runs Start on a pool thread and advances the clock until it returns, recording each schtasks verb.</summary>
+    /// <summary>Runs Start with a clock that moves only by each poll delay once it is armed, recording each schtasks
+    /// verb. A clock advanced on its own schedule spends the deadline while Start is busy elsewhere.</summary>
     async Task<(List<string> Calls, bool Started, string? Error)> StartWhileWithResult(
             Func<int, string> stateAtQuery, int? daemonPid = null, IReadOnlyDictionary<int, WindowsProcessEntry>? table = null) {
-        var clock   = new FakeTimeProvider();
+        var clock   = new TimerSignallingTimeProvider();
+        clock.OnTimerCreated = due => Task.Run(() => clock.Advance(due));
         var calls   = new List<string>();
         var queries = 0;
         var manager = new WindowsScheduledTaskServiceManager(Config.Root,
@@ -36,12 +38,7 @@ public class WindowsTaskStartTests {
             time: clock);
 
         string? error = null;
-        var start = Task.Run(() => manager.Start("test", out error));
-        while (!start.IsCompleted) {
-            clock.Advance(TimeSpan.FromMilliseconds(250));
-            await Task.Delay(1);
-        }
-        var started = await start;
+        var started = await Task.Run(() => manager.Start("test", out error));
 
         lock (calls) return ([.. calls], started, error);
     }

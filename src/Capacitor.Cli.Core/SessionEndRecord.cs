@@ -69,8 +69,8 @@ public static class SessionEndRecord {
         }
     }
 
-    /// <summary>Records that nobody posts the end of that run: the session went on in another process, or a hook that
-    /// can't name its process is posting it. One already posted stays as it is.</summary>
+    /// <summary>Records that nobody posts the end of that run: the session went on in another process, a hook that can't
+    /// name its process is posting it, or the server refused it for good. One already posted stays as it is.</summary>
     public static void Settle(WatcherPaths paths, string sessionId, ProcessIncarnation process, DateTimeOffset now) {
         var path = PathOf(paths, sessionId, process);
 

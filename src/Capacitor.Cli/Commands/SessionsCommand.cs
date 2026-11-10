@@ -28,6 +28,9 @@ partial class SessionsCommand(
             return 1;
         }
 
+        var       baseUrl    = profiles.Resolution.ServerUrl!;
+        using var httpClient = await http.ForCommandAsync();
+
         string? repoHash;
         string  label;
 
@@ -45,15 +48,28 @@ partial class SessionsCommand(
                 return 1;
             }
 
-            repoHash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
-            label    = $"{repo.Owner}/{repo.RepoName}";
+            var reported = false;
+            repoHash = await RepositoryHashes.ForAsync(httpClient, baseUrl, repo.Owner, repo.RepoName, async response => {
+                if (await HttpClientExtensions.HandleUnauthorizedAsync(response)) reported = true;
+                else if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)) {
+                    await Console.Error.WriteLineAsync($"The server could not resolve this repository ({(int)response.StatusCode}).");
+                    reported = true;
+                }
+            }, onUnreachable: ex => {
+                HttpClientExtensions.WriteUnreachableError(baseUrl, ex);
+                reported = true;
+            });
+            label    = LocalRepository.Label(repo.Owner, repo.RepoName);
+
+            if (repoHash is null) {
+                if (!reported) await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+
+                return 1;
+            }
         } else {
             repoHash = options.RepoHash!;
             label    = options.Repo;
         }
-
-        var       baseUrl    = profiles.Resolution.ServerUrl!;
-        using var httpClient = await http.ForCommandAsync();
 
         HttpResponseMessage resp;
 

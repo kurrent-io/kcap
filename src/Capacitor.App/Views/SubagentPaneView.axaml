@@ -21,7 +21,7 @@
                            Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                            ToolTip.Tip="{Binding Row.Description}" />
                 <TextBlock x:Name="SubagentStateText" Grid.Column="3" Text="{Binding Row.StateText}"
-                           FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                           Classes="kcapStatusWord" Classes.inflight="{Binding Row.IsRunning}" Classes.danger="{Binding Row.IsFailed}" />
             </Grid>
         </Border>
         <!-- Hidden with the pane itself, so its chat is not announced as onscreen while another tab shows. -->

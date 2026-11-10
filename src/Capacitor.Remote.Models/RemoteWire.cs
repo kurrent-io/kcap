@@ -9,6 +9,7 @@ public static class HubMethods {
     public const string SendUserInput          = "SendUserInput";
     public const string DiscardQueuedInput     = "DiscardQueuedInput";
     public const string SendSpecialKey         = "SendSpecialKey";
+    public const string SendTerminalInput      = "SendTerminalInput";
     public const string SubscribeToTerminal    = "SubscribeToTerminal";
     public const string UnsubscribeFromTerminal = "UnsubscribeFromTerminal";
     public const string RequestResizeTerminal  = "RequestResizeTerminal";
@@ -76,6 +77,13 @@ public static class ApiRoutes {
     /// decision is approve, reject or withdraw.
     public static string HeldMessageDecision(string agentId, Guid dispatchId, string decision) =>
         $"{HeldMessages(agentId)}/{dispatchId}/{decision}";
+    public static string NextWorkSnapshot(string? repoHash) =>
+        repoHash is null ? "api/next-work/snapshot" : $"api/next-work/snapshot?repo_hash={Uri.EscapeDataString(repoHash)}";
+    public const string NextWorkDismissals       = "api/next-work/dismissals";
+    public const string NextWorkLaunchPrepare    = "api/next-work/launch/prepare";
+    public const string NextWorkLaunch           = "api/next-work/launch";
+    public const string LooseEndClose            = "api/loose-ends/close";
+    public const string LooseEndDefer            = "api/loose-ends/defer";
 }
 
 /// Named keys understood by the daemon; wheel reports use TerminalScrollKey.

@@ -92,7 +92,7 @@
                         CornerRadius="8" Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0">
                     <TextBlock x:Name="TerminalPhaseNote" Text="{Binding Terminal.PhaseNote}" Foreground="{StaticResource KcapMutedBrush}" />
                 </Border>
-                <!-- Read-only: the keys the daemon accepts are the only input that crosses. -->
+                <!-- Where the server takes no typed input, these keys are the only input that crosses. -->
                 <Border Grid.Row="1" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="20,8">
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="TerminalControlRefusal" Text="{Binding Terminal.ControlRefusal}" FontSize="12" TextWrapping="Wrap"

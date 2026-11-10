@@ -6,8 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "kcap hook --claude --no-update-check",
-            "timeout": 9
+            "command": "kcap hook --claude --pass-notices-capable --no-update-check",
+            "timeout": 9,
+            "onFailure": "continue"
           }
         ]
       }
@@ -55,7 +56,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       }
@@ -78,7 +80,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --plan-read --no-update-check",
-            "timeout": 3
+            "timeout": 3,
+            "onFailure": "continue"
           }
         ]
       },
@@ -88,7 +91,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --task-list --no-update-check",
-            "timeout": 3
+            "timeout": 3,
+            "onFailure": "continue"
           }
         ]
       },
@@ -99,7 +103,8 @@
             "type": "command",
             "if": "Bash(*progress.md*)",
             "command": "kcap hook --claude --task-list --no-update-check",
-            "timeout": 3
+            "timeout": 3,
+            "onFailure": "continue"
           }
         ]
       },
@@ -109,7 +114,19 @@
           {
             "type": "command",
             "command": "kcap hook --claude --task-list --no-update-check",
-            "timeout": 3
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       },
@@ -119,7 +136,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --plan-edit --no-update-check",
-            "timeout": 3
+            "timeout": 3,
+            "onFailure": "continue"
           }
         ]
       }
@@ -143,7 +161,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       }
@@ -154,7 +173,18 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       }
@@ -165,7 +195,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 36000
+            "timeout": 36000,
+            "onFailure": "continue"
           }
         ]
       }
@@ -176,7 +207,28 @@
           {
             "type": "command",
             "command": "kcap hook --claude --title-prompt --no-update-check",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --pass-notices --no-update-check",
+            "timeout": 3,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5,
+            "onFailure": "continue"
           }
         ]
       }

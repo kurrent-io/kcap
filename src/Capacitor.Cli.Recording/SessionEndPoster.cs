@@ -19,9 +19,9 @@ public sealed class SessionEndPoster(
     /// </summary>
     public static readonly TimeSpan PostBudget = TimeSpan.FromSeconds(15);
 
-    /// <summary>True when the server accepted the end or it is spooled for the drain. A session with a spooled backlog
-    /// gets its end spooled behind it, so a stranded start still reaches the server first.</summary>
-    public async Task<bool> PostAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) {
+    /// <summary>Posts the end, or spools it. A session with a spooled backlog gets its end spooled behind it, so a stranded
+    /// start still reaches the server first.</summary>
+    public async Task<SessionEndDelivery> PostAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) {
         if (repository is not null) {
             endHook["repository"] = JsonNode.Parse(
                 JsonSerializer.Serialize(repository, RepositoryCacheJsonContext.Default.RepositoryPayload)
@@ -31,11 +31,11 @@ public sealed class SessionEndPoster(
         var body  = endHook.ToJsonString();
         var spool = new HookSpool(config, time, url);
 
-        bool Spool(string why) {
+        SessionEndDelivery Spool(string why) {
             var spooled = spool.Append(sessionId, $"session-end/{vendor}", body);
             log($"{what} session-end {why}; {(spooled ? "spooled for the next drain" : "the spool write failed, so it is lost")}");
 
-            return spooled;
+            return spooled ? SessionEndDelivery.Delivered : SessionEndDelivery.Lost;
         }
 
         if (spool.HasBacklog(sessionId)) return Spool("queued behind the session's spooled hooks");
@@ -55,7 +55,7 @@ public sealed class SessionEndPoster(
                 if (HookSpool.IsRetryable(code)) return Spool($"POST returned HTTP {code}");
 
                 log($"{what} session-end POST returned HTTP {code}");
-                return false;
+                return SessionEndDelivery.Rejected;
             }
 
             log($"{what} session-end POST succeeded");
@@ -69,7 +69,7 @@ public sealed class SessionEndPoster(
                 log($"{what} session-end response parse failed: {ex.Message}");
             }
 
-            return true;
+            return SessionEndDelivery.Delivered;
         } catch (OperationCanceledException) {
             return Spool($"POST timed out after {PostBudget.TotalSeconds:F0}s");
         } catch (HttpRequestException ex) {
@@ -78,6 +78,6 @@ public sealed class SessionEndPoster(
             log($"{what} session-end POST failed: {ex.Message}");
         }
 
-        return false;
+        return SessionEndDelivery.Lost;
     }
 }

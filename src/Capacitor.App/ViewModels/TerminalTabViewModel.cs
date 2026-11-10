@@ -121,6 +121,10 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     // delivery only clears a flag it still owns -- wedging the composer for the tab's whole life.
     int _sendInFlightToken = -1;
     Task? _delivery;
+    // Keys that reached the agent other than a delivery's own, and their count when the last delivery
+    // went: anything typed since may sit in the composer, where a resubmit Enter would send it.
+    int _keystrokes;
+    int _keystrokesAtDelivery = -1;
 
     /// Bound; true from a send's acceptance until its delivery ends.
     public bool SendInFlight => Volatile.Read(ref _sendInFlightToken) == Volatile.Read(ref _openingToken);
@@ -229,8 +233,29 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         // clear would release the second while it is still writing.
         if (Interlocked.CompareExchange(ref _sendInFlightToken, token, inFlight) != inFlight) return false;
         RaiseSendProjections();
+        Volatile.Write(ref _keystrokesAtDelivery, Volatile.Read(ref _keystrokes));
         _delivery = DeliverAsync(client, token, TerminalInputEncoder.Paste(text));
         return true;
+    }
+
+    /// One more Enter for the last delivery. Withheld while a delivery is in flight, whose paste the
+    /// Enter would submit ahead of its own delay, and once anything else has been typed at the agent
+    /// since, which it would submit along with it. Checked and written with no await between, so no
+    /// send can be accepted in between.
+    public async Task<bool> ResubmitAsync(CancellationToken ct) {
+        var token = Volatile.Read(ref _openingToken);
+        if (!CanInterrupt || SendInFlight || _client is not { } client || ct.IsCancellationRequested) return false;
+        if (Volatile.Read(ref _openingToken) != token) return false;
+        if (Volatile.Read(ref _keystrokes) != Volatile.Read(ref _keystrokesAtDelivery)) return false;
+        try {
+            await client.SendInputAsync(TerminalInputEncoder.Submit);
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return false; }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: composer resubmit failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// Keys with no bracketed paste and no trailing submit, in one write so an escape sequence
@@ -242,6 +267,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         try {
             while (_delivery is { IsCompleted: false } delivery) await delivery.WaitAsync(ct);
             if (!CanInterrupt || Volatile.Read(ref _openingToken) != token || ct.IsCancellationRequested) return false;
+            Interlocked.Increment(ref _keystrokes);
             await client.SendInputAsync(keys);
             return true;
         }
@@ -259,6 +285,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         try {
             while (_delivery is { IsCompleted: false } delivery) await delivery.WaitAsync(ct);
             if (!CanInterrupt || Volatile.Read(ref _openingToken) != token || ct.IsCancellationRequested) return;
+            Interlocked.Increment(ref _keystrokes);
             await client.SendInputAsync(new byte[] { 0x1b });
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -681,6 +708,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             if (Retired(generation) || State.ReadOnly) return;
             _ = client.SendInputAsync(bytes);
         };
+        surface.Typed += () => Interlocked.Increment(ref _keystrokes);
         // A resize is also the surface's first measurement, which releases what Deliver held for it.
         surface.Resized += (cols, rows) => {
             if (Retired(generation)) return;

@@ -48,6 +48,23 @@ public class GrokTurnUsageTests {
         await Assert.That(usage.Single(u => u.Model == "grok-4.6-build").UsageInputTokens).IsEqualTo(1000);
     }
 
+    /// <summary>The envelope carries input gross of both cache tiers. Every captured Grok turn reports zero
+    /// cache creation, with <c>totalTokens</c> equal to input plus output, so the frame's own total decides
+    /// whether a nonzero creation is already inside <c>inputTokens</c>.</summary>
+    [Test]
+    [Arguments(1239L, 1200L)]
+    [Arguments(1751L, 1200L + 512L)]
+    public async Task Cache_creation_reported_on_top_of_input_is_added_to_it(long totalTokens, long grossInput) {
+        var modelUsage = $$$"""
+            {"grok-4.5-build":{"inputTokens":1200,"outputTokens":39,"totalTokens":{{{totalTokens}}},"cachedReadTokens":600,"cacheCreationTokens":512}}
+            """;
+
+        var usage = GrokTurnUsage.Read(Notification(Frame(modelUsage: modelUsage))).Single();
+
+        await Assert.That(usage.UsageInputTokens).IsEqualTo(grossInput);
+        await Assert.That(usage.UsageCacheWriteInputTokens).IsEqualTo(512L);
+    }
+
     /// <summary><c>session/load</c> replays a finished turn's usage under <c>_x.ai/session/update</c>;
     /// counting it would bill that turn twice.</summary>
     [Test]

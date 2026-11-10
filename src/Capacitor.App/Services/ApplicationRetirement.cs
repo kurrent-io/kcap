@@ -40,10 +40,7 @@ internal sealed class ApplicationRetirement(ConfigRoot config, TimeProvider time
             return null;
         }
 
-        // Only the name this class gives a bundle it sets aside: a half-deleted one no longer reads as kcap.
-        if (pending.Retired is { } aside && Path.GetDirectoryName(aside) == Path.GetDirectoryName(pending.Root)
-                && Path.GetFileName(aside).StartsWith(Path.GetFileName(pending.Root) + ".retired-", StringComparison.Ordinal)
-                && Directory.Exists(aside) && new DirectoryInfo(aside).LinkTarget is null)
+        if (pending.Retired is { } aside && Directory.Exists(aside) && AsideRetirement.IsOwnAside(pending.Root, aside, linkAllowed: false))
             Directory.Delete(aside, recursive: true);
         if (ownRoot is not null && Path.GetFullPath(ownRoot) == pending.Root
                 || KcapBundle.Read(pending.Root) is not { } bundle || bundle.Version != pending.Version) {

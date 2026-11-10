@@ -17,6 +17,7 @@ using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.LocalEdition;
 using Capacitor.Cli.Services;
 using Capacitor.Cli.Tests.Unit.LocalEdition.Fakes;
+using Capacitor.Cli.Tests.Unit.Services;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -900,6 +901,32 @@ public class UninstallCommandTests {
         await NewCommand(fixture, stdin: "n\n").HandleAsync(["uninstall"]);
 
         await Assert.That(fixture.Out.ToString()).DoesNotContain("capture exclusion");
+    }
+
+    /// <summary>A preimage outliving its unit would be put back over the next unit installed under that name.</summary>
+    [Test]
+    public async Task Removing_a_launchd_service_removes_its_repoint_preimage() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        await using var fixture = await Fixture.CreateAsync();
+        var plist = LaunchdUnit.PlistPath(fixture.UserHome, "npm");
+        Directory.CreateDirectory(LaunchdUnit.AgentsDir(fixture.UserHome));
+        await File.WriteAllTextAsync(plist, LaunchdUnit.Plist(
+            new ServiceSpec("npm", "/opt/kcap/kcap-daemon", fixture.Root.Path("daemon-npm.log"), new Dictionary<string, string>(), [])));
+        await File.WriteAllTextAsync(Daemons.Store.RepointPreimagePath("npm"), "<plist/>");
+        var launchctl = new FakeLaunchctl(fixture.UserHome);
+        launchctl.Load("npm", "/opt/kcap/kcap-daemon", running: false);
+        var profiles  = Resolutions.None(fixture.Root);
+        var recorders = new OutgoingRecorders(
+            Daemons.Store, fixture.Root, profiles, fixture.UserHome, TestHarnesses.Under(fixture.UserHome), TestBinaries.None,
+            TestWatchers.In(WatchersOf(fixture), fixture.Root, profiles, new FixedCapacitorHttpClient()), TimeProvider.System,
+            new StandardStreams(fixture.Out, fixture.Err, new StringReader(""))) {
+            ServicesFor = store => launchctl.Manager(store),
+        };
+
+        await recorders.StopAsync();
+
+        await Assert.That(File.Exists(plist)).IsFalse();
+        await Assert.That(File.Exists(Daemons.Store.RepointPreimagePath("npm"))).IsFalse();
     }
 
     UninstallCommand NewCommand(Fixture f, DaemonStore? store = null, string? workdir = null, UserHome? home = null, IOutgoingRecorders? recorders = null, ILocalStackFactory? stacks = null, KcapLinkRemover? links = null, Func<bool>? systemdRunning = null, string stdin = "") {

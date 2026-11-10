@@ -24,9 +24,9 @@ public class BackgroundImportSpawnerTests {
     public async Task Argv_and_environment_pin_the_saved_profile_and_drop_the_url_override() {
         if (OperatingSystem.IsWindows()) return;
         using var _ = PollutedParent();
-        var starter = FakeProcessStarter.Running(psi => Process.Start(new ProcessStartInfo("sleep", "5") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false }));
+        var starter = FakeProcessStarter.Running(_ => Child($"echo {DetachedImportLog.AcceptedLine}; exec sleep 5"));
 
-        var launch = new BackgroundImportSpawner(Config.Root, starter).Spawn(Request());
+        var launch = new BackgroundImportSpawner(Config.Root, starter, TimeProvider.System).Spawn(Request());
 
         var psi = starter.Seen!;
         await Assert.That(psi.ArgumentList.ToList()).IsEquivalentTo(["import", "--all", "--yes", "--skip-title"]);
@@ -90,14 +90,74 @@ public class BackgroundImportSpawnerTests {
         await Assert.That(plan.ArgumentList.ToList()).IsEquivalentTo(["import", "--yes"], CollectionOrdering.Matching);
     }
 
+    static Process Child(string script) {
+        var psi = new ProcessStartInfo("sh") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add(script);
+
+        return Process.Start(psi)!;
+    }
+
+    static void Reap(Process p) {
+        try { p.Kill(); } catch (InvalidOperationException) { }
+
+        p.WaitForExit();
+        p.Dispose();
+    }
+
+    /// <summary>Being alive when the wait ends is not having started: only the accepted line is.</summary>
+    [Test]
+    public async Task A_child_alive_but_silent_at_the_bound_is_Unconfirmed() {
+        if (OperatingSystem.IsWindows()) return;
+        var child = Child("exec sleep 30");
+        try {
+            var launch = BackgroundImportSpawner.Settle(child, "/cfg/import-x.log", TimeSpan.FromMilliseconds(400), TimeProvider.System);
+
+            await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Unconfirmed);
+            await Assert.That(launch.ExitCode).IsNull();
+        } finally {
+            Reap(child);
+        }
+    }
+
+    [Test]
+    public async Task The_accepted_line_is_Running_without_waiting_out_the_bound() {
+        if (OperatingSystem.IsWindows()) return;
+        var child = Child($"echo noise; echo {DetachedImportLog.AcceptedLine}; exec sleep 30");
+        try {
+            var clock  = Stopwatch.StartNew();
+            var launch = BackgroundImportSpawner.Settle(child, "/cfg/import-x.log", TimeSpan.FromSeconds(20), TimeProvider.System);
+
+            await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Running);
+            await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
+        } finally {
+            Reap(child);
+        }
+    }
+
+    /// <summary>A failure after the bound would once have read as running; the exit decides it now.</summary>
+    [Test]
+    public async Task An_exit_without_the_accepted_line_is_classified_by_its_code() {
+        if (OperatingSystem.IsWindows()) return;
+        var child = Child("sleep 2; exit 3");
+        try {
+            var launch = BackgroundImportSpawner.Settle(child, "/cfg/import-x.log", TimeSpan.FromSeconds(20), TimeProvider.System);
+
+            await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Failed);
+            await Assert.That(launch.ExitCode).IsEqualTo(3);
+        } finally {
+            Reap(child);
+        }
+    }
+
     [Test]
     public async Task Early_zero_exit_is_ExitedZero_and_early_nonzero_is_Failed() {
         if (OperatingSystem.IsWindows()) return;
         var zero = FakeProcessStarter.Running(_ => Process.Start(new ProcessStartInfo("true") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false }));
         var fail = FakeProcessStarter.Running(_ => Process.Start(new ProcessStartInfo("false") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false }));
 
-        var a = new BackgroundImportSpawner(Config.Root, zero).Spawn(Request());
-        var b = new BackgroundImportSpawner(Config.Root, fail).Spawn(Request("other", "fedcba9876543210fedcba9876543210"));
+        var a = new BackgroundImportSpawner(Config.Root, zero, TimeProvider.System).Spawn(Request());
+        var b = new BackgroundImportSpawner(Config.Root, fail, TimeProvider.System).Spawn(Request("other", "fedcba9876543210fedcba9876543210"));
 
         await Assert.That(a.Status).IsEqualTo(BackgroundImportStatus.ExitedZero);
         await Assert.That(b.Status).IsEqualTo(BackgroundImportStatus.Failed);
@@ -106,8 +166,8 @@ public class BackgroundImportSpawnerTests {
 
     [Test]
     public async Task A_refused_start_or_a_throw_is_Failed() {
-        var refused = new BackgroundImportSpawner(Config.Root, FakeProcessStarter.Refusing()).Spawn(Request());
-        var thrown  = new BackgroundImportSpawner(Config.Root, FakeProcessStarter.Throwing(new InvalidOperationException("no exec")))
+        var refused = new BackgroundImportSpawner(Config.Root, FakeProcessStarter.Refusing(), TimeProvider.System).Spawn(Request());
+        var thrown  = new BackgroundImportSpawner(Config.Root, FakeProcessStarter.Throwing(new InvalidOperationException("no exec")), TimeProvider.System)
             .Spawn(Request(runId: "fedcba9876543210fedcba9876543210"));
 
         await Assert.That(refused.Status).IsEqualTo(BackgroundImportStatus.Failed);
@@ -120,7 +180,7 @@ public class BackgroundImportSpawnerTests {
         await File.WriteAllTextAsync(path, "someone else's");
         var starter = FakeProcessStarter.Refusing();
 
-        var launch = new BackgroundImportSpawner(Config.Root, starter).Spawn(Request());
+        var launch = new BackgroundImportSpawner(Config.Root, starter, TimeProvider.System).Spawn(Request());
 
         await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Failed);
         await Assert.That(starter.Starts).IsEqualTo(0);
@@ -134,7 +194,7 @@ public class BackgroundImportSpawnerTests {
         var starter = FakeProcessStarter.Refusing();
         File.SetUnixFileMode(Config.Directory, UnixFileMode.UserRead);
         try {
-            var launch = new BackgroundImportSpawner(Config.Root, starter).Spawn(Request());
+            var launch = new BackgroundImportSpawner(Config.Root, starter, TimeProvider.System).Spawn(Request());
 
             await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Failed);
             await Assert.That(starter.Starts).IsEqualTo(0);

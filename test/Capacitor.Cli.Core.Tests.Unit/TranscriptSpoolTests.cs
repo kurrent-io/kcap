@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Time.Testing;
+
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 public class TranscriptSpoolTests {
@@ -10,6 +12,51 @@ public class TranscriptSpoolTests {
         var r = spool.Append(Sid, """{"lines":["a"],"line_numbers":[0]}""");
         await Assert.That(r).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
+        await Assert.That(spool.NeedsImport(Sid)).IsFalse();
+    }
+
+    const int Owner = 4242;
+
+    [Test]
+    public async Task An_owners_marker_flags_the_session_until_that_owner_clears_it() {
+        using var tmp = new TempDir();
+        var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
+        spool.MarkNeedsImport(Sid, "drain did not finish", Owner);
+
+        await Assert.That(spool.NeedsImport(Sid)).IsTrue();
+
+        spool.ClearNeedsImport(Sid, Owner);
+
+        await Assert.That(spool.NeedsImport(Sid)).IsFalse();
+    }
+
+    /// <summary>A marker another writer sets while an owner's is down records a loss its writer found, which the
+    /// owner clearing its own must not undo.</summary>
+    [Test]
+    public async Task An_owner_clearing_its_marker_keeps_one_another_writer_set_meanwhile() {
+        using var tmp = new TempDir();
+        var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
+        spool.MarkNeedsImport(Sid, "drain did not finish", Owner);
+        spool.MarkNeedsImport(Sid, "shutdown tail: redaction of line 3 timed out");
+
+        spool.ClearNeedsImport(Sid, Owner);
+
+        await Assert.That(spool.NeedsImport(Sid)).IsTrue();
+    }
+
+    /// <summary>A marker an abandoned owner leaves behind is reaped on the same retention as any other.</summary>
+    [Test]
+    public async Task An_owners_marker_is_reaped_with_the_rest() {
+        using var tmp  = new TempDir();
+        var       now  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var       spool = new TranscriptSpool(tmp.Path, time: now);
+        spool.MarkNeedsImport(Sid, "drain did not finish", Owner);
+        foreach (var file in Directory.EnumerateFiles(tmp.Path)) File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddDays(-31));
+
+        await Assert.That(spool.NeedsImport(Sid)).IsTrue();
+
+        spool.DeleteExpired();
+
         await Assert.That(spool.NeedsImport(Sid)).IsFalse();
     }
 
@@ -130,6 +177,7 @@ public class TranscriptSpoolTests {
         var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
         spool.Append(Sid, """{"lines":["a"],"line_numbers":[0]}""");
         spool.MarkNeedsImport(Sid, "a reason");
+        spool.MarkNeedsImport(Sid, "an owner's reason", owner: 4242);
         tmp.CreateFile($"{Sid}.0.transcript.draining", """{"lines":["b"],"line_numbers":[1]}""");
         spool.Append(other, """{"lines":["c"],"line_numbers":[0]}""");
 

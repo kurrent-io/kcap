@@ -52,4 +52,7 @@ sealed class WatchRecorderHost(
 
     public Task<bool> CoversCommitsAsync(string sessionId, string? cwd) =>
         GitHook.CoversAsync(config, sessionId, cwd, time);
+
+    public Task DrainWorkspaceAsync() =>
+        new AgentHookPoster(config, profiles, http, watchers, time).DrainWorkspaceAsync(TimeSpan.Zero);
 }

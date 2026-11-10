@@ -14,20 +14,6 @@
             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <!-- State pill: purple while in flight (and for any kind the server adds), green shipped, muted closed. -->
-        <Style Selector="Border.pill">
-            <Setter Property="Background" Value="{StaticResource KcapPurpleDimBrush}" />
-            <Setter Property="CornerRadius" Value="999" />
-            <Setter Property="Padding" Value="8,5,8,5" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style Selector="Border.pill > TextBlock">
-            <Setter Property="FontSize" Value="10" />
-            <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="LetterSpacing" Value="0.6" />
-            <Setter Property="LineHeight" Value="14" />
-            <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
-        </Style>
         <Style Selector="Button.copyValue">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -50,18 +36,6 @@
         </Style>
         <Style Selector="Button.copyValue:pressed">
             <Setter Property="RenderTransform" Value="scale(1)" />
-        </Style>
-        <Style Selector="Border.pill.shipped">
-            <Setter Property="Background" Value="{StaticResource KcapSuccessDimBrush}" />
-        </Style>
-        <Style Selector="Border.pill.shipped > TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
-        </Style>
-        <Style Selector="Border.pill.closed">
-            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
-        </Style>
-        <Style Selector="Border.pill.closed > TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
         <Style Selector="TextBlock.settled">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
@@ -149,15 +123,6 @@
         <Style Selector="Button.toggle:pointerover Border.card">
             <Setter Property="BorderBrush" Value="{StaticResource KcapFaintBrush}" />
         </Style>
-        <!-- The state word, never only the dot: failed is painted danger through the class, so a
-             local Foreground must not be set on it. -->
-        <Style Selector="TextBlock.subagentState">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-        </Style>
-        <Style Selector="TextBlock.subagentState.failed">
-            <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
-        </Style>
         <!-- A settled task steps back through the class, so a local Foreground must not be set on it. -->
         <Style Selector="TextBlock.planTask">
             <Setter Property="FontSize" Value="13" />
@@ -188,9 +153,9 @@
         <DataTemplate x:Key="SubagentMark" x:DataType="vm:RunState">
             <Panel Width="12" Height="12">
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}">
-                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapWarningBrush}" />
+                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
                     <!-- 5px in a 12px disc starts at 3.5px; rounding that snaps the dot off centre. -->
-                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapWarningBrush}"
+                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                             views:PulseClock.IsActive="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}" />
                 </Panel>
@@ -292,7 +257,7 @@
                         <TextBlock Text="{Binding Description}" FontSize="12" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <TextBlock Text="{Binding StateText}" Classes="subagentState" Classes.failed="{Binding IsFailed}" TextWrapping="Wrap"
+                        <TextBlock Text="{Binding StateText}" Classes="kcapStatusWord" Classes.inflight="{Binding IsRunning}" Classes.danger="{Binding IsFailed}" TextWrapping="Wrap"
                                    ToolTip.Tip="{Binding UnopenableReason}" ToolTip.ShowOnDisabled="True" />
                     </StackPanel>
                 </Grid>
@@ -354,11 +319,10 @@
                                     <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" FontSize="15" FontWeight="SemiBold"
                                                Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center"
                                                IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                    <Border x:Name="StatePill" Grid.Column="1" Classes="pill" VerticalAlignment="Center"
-                                            Classes.shipped="{Binding IsShipped}" Classes.closed="{Binding IsClosed}"
-                                            IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                        <TextBlock Text="{Binding StateLabel}" />
-                                    </Border>
+                                    <views:StatusBadge x:Name="StatePill" Grid.Column="1" Classes="inflight"
+                                                       Classes.success="{Binding IsShipped}" Classes.neutral="{Binding IsClosed}"
+                                                       Text="{Binding StateLabel}"
+                                                       IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 </Grid>
                                 <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" FontSize="14" LineHeight="20"
                                            Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap"
@@ -610,9 +574,14 @@
                                     ToolTip.Tip="{Binding SeparateIssue.Url}"
                                     AutomationProperties.Name="{Binding SeparateIssue.AccessibleName}"
                                     HorizontalAlignment="Stretch">
-                                <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
-                                           TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
-                                           IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <Panel>
+                                    <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                               TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
+                                               IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock x:Name="IssueTitleMissing" Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
+                                               FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                               IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                </Panel>
                             </Button>
                             <ItemsControl x:Name="IssueList" ItemsSource="{Binding VisibleSeparateIssues}" IsVisible="{Binding HasMultipleIssues}">
                                 <ItemsControl.ItemsPanel>
@@ -631,6 +600,9 @@
                                                 <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
                                                            TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
                                                            IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                <TextBlock Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
+                                                           FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                                           IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate>
@@ -858,6 +830,9 @@
                             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
                             <Setter Property="VerticalAlignment" Value="Center" />
                         </Style>
+                        <Style Selector="SelectableTextBlock.factValue.warning">
+                            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+                        </Style>
                         <Style Selector="TextBlock.factValue">
                             <Setter Property="FontSize" Value="13" />
                             <Setter Property="LineHeight" Value="18" />
@@ -878,15 +853,28 @@
                             </Grid>
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding UsageExpanded}">
-                            <Grid x:Name="SessionUsage" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                            <Grid x:Name="SessionUsage" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="TOKENS" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Tokens}" Classes="factValue" />
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="COST" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Cost}" Classes="factValue"
                                                      ToolTip.Tip="Estimated from list prices" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CONTEXT" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
-                                                     ToolTip.Tip="Peak context use" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CONTEXT" Classes="factLabel"
+                                           IsVisible="{Binding ShowsCurrentContext}" />
+                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="6"
+                                      IsVisible="{Binding ShowsCurrentContext}">
+                                    <SelectableTextBlock Text="{Binding CurrentContextUse}" Classes="factValue"
+                                                         Classes.warning="{Binding CurrentContextWarns}" />
+                                    <Button Grid.Column="1" Classes="kcapGhost kcapIcon" Padding="5" MinHeight="0"
+                                            Command="{Binding CompactCommand}" IsVisible="{Binding ShowsCompact}"
+                                            ToolTip.Tip="Compact context" AutomationProperties.Name="Compact context">
+                                        <views:AppIcon Kind="{x:Static views:ToolCategoryIcons.CompactIcon}" Size="12"
+                                                       Foreground="{StaticResource KcapWarningBrush}" />
+                                    </Button>
+                                </Grid>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="PEAK CONTEXT" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
+                                                     ToolTip.Tip="Highest use this session. Compaction does not lower it" />
                             </Grid>
                         </Border>
                     </StackPanel>

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Xml.Linq;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Services;
 
@@ -29,7 +30,7 @@ static class LaunchdUnit {
         if (topDict is null) return null;
 
         XElement? value;
-        try { value = TopLevelValue(topDict, "ProcessType"); }
+        try { value = LaunchdPrint.TopLevelValue(topDict, "ProcessType"); }
         catch (InvalidDataException) { return null; }
         if (value is null || value.Name != "string") return null;
 
@@ -70,7 +71,7 @@ static class LaunchdUnit {
     public static bool DeclaresStandardProcessType(string plistXml) {
         try {
             var topDict = XDocument.Parse(plistXml).Root?.Element("dict");
-            return topDict is not null && TopLevelValue(topDict, "ProcessType") is { Name.LocalName: "string", Value: "Standard" };
+            return topDict is not null && LaunchdPrint.TopLevelValue(topDict, "ProcessType") is { Name.LocalName: "string", Value: "Standard" };
         } catch (Exception ex) when (ex is System.Xml.XmlException or InvalidDataException) {
             return false;
         }
@@ -98,7 +99,7 @@ static class LaunchdUnit {
     /// </summary>
     public static string? WithBinary(string plistXml, string binary) {
         string? current;
-        try { current = BinaryFromPlist(plistXml); }
+        try { current = LaunchdPrint.Binary(plistXml); }
         catch (Exception ex) when (ex is System.Xml.XmlException or InvalidDataException) { return null; }
 
         if (current is null || current == binary) return null;
@@ -114,7 +115,7 @@ static class LaunchdUnit {
         var rewritten = string.Concat(plistXml.AsSpan(0, start), $"<string>{Guarded("binary path", binary)}</string>",
             plistXml.AsSpan(start + oldElement.Length));
 
-        return BinaryFromPlist(rewritten) == binary ? rewritten : null;
+        return LaunchdPrint.Binary(rewritten) == binary ? rewritten : null;
     }
 
     /// <summary>
@@ -124,7 +125,7 @@ static class LaunchdUnit {
     /// </summary>
     public static string? WithEnvironmentValue(string plistXml, string key, string value) {
         IReadOnlyDictionary<string, string> before;
-        try { before = EnvFromPlist(plistXml); }
+        try { before = LaunchdPrint.Environment(plistXml); }
         catch (Exception ex) when (ex is System.Xml.XmlException or InvalidDataException) { return null; }
 
         if (before.TryGetValue(key, out var current) && current == value) return null;
@@ -150,23 +151,13 @@ static class LaunchdUnit {
             rewritten = string.Concat(plistXml.AsSpan(0, at), element, plistXml.AsSpan(at + oldElement.Length));
         }
 
-        var after = EnvFromPlist(rewritten);
+        var after = LaunchdPrint.Environment(rewritten);
         var others = before.Where(kv => kv.Key != key);
 
         return after.TryGetValue(key, out var written) && written == value && after.Count == before.Count + (current is null ? 1 : 0)
             && others.All(kv => after.TryGetValue(kv.Key, out var v) && v == kv.Value)
             ? rewritten
             : null;
-    }
-
-    /// <summary>The program <c>launchctl print</c> shows the loaded job running, or null when it shows none.
-    /// launchd reads the plist only when the job loads, so this lags a rewritten plist until a reload.</summary>
-    public static string? LoadedProgram(string printStdout) {
-        foreach (var line in printStdout.Split('\n')) {
-            var t = line.Trim();
-            if (t.StartsWith("program = ", StringComparison.Ordinal)) return t["program = ".Length..];
-        }
-        return null;
     }
 
     /// <summary>The Library/LaunchAgents directory under the given home.</summary>
@@ -264,84 +255,6 @@ static class LaunchdUnit {
         }
     }
 
-    /// <summary>Strict key/value walk: throws on any malformed key/value alternation.</summary>
-    static IEnumerable<(string Key, XElement Value)> KeyedElements(XElement dict, string context) {
-        string? pendingKey = null;
-        foreach (var el in dict.Elements()) {
-            if (el.Name == "key") {
-                if (pendingKey is not null)
-                    throw new InvalidDataException($"{context}consecutive <key> nodes ('{pendingKey}', '{el.Value}') in plist");
-                pendingKey = el.Value;
-                continue;
-            }
-
-            if (pendingKey is null)
-                throw new InvalidDataException($"{context}value with no preceding key in plist");
-
-            yield return (pendingKey, el);
-            pendingKey = null;
-        }
-
-        if (pendingKey is not null)
-            throw new InvalidDataException($"{context}dangling <key>{pendingKey}</key> with no value in plist");
-    }
-
-    /// <summary>The element paired with the top-level <c>&lt;key&gt;</c> named
-    /// <paramref name="key"/>, or null when that key never appears; a duplicate throws.</summary>
-    static XElement? TopLevelValue(XElement dict, string key) {
-        XElement? result = null;
-        var found = false;
-        foreach (var (k, value) in KeyedElements(dict, "")) {
-            if (k != key) continue;
-            if (found) throw new InvalidDataException($"duplicate {key} key in plist");
-            found  = true;
-            result = value;
-        }
-        return result;
-    }
-
-    /// <summary>
-    /// The daemon binary baked into a plist — the first <c>&lt;string&gt;</c> of the
-    /// <c>&lt;array&gt;</c> paired with the top-level <c>&lt;key&gt;ProgramArguments&lt;/key&gt;</c>
-    /// (see <see cref="TopLevelValue"/>). Used by <c>daemon doctor</c> to detect a moved binary.
-    /// </summary>
-    public static string? BinaryFromPlist(string plistXml) {
-        var topDict = XDocument.Parse(plistXml).Root?.Element("dict");
-        if (topDict is null) return null;
-
-        var programArguments = TopLevelValue(topDict, "ProgramArguments");
-        return programArguments?.Name == "array" ? programArguments.Elements("string").FirstOrDefault()?.Value : null;
-    }
-
-    /// <summary>
-    /// The environment baked into a plist — the dict paired with the top-level
-    /// <c>EnvironmentVariables</c> key, walked strictly (see <see cref="KeyedElements"/>). Empty
-    /// only when the block is genuinely absent; any other malformed shape throws
-    /// <see cref="InvalidDataException"/> rather than degrading silently — this file is never
-    /// hand-edited, so a gate caller reading identity evidence here must see ambiguous evidence
-    /// as unreadable, never guessed.
-    /// </summary>
-    public static IReadOnlyDictionary<string, string> EnvFromPlist(string plistXml) {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        var topDict = XDocument.Parse(plistXml).Root?.Element("dict");
-        if (topDict is null) return result;
-
-        var envDict = TopLevelValue(topDict, "EnvironmentVariables");
-        if (envDict is null) return result; // genuinely absent — a legitimate "no baked env" shape
-
-        if (envDict.Name != "dict")
-            throw new InvalidDataException("EnvironmentVariables is not a dict in plist");
-
-        foreach (var (key, value) in KeyedElements(envDict, "EnvironmentVariables has ")) {
-            if (value.Name != "string")
-                throw new InvalidDataException($"EnvironmentVariables key '{key}' is paired with a non-string value in plist");
-            if (!result.TryAdd(key, value.Value))
-                throw new InvalidDataException($"duplicate EnvironmentVariables key '{key}' in plist");
-        }
-
-        return result;
-    }
-
     // ── command vectors (uid passed in so these stay pure) ──
     public static string[] BootstrapArgs(int uid, string plistPath) => ["bootstrap", $"gui/{uid}", plistPath];
     public static string[] BootoutArgs(int uid, string id)          => ["bootout", $"gui/{uid}/{Label(id)}"];
@@ -361,20 +274,4 @@ static class LaunchdUnit {
     public static string ToolError(string stderr) =>
         string.Join(' ', stderr.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Where(l => !l.StartsWith("Try re-running the command as root", StringComparison.OrdinalIgnoreCase)));
-
-    public static LabelProbe ClassifyPrint(int exitCode, string stdout, string stderr) {
-        if (exitCode == 0) return LabelProbe.Loaded;
-        return stderr.Contains("Could not find service", StringComparison.OrdinalIgnoreCase)
-            ? LabelProbe.Absent
-            : LabelProbe.Unknown;
-    }
-
-    public static int? PidFromPrint(string stdout) {
-        foreach (var line in stdout.Split('\n')) {
-            var t = line.Trim();
-            if (t.StartsWith("pid = ", StringComparison.Ordinal) && int.TryParse(t["pid = ".Length..].Trim(), out var pid))
-                return pid;
-        }
-        return null;
-    }
 }

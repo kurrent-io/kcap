@@ -241,8 +241,8 @@ public class RecordingIpcTests {
         await Assert.That(await finish).IsEqualTo(RecordingFinish.Unanswered);
     }
 
-    static string Ack(string status, bool agentLive = false, string? server = null) =>
-        JsonSerializer.Serialize(new DisableSessionAckDto(status, agentLive, server), RecordingIpcJsonContext.Default.DisableSessionAckDto);
+    static string Ack(string status, bool agentLive = false, string? server = null, bool markFailed = false) =>
+        JsonSerializer.Serialize(new DisableSessionAckDto(status, agentLive, server, markFailed), RecordingIpcJsonContext.Default.DisableSessionAckDto);
 
     [Test]
     [Arguments(RecordingIpc.Stopped, RecordingDisable.Stopped)]
@@ -264,6 +264,23 @@ public class RecordingIpcTests {
         daemon.Answer = Ack(RecordingIpc.NotHeld, agentLive: true, server: "https://other.example");
 
         await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example"));
+    }
+
+    /// <summary>The command can't call the stop confirmed when the daemon's agents can record the session again.</summary>
+    [Test]
+    public async Task A_disable_carries_a_mark_the_daemon_could_not_make() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = Ack(RecordingIpc.Stopped, markFailed: true);
+
+        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, MarkFailed: true));
+    }
+
+    [Test]
+    public async Task An_answer_with_no_word_of_the_mark_says_it_was_made() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = """{"status":"stopped","agent_live":false,"server":null}""";
+
+        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped));
     }
 
     /// <summary>The command tells a person what this says, so an answer it can't read says nothing, from a daemon that is
@@ -300,6 +317,14 @@ public class RecordingIpcTests {
 
         await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
     }
+
+    /// <summary>A daemon that is up with nothing on its socket yet is starting or restarting, and what it restores next can
+    /// be the session asked about. One that is down says nothing, which is most machines.</summary>
+    [Test]
+    [Arguments(true, RecordingDisable.Silent)]
+    [Arguments(false, RecordingDisable.NoSocket)]
+    public async Task A_daemon_up_with_nothing_on_its_socket_is_silent_to_a_disable(bool up, RecordingDisable read) =>
+        await Assert.That((await RecordingIpc.DisableAsync(Daemons.Store, DaemonName, "session-1", CancellationToken.None, isUp: () => up)).Outcome).IsEqualTo(read);
 
     /// <summary>A daemons directory deep enough leaves a socket path no socket can be opened on, and nothing can be
     /// listening there.</summary>

@@ -122,7 +122,10 @@ public static class RecordingIpc {
     /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. One that
     /// takes the connection and says nothing it can read is silent. A daemon too old for the frame records nothing this
     /// command could stop, so it answers as one with no socket.</summary>
-    public static async Task<RecordingDisableAnswer> DisableAsync(DaemonStore store, string daemonName, string sessionId, CancellationToken ct) {
+    /// <param name="isUp">Whether the daemon is up, or coming back, with nothing on its socket yet: it is then starting
+    /// or restarting, can restore the session once it binds, and is silent rather than absent.</param>
+    public static async Task<RecordingDisableAnswer> DisableAsync(
+            DaemonStore store, string daemonName, string sessionId, CancellationToken ct, Func<bool>? isUp = null) {
         try {
             if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities) return new(RecordingDisable.Silent);
             if (!capabilities.Contains(DisableCapability)) return new(RecordingDisable.NoSocket);
@@ -131,16 +134,18 @@ public static class RecordingIpc {
              || JsonSerializer.Deserialize(json, RecordingIpcJsonContext.Default.DisableSessionAckDto) is not { } ack)
                 return new(RecordingDisable.Silent);
 
-            return ack.Status switch {
-                Stopped       => new(RecordingDisable.Stopped, ack.AgentLive, ack.Server),
-                SendInFlight  => new(RecordingDisable.SendInFlight, ack.AgentLive, ack.Server),
-                StillStopping => new(RecordingDisable.StillStopping, ack.AgentLive, ack.Server),
-                NotHeld       => new(RecordingDisable.NotHeld, ack.AgentLive, ack.Server),
-                _             => new(RecordingDisable.Silent),
+            RecordingDisable? outcome = ack.Status switch {
+                Stopped       => RecordingDisable.Stopped,
+                SendInFlight  => RecordingDisable.SendInFlight,
+                StillStopping => RecordingDisable.StillStopping,
+                NotHeld       => RecordingDisable.NotHeld,
+                _             => null,
             };
+
+            return outcome is { } known ? new(known, ack.AgentLive, ack.Server, ack.MarkFailed) : new(RecordingDisable.Silent);
         } catch (SocketException) {
             // Only the connect throws this: nothing listens on the socket.
-            return new(RecordingDisable.NoSocket);
+            return new(isUp?.Invoke() == true ? RecordingDisable.Silent : RecordingDisable.NoSocket);
         } catch (ArgumentException) {
             // A path too long to open a socket on, which nothing can be listening on either.
             return new(RecordingDisable.NoSocket);

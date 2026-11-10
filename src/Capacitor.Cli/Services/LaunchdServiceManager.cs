@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Skills;
 
 namespace Capacitor.Cli.Services;
 
@@ -8,7 +10,8 @@ sealed partial class LaunchdServiceManager(
     TimeProvider time,
     UnitFileWriter? writeUnit = null,
     Func<string, string[], (int ExitCode, string StdOut, string StdErr)>? runProcess = null,
-    Func<string, string[], TimeSpan, (int ExitCode, string StdOut, string StdErr, bool TimedOut)>? runBounded = null
+    Func<string, string[], TimeSpan, (int ExitCode, string StdOut, string StdErr, bool TimedOut)>? runBounded = null,
+    DaemonStore? store = null
 ) : IServiceManager, IVerifyServiceManager {
     readonly UnitFileWriter _writeUnit = writeUnit ?? ((path, content, encoding) => ServiceFiles.WriteOwnerOnly(path, content, encoding));
 
@@ -30,12 +33,29 @@ sealed partial class LaunchdServiceManager(
     public string UnitPath(string serviceId) => LaunchdUnit.PlistPath(home, serviceId);
 
     public IReadOnlyDictionary<string, string>? UnitEnvironment(string serviceId) =>
-        File.Exists(UnitPath(serviceId)) ? LaunchdUnit.EnvFromPlist(File.ReadAllText(UnitPath(serviceId))) : null;
+        File.Exists(UnitPath(serviceId)) ? LaunchdPrint.Environment(File.ReadAllText(UnitPath(serviceId))) : null;
 
     /// <summary>The unit-writing half of <see cref="Install"/>, split out so it is testable without
-    /// invoking launchctl.</summary>
-    internal void WriteUnitFiles(ServiceSpec spec) =>
-        _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+    /// invoking launchctl. A repoint's preimage goes first, since the next repoint would put it back over this unit,
+    /// and comes back when the write fails: the plist it would undo is still there.</summary>
+    internal void WriteUnitFiles(ServiceSpec spec) {
+        var preimage = store?.RepointPreimagePath(spec.ServiceId);
+        var held     = preimage is not null && File.Exists(preimage) ? File.ReadAllText(preimage) : null;
+        if (held is not null) File.Delete(preimage!);
+        try {
+            _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+        } catch when (held is not null) {
+            // Best effort, so the write's failure is the one reported.
+            try {
+                AtomicFile.Replace(preimage!, held, mode: UnixFileMode.UserRead | UnixFileMode.UserWrite, followLink: false, durable: true);
+            } catch (Exception ex) when (Contained(ex)) { }
+            throw;
+        }
+    }
+
+    void DiscardPreimage(string serviceId) {
+        if (store?.RepointPreimagePath(serviceId) is { } preimage && File.Exists(preimage)) File.Delete(preimage);
+    }
 
     [LibraryImport("libc", EntryPoint = "getuid")]
     private static partial uint getuid();
@@ -72,6 +92,33 @@ sealed partial class LaunchdServiceManager(
 
     public string? UnitBinary(string serviceId) => ReadBinaryPathSafe(LaunchdUnit.PlistPath(home, serviceId));
 
+    /// <summary>Whether a unit is on disk that names no daemon binary kcap can read.</summary>
+    public bool UnitUnreadable(string serviceId) {
+        var path = LaunchdUnit.PlistPath(home, serviceId);
+        return LaunchdUnit.TryReadPlist(path, out _) != LaunchdUnit.PlistRead.Absent && ReadBinaryPathSafe(path) is null;
+    }
+
+    /// <summary>Whether the unit's plist declares the label its file name stands for. launchd loads it under the label
+    /// inside, so with any other every call kcap makes by name misses the job.</summary>
+    public bool DeclaresOwnLabel(string serviceId) {
+        try {
+            return LaunchdPrint.Label(File.ReadAllText(LaunchdUnit.PlistPath(home, serviceId))) == LaunchdUnit.Label(serviceId);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidDataException) {
+            return false;
+        }
+    }
+
+    /// <summary>The job launchd holds under the unit's label and the program it runs, which the plist on disk does
+    /// not have to match; the program is null when no job is loaded or launchd shows none.</summary>
+    public (LabelProbe Label, string? Program) LoadedJob(string serviceId) {
+        try {
+            var (label, stdout) = Probe(serviceId);
+            return (label, label == LabelProbe.Loaded ? LaunchdPrint.LoadedProgram(stdout) : null);
+        } catch (Exception ex) when (Contained(ex)) {
+            return (LabelProbe.Unknown, null);
+        }
+    }
+
     public ServiceQuery Query(string serviceId)                 => QueryCore(serviceId, null);
     public ServiceQuery Query(string serviceId, TimeSpan t)     => QueryCore(serviceId, t);
 
@@ -84,22 +131,22 @@ sealed partial class LaunchdServiceManager(
         var (code, stdout, stderr, timedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
         // A killed-on-timeout print told us nothing about the label — never let its kill exit code
         // masquerade as a real classification; report Unknown so nothing destructive follows.
-        var probe = timedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(code, stdout, stderr);
+        var probe = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(code, stdout, stderr);
         var state = probe == LabelProbe.Loaded ? LaunchdUnit.StatusFromPrint(code, stdout) : ServiceState.NotInstalled;
         var loaded = probe == LabelProbe.Loaded;
         return new ServiceQuery(probe, unitPresent, state, bin,
-            loaded ? LaunchdUnit.PidFromPrint(stdout) : null,
+            loaded ? LaunchdPrint.Pid(stdout) : null,
             loaded ? LaunchdUnit.LoadedSpawnType(stdout) : null);
     }
 
-    /// <summary>Total plist-evidence read: <c>File.ReadAllText</c> + <see cref="LaunchdUnit.BinaryFromPlist"/>
+    /// <summary>Total plist-evidence read: <c>File.ReadAllText</c> + <see cref="LaunchdPrint.Binary"/>
     /// together, contained so that ANY failure — an I/O error, malformed XML, a duplicate
     /// <c>ProgramArguments</c> key — yields null rather than escaping. <see cref="Query(string)"/>
     /// and <see cref="Status"/> are total, never-throwing probes; the gate's own contained Phase-A
     /// parse (<c>ServiceVerify</c>'s <c>_readPlist</c> path) remains the sole authority for coded
     /// evidence classification (malformed → <c>evidence_unreadable</c>).</summary>
     static string? ReadBinaryPathSafe(string path) {
-        try { return LaunchdUnit.BinaryFromPlist(File.ReadAllText(path)); }
+        try { return LaunchdPrint.Binary(File.ReadAllText(path)); }
         catch { return null; }
     }
 
@@ -142,7 +189,7 @@ sealed partial class LaunchdServiceManager(
         var label = LabelProbe.Unknown;
         while (UnloadWait - time.GetElapsedTime(started) is var left && left > TimeSpan.Zero) {
             var (exit, stdout, stderr, timedOut) = RunCtl(left, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            label = timedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(exit, stdout, stderr);
+            label = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stdout, stderr);
             if (label == LabelProbe.Absent) return null;
             Thread.Sleep(UnloadPoll);
         }
@@ -187,37 +234,51 @@ sealed partial class LaunchdServiceManager(
     /// whatever its spawn type unless <paramref name="requirePositiveSpawnType"/> asks for a positive one.
     /// A plist <paramref name="amend"/> rewrites always makes a loaded job stale, and is kept only by a reload.
     /// </summary>
+    /// <param name="leaveStoppedUnloaded">A stale job loaded with no daemon running is booted out and left
+    /// unloaded with the rewritten plist instead: kcap's units run at load, so a bootstrap would start it.</param>
+    /// <param name="preimagePath">Where the original plist is held from before the daemon is stopped until the
+    /// job runs again. With it the whole rewrite waits like an amendment, so a job that keeps its old program
+    /// keeps the plist it runs, and a preimage a run cut short left is settled before anything else.</param>
     public UnitRefresh RefreshUnit(
             string serviceId, Func<bool> stopForReload, Func<TimeSpan> timeLeft, out string? error,
             Func<string, string>? stabilize = null, bool requirePositiveSpawnType = false,
+            bool leaveStoppedUnloaded = false, string? preimagePath = null,
             Func<string, string?>? amend = null) {
         error = null;
         var path = LaunchdUnit.PlistPath(home, serviceId);
 
-        switch (LaunchdUnit.TryReadPlist(path, out var original)) {
-            case LaunchdUnit.PlistRead.Absent:     return UnitRefresh.UnitMissing;
-            case LaunchdUnit.PlistRead.Unreadable: return UnitRefresh.UnitUnreadable;
-        }
-
-        var upgraded = LaunchdUnit.UpgradeProcessType(original!);
-        if (!LaunchdUnit.DeclaresStandardProcessType(upgraded ?? original!)) return UnitRefresh.UnitUnsupported;
-
         try {
-            return RefreshValidatedUnit(serviceId, path, original!, upgraded, stopForReload, timeLeft, stabilize, requirePositiveSpawnType, amend, out error);
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-                                      or System.ComponentModel.Win32Exception) {
+            if (preimagePath is not null && SettlePreimage(serviceId, path, preimagePath) is { } unsettled) {
+                error = unsettled;
+                return UnitRefresh.Failed;
+            }
+
+            switch (LaunchdUnit.TryReadPlist(path, out var original)) {
+                case LaunchdUnit.PlistRead.Absent:     return UnitRefresh.UnitMissing;
+                case LaunchdUnit.PlistRead.Unreadable: return UnitRefresh.UnitUnreadable;
+            }
+
+            var upgraded = LaunchdUnit.UpgradeProcessType(original!);
+            if (!LaunchdUnit.DeclaresStandardProcessType(upgraded ?? original!)) return UnitRefresh.UnitUnsupported;
+
+            return RefreshValidatedUnit(serviceId, path, original!, upgraded, stopForReload, timeLeft, stabilize,
+                requirePositiveSpawnType, leaveStoppedUnloaded, preimagePath, amend, out error);
+        } catch (Exception ex) when (Contained(ex)) {
             error = ex.Message;
             return UnitRefresh.Failed;
         }
     }
 
+    static bool Contained(Exception ex) =>
+        ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception;
+
     UnitRefresh RefreshValidatedUnit(
             string serviceId, string path, string original, string? upgraded,
             Func<bool> stopForReload, Func<TimeSpan> timeLeft, Func<string, string>? stabilize, bool requirePositiveSpawnType,
-            Func<string, string?>? amend, out string? error) {
+            bool leaveStoppedUnloaded, string? preimagePath, Func<string, string?>? amend, out string? error) {
         error = null;
         var (printExit, printOut, printErr, printTimedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = printTimedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(printExit, printOut, printErr);
+        var probe = printTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(printExit, printOut, printErr);
 
         var binary = ReadBinaryPathSafe(path);
         var target = binary is not null && stabilize is not null ? stabilize(binary) : binary;
@@ -228,37 +289,57 @@ sealed partial class LaunchdServiceManager(
         // comparing against the file would read the amendment as already applied.
         var amended = amend?.Invoke(upgraded ?? original);
         var beforeAmend = upgraded ?? original;
+        var pending = preimagePath is null ? amended : amended ?? upgraded;
 
-        // A loaded job still running a version directory keeps it after the plist moves on.
-        var loadedProgram = LaunchdUnit.LoadedProgram(printOut);
-        var pinned = loadedProgram is not null && stabilize is not null && stabilize(loadedProgram) != loadedProgram;
+        // A loaded job keeps the program it loaded after the plist moves on, so one launchd does not name is taken
+        // as still running the binary the plist is about to stop naming.
+        var loadedProgram = LaunchdPrint.LoadedProgram(printOut);
+        var retargeted = target is not null && target != binary;
+        var pinned = stabilize is not null && (loadedProgram is null ? retargeted : stabilize(loadedProgram) != loadedProgram);
         var spawn  = probe == LabelProbe.Loaded ? LaunchdUnit.LoadedSpawnType(printOut) : null;
         var stale  = probe == LabelProbe.Loaded && (SpawnTypes.IsBackgroundBand(spawn) || pinned || amended is not null);
 
         // Rewriting the file is safe whatever launchd holds; only the reload depends on what it does.
-        if (upgraded is not null) _writeUnit(path, upgraded, null);
+        if (upgraded is not null && preimagePath is null) _writeUnit(path, upgraded, null);
         if (probe == LabelProbe.Unknown) return UnitRefresh.Unverified;
         if (probe == LabelProbe.Absent) {
-            if (amended is not null) _writeUnit(path, amended, null);
+            if (pending is not null) _writeUnit(path, pending, null);
             return UnitRefresh.NotLoaded;
         }
-        if (!stale) return !requirePositiveSpawnType || SpawnTypes.IsPositive(spawn) ? UnitRefresh.Current : UnitRefresh.Unverified;
+        if (!stale) {
+            if (pending is not null) _writeUnit(path, pending, null);
+            return !requirePositiveSpawnType || SpawnTypes.IsPositive(spawn) ? UnitRefresh.Current : UnitRefresh.Unverified;
+        }
+
+        // A loaded job with no running daemon hosts nothing, and there is no socket to ask.
+        var running = LaunchdUnit.StatusFromPrint(printExit, printOut) == ServiceState.Running;
+        if (!running && leaveStoppedUnloaded) return BootOutStopped(serviceId, path, pending, out error);
         if (timeLeft() < ReloadBudget) return UnitRefresh.Deferred;
 
+        if (preimagePath is not null)
+            AtomicFile.Replace(preimagePath, original, mode: UnixFileMode.UserRead | UnixFileMode.UserWrite, followLink: false, durable: true);
         // Before the stop: a write that fails once the daemon has exited would leave it down.
-        if (amended is not null) _writeUnit(path, amended, null);
+        else if (amended is not null) _writeUnit(path, amended, null);
 
         (string? Error, LabelProbe? After) reload;
         try {
-            // A loaded job with no running daemon hosts nothing, and there is no socket to ask.
-            var running = LaunchdUnit.StatusFromPrint(printExit, printOut) == ServiceState.Running;
             if (running && !stopForReload()) {
-                if (amended is not null) _writeUnit(path, beforeAmend, null);
+                if (preimagePath is not null) File.Delete(preimagePath);
+                else if (amended is not null) _writeUnit(path, beforeAmend, null);
                 return UnitRefresh.Deferred;
             }
 
+            // After the stop, so a busy daemon's unit is never touched; a failed write is settled, which starts it again.
+            if (preimagePath is not null && pending is not null) _writeUnit(path, pending, null);
+
             var (bootoutExit, _, _, bootoutTimedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.BootoutArgs(Uid(), serviceId));
             if ((bootoutTimedOut || bootoutExit != 0) && Probe(serviceId).Label == LabelProbe.Loaded) {
+                if (preimagePath is not null) {
+                    error = SettlePreimage(serviceId, path, preimagePath) is { } unsettled
+                        ? $"launchctl bootout did not unload the job; {unsettled}"
+                        : "launchctl bootout did not unload the job, so its previous unit was put back";
+                    return UnitRefresh.Failed;
+                }
                 if (amended is not null) _writeUnit(path, beforeAmend, null);
                 error = "launchctl bootout did not unload the job, so it keeps running in the background band until the next update";
                 return UnitRefresh.Failed;
@@ -266,18 +347,29 @@ sealed partial class LaunchdServiceManager(
 
             reload = Bootstrap(serviceId, path, acceptAnySpawnType: false);
         } catch {
-            // Same rule as every other path short of a reload: the file must not claim what launchd never loaded.
-            if (amended is not null) _writeUnit(path, beforeAmend, null);
-            RecoverUnloadedJob(serviceId, path, upgraded is not null || amended is not null ? original : null);
+            if (preimagePath is not null) {
+                TrySettle(serviceId, path, preimagePath);
+            } else {
+                // Same rule as every other path short of a reload: the file must not claim what launchd never loaded.
+                if (amended is not null) _writeUnit(path, beforeAmend, null);
+                RecoverUnloadedJob(serviceId, path, upgraded is not null || amended is not null ? original : null);
+            }
             throw;
         }
 
-        if (reload.Error is null) return UnitRefresh.Reloaded;
+        if (reload.Error is null) {
+            if (preimagePath is not null) File.Delete(preimagePath);
+            return UnitRefresh.Reloaded;
+        }
 
         // The label loaded from the plist on disk but launchd still reports the wrong band: a second
         // bootstrap over a loaded label fails, and the file already declares Standard, so nothing is rolled back.
         if (reload.After == LabelProbe.Loaded) {
             // The loaded label may be the old job still exiting, so the amendment cannot be taken as applied.
+            if (preimagePath is not null) {
+                error = SettlePreimage(serviceId, path, preimagePath) is { } unsettled ? $"{reload.Error}; {unsettled}" : reload.Error;
+                return UnitRefresh.Failed;
+            }
             if (amended is not null) _writeUnit(path, beforeAmend, null);
             error = reload.Error;
             return UnitRefresh.Failed;
@@ -288,6 +380,7 @@ sealed partial class LaunchdServiceManager(
         var (bootstrapError, rollbackError) = (reload.Error, rollback.Error);
 
         if (rollbackError is null) {
+            if (preimagePath is not null) File.Delete(preimagePath);
             error = $"{bootstrapError}; the previous unit was restored and loaded";
         } else {
             error = (rollback.After ?? Probe(serviceId).Label) == LabelProbe.Absent
@@ -298,6 +391,70 @@ sealed partial class LaunchdServiceManager(
         return UnitRefresh.Failed;
     }
 
+    /// <summary>The bootout comes before the rewrite, so a job launchd still holds never outlives a plist that
+    /// names another program.</summary>
+    UnitRefresh BootOutStopped(string serviceId, string path, string? rewritten, out string? error) {
+        var (exit, _, _, timedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.BootoutArgs(Uid(), serviceId));
+        if ((timedOut || exit != 0) && Probe(serviceId).Label != LabelProbe.Absent) {
+            error = "launchctl bootout did not unload the stopped job, so it keeps its previous program";
+            return UnitRefresh.Failed;
+        }
+
+        if (rewritten is not null) _writeUnit(path, rewritten, null);
+        error = null;
+        return UnitRefresh.NotLoaded;
+    }
+
+    /// <summary>
+    /// A preimage outlives its run only when that run was cut short on its way to leaving the job running. Unless
+    /// launchd runs the job from the plist on disk, the preimage goes back on disk; either way a job that is not
+    /// running is started. Null once settled; otherwise why not, with the preimage kept for the next run.
+    /// </summary>
+    string? SettlePreimage(string serviceId, string path, string preimagePath) {
+        if (!File.Exists(preimagePath)) return null;
+
+        switch (LaunchdUnit.TryReadPlist(path, out _)) {
+            // A unit removed since has nothing to go back to, unless launchd still runs the program it loaded.
+            case LaunchdUnit.PlistRead.Absent:
+                if (Probe(serviceId).Label != LabelProbe.Absent)
+                    return "the unit's plist is gone but launchd may still run its job, so its preimage was kept";
+                File.Delete(preimagePath);
+                return null;
+            case LaunchdUnit.PlistRead.Unreadable:
+                return "the unit could not be read, so it was not put back as it was before the reload";
+        }
+
+        var (label, stdout) = Probe(serviceId);
+        if (label == LabelProbe.Unknown) return "launchd's state could not be read, so the unit was not put back as it was before the reload";
+
+        if (label == LabelProbe.Absent || LaunchdPrint.LoadedProgram(stdout) != ReadBinaryPathSafe(path))
+            _writeUnit(path, File.ReadAllText(preimagePath), null);
+
+        var restart = label == LabelProbe.Absent ? Bootstrap(serviceId, path, acceptAnySpawnType: true).Error
+            : LaunchdUnit.StatusFromPrint(0, stdout) == ServiceState.Running ? null
+            : Kickstart(serviceId);
+        if (restart is not null) return $"the unit was put back as it was before the reload, but its daemon did not start again: {restart}";
+
+        File.Delete(preimagePath);
+        return null;
+    }
+
+    /// <summary>Best effort, so the caller's exception is the one reported.</summary>
+    void TrySettle(string serviceId, string path, string preimagePath) {
+        try {
+            SettlePreimage(serviceId, path, preimagePath);
+        } catch (Exception ex) when (Contained(ex)) {
+            // The original failure is rethrown by the caller.
+        }
+    }
+
+    string? Kickstart(string serviceId) {
+        var (exit, _, err, timedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.KickstartArgs(Uid(), serviceId));
+        return timedOut ? "launchctl kickstart timed out and was terminated"
+            : exit != 0 ? $"launchctl kickstart failed (exit {exit}): {LaunchdUnit.ToolError(err)}"
+            : null;
+    }
+
     /// <summary>A throw after the bootout would otherwise leave the daemon unloaded. Best effort, so the
     /// caller's exception is the one reported.</summary>
     void RecoverUnloadedJob(string serviceId, string path, string? restore) {
@@ -305,15 +462,14 @@ sealed partial class LaunchdServiceManager(
             if (Probe(serviceId).Label != LabelProbe.Absent) return;
             if (restore is not null) _writeUnit(path, restore, null);
             Bootstrap(serviceId, path, acceptAnySpawnType: true);
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
-                                      or System.ComponentModel.Win32Exception) {
+        } catch (Exception ex) when (Contained(ex)) {
             // The original failure is rethrown by the caller.
         }
     }
 
     (LabelProbe Label, string StdOut) Probe(string serviceId) {
         var (exit, stdout, stderr, timedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        return (timedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(exit, stdout, stderr), stdout);
+        return (timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stdout, stderr), stdout);
     }
 
     /// <summary>
@@ -358,7 +514,7 @@ sealed partial class LaunchdServiceManager(
 
         if (bootoutExit != 0) {
             var (queryExit, stdout, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(queryExit, stdout, stderr);
+            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stdout, stderr);
 
             if (probe != LabelProbe.Absent) {
                 error = $"launchctl bootout failed (exit {bootoutExit}) and the label is still {probe} — plist retained: {path}";
@@ -367,6 +523,7 @@ sealed partial class LaunchdServiceManager(
         }
 
         if (File.Exists(path)) File.Delete(path);
+        DiscardPreimage(serviceId);
         error = null;
         return true;
     }
@@ -382,7 +539,7 @@ sealed partial class LaunchdServiceManager(
 
     bool StartCore(string serviceId, TimeSpan? timeout, out string? error) {
         var (probeExit, probeOut, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(probeExit, probeOut, probeErr);
+        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeOut, probeErr);
 
         switch (probe) {
             case LabelProbe.Absent:
@@ -418,7 +575,7 @@ sealed partial class LaunchdServiceManager(
     public bool StartBootstrapOnly(string serviceId, TimeSpan timeout, out string? error) {
         var started = time.GetTimestamp();
         var (probeExit, probeOut, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(probeExit, probeOut, probeErr);
+        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeOut, probeErr);
 
         if (probe != LabelProbe.Absent) {
             error = $"cannot bootstrap-only '{serviceId}': launchctl print shows the label {probe} — refusing to kickstart";
@@ -459,7 +616,7 @@ sealed partial class LaunchdServiceManager(
 
         if (bootoutExit != 0) {
             var (queryExit, stdout, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdUnit.ClassifyPrint(queryExit, stdout, stderr);
+            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stdout, stderr);
 
             if (probe != LabelProbe.Absent) {
                 error = $"launchctl bootout failed (exit {bootoutExit}) and the label is still {probe}";

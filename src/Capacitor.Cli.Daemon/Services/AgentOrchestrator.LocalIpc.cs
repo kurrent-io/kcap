@@ -547,7 +547,8 @@ internal partial class AgentOrchestrator {
     /// private agent — a composer typing at its own local agent would otherwise be acked for a stop
     /// that never happened.</summary>
     async Task<SendTextAckDto> AnswerSendTextCoreAsync(string agentId, string text, string[]? attachmentIds) {
-        if (string.IsNullOrWhiteSpace(text)) return Refuse(SendTextReasons.TextEmpty, "text is empty");
+        if (string.IsNullOrWhiteSpace(text) && attachmentIds is not { Length: > 0 })
+            return Refuse(SendTextReasons.TextEmpty, "text is empty");
         if (Encoding.UTF8.GetByteCount(text) > InputWire.MaxTextBytes)
             return Refuse(SendTextReasons.TooLarge, $"text exceeds {InputWire.MaxTextBytes} bytes");
         if (!_agents.TryGetValue(agentId, out var agent)) return Refuse(SendTextReasons.NoSuchAgent, $"no agent {agentId}");
@@ -841,7 +842,11 @@ internal partial class AgentOrchestrator {
         // Ahead of what this daemon holds: a hook on another profile goes to another server, which a recorder here never reaches.
         if (TerminalRefusal(source) is { } refusal) return RefuseTerminal(handed.Key, refusal);
 
-        if (recorder.Holds(handed.Key)) return RecordingIpc.Recording;
+        // Answered as recording, the hook would leave the session to a recorder that has stopped beating its claim. Refused,
+        // it takes the claim for a watcher, and this daemon's recorder stops when it finds the claim gone.
+        if (recorder.Holds(handed.Key))
+            return recorder.HoldsFresh(handed.Key) ? RecordingIpc.Recording : RefuseTerminal(handed.Key, "its claim here has gone stale, so a watcher takes it");
+
         if (recorder.Undecided) return RecordingIpc.NotYet;
         if (!recorder.Enabled) return RecordingIpc.Refused;
 
@@ -871,8 +876,8 @@ internal partial class AgentOrchestrator {
     IEnumerable<string> ClaudeHomes() {
         yield return ClaudePathsFor(null).Home;
 
-        foreach (var account in _config.Accounts?.TryLoad()?.Accounts ?? [])
-            if (account.Vendor == HarnessId.Claude) yield return AccountLayouts.Claude(_config.Home, account.Directory).Home;
+        foreach (var account in (_config.Accounts?.TryLoad()?.Accounts ?? []).Where(registered => registered.Vendor == HarnessId.Claude))
+            yield return AccountLayouts.Claude(_config.Home, account.Directory).Home;
     }
 
     static bool SameDirectory(string hook, string own) =>
@@ -903,11 +908,14 @@ internal partial class AgentOrchestrator {
     public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
         // Where this daemon reads it, which a daemon under another config directory doesn't share: a restart would otherwise
         // pick the session up again. The id names a file, and any local process can send the frame.
+        var markFailed = false;
+
         if (Guid.TryParse(sessionId, out var guid) && guid.ToString("N") is var session) {
             try {
                 DisabledSessions.Mark(session, _config.ConfigRoot);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 LogDisableMarkFailed(ex, session);
+                markFailed = true;
             }
         }
 
@@ -918,7 +926,7 @@ internal partial class AgentOrchestrator {
             RecordingDisable.SendInFlight  => RecordingIpc.SendInFlight,
             RecordingDisable.StillStopping => RecordingIpc.StillStopping,
             _                              => RecordingIpc.NotHeld,
-        }, HostsLiveOutput(sessionId), _config.ServerUrl);
+        }, HostsLiveOutput(sessionId), _config.ServerUrl, markFailed);
 
         try {
             await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(JsonSerializer.Serialize(answer, RecordingIpcJsonContext.Default.DisableSessionAckDto)), ct);

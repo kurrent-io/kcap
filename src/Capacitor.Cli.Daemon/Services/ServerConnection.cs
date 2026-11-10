@@ -725,26 +725,25 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             Accounts: GetAccountsSnapshot?.Invoke(),
             HeadlessVendors: AdvertisedHeadlessVendors(),
             SupportsScratchWorkspace: true,
-            SupportsHandoffLaunch: true, SupportsResumeInPlace: true);
+            SupportsHandoffLaunch: true, SupportsResumeInPlace: true, SupportsDenyMessage: true, SupportsInputAcks: true);
     }
 
     async Task DaemonConnectCoreAsync(RegistrationAttempt attempt) {
         var platform  = $"{RuntimeInformation.OSDescription} {RuntimeInformation.OSArchitecture}";
-        var repoStore = FingerprintRepoStore();
-        var repoPaths = await MergeRepoPathsAsync();
+        var repos     = await BuildRepoAdvertisementAsync();
         var recovery   = GetRecoverySnapshot?.Invoke();
         var liveIds    = recovery?.LiveIds ?? GetLiveAgentIds?.Invoke() ?? [];
         var liveAgents = recovery?.LiveAgents ?? GetLiveAgents?.Invoke();
         // Read once, under the register lock: the payload and the acknowledgement are this one value, and
         // a later send never carries an older advertisement than an earlier one.
         var advertised = _config.Advertisement;
-        var connect    = BuildDaemonConnect(platform, repoPaths, liveIds, liveAgents, advertised, recovery);
+        var connect    = BuildDaemonConnect(platform, repos.Paths, liveIds, liveAgents, advertised, recovery);
         // Only a built payload carries the advertisement; a build that throws leaves the starting snapshot.
         attempt.Sending(advertised);
 
         try {
             await InvokeDaemonConnectRawAsync(connect);
-            _advertisedRepoStore = repoStore;
+            _advertisedRepos     = repos;
             _connectAccounts     = connect.Accounts;
             attempt.Accept();
         } catch (Exception ex) when (IsNameInUse(ex)) {
@@ -781,11 +780,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// by the caller so they never un-register the daemon.</summary>
     internal Func<Task>? OnRegisteredHook { get; set; }
 
-    /// <summary>The <c>repos.json</c> the server's copy of the repo paths was read from; null until a
-    /// send succeeds. <see cref="RepoStoreWatcher"/> re-sends when the file differs from it.</summary>
-    internal RepoStoreFingerprint? AdvertisedRepoStore => _advertisedRepoStore;
+    /// <summary>The server's copy of the repo paths and what it was built from; null until a send
+    /// succeeds. <see cref="RepoStoreWatcher"/> re-sends once it is no longer current.</summary>
+    internal RepoAdvertisement? AdvertisedRepos => _advertisedRepos;
 
-    volatile RepoStoreFingerprint? _advertisedRepoStore;
+    volatile RepoAdvertisement? _advertisedRepos;
 
     volatile AccountsSnapshotDto? _connectAccounts;
 
@@ -799,12 +798,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             : AccountsChangedAsync(current);
     }
 
-    // Taken before the read it pairs with, so a write landing during the read still reads as a
-    // change afterwards.
-    RepoStoreFingerprint? FingerprintRepoStore() => new RepoPathStore(_config.ConfigRoot, _time).Fingerprint();
-
-    async Task<string[]> MergeRepoPathsAsync() =>
-        AdvertisedRepoPaths.Merge(await new RepoPathStore(_config.ConfigRoot, _time).GetSortedPathsAsync(), _config.AllowedRepoPaths);
+    async Task<RepoAdvertisement> BuildRepoAdvertisementAsync() {
+        var store = new RepoPathStore(_config.ConfigRoot, _time);
+        // Taken before the read it pairs with, so a write landing during the read still reads as a
+        // change afterwards.
+        var fingerprint = store.Fingerprint();
+        var (paths, missing) = AdvertisedRepoPaths.Merge(await store.GetSortedPathsAsync(), _config.AllowedRepoPaths);
+        return new RepoAdvertisement(fingerprint, paths, missing);
+    }
 
     /// <summary>
     /// Auto-reconnect started: the transport is no longer Connected and the
@@ -960,10 +961,9 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
 
         try {
-            var repoStore = FingerprintRepoStore();
-            var repoPaths = await MergeRepoPathsAsync();
-            await SendRepoPathsAsync(repoPaths);
-            _advertisedRepoStore = repoStore;
+            var repos = await BuildRepoAdvertisementAsync();
+            await SendRepoPathsAsync(repos.Paths);
+            _advertisedRepos = repos;
         } catch (Exception ex) {
             LogRepoPathUpdateFailed(ex);
         } finally {
@@ -1148,6 +1148,17 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                 .WaitAsync(SendInputRejectedBudget, _time, _ct);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report the dropped input for agent {AgentId} ({Reason})", agentId, reason);
+        }
+    }
+
+    /// <summary>Tells the server this daemon took a dispatched input, so it stops resending it. Swallowed
+    /// at Debug, like a refusal report: an older server has no such method and never resends.</summary>
+    public virtual async Task SendInputAckedAsync(Guid dispatchId, string agentId) {
+        try {
+            await _hub.InvokeAsync("SendInputAcked", new SendInputAcked(dispatchId, agentId), cancellationToken: _ct)
+                .WaitAsync(SendInputRejectedBudget, _time, _ct);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Could not acknowledge input {DispatchId} for agent {AgentId}", dispatchId, agentId);
         }
     }
 

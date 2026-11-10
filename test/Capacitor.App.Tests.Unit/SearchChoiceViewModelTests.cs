@@ -11,6 +11,79 @@ namespace Capacitor.App.Tests.Unit;
 [NotInParallel("AvaloniaSession")]
 public class SearchChoiceViewModelTests {
     [Test]
+    public async Task A_running_ollama_never_looks_for_an_installation() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var installedChecks = 0;
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => {
+                installedChecks++;
+                return Task.FromResult(false);
+            });
+            await vm.CheckOllamaCommand.Execute().ToTask();
+
+            await Assert.That(installedChecks).IsEqualTo(0);
+            await Assert.That(vm.UseOllama).IsTrue();
+            await Assert.That(vm.OllamaStatus).IsNull();
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task Installation_discovery_waits_for_HTTP_and_typing_does_not_repeat_it() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var available = new TaskCompletionSource<bool>();
+            var installed = new TaskCompletionSource<bool>();
+            var started = new TaskCompletionSource();
+            var installedChecks = 0;
+            var vm = new SearchChoiceViewModel(_ => available.Task, _ => {
+                installedChecks++;
+                started.SetResult();
+                return installed.Task;
+            });
+            var check = vm.CheckOllamaAsync(CancellationToken.None);
+            await Assert.That(installedChecks).IsEqualTo(0);
+            await Assert.That(vm.Checking).IsTrue();
+            available.SetResult(false);
+            await started.Task;
+            vm.UseOllama = true;
+            vm.UseOther = true;
+            vm.OtherModel = "n";
+            vm.OtherModel = "nomic-embed-text";
+            await vm.CheckOllamaAsync(CancellationToken.None);
+            await Assert.That(installedChecks).IsEqualTo(1);
+            await Assert.That(vm.OllamaStatus).IsEqualTo("Looking for Ollama…");
+
+            installed.SetResult(true);
+            await check;
+            await Assert.That(vm.OllamaStatus).IsEqualTo("Ollama is installed but not running. Open it.");
+            await Assert.That(vm.OllamaLinkVisible).IsFalse();
+            await Assert.That(vm.Choice.Model).IsEqualTo("nomic-embed-text");
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task A_canceled_discovery_keeps_the_last_status_even_if_it_returns_late() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var installed = new TaskCompletionSource<bool>();
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => installed.Task);
+            using var cancellation = new CancellationTokenSource();
+            var check = vm.CheckOllamaAsync(cancellation.Token);
+            await cancellation.CancelAsync();
+            installed.SetResult(true);
+            await Assert.ThrowsAsync<OperationCanceledException>(() => check);
+
+            await Assert.That(vm.Checking).IsFalse();
+            await Assert.That(vm.OllamaStatus).IsNull();
+            await Assert.That(vm.OllamaMissing).IsFalse();
+            await Assert.That(vm.UseKeyword).IsTrue();
+
+            await vm.CheckOllamaAsync(CancellationToken.None);
+            await Assert.That(vm.OllamaStatus).IsEqualTo("Ollama is installed but not running. Open it.");
+            return true;
+        });
+    }
+
+    [Test]
     public async Task Keyword_search_does_not_require_a_valid_model_and_preserves_the_custom_choice() {
         var vm = new SearchChoiceViewModel { UseOllama = true, UseOther = true, OtherModel = "bad model" };
         await Assert.That(vm.Valid).IsFalse();
@@ -26,7 +99,7 @@ public class SearchChoiceViewModelTests {
     public async Task A_fresh_choice_recommends_ollama_when_it_runs_and_the_builtin_model_otherwise_without_a_flag() {
         await AvaloniaSession.DispatchAsync(async () => {
             var running = false;
-            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), () => false);
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), _ => Task.FromResult(false));
             vm.Prefill(null);
             vm.OfferBuiltin(Offered);
             await vm.CheckOllamaCommand.Execute().ToTask();
@@ -49,7 +122,7 @@ public class SearchChoiceViewModelTests {
     [Test]
     public async Task Picking_the_builtin_model_or_loading_it_as_recorded_names_it_with_its_flag() {
         await AvaloniaSession.DispatchAsync(async () => {
-            var picked = new SearchChoiceViewModel(_ => Task.FromResult(true), () => true);
+            var picked = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => Task.FromResult(true));
             picked.Prefill(null);
             picked.OfferBuiltin(Offered);
             await picked.CheckOllamaCommand.Execute().ToTask();
@@ -58,7 +131,7 @@ public class SearchChoiceViewModelTests {
             await Assert.That(picked.Choice).IsEqualTo(LocalEmbeddingChoice.Builtin);
             await Assert.That(picked.Choice.Args).IsEquivalentTo(["--builtin-embeddings"]);
 
-            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(true), () => true);
+            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => Task.FromResult(true));
             recorded.Prefill(LocalEmbeddingSetting.Builtin(new string('a', 64)));
             await recorded.CheckOllamaCommand.Execute().ToTask();
             await Assert.That(recorded.UseBuiltin).IsTrue();
@@ -75,7 +148,7 @@ public class SearchChoiceViewModelTests {
     public async Task A_stack_offering_no_builtin_model_recommends_ollama_or_keyword_search() {
         await AvaloniaSession.DispatchAsync(async () => {
             var running = false;
-            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), () => false);
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), _ => Task.FromResult(false));
             vm.Prefill(null);
             vm.OfferBuiltin(null);
             await vm.CheckOllamaCommand.Execute().ToTask();
@@ -105,7 +178,7 @@ public class SearchChoiceViewModelTests {
     [Test]
     public async Task Builtin_is_offered_as_a_new_choice_only_once_the_lookup_finds_it() {
         await AvaloniaSession.DispatchAsync(async () => {
-            var vm = new SearchChoiceViewModel(_ => Task.FromResult(false), () => false);
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(false));
             vm.Prefill(null);
             await vm.CheckOllamaCommand.Execute().ToTask();
             await Assert.That(vm.BuiltinEnabled).IsFalse();
@@ -121,7 +194,7 @@ public class SearchChoiceViewModelTests {
             await Assert.That(vm.BuiltinStatus).IsNull();
             await Assert.That(vm.Choice).IsEqualTo(LocalEmbeddingChoice.Recommended(LocalEmbeddingChoice.Builtin));
 
-            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), () => false);
+            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(false));
             recorded.Prefill(LocalEmbeddingSetting.Builtin(new string('a', 64)));
             await Assert.That(recorded.BuiltinEnabled).IsTrue();
             await Assert.That(recorded.Choice).IsEqualTo(LocalEmbeddingChoice.Builtin);
@@ -132,7 +205,7 @@ public class SearchChoiceViewModelTests {
     [Test]
     public async Task A_builtin_pick_the_stack_cannot_honour_falls_back_but_a_recorded_one_stays() {
         await AvaloniaSession.DispatchAsync(async () => {
-            var picked = new SearchChoiceViewModel(_ => Task.FromResult(false), () => false);
+            var picked = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(false));
             picked.Prefill(LocalEmbeddingSetting.Declined);
             picked.OfferBuiltin(Offered);
             picked.UseBuiltin = true;
@@ -140,7 +213,7 @@ public class SearchChoiceViewModelTests {
             await Assert.That(picked.UseKeyword).IsTrue();
             await Assert.That(picked.Choice.Args).IsEmpty();
 
-            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), () => false);
+            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(false));
             recorded.Prefill(LocalEmbeddingSetting.Builtin(new string('a', 64)));
             recorded.OfferBuiltin(null);
             await Assert.That(recorded.UseBuiltin).IsTrue();
@@ -163,7 +236,7 @@ public class SearchChoiceViewModelTests {
         await AvaloniaSession.DispatchAsync(async () => {
             var installed = false;
             var opener = new RecordingOpener();
-            var vm = new SearchChoiceViewModel(_ => Task.FromResult(false), () => installed, opener);
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(installed), opener);
             await vm.CheckOllamaCommand.Execute().ToTask();
             await Assert.That(vm.OllamaStatus).IsEqualTo("Ollama is not installed.");
             await Assert.That(vm.OllamaLinkVisible).IsTrue();
@@ -181,7 +254,7 @@ public class SearchChoiceViewModelTests {
     [Test]
     public async Task A_pick_or_a_recorded_choice_is_not_overridden_by_a_later_check() {
         await AvaloniaSession.DispatchAsync(async () => {
-            var picked = new SearchChoiceViewModel(_ => Task.FromResult(true), () => true);
+            var picked = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => Task.FromResult(true));
             picked.Prefill(null);
             await picked.CheckOllamaCommand.Execute().ToTask();
             picked.UseKeyword = true;
@@ -189,7 +262,7 @@ public class SearchChoiceViewModelTests {
             await Assert.That(picked.UseKeyword).IsTrue();
 
             var running = true;
-            var model = new SearchChoiceViewModel(_ => Task.FromResult(running), () => true);
+            var model = new SearchChoiceViewModel(_ => Task.FromResult(running), _ => Task.FromResult(true));
             model.Prefill(null);
             await model.CheckOllamaCommand.Execute().ToTask();
             model.UseOther   = true;
@@ -198,7 +271,7 @@ public class SearchChoiceViewModelTests {
             await model.CheckOllamaCommand.Execute().ToTask();
             await Assert.That(model.Choice.Model).IsEqualTo("nomic-embed-text");
 
-            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), () => false);
+            var recorded = new SearchChoiceViewModel(_ => Task.FromResult(false), _ => Task.FromResult(false));
             recorded.Prefill(LocalEmbeddingSetting.Ollama("nomic-embed-text"));
             await recorded.CheckOllamaCommand.Execute().ToTask();
             await Assert.That(recorded.Choice.Model).IsEqualTo("nomic-embed-text");
@@ -212,8 +285,8 @@ public class SearchChoiceViewModelTests {
     [Test]
     public async Task Search_modes_and_model_groups_are_independent_across_views() {
         await AvaloniaSession.DispatchAsync(async () => {
-            var first = new SearchChoiceViewModel(_ => Task.FromResult(true), () => true);
-            var second = new SearchChoiceViewModel(_ => Task.FromResult(true), () => true);
+            var first = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => Task.FromResult(true));
+            var second = new SearchChoiceViewModel(_ => Task.FromResult(true), _ => Task.FromResult(true));
             var firstView = new SearchChoiceView { DataContext = first };
             var secondView = new SearchChoiceView { DataContext = second };
             var window = new Window { Content = new StackPanel { Children = { firstView, secondView } } };
@@ -244,7 +317,7 @@ public class SearchChoiceViewModelTests {
     public async Task Returning_to_the_window_rechecks_a_missing_ollama() {
         var useMeaning = await AvaloniaSession.DispatchAsync(async () => {
             var running = false;
-            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), () => false);
+            var vm = new SearchChoiceViewModel(_ => Task.FromResult(running), _ => Task.FromResult(false));
             vm.Prefill(null);
             var window = new Window { Content = new SearchChoiceView { DataContext = vm } };
             var other = new Window();

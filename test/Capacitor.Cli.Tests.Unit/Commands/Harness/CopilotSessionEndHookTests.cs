@@ -60,10 +60,11 @@ public class CopilotSessionEndHookTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var client   = new FixedCapacitorHttpClient();
         var watchers = new WatcherManager(Config.Root, profiles, client, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
+        using var stdin = new StringReader(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit" }.ToJsonString());
 
         await new CopilotHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home),
                 HostedAgent.Terminal, client, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
-            .Handle(new StringReader(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit" }.ToJsonString()), ["--event", "sessionEnd"]);
+            .Handle(stdin, ["--event", "sessionEnd"]);
 
         await Assert.That(DisabledSessions.IsDisabled(marker, Config.Root)).IsEqualTo(!excluded);
         await Assert.That(_server.LogEntries).IsEmpty();
@@ -77,10 +78,11 @@ public class CopilotSessionEndHookTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var client   = new FixedCapacitorHttpClient();
         var watchers = new WatcherManager(Config.Root, profiles, client, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
+        using var stdin = new StringReader(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit" }.ToJsonString());
 
         await new CopilotHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home),
                 HostedAgent.Terminal, client, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
-            .Handle(new StringReader(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit" }.ToJsonString()), ["--event", "sessionEnd"]);
+            .Handle(stdin, ["--event", "sessionEnd"]);
 
         var posted = JsonNode.Parse(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost()).Single().RequestMessage.Body!)!;
         await Assert.That(posted["ended_at"]?.GetValue<string>()).IsNotNull();

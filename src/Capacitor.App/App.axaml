@@ -1,6 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:notifications="using:Avalonia.Controls.Notifications"
              x:Class="Capacitor.App.App"
              Name="kcap"
              RequestedThemeVariant="Dark">
@@ -66,6 +67,19 @@
         <StyleInclude Source="avares://kcap-desktop/Views/PullRequestStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/ChatBubbleStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingStyles.axaml" />
+        <StyleInclude Source="avares://kcap-desktop/Views/StatusStyles.axaml" />
+        <!-- Fluent's notification template cuts a long message off after a few lines, which can drop the instruction it
+             ends with. -->
+        <Style Selector="NotificationCard">
+            <Setter Property="ContentTemplate">
+                <DataTemplate DataType="notifications:INotification">
+                    <StackPanel Margin="12,10" Spacing="2">
+                        <TextBlock Text="{Binding Title}" FontWeight="Medium" />
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </DataTemplate>
+            </Setter>
+        </Style>
         <!-- Popup panels drawn on our tokens: the flyout presenter IS the panel (no inner Border
              fighting the theme's own chrome). Opted into per flyout via FlyoutPresenterClasses.
              Fluent's ControlTheme defaults ScrollViewer.HorizontalScrollBarVisibility=Auto on the

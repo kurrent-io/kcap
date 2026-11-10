@@ -23,7 +23,7 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     enum Mode { Keyword, Builtin, Ollama }
 
     readonly Func<CancellationToken, Task<bool>> _ollamaAvailable;
-    readonly Func<bool> _ollamaInstalled;
+    readonly Func<CancellationToken, Task<bool>> _ollamaInstalled;
     readonly IUrlOpener _opener;
     Mode _mode = Mode.Keyword;
     bool _useOther, _checking, _ollamaInstalledNow;
@@ -38,9 +38,10 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     string _otherModel = "";
 
     public SearchChoiceViewModel(
-            Func<CancellationToken, Task<bool>>? ollamaAvailable = null, Func<bool>? ollamaInstalled = null, IUrlOpener? opener = null) {
+            Func<CancellationToken, Task<bool>>? ollamaAvailable = null,
+            Func<CancellationToken, Task<bool>>? ollamaInstalled = null, IUrlOpener? opener = null) {
         _ollamaAvailable = ollamaAvailable ?? LocalOllamaAvailability.CheckAsync;
-        _ollamaInstalled = ollamaInstalled ?? LocalOllamaAvailability.Installed;
+        _ollamaInstalled = ollamaInstalled ?? LocalOllamaAvailability.InstalledAsync;
         _opener          = opener ?? new ShellUrlOpener();
         CheckOllamaCommand     = ReactiveCommand.CreateFromTask(CheckOllamaAsync);
         OpenOllamaSiteCommand  = ReactiveCommand.Create(() => _opener.Open(OllamaDownloadUrl));
@@ -152,13 +153,17 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
 
     public ReactiveCommand<Unit, Unit> CheckOllamaCommand { get; }
 
-    async Task CheckOllamaAsync(CancellationToken ct) {
+    internal async Task CheckOllamaAsync(CancellationToken ct) {
         if (Checking) return;
         Checking = true;
         RestateOllama();
         try {
-            _ollamaRunning      = await _ollamaAvailable(ct);
-            _ollamaInstalledNow = _ollamaRunning == true || _ollamaInstalled();
+            var running   = await _ollamaAvailable(ct);
+            ct.ThrowIfCancellationRequested();
+            var installed = running || await _ollamaInstalled(ct);
+            ct.ThrowIfCancellationRequested();
+            _ollamaRunning      = running;
+            _ollamaInstalledNow = installed;
         } finally {
             Checking = false;
             if (_followRecommendation && _ollamaRunning is not null) Select(Recommendation);

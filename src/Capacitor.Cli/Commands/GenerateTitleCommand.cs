@@ -47,7 +47,7 @@ sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, Ha
             return 0;
         }
 
-        var result = await TitleGeneration.GenerateAsync(userText, assistantText, time, Log, profiles.Resolution.Profile, harnesses, vendor);
+        var result = await TitleGeneration.GenerateAsync(userText, assistantText, time, Log, profiles.Resolution.Profile, harnesses, config, vendor);
 
         if (result is null) {
             Log("Title generation returned no usable title");

@@ -47,7 +47,7 @@ internal static class AgentCaptureScope {
     /// Repo resolution is skipped entirely when neither repo list is configured, so the common
     /// case reads no <c>.git/config</c> at all.
     /// </summary>
-    internal static bool IsOutOfScope(string? originCheckout, Profile? profile, UserHome home) {
+    internal static bool IsOutOfScope(string? originCheckout, Profile? profile, UserHome home, ConfigRoot config, string? serverUrl) {
         if (PathExclusion.IsOutOfScope(
                 originCheckout, profile?.AllowedPaths, profile?.ExcludedPaths, home)) {
             return true;
@@ -59,6 +59,8 @@ internal static class AgentCaptureScope {
         if (allowedRepos is not { Length: > 0 } && excludedRepos is not { Length: > 0 }) return false;
 
         return RepoScope.IsOutOfScope(
-            GitRepoKey.ForCheckout(originCheckout), allowedRepos, excludedRepos);
+            allowedRepos is { Length: > 0 } ? GitRepoKey.ScopeKeys(originCheckout, config, serverUrl) : [],
+            excludedRepos is { Length: > 0 } ? GitRepoKey.ExclusionKeys(originCheckout, config) : [],
+            allowedRepos, excludedRepos);
     }
 }

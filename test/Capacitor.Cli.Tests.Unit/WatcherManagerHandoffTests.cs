@@ -40,6 +40,15 @@ public class WatcherManagerHandoffTests {
 
     static ProcessIncarnation Follow(int? follows) => follows is { } pid ? new ProcessIncarnation(pid, "test:followed") : Claude;
 
+    /// <summary>A hook inside an agent that <see cref="OwnDaemon"/> hosts.</summary>
+    WatcherManager HostedHook() {
+        var hosted = new HostedAgent("agent-1", false, DaemonBridge.None);
+
+        return new(
+            Config.Root, Resolutions.At(Url, Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, Spawner, _time,
+            new LocalDaemonRecording(Daemons.Store, hosted, daemonName: OwnDaemon, time: _time), hosted);
+    }
+
     /// <summary>A daemon on its socket, which has written its recording marker as one with recording on does at boot.</summary>
     FakeRecordingDaemon Daemon(string name, params string[] capabilities) {
         DaemonRecordingMarker.Sync(Daemons.Store, name, recording: true);
@@ -107,6 +116,22 @@ public class WatcherManagerHandoffTests {
 
         await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
+    }
+
+    /// <summary>A daemon from before terminal sessions holds only hosted claims and reads a finish's whole text as the key,
+    /// so a hosted claim's finish is the bare key. Only a terminal claim's names the process the hook runs under.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Only_a_terminal_claims_finish_names_the_hooks_process(bool hosted) {
+        await using var daemon = Daemon(OwnDaemon, RecordingIpc.TerminalCapability);
+        daemon.Answer = RecordingIpc.Finished;
+        Claims.TryTake(Session, OwnDaemon, isHosted: hosted);
+
+        await (hosted ? HostedHook() : Hook()).InlineDrainAsync(Session, Transcript, agentId: null, from: Claude);
+
+        await Assert.That(daemon.Received.Single(frame => frame.Type == FrameType.FinishSource).Text)
+            .IsEqualTo(hosted ? Session : $"{Session}\n{Claude.Pid}\n{Claude.StartToken}");
     }
 
     [Test]

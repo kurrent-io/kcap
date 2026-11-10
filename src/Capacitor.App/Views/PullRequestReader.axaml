@@ -92,6 +92,8 @@
                 <StackPanel IsVisible="{Binding IsOverview}" Margin="0,8,0,0" Spacing="10">
                     <TextBlock Text="{Binding DescriptionNote}" Classes="prNote" IsVisible="{Binding DescriptionNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     <views:MarkdownView Text="{Binding Description}" OpenLink="{Binding OpenBodyLinkCommand}" Flavor="GitHub"
+                                        OpenSourceCommand="{Binding OpenGitHubCommand}"
+                                        CanOpenSource="{Binding CanOpenSource}"
                                         ReferenceBase="{Binding ReferenceBase}" />
                     <TextBlock Text="Description preview truncated. Open the pull request in your browser for the full text."
                                IsVisible="{Binding DescriptionTruncated}" Classes="prNote" />
@@ -184,6 +186,9 @@
                                                              FontSize="11.5" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
                                     </Border>
                                     <views:MarkdownView Text="{Binding Body}" IsVisible="{Binding HasBody}" Flavor="GitHub"
+                                        OpenSourceCommand="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenRowCommand}"
+                                        OpenSourceCommandParameter="{Binding}"
+                                        CanOpenSource="{Binding HasLink}"
                                         ReferenceBase="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).ReferenceBase}"
                                         OpenLink="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenBodyLinkCommand}" />
                                     <TextBlock Text="{Binding ItemNote}" IsVisible="{Binding HasItemNote}" Classes="prNote" />

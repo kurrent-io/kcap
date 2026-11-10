@@ -8,6 +8,10 @@ public interface IRepositoriesApi {
     /// throws, and an empty result is just an empty list.</summary>
     Task<List<RepoRecapEntry>> GetRecapsAsync(string repoHash, int limit, CancellationToken ct = default);
 
+    /// <summary>The hash the caller reads this repository's data by (<see cref="RepositoryHashes"/>); null when a
+    /// repository with no remote cannot be resolved.</summary>
+    Task<string?> HashForAsync(string owner, string name, CancellationToken ct = default);
+
     /// <summary>The curation decisions promoted for this repository, heaviest first. A caller that
     /// receives exactly <paramref name="limit"/> items has hit the page boundary.</summary>
     Task<CurationResult> GetPromotedCurationAsync(string repoHash, int limit, CancellationToken ct = default);

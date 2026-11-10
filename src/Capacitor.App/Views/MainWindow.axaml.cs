@@ -8,6 +8,7 @@ using Avalonia.Controls.Notifications;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
@@ -67,10 +68,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
-        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
-        ToolTip.SetTip(RailToggleButton, $"{tip} ({ShortcutLabels.ToggleSidebar})");
-        AutomationProperties.SetName(RailToggleButton, tip);
+        ApplyRailAttention();
         ApplyRailClearance();
+    }
+
+    void ApplyRailAttention() {
+        var collapsed = Panes.RailCollapsed;
+        var attention = ViewModel?.RailAttention ?? RailAttentionSummary.None;
+        RailAttentionMark.IsVisible = collapsed && attention.HasAttention;
+        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
+        var summary = collapsed && attention.HasAttention ? attention.Text : null;
+        ToolTip.SetTip(RailToggleButton, summary is null
+            ? (object)$"{tip} ({ShortcutLabels.ToggleSidebar})"
+            : new TextBlock { Text = $"{summary}\n{tip} ({ShortcutLabels.ToggleSidebar})", MaxWidth = 360, TextWrapping = TextWrapping.Wrap });
+        AutomationProperties.SetName(RailToggleButton, summary is null ? tip : $"{tip}: {summary}");
     }
 
     void LimitRail() =>
@@ -194,6 +205,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
+        // The negative right margin keeps a wide count from widening the toggle's slot and moving Back.
+        var iconInset = (RailClearance.ButtonSize - 16) / 2;
+        RailAttentionMark.Margin = new Thickness(iconInset + 8, iconInset - 4, -24, 0);
         SessionsSurface.SizeChanged += (_, _) => LimitRail();
         Panes.Changed += (_, _) => {
             ApplyRail();
@@ -218,7 +232,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         };
         BindRefreshShortcuts();
         BindSearchShortcuts();
+        BindRailStepShortcuts();
         BindSidebarShortcut();
+        BindFindShortcut();
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
@@ -239,6 +255,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
         var switchCover = new WorkspaceSwitchCover(ContentPane, SwitchCover, SwitchCoverStill);
         this.WhenActivated(disposables => {
+            Observable.Switch(this.WhenAnyValue(x => x.ViewModel)
+                    .Select(vm => vm is null ? Observable.Return(RailAttentionSummary.None) : vm.WhenAnyValue(x => x.RailAttention)))
+                .Subscribe(_ => ApplyRailAttention())
+                .DisposeWith(disposables);
             var coverTracking = new SerialDisposable().DisposeWith(disposables);
             this.WhenAnyValue(x => x.ViewModel)
                 .Subscribe(vm => coverTracking.Disposable = vm is null ? null : switchCover.Track(vm))
@@ -296,6 +316,30 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
+    // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
+    // and TUI keys.
+    void BindFindShortcut() {
+        var open = ReactiveCommand.Create(() => FindTarget()?.OpenFind());
+        var next = ReactiveCommand.Create(() => FindTarget()?.StepFind(backwards: false));
+        var previous = ReactiveCommand.Create(() => FindTarget()?.StepFind(backwards: true));
+        if (ShortcutLabels.UsesCommandKey) {
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Meta), Command = open });
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.G, KeyModifiers.Meta), Command = next });
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.G, KeyModifiers.Meta | KeyModifiers.Shift), Command = previous });
+        } else {
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, open) });
+        }
+        KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F3), Command = new UnlessTerminalFocused(this, next) });
+        KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F3, KeyModifiers.Shift), Command = new UnlessTerminalFocused(this, previous) });
+    }
+
+    /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
+    ChatTabView? FindTarget() {
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
+            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
+    }
+
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.
     void BindSearchShortcuts() {
         var meta = new KeyBinding { Gesture = new KeyGesture(Key.K, KeyModifiers.Meta) };
@@ -309,6 +353,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
         void Apply() {
             if ((DataContext as MainWindowViewModel)?.OpenSearchCommand is { } command) meta.Command = command;
+        }
+        Apply();
+        DataContextChanged += (_, _) => Apply();
+    }
+
+    // Ctrl+PageUp and Ctrl+PageDown on every platform, terminal focus included: they step through
+    // the sessions in the rail, which is how a user moves between agents' terminals.
+    void BindRailStepShortcuts() {
+        var previous = new KeyBinding { Gesture = new KeyGesture(Key.PageUp, KeyModifiers.Control) };
+        var next = new KeyBinding { Gesture = new KeyGesture(Key.PageDown, KeyModifiers.Control) };
+        KeyBindings.Add(previous);
+        KeyBindings.Add(next);
+
+        void Apply() {
+            if ((DataContext as MainWindowViewModel)?.Rail is not { } rail) return;
+            previous.Command = rail.OpenPreviousSessionCommand;
+            next.Command = rail.OpenNextSessionCommand;
         }
         Apply();
         DataContextChanged += (_, _) => Apply();
@@ -413,7 +474,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     // entirely), is invisible to the user — stderr (AppNotifier's own mirroring) is the only
     // channel that survives either case.
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, TimeSpan.FromSeconds(4)));
+        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, ToastDuration(message)));
+
+    // About fifteen characters a second to read it, never under four seconds or past twenty.
+    internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
     void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>

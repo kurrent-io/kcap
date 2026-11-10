@@ -207,9 +207,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<string?> _liveNotShownText;
     public string? LiveNotShownText => _liveNotShownText.Value;
     public ReactiveCommand<Unit, Unit> ShowMoreCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenPreviousSessionCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenNextSessionCommand { get; }
 
     readonly ObservableCollectionExtended<RailGroupViewModel> _groupsSource = new();
     public ReadOnlyObservableCollection<RailGroupViewModel> Groups { get; }
+
+    readonly ObservableAsPropertyHelper<(int Count, int Failed)> _attention;
+    /// Independent of display filters: a hidden row can still need the user.
+    public (int Count, int Failed) Attention => _attention.Value;
 
     public SessionRailViewModel(
             IAgentDirectory directory,
@@ -246,6 +252,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
+        OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
+        OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
         if (shownRows is not null) _stateFilter.Subscribe(shownRows.OnNext).DisposeWith(_disposables);
         _rowComparer = new BehaviorSubject<IComparer<RailSessionViewModel>>(RowComparer(_sort, _descending)).DisposeWith(_disposables);
@@ -272,6 +280,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
         var answering = (agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
+        var attentionFilter = pending.CombineLatest(answering, (permissions, answers) =>
+            (Func<AgentRow, bool>)(row => SessionStatusDots.NeedsAttention(row) || permissions.Contains(row.Id) || answers.Contains(row.Id)));
+        _attention = directory.Rows.Connect()
+            .Filter(attentionFilter)
+            .QueryWhenChanged(rows => (Count: rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
+            .DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .ToProperty(this, x => x.Attention, initialValue: (0, 0))
+            .DisposeWith(_disposables);
         // Marshaled once here, like `pending` above, so every nested OAPH downstream sees it on
         // the UI thread without its own ObserveOn.
         var stale = directory.RemoteStale.ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
@@ -295,10 +312,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.AtCap, initialValue: false).DisposeWith(_disposables);
         _liveNotShownText = (sessions?.LiveNotShown ?? Observable.Return(0))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Select(n => n > 0 ? $"{n} more live sessions · narrow the scope" : null)
+            .Select(n => n > 0 ? $"{n} more live session{(n == 1 ? "" : "s")} · narrow the scope" : null)
             .ToProperty(this, x => x.LiveNotShownText, initialValue: null).DisposeWith(_disposables);
-        ShowMoreCommand = ReactiveCommand.CreateFromTask(
-            () => sessions?.ShowMoreAsync() ?? Task.CompletedTask, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);
+        ShowMoreCommand = ReactiveCommand.CreateFromObservable(
+            ShowMore, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);
 
         // The lane names the viewer after the rail has opened in the last user's shape; a read that
         // fails keeps the shape already showing.
@@ -340,6 +357,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
     }
 
+    IObservable<Unit> ShowMore() {
+        var loaded = _directory.Rows.Keys.ToHashSet(StringComparer.Ordinal);
+        return Observable.FromAsync(() => _sessions?.ShowMoreAsync() ?? Task.CompletedTask)
+            // The directory queues its rows before the read completes; reveal them on the UI thread
+            // after those changes reach the groups. Background refreshes keep the user's folds.
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Do(_ => {
+                if (_disposables.IsDisposed) return;
+                foreach (var group in Groups.Where(g => g.Sessions.Any(s => s is { IsServer: true, IsEnded: true } && !loaded.Contains(s.Key))))
+                    group.Expand();
+            });
+    }
+
     /// Another user's remembered shape, or this user's set now that the lane has named them: applied
     /// without writing it back.
     public void ApplyPreferences(RailPreferences preferences) {
@@ -371,6 +401,22 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var groupKey = GroupKeyOf(row.Value);
         _collapsed.Remove(groupKey);
         Groups.FirstOrDefault(group => group.Key == groupKey)?.Expand();
+    }
+
+    /// Opens the row `step` places from the selected one in the order the rail draws, skipping rows
+    /// in folded groups and stopping at either end. With nothing selected it starts from the end it
+    /// moves away from.
+    internal bool OpenAdjacent(int step) {
+        if (_disposables.IsDisposed) return false;
+        var rows = Groups.SelectMany(group => group.Sessions.Select(row => (Row: row, Shown: group.IsExpanded))).ToList();
+        var at = rows.FindIndex(r => r.Row.IsSelected);
+        if (at < 0) at = step > 0 ? -1 : rows.Count;
+        for (var i = at + step; i >= 0 && i < rows.Count; i += step) {
+            if (!rows[i].Shown) continue;
+            rows[i].Row.OpenCommand.Execute().Subscribe();
+            return true;
+        }
+        return false;
     }
 
     void Persist() {

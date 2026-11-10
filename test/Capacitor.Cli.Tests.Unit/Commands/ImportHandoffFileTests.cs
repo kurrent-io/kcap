@@ -38,6 +38,18 @@ public class ImportHandoffFileTests {
         await Assert.That(json["background_log"]!.GetValue<string>()).IsEqualTo("/tmp/import-x.log");
     }
 
+    /// <summary>The server and older eval-watch skills know four statuses, so an unconfirmed child goes
+    /// out as the "running" it reported before setup asked it to confirm.</summary>
+    [Test]
+    public async Task An_unconfirmed_child_is_written_as_running() {
+        var file = ImportHandoffFile.Compose(RunId, Now, true, null, Outcome(3, "c000"),
+            new(BackgroundImportStatus.Unconfirmed, "/tmp/import-x.log", null, null),
+            "https://acme.kcap.ai/", "work", unattributedOnDisk: 0);
+        var json = JsonNode.Parse(file.ToJson())!.AsObject();
+
+        await Assert.That(json["background"]!.GetValue<string>()).IsEqualTo("running");
+    }
+
     [Test]
     public async Task More_than_500_candidates_keeps_the_first_500_as_partial_exact() {
         var file = Compose(Outcome(candidates: 600));

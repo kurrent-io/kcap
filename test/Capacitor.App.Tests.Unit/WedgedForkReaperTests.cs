@@ -35,6 +35,15 @@ public class WedgedForkReaperTests {
         public override DateTimeOffset GetUtcNow() => Wall;
     }
 
+    /// The real probe, listing only <paramref name="pid"/>: the test host is shared, and with the clock past the grace
+    /// period a sweep over all its children kills any concurrent test's child that has not reached exec yet.
+    sealed class OnlyChild(IChildProcessProbe probe, int pid) : IChildProcessProbe {
+        public IReadOnlyList<int> Children() => probe.Children().Contains(pid) ? [pid] : [];
+        public bool? HasExeced(int p) => probe.HasExeced(p);
+        public string? Identity(int p) => probe.Identity(p);
+        public void Kill(int p) => probe.Kill(p);
+    }
+
     readonly SplitClock _time = new();
     readonly List<string> _reports = [];
 
@@ -152,7 +161,7 @@ public class WedgedForkReaperTests {
             await Assert.That(probe.HasExeced(Environment.ProcessId)).IsTrue();
             await Assert.That(probe.Identity(child.Id)).IsNotNull();
 
-            var reaper = new WedgedForkReaper(probe, _time, _reports.Add);
+            var reaper = new WedgedForkReaper(new OnlyChild(probe, child.Id), _time, _reports.Add);
             reaper.Sweep();
             _time.Advance(WedgedForkReaper.Grace);
             await Assert.That(reaper.Sweep()).IsEqualTo(0);

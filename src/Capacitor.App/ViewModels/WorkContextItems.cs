@@ -26,6 +26,8 @@ public sealed class WorkContextPartViewModel(string title, WorkContextPartMark m
 /// A pull-request or issue card. The URL is server-returned, so it crosses the same trust boundary
 /// the chat tab applies before a link reaches the shell opener.
 public sealed class WorkContextLinkViewModel {
+    public const string TitleMissingNote = "Title not available";
+
     public string  Eyebrow  { get; }
     public string  Key      { get; }
     public string  Title    { get; }
@@ -33,7 +35,7 @@ public sealed class WorkContextLinkViewModel {
     /// Server kind/provider/value when projected from a work-item link; empty for legacy PR cards.
     public string  Identity { get; }
     public bool    CanOpen  { get; }
-    public string  AccessibleName => Title.Length == 0 ? Key : $"{Key}: {Title}";
+    public string  AccessibleName => $"{Key}: {(Title.Length == 0 ? TitleMissingNote : Title)}";
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
 
     public WorkContextLinkViewModel(string eyebrow, string key, string title, string? url, IUrlOpener opener, string identity = "") {

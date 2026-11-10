@@ -44,6 +44,7 @@ public class MainWindowSearchTests {
                     },
                     Host.Sessions.Identity, AccessChanged, new FakeTimeProvider(), Scheduler, open),
                 sessions: Host.Sessions);
+            Vm.Search!.Tab = SearchMode.Sessions;
         }
 
         public FakeServerSessionsService Sessions => Host.Sessions;
@@ -60,7 +61,12 @@ public class MainWindowSearchTests {
             return Vm.Search.Hits[0];
         }
 
-        public Task OpenSearch() => Vm.OpenSearchCommand.Execute().ToTask();
+        /// Opens the page on the server Sessions tab; a call while it is open only asks for focus.
+        public async Task OpenSearch() {
+            var opening = !Vm.IsSearchOpen;
+            await Vm.OpenSearchCommand.Execute().ToTask();
+            if (opening) Vm.Search!.Tab = SearchMode.Sessions;
+        }
 
         /// The open session-only workspace's session is taken up by a daemon on another machine.
         public void HandOffToRemote(string agentId) =>
@@ -506,10 +512,10 @@ public class MainWindowSearchTests {
             h.Vm.Search!.Query = "abc";
             await h.Vm.DismissSearchCommand.Execute().ToTask();
 
-            await h.OpenSearch();
+            await h.Vm.OpenSearchCommand.Execute().ToTask();
 
             await Assert.That(h.Vm.Search.Query).IsEqualTo("");
-            await Assert.That(h.Vm.Search.Tab).IsEqualTo(SearchMode.Sessions);
+            await Assert.That(h.Vm.Search.Tab).IsEqualTo(SearchMode.Sidebar);
         });
     }
 

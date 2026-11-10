@@ -26,8 +26,8 @@
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
     </UserControl.Styles>
-    <Grid ColumnDefinitions="240,*">
-        <Border Grid.Column="0" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
+    <Grid ColumnDefinitions="Auto,*">
+        <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasDocuments}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,14,10,14" Spacing="4">
                     <TextBlock Text="DOCUMENTS" FontSize="11.5" FontWeight="Bold" LetterSpacing="1.2"
@@ -48,9 +48,8 @@
                                         <TextBlock Text="{Binding FileName}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="{Binding KindLabel}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                                            <Border IsVisible="{Binding HasStateChip}" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="999" Padding="7,1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding StateChip}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource KcapWarningBrush}" />
-                                            </Border>
+                                            <views:StatusBadge Classes="attention" Icon="TriangleAlert" Text="{Binding StateChip}"
+                                                               IsVisible="{Binding HasStateChip}" />
                                         </StackPanel>
                                     </StackPanel>
                                 </Button>

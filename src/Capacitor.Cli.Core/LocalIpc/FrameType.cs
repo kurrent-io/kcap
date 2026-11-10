@@ -59,7 +59,8 @@ public enum FrameType : byte {
     ResumeProbe = 36, // Text = ResumeProbeRequestDto JSON
     // Recording — one-shot. RecordSource goes only to a daemon advertising RecordingIpc.Capability.
     RecordSource = 37, // Text = RecordSourceDto JSON; answered on RecordSourceAck
-    FinishSource = 38, // Text = the source's key, then optionally the asking hook's process id and start token, a line each; answered on FinishSourceAck
+    // A daemon from before terminal sessions reads FinishSource's whole text as the key, so only a terminal claim's finish adds the process.
+    FinishSource = 38, // Text = the source's key, then for a terminal claim the asking hook's process id and start token, a line each; answered on FinishSourceAck
     DisableSession = 39, // Text = the session's id; goes only to a daemon advertising RecordingIpc.DisableCapability; answered on DisableSessionAck
     RecordTerminalSource = 40, // Text = RecordTerminalSourceDto JSON; goes only to a daemon advertising RecordingIpc.TerminalCapability; answered on RecordSourceAck
     // daemon → client

@@ -10,7 +10,8 @@ namespace Capacitor.Cli;
 /// kcap's config hook (git 2.54+) in the global git config, which an older git ignores. Leaves
 /// <c>hook.kcap.enabled</c>, the user's off switch, as it finds it.
 /// </summary>
-sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = null) {
+/// <param name="gitTimeout">Caps each git call; a test on a loaded runner passes a longer one.</param>
+sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = null, TimeSpan? gitTimeout = null) {
     // Not reference-transaction: when that hook fails, git refuses the commit. post-commit also fires
     // for amend, rebase and cherry-pick, and a merge commit fires only post-merge.
     static readonly string[] Events = ["post-commit", "post-merge"];
@@ -36,7 +37,7 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
     public bool Remove() {
         // No git reads an entry when none runs, so there is nothing to remove. With a working git, a
         // config it cannot read is a failure: --remove-section on a missing section fails the same way.
-        if (!File.Exists(ConfigFile()) || InstalledGitVersion() is null) return true;
+        if (!File.Exists(ConfigFile()) || InstalledGitVersion(gitTimeout) is null) return true;
         if (Git("--list") is null) return false;
         return Entry() is null || Git("--remove-section", Section) is not null;
     }
@@ -76,7 +77,8 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
     public static readonly Version MinimumGit = new(2, 54);
 
     /// <summary>The installed git's version, or null when git is missing or its output unreadable.</summary>
-    public static Version? InstalledGitVersion() => RunGit(["--version"]) is { } output ? ParseGitVersion(output) : null;
+    public static Version? InstalledGitVersion(TimeSpan? timeout = null) =>
+        RunGit(["--version"], timeout) is { } output ? ParseGitVersion(output) : null;
 
     /// <summary>Reads <c>git version 2.50.1 (Apple Git-155)</c> and <c>git version 2.54.0.windows.1</c>.</summary>
     public static Version? ParseGitVersion(string output) {
@@ -98,9 +100,9 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
     // By name, since --global follows $HOME rather than the home kcap was given. Under GIT_CONFIG_GLOBAL
     // git never reads it, and then no watcher relies on the hook.
-    string? Git(params string[] arguments) => RunGit(["config", "--file", ConfigFile(), ..arguments]);
+    string? Git(params string[] arguments) => RunGit(["config", "--file", ConfigFile(), ..arguments], gitTimeout);
 
-    static string? RunGit(string[] arguments) {
+    static string? RunGit(string[] arguments, TimeSpan? timeout = null) {
         try {
             var start = new ProcessStartInfo("git") {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -113,7 +115,7 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
             if (git is null) return null;
 
-            if (!git.WaitForExit(GitTimeout)) {
+            if (!git.WaitForExit(timeout ?? GitTimeout)) {
                 git.Kill();
 
                 return null;

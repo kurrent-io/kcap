@@ -16,6 +16,8 @@ public sealed class GrokHarness : IHarness<GrokHarness> {
 
     public GrokPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.KcapHooksJson];
+
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),
         UserDataSignal = Paths.HasUserData,
