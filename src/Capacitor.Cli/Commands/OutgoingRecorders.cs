@@ -66,8 +66,7 @@ sealed class OutgoingRecorders(
         var stopped        = true;
         var removedService = false;
 
-        // The service goes first: `daemon stop` leaves a service-managed daemon alone, since a raw kill would be
-        // restarted.
+        // The service goes first: a stopped daemon whose service is still installed starts again at the next sign-in.
         try {
             var services = ServicesFor?.Invoke(store) ?? ServiceManagerFactory.ForCurrentOs(config, home, time, SystemdRunning, store);
 
