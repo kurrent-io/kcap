@@ -26,6 +26,8 @@ public class HistoryImportBannerViewModelTests {
                 emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s1 (claude)"));
                 await Assert.That(banner.IsVisible).IsFalse();
                 await Assert.That(run.Running).IsTrue();
+                await Assert.That(banner.Succeeded).IsFalse();
+                await Assert.That(banner.NeedsAttention).IsFalse();
                 await Assert.That(run.Processed).IsEqualTo(1);
             }
 
@@ -35,6 +37,8 @@ public class HistoryImportBannerViewModelTests {
             using var reactivation = banner.Watch();
             await Assert.That(banner.IsVisible).IsFalse();
             await Assert.That(banner.Running).IsFalse();
+            await Assert.That(banner.Succeeded).IsEqualTo(exitCode == 0);
+            await Assert.That(banner.NeedsAttention).IsEqualTo(exitCode != 0);
             await Assert.That(banner.ShowsReopenSetup).IsEqualTo(exitCode != 0);
             await Assert.That(new HistoryImportBannerViewModel(run, null).IsVisible).IsFalse();
             var fresh = new HistoryImportRun(2, 1, "recent history", 1, action => action());

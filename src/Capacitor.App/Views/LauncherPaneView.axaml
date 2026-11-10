@@ -22,6 +22,15 @@
             <Setter Property="Margin" Value="0,2,0,0" />
             <Setter Property="VerticalAlignment" Value="Top" />
         </Style>
+        <Style Selector="views|AppIcon.importStatusIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="views|AppIcon.importStatusIcon.success">
+            <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+        </Style>
+        <Style Selector="views|AppIcon.importStatusIcon.attention">
+            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+        </Style>
         <Style Selector="TextBlock.noticeTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
             <Setter Property="FontSize" Value="13" />
@@ -84,8 +93,9 @@
                     AutomationProperties.Name="{Binding Status}" AutomationProperties.AccessibilityView="Content"
                     AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
-                    <views:AppIcon Classes="noticeIcon" Classes.kcapSpinning="{Binding Running}" Size="16"
-                                   Kind="{Binding Icon}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Top" />
+                    <views:AppIcon Classes="noticeIcon importStatusIcon" Classes.kcapSpinning="{Binding Running}" Size="16"
+                                   Classes.success="{Binding Succeeded}" Classes.attention="{Binding NeedsAttention}"
+                                   Kind="{Binding Icon}" VerticalAlignment="Top" />
                     <StackPanel Grid.Column="1" Spacing="4">
                         <!-- Every state measures against the longest headline at the current width and font size. -->
                         <Panel>
@@ -96,7 +106,7 @@
                         <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
                         <WrapPanel Classes="noticeActions">
-                            <Button x:Name="HistoryImportDismissButton" Classes="kcapChip" Content="Dismiss"
+                            <Button x:Name="HistoryImportDismissButton" Classes="kcapGhost" Content="Dismiss"
                                     Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
                             <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
                             <Panel>

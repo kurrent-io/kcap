@@ -23,6 +23,8 @@ public sealed class HistoryImportBannerViewModel : ReactiveObject {
 
     public bool IsVisible => !_run.BannerDismissed;
     public bool Running => _run.Running;
+    public bool Succeeded => _run.State == ImportRunState.Finished;
+    public bool NeedsAttention => _run.State is ImportRunState.Failed or ImportRunState.Cancelled;
     public bool ShowsReopenSetup => _canOpenSetup && _run.State is ImportRunState.Failed or ImportRunState.Cancelled;
     public string Headline => Running ? "Importing history"
         : _run.State is ImportRunState.Failed or ImportRunState.Cancelled ? UnfinishedHeadline
@@ -44,6 +46,8 @@ public sealed class HistoryImportBannerViewModel : ReactiveObject {
         .Subscribe(_ => {
             this.RaisePropertyChanged(nameof(IsVisible));
             this.RaisePropertyChanged(nameof(Running));
+            this.RaisePropertyChanged(nameof(Succeeded));
+            this.RaisePropertyChanged(nameof(NeedsAttention));
             this.RaisePropertyChanged(nameof(ShowsReopenSetup));
             this.RaisePropertyChanged(nameof(Headline));
             this.RaisePropertyChanged(nameof(Detail));
