@@ -146,14 +146,20 @@ public class KcapWatchHubTests {
         await using var watcher = await StartWatcherAsync(link.Url, NewSession(), transcript);
 
         await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 3, "the three lines");
+        // A separate batch proves the first send completed on the recorder; server receipt
+        // alone can precede its SignalR completion and leave the local frontier at zero.
+        Append(transcript, Assistant("pre-drop checkpoint"));
+        await hub.WaitForAsync(h => h.ReceivedLineNumbers.Contains(3), "the checkpoint after the first send completed");
         link.Sever();
         await hub.WaitForAsync(h => h.Connects.Count == 2, "the watcher to register again");
-        await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 5, "the lines after the server's position");
+        await watcher.WaitForLogAsync("Server behind (1 vs ", "the recorder to rewind to the server's position");
+        await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 7, "the lines after the server's position");
+        await Assert.That(Numbers(hub.ReceivedLineNumbers)).IsEqualTo("0,1,2,3,1,2,3");
 
         Append(transcript, Assistant("delta"));
-        await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 6, "a line appended after the reconnect");
+        await hub.WaitForAsync(h => h.ReceivedLineNumbers.Contains(4), "the line appended after the reconnect");
 
-        await Assert.That(Numbers(hub.ReceivedLineNumbers)).IsEqualTo("0,1,2,1,2,3");
+        await Assert.That(Numbers(hub.ReceivedLineNumbers)).IsEqualTo("0,1,2,3,1,2,3,4");
     }
 
     [Test]
