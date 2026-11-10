@@ -8,6 +8,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -23,7 +24,7 @@ public class LocalControlRecordingTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     sealed class Fixture : IAsyncDisposable {
-        public Fixture(bool on = true, bool? serverRecords = true, AccountStore? accounts = null) {
+        public Fixture(bool on = true, bool? serverRecords = true, AccountStore? accounts = null, TimeProvider? time = null) {
             Orch = AgentOrchestratorHarness.BuildOrchestrator(
                 new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
                 configure: c => {
@@ -36,7 +37,7 @@ public class LocalControlRecordingTests {
 
                     return Recorder = new DaemonRecorder(
                         config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)), Probe, () => Transport,
-                        (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance, _ => Exited);
+                        (_, _, _, _) => new FakeRecorderHousekeeping(), time ?? TimeProvider.System, NullLogger<DaemonRecorder>.Instance, _ => Exited);
                 });
         }
 
@@ -303,6 +304,42 @@ public class LocalControlRecordingTests {
         await Assert.That(await f.HandOverAsync(source)).IsEqualTo(RecordingIpc.Recording);
         await Assert.That(f.Recorder.ActiveKeys).IsEquivalentTo([Session]);
     }
+
+    /// <summary>A terminal session's claim is beaten only while the daemon reaches its server. Cut off past the grace, the
+    /// daemon refuses the session it still holds, so the hook takes the stale claim for a watcher, and the daemon's own
+    /// recorder stops once that claim has gone: no final drain, and no claim written back.</summary>
+    [Test]
+    public async Task A_held_session_whose_claim_went_stale_in_an_outage_is_refused_and_left_to_the_hook() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var f = new Fixture(time: time);
+        var claims = new RecorderClaims(f.WatcherDir, time);
+        var source = f.Source();
+        await f.HandOverAsync(source);
+        await WaitHarness.PollUntilAsync(() => f.Transport.Batches.Count > 0);
+
+        f.Transport.IsConnected = false;
+        await Stepping(time, () => claims.Read(Session) is RecorderClaimState.DaemonStale);
+
+        await Assert.That(f.Recorder.Holds(Session)).IsTrue();
+        await Assert.That(await f.HandOverAsync(source)).IsEqualTo(RecordingIpc.Refused);
+
+        // What the hook's take of a stale claim does.
+        claims.Release(Session);
+        await Stepping(time, () => !f.Recorder.Holds(Session) && f.Recorder.ActiveKeys.Count == 0 && f.Listed.Count == 0);
+
+        await Assert.That(claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(f.Transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>Moves the clock a second at a time until <paramref name="condition"/> holds.</summary>
+    static async Task Stepping(FakeTimeProvider time, Func<bool> condition) =>
+        await WaitHarness.PollUntilAsync(() => {
+            if (condition()) return true;
+
+            time.Advance(TimeSpan.FromSeconds(1));
+
+            return condition();
+        });
 
     /// <summary>A subagent's transcript is its own source, filed under its session's directory.</summary>
     [Test]

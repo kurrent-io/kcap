@@ -841,7 +841,11 @@ internal partial class AgentOrchestrator {
         // Ahead of what this daemon holds: a hook on another profile goes to another server, which a recorder here never reaches.
         if (TerminalRefusal(source) is { } refusal) return RefuseTerminal(handed.Key, refusal);
 
-        if (recorder.Holds(handed.Key)) return RecordingIpc.Recording;
+        // Answered as recording, the hook would leave the session to a recorder that has stopped beating its claim. Refused,
+        // it takes the claim for a watcher, and this daemon's recorder stops when it finds the claim gone.
+        if (recorder.Holds(handed.Key))
+            return recorder.HoldsFresh(handed.Key) ? RecordingIpc.Recording : RefuseTerminal(handed.Key, "its claim here has gone stale, so a watcher takes it");
+
         if (recorder.Undecided) return RecordingIpc.NotYet;
         if (!recorder.Enabled) return RecordingIpc.Refused;
 

@@ -179,6 +179,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>Whether <paramref name="key"/> is this daemon's to record, and not on its way out.</summary>
     public bool Holds(string key) => _sources.TryGetValue(key, out var tracked) && !IsLeaving(tracked);
 
+    /// <summary>Whether this daemon holds <paramref name="key"/> under a fresh claim of its own. A terminal source's claim
+    /// goes stale through an outage, and a hook may then take it for a watcher.</summary>
+    public bool HoldsFresh(string key) => Holds(key) && _claims.Read(key) is RecorderClaimState.DaemonFresh && _claims.Keeps(key);
+
     /// <summary>Whether a terminal session's process has gone, conclusively. Never signals it.</summary>
     public bool HasExited(ProcessIncarnation process) => _processExited(process);
 
