@@ -1,0 +1,92 @@
+using System.IO.Hashing;
+using System.Text;
+
+namespace Capacitor.Cli.Core;
+
+/// <summary>
+/// For a transcript its agent rewrites in place, the number each file line is sent under, and a hash of every line
+/// read, so a rewrite can be told from an append and the first line it changed found. The server drops a line
+/// numbered at or below one it took, so lines written after a rewrite are numbered on from the cursor; the lines
+/// the rewrite dropped stay stored as they were sent. One reader at a time.
+/// </summary>
+public sealed class TranscriptLineMap {
+    static readonly ulong BlankHash = XxHash3.HashToUInt64([]);
+
+    readonly List<ulong> _hashes = [];
+
+    // From each segment's first file line on, a line is sent under its file number plus the segment's shift.
+    readonly List<(int FileLine, int Shift)> _segments = [(0, 0)];
+
+    /// <summary>How many lines from the top of the file have been read.</summary>
+    public int Known => _hashes.Count;
+
+    public int ToSent(int fileLine) => fileLine + SegmentAt(fileLine).Shift;
+
+    /// <summary>The first file line sent under <paramref name="sentLine"/> or later.</summary>
+    public int ToFile(int sentLine) {
+        for (var i = 0; i < _segments.Count; i++) {
+            var (start, shift) = _segments[i];
+            var last           = i == _segments.Count - 1;
+
+            if (last || sentLine < _segments[i + 1].FileLine + shift) return Math.Max(start, sentLine - shift);
+        }
+
+        return sentLine;
+    }
+
+    /// <summary>Records lines read at their file line numbers; a gap between two of them is blank lines.</summary>
+    public void Observe(IReadOnlyList<string> lines, IReadOnlyList<int> fileLines) {
+        for (var i = 0; i < lines.Count; i++) {
+            var at = fileLines[i];
+            while (_hashes.Count < at) _hashes.Add(BlankHash);
+
+            if (at < _hashes.Count) _hashes[at] = Hash(lines[i]);
+            else _hashes.Add(Hash(lines[i]));
+        }
+    }
+
+    /// <summary>Whether <paramref name="fileLine"/> still reads <paramref name="line"/>, null meaning blank.</summary>
+    public bool Matches(int fileLine, string? line) => fileLine < _hashes.Count && _hashes[fileLine] == Hash(line);
+
+    /// <summary>
+    /// The first line below <paramref name="upTo"/> whose content in the file at <paramref name="path"/> differs from
+    /// what was read, or where the file now ends; <paramref name="upTo"/> when none does.
+    /// </summary>
+    public async Task<int> FirstChangedLineAsync(string path, int upTo, CancellationToken ct) {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var       reader = new StreamReader(stream);
+
+        var limit = Math.Min(upTo, _hashes.Count);
+        var line  = 0;
+
+        while (line < limit && await reader.ReadLineAsync(ct) is { } text) {
+            if (_hashes[line] != Hash(text)) return line;
+            line++;
+        }
+
+        return line;
+    }
+
+    /// <summary>
+    /// Forgets what was read from <paramref name="fileLine"/> on, which a rewrite changed, and numbers the file's lines
+    /// from there on from <paramref name="nextSentLine"/>.
+    /// </summary>
+    public void Rewritten(int fileLine, int nextSentLine) {
+        if (fileLine < _hashes.Count) _hashes.RemoveRange(fileLine, _hashes.Count - fileLine);
+        _segments.RemoveAll(s => s.FileLine >= fileLine && s.FileLine > 0);
+
+        var shift = nextSentLine - fileLine;
+        if (shift != SegmentAt(fileLine).Shift) _segments.Add((fileLine, shift));
+    }
+
+    (int FileLine, int Shift) SegmentAt(int fileLine) {
+        for (var i = _segments.Count - 1; i > 0; i--) {
+            if (_segments[i].FileLine <= fileLine) return _segments[i];
+        }
+
+        return _segments[0];
+    }
+
+    static ulong Hash(string? line) =>
+        string.IsNullOrWhiteSpace(line) ? BlankHash : XxHash3.HashToUInt64(Encoding.UTF8.GetBytes(line));
+}

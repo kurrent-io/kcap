@@ -127,7 +127,8 @@ public sealed class TranscriptLineIndex {
         return total;
     }
 
-    void Reset() {
+    /// <summary>Forgets every offset, for a file known to have been rewritten.</summary>
+    public void Reset() {
         _starts.Clear();
         _starts.Add(0);
         _tail    = [];
