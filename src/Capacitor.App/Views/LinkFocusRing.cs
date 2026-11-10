@@ -32,7 +32,7 @@ sealed class LinkFocusRing : Control {
     void OnBlockLayoutUpdated(object? sender, EventArgs e) => InvalidateVisual();
 
     public override void Render(DrawingContext context) {
-        var brush = this.TryFindResource("KcapInfoBrush", out var found) && found is IBrush b ? b : Brushes.CornflowerBlue;
+        var brush = this.TryFindResource("KcapInfoBrush", out var found) && found is IBrush b ? b : AppPalette.Brush("KcapInfoBrush");
         var pen = new Pen(brush, 1.5);
         foreach (var rect in _rects()) context.DrawRectangle(null, pen, rect.Inflate(new Thickness(2, 1)), 3, 3);
     }

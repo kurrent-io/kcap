@@ -58,7 +58,7 @@
         <StackPanel x:Name="Actions" Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,18,0,0">
             <Button x:Name="CancelButton" Classes="kcapChip" Content="Cancel" Click="OnCancel" IsVisible="{Binding !IsSent}"
                     IsCancel="{Binding !IsSent}" />
-            <Button x:Name="CloseButton" Classes="kcapChip" Content="Close" Click="OnCancel" IsVisible="{Binding IsSent}"
+            <Button x:Name="CloseButton" Classes="kcapPrimary" IsDefault="{Binding IsSent}" Content="Close" Click="OnCancel" IsVisible="{Binding IsSent}"
                     IsCancel="{Binding IsSent}" />
             <Button x:Name="SignInButton" Classes="kcapChip" Content="Sign in" Command="{Binding SignInCommand}"
                     IsVisible="{Binding SignInOffered}" />

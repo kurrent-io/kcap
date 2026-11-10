@@ -710,19 +710,19 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Connected, null, "reconnecting", false, StatusColors.Pending)]
     [Arguments(AttachState.Connected, null, "disconnected", false, StatusColors.InProgress)]
     public async Task AlertFor_matches_the_launcher_card_tone(
-            AttachState state, string? reason, string daemonConnection, bool failed, string expectedHex) {
+            AttachState state, string? reason, string daemonConnection, bool failed, string expectedTone) {
         var alert = MainWindowViewModel.AlertFor(new AttachStatus(state, reason, null), daemonConnection, failed: failed);
-        await Assert.That(alert!.Tone).IsEqualTo(expectedHex);
+        await Assert.That(alert!.Tone).IsEqualTo(expectedTone);
     }
 
     /// An expired sign-in needs the user; only a local server that refused the app, which the card reports as a failure, is red.
     [Test]
     [Arguments(false, StatusColors.InProgress)]
     [Arguments(true, StatusColors.Disrupted)]
-    public async Task AlertFor_signed_out_follows_the_card(bool failed, string expectedHex) {
+    public async Task AlertFor_signed_out_follows_the_card(bool failed, string expectedTone) {
         var status = new AttachStatus(AttachState.Connected, null, null);
         var alert = MainWindowViewModel.AlertFor(status, "reconnecting", signedOut: true, failed: failed);
-        await Assert.That(alert!.Tone).IsEqualTo(expectedHex);
+        await Assert.That(alert!.Tone).IsEqualTo(expectedTone);
     }
 
     [Test]
@@ -755,7 +755,7 @@ public class MainWindowViewModelTests {
     [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
     public async Task A_local_daemon_failure_stays_red_when_a_healthy_remote_machine_is_selected(bool remoteFirst) {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+        await AvaloniaSession.RunOnUiAsync(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
@@ -792,7 +792,7 @@ public class MainWindowViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Sign_in_required_wins_over_daemon_reconnecting() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+        await AvaloniaSession.RunOnUiAsync(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             var lane = new FakeServerLane();
@@ -813,7 +813,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
             // An expired sign-in needs the user, which is how the launcher's card shows it too.
             var brush = (ISolidColorBrush)vm.StatusBrush;
-            await Assert.That(brush.Color).IsEqualTo(Color.Parse(StatusColors.InProgress));
+            await Assert.That(brush.Color).IsEqualTo(((ISolidColorBrush)AppPalette.Brush(AppStatusPalette.Attention)).Color);
         });
     }
 

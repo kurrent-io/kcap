@@ -3160,6 +3160,42 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Themed_permission_buttons_keep_hover_press_and_keyboard_answers_on_the_card() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                host.Permissions.Queue(PermissionResolveKind.Applied);
+                host.Permissions.Queue(PermissionResolveKind.Applied);
+                host.Permissions.Add(PermissionEntries.Entry("r1", "a1", toolName: "Bash"));
+                await WaitUntilAsync(() => host.Chat.Items.OfType<PendingCardItem>().Any(), what: "the permission card");
+                host.Settle();
+                var deny = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Content is "Deny");
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                host.Settle();
+                var origin = deny.TranslatePoint(new Point(deny.Bounds.Width / 2, deny.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(origin);
+                host.Window.MouseDown(origin, MouseButton.Left);
+                host.Settle();
+                var presenter = deny.GetVisualDescendants().OfType<ContentPresenter>().Single(x => x.Name == "PART_ContentPresenter");
+                await Assert.That(presenter.Background).IsEqualTo(Application.Current!.FindResource("KcapBorderBrush"));
+                host.Window.MouseUp(origin, MouseButton.Left);
+                await WaitUntilAsync(() => host.Permissions.Resolved.Count == 1, what: "Deny delivered");
+                await Assert.That(host.Permissions.Resolved.Single().Answer).IsEqualTo(PermissionAnswer.Deny);
+
+                host.Permissions.Add(PermissionEntries.Entry("r2", "a1", toolName: "Bash"));
+                await WaitUntilAsync(() => host.Chat.Items.OfType<PendingCardItem>().Any(), what: "the next permission card");
+                host.Settle();
+                var allow = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Content is "Allow");
+                allow.Focus();
+                host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                await WaitUntilAsync(() => host.Permissions.Resolved.Count == 2, what: "Allow delivered");
+                await Assert.That(host.Permissions.Resolved.Last().Answer).IsEqualTo(PermissionAnswer.Allow);
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Question_card_renders_options_other_and_coexists_with_a_permission_card() {
         await RunOnUiAsync(async () => {
             var host = new Host();

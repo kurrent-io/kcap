@@ -176,7 +176,7 @@
                     <TextBlock x:Name="PreflightTitleText" Classes="onboardingHeadline" Text="{x:Static vm:HarnessPreflight.Title}" />
                     <TextBlock x:Name="PreflightMessageText" Classes="onboardingLede" Text="{x:Static vm:HarnessPreflight.Message}" />
                     <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
-                        <Button x:Name="PreflightCheckAgainButton" Classes="onboardingPrimary" Content="Check again"
+                        <Button x:Name="PreflightCheckAgainButton" Classes="onboardingSecondary" Content="Check again"
                                 Command="{Binding CheckAgainCommand}" />
                         <Button x:Name="PreflightContinueButton" Classes="onboardingSecondary" Content="Continue without one"
                                 Command="{Binding ContinueWithoutHarnessCommand}" />
@@ -202,7 +202,7 @@
                 BorderBrush="{StaticResource OnboardingDividerBrush}" BorderThickness="0,1,0,0">
                 <StackPanel MaxWidth="620" HorizontalAlignment="Stretch" Margin="32,16,32,24" Spacing="10">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
-                        <Button x:Name="BackButton" Classes="onboardingQuiet" Content="Back"
+                        <Button x:Name="BackButton" Classes="onboardingSecondary" Content="Back"
                                 Command="{Binding BackCommand}" IsVisible="{Binding BackVisible}" />
                         <Button Grid.Column="2" x:Name="SkipButton" Classes="onboardingSecondary" Command="{Binding SkipCommand}"
                                 Content="{Binding SkipLabel}"

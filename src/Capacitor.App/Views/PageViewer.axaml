@@ -28,7 +28,7 @@
         <StackPanel Grid.Row="2" IsVisible="{Binding !IsReady}" Margin="24,20" Spacing="12">
             <TextBlock x:Name="PageNotice" Text="{Binding Notice}"
                        FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
-            <Button x:Name="Retry" Classes="kcapGhost" Content="Retry" HorizontalAlignment="Left"
+            <Button x:Name="Retry" Classes="kcapChip" Content="Retry" HorizontalAlignment="Left"
                     IsVisible="{Binding CanRetry}" Command="{Binding ReloadCommand}" />
         </StackPanel>
         <ContentControl x:Name="WebHost" Grid.Row="2" IsVisible="{Binding IsReady}" />

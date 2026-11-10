@@ -167,32 +167,29 @@ public static class HostedHarnessCatalog {
     public static bool SupportsCodexPosture(string vendor) =>
         string.Equals(vendor, "codex", StringComparison.OrdinalIgnoreCase);
 
-    // Monogram + tint per vendor: the glyph is the fallback where the view layer has no brand
-    // mark (VendorIcons); the tint colors both. Monochrome brands render in the near-white text
-    // color; claude/gemini keep their brand hues. Beside the labels/families so adding a vendor
-    // means one file, not three.
-    static readonly Dictionary<string, (string Glyph, string Color)> VendorTiles = new(StringComparer.OrdinalIgnoreCase) {
-        ["claude"]      = ("✳", "#D97757"),
-        ["codex"]       = ("Cx", "#F1F3F7"),
-        ["cursor"]      = ("Cu", "#F1F3F7"),
-        ["copilot"]     = ("Cp", "#F1F3F7"),
-        ["gemini"]      = ("Ge", "#7BA7F7"),
-        ["kiro"]        = ("Ki", "#B78BF7"),
-        ["opencode"]    = ("Oc", "#F1F3F7"),
-        ["antigravity"] = ("An", "#F4B860"),
-        ["pi"]          = ("π", "#A994FF"),
-        ["mistral-vibe"] = ("Mv", "#FA520F"),
-        ["muse-assistant"] = ("MA", "#2F6FE0"),
-        ["grok"]        = ("Gk", "#F5F5F5"),
-        ["muse"]         = ("Mu", "#4B93FF"),
+    // Monograms and palette keys for vendor identity; status and selection colors stay off identity.
+    static readonly Dictionary<string, (string Glyph, string BrushKey)> VendorTiles = new(StringComparer.OrdinalIgnoreCase) {
+        ["claude"]      = ("✳", "KcapClaudeBrandBrush"),
+        ["codex"]       = ("Cx", "KcapTextBrush"),
+        ["cursor"]      = ("Cu", "KcapTextBrush"),
+        ["copilot"]     = ("Cp", "KcapTextBrush"),
+        ["gemini"]      = ("Ge", "KcapTextBrush"),
+        ["kiro"]        = ("Ki", "KcapTextBrush"),
+        ["opencode"]    = ("Oc", "KcapTextBrush"),
+        ["antigravity"] = ("An", "KcapTextBrush"),
+        ["pi"]          = ("π", "KcapTextBrush"),
+        ["mistral-vibe"] = ("Mv", "KcapMistralBrandBrush"),
+        ["muse-assistant"] = ("MA", "KcapMuseAssistantBrandBrush"),
+        ["grok"]        = ("Gk", "KcapGrokBrandBrush"),
+        ["muse"]         = ("Mu", "KcapMuseBrandBrush"),
     };
 
-    /// Glyph + tint for a vendor token; an unmapped token gets its first letter in neutral grey
+    /// Glyph and palette key for a vendor token; an unmapped token gets its first letter in neutral grey
     /// (the daemon is the authority on what it can host — see Build's same rule).
-    public static (string Glyph, string Color) TileFor(string vendor) =>
+    public static (string Glyph, string BrushKey) TileFor(string vendor) =>
         VendorTiles.TryGetValue(vendor, out var tile)
             ? tile
-            : (vendor.Length > 0 ? vendor[..1].ToUpperInvariant() : "?", "#B0B7C6");
+            : (vendor.Length > 0 ? vendor[..1].ToUpperInvariant() : "?", "KcapMutedBrush");
 
     /// Display label for a vendor token: the option's Label when the list carries one, the harness's
     /// own name when it does not (a harness listed only when advertised, such as a stored Mistral Vibe

@@ -40,19 +40,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal static bool IsInFlightReconnectMessage(string? message) =>
         message is ReconnectingMessage or DaemonLifecycleController.AlreadyRunningReconnectStatus;
 
-    static readonly IBrush ConnectedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
-    static readonly IBrush InProgressBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.InProgress));
-    static readonly IBrush PendingBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Pending));
-    static readonly IBrush DisruptedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Disrupted));
-    static readonly IBrush UnavailableBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Unavailable));
-
-    static IBrush Paint(string hex) => hex switch {
-        StatusColors.Connected => ConnectedBrush,
-        StatusColors.InProgress => InProgressBrush,
-        StatusColors.Pending => PendingBrush,
-        StatusColors.Disrupted => DisruptedBrush,
-        _ => UnavailableBrush,
-    };
+    static IBrush Paint(string tone) => AppPalette.Brush(tone switch {
+        StatusColors.Connected => AppStatusPalette.Connected,
+        StatusColors.InProgress => AppStatusPalette.Attention,
+        StatusColors.Pending => AppStatusPalette.Execution,
+        StatusColors.Disrupted => AppStatusPalette.Disrupted,
+        _ => AppStatusPalette.Unavailable,
+    });
 
     readonly IDaemonClientService _service;
 

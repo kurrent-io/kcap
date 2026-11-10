@@ -528,8 +528,7 @@
                             <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="13" LineHeight="19"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
                             <Button x:Name="SignInButton" Classes="kcapPrimary" Content="Sign in" Command="{Binding SignInCommand}" IsVisible="{Binding ShowsSignIn}"
-                                    Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                                    FontWeight="SemiBold" CornerRadius="7" Padding="13,5" HorizontalAlignment="Left" />
+                                    FontWeight="SemiBold" Padding="13,5" HorizontalAlignment="Left" />
                             <Button x:Name="RetryButton" Classes="kcapPrimary" Content="Retry details" Command="{Binding RefreshCommand}"
                                     IsVisible="{Binding ShowsRetry}" HorizontalAlignment="Left" />
                         </StackPanel>
