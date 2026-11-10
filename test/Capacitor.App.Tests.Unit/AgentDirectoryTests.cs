@@ -1029,6 +1029,26 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
     }
 
+    /// The registry can name an attached agent's repository, from its session, and still no checkout: the listing's cwd
+    /// names that, and the registry's group stands.
+    [Test]
+    public async Task An_attached_agent_the_registry_names_a_repository_for_takes_its_checkout_from_the_listing() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var listed = Listed("S", "active") with { Cwd = "/w/kcap-cli/.claude/worktrees/fine-mat/src" };
+        sessions.LiveCache.AddOrUpdate(listed);
+        sessions.MineLiveCache.AddOrUpdate(listed);
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RepoOwner = "kurrent-io", RepoName = "kcap-cli", Attached = true,
+        });
+
+        var row = dir.Rows.Lookup("remote:mod-1").Value;
+        await Assert.That(row.RepoGroupKey).IsEqualTo("repo:kurrent-io/kcap-cli");
+        await Assert.That(row.RepoPath).IsEqualTo("/w/kcap-cli");
+        await Assert.That(row.WorktreePath).IsEqualTo("/w/kcap-cli/.claude/worktrees/fine-mat");
+    }
+
     /// Disconnecting steering leaves the session running in its terminal, so its own row reads as a terminal session
     /// at once: no hand-over grace, which is for an agent a daemon hosts.
     [Test]

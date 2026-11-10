@@ -549,10 +549,15 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 ListedPullRequests = dto.PullRequests,
                 Branch = row.Branch ?? dto.Branch,
             };
-            // Neither lane names an attached agent's checkout; the listing names its session's.
-            if (row.IsAttached && row.RepoGroupKey == RepoIdentity.NoRepository.Key) {
+            // Neither lane names an attached agent's checkout; the listing names its session's. The registry can name the
+            // repository without it, and that group stands.
+            var grouped = row.RepoGroupKey != RepoIdentity.NoRepository.Key;
+            if (row.IsAttached && (row.RepoPath is null || !grouped)) {
                 var (repoPath, worktreePath, repo) = AgentRow.ListedCheckout(dto);
-                next[i] = next[i] with { RepoPath = repoPath, WorktreePath = worktreePath, RepoGroupKey = repo.Key, RepoGroupLabel = repo.Label };
+                next[i] = next[i] with {
+                    RepoPath = repoPath, WorktreePath = worktreePath,
+                    RepoGroupKey = grouped ? row.RepoGroupKey : repo.Key, RepoGroupLabel = grouped ? row.RepoGroupLabel : repo.Label,
+                };
             }
         }
         if (_scope == RailScope.Mine) {
