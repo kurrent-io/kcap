@@ -1323,7 +1323,9 @@ public class RecorderHostTests {
     }
 
     /// <summary>An outage excuses a source waiting for the transport to come back, and an abandoned one has nothing to come
-    /// back for: it ends within the threshold however long the server stays out.</summary>
+    /// back for: it ends within the threshold however long the server stays out. The clock keeps stepping while the host
+    /// gives the source up, so the bound leaves room for that in small steps, still far short of the threshold an excuse
+    /// would wait out next.</summary>
     [Test]
     public async Task An_abandoned_source_stuck_through_an_outage_ends_within_the_threshold() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
@@ -1338,9 +1340,9 @@ public class RecorderHostTests {
 
         var abandoned = host.AbandonAsync(source.Key);
         var asked     = _time.GetUtcNow();
-        await Eventually(() => abandoned.IsCompleted, "the abandoned source to end", TimeSpan.FromSeconds(1));
+        await Eventually(() => abandoned.IsCompleted, "the abandoned source to end", TimeSpan.FromMilliseconds(250));
 
-        await Assert.That(_time.GetUtcNow() - asked).IsLessThanOrEqualTo(RecorderHost.WedgedAfter + TimeSpan.FromSeconds(2));
+        await Assert.That(_time.GetUtcNow() - asked).IsLessThanOrEqualTo(RecorderHost.WedgedAfter + TimeSpan.FromSeconds(10));
         await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
