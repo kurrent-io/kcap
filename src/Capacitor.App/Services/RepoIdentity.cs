@@ -35,7 +35,7 @@ public sealed class RepoIdentityResolver(Func<string, string?>? readOriginUrl = 
 
     public static RepoIdentity ForRemote(string? repoOwner, string? repoName, string? repoPath, string daemonKey) {
         if (!string.IsNullOrEmpty(repoOwner) && !string.IsNullOrEmpty(repoName))
-            return new($"repo:{repoOwner.ToLowerInvariant()}/{repoName.ToLowerInvariant()}", $"{repoOwner}/{repoName}");
+            return new($"repo:{repoOwner.ToLowerInvariant()}/{repoName.ToLowerInvariant()}", LocalRepository.Label(repoOwner, repoName));
         var path = repoPath ?? "";
         return new($"daemon:{daemonKey}:{path}", path.Length > 0 ? RepoLabel.Leaf(path) : "No repository");
     }

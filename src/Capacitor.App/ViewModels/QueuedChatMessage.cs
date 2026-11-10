@@ -14,6 +14,7 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     public const string IdlePickupNote = "The agent is not in a step";
     public const string UnknownPickupNote = "Waiting for delivery confirmation from the agent";
     public const string NotCancelledDiscardTip = "Stop tracking this message. It is not cancelled: the agent may still receive it.";
+    public const string NotPickedUpNote = "The agent hasn't picked this up. Check its terminal, then send it again or discard it";
 
     public string Text { get; } = text;
     /// The server's queue item carries no attachments, so a prompt that was only files arrives
@@ -72,7 +73,7 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// word on a message to an attached agent outranks what this pane can tell.
     public string? PickupNote => _deliveryState is not null
         ? IsSettled ? null : DeliveryNote
-        : !IsAwaitingPickup ? null : _agentIdle switch {
+        : !IsAwaitingPickup ? null : IsNotPickedUp ? NotPickedUpNote : _agentIdle switch {
             true => IdlePickupNote,
             false => AwaitingPickupNote,
             null => UnknownPickupNote,
@@ -98,6 +99,30 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     internal bool IsServerHeld => IsForeign || DispatchId is not null && _serverListed;
 
     internal void MarkUnconfirmed() => IsUnconfirmed = true;
+
+    /// When the agent was last seen not working with this row unechoed; null while it works.
+    internal long? IdleSince { get; set; }
+    /// Enter has been pressed once more for this row.
+    internal bool Resubmitted { get; set; }
+    /// The agent was seen idle at this row's send or while it waited unechoed.
+    internal bool SawIdle { get; set; }
+    /// The agent started a turn after this row was sent, so its Enter landed even if no echo matches.
+    /// A turn cannot be tied to one send: this only withholds the pickup handling, never acknowledges.
+    internal bool TurnSeen { get; set; }
+
+    bool _isNotPickedUp;
+    /// The agent sat idle without echoing this row, even after a second Enter.
+    public bool IsNotPickedUp {
+        get => _isNotPickedUp;
+        private set {
+            if (_isNotPickedUp == value) return;
+            _isNotPickedUp = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(PickupNote));
+        }
+    }
+
+    internal void MarkNotPickedUp() => IsNotPickedUp = true;
 
     /// The server's id for this prompt once it has listed it; null until then.
     internal Guid? DispatchId { get; private set; }

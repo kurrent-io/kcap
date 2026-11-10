@@ -2,6 +2,7 @@ using System.Globalization;
 using System.ComponentModel;
 using System.Reactive;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Setup.Intelligence;
@@ -79,6 +80,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     public string MachineName { get; }
 
+    public string FoundOnHeader => $"FOUND ON {MachineName.ToUpper(CultureInfo.CurrentCulture)}";
+
     public bool Satisfied => _run is { State: ImportRunState.Finished };
 
     public HistoryState State {
@@ -143,6 +146,9 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     public bool SourcesVisible => HasRepos && Sources.Count > 0;
 
     public IReadOnlyList<HistoryOwnerGroup> Groups { get; private set; } = [];
+
+    /// The heading the repositories with no remote share.
+    public const string LocalOwnerLabel = "On this machine, no remote";
 
     readonly List<HistoryWindowOption> _windows = [];
 
@@ -279,8 +285,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
             var sessions = counts.Sum(c => c!.Value);
 
-            return model.DaysFor(sessions) is { } days and > 0
-                ? $"The server works through {SessionCount(sessions)} at up to {model.BacklogSessionTouchesPerDay.ToString("N0", CultureInfo.CurrentCulture)} a day: about {days} day{(days == 1 ? "" : "s")}"
+            return model.DurationFor(sessions) is { } duration
+                ? $"The server works through {SessionCount(sessions)} at up to {model.BacklogSessionTouchesPerDay.ToString("N0", CultureInfo.CurrentCulture)} a day: {duration}"
                 : null;
         }
     }
@@ -488,9 +494,10 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
             rows.Add(row);
         }
 
-        // Owners by their most recent repository, repositories in the report's own order.
+        // Owners by their most recent repository, repositories in the report's own order. Every repository with
+        // no remote has an owner of its own, so they share one group instead.
         Groups = [.. rows
-            .GroupBy(r => r.Owner, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(r => LocalRepository.IsLocal(r.Owner) ? LocalOwnerLabel : r.Owner, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Max(r => r.LastSessionAt ?? DateTimeOffset.MinValue))
             .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
             .Select(g => new HistoryOwnerGroup(g.Key, [.. g]))];

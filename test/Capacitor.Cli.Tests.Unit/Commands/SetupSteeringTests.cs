@@ -26,7 +26,7 @@ public class SetupSteeringTests {
     Task<bool> RunAsync(string[] flags, Func<bool, bool>? ask, bool offered = true, bool eligible = true) =>
         SetupSteering.RunAsync(["setup", .. flags], offered, eligible, ask, Daemons.Store, Name, TimeProvider.System, Mod, Lines.Add);
 
-    void InstallKcap() => ClaudePluginWriter.Install(Settings, Home.PathTo("kcap-plugin"));
+    void InstallKcap() => ClaudePluginWriter.Install(Settings, null, Home.PathTo("kcap-plugin"));
 
     FakeSteeringDaemon Daemon() => FakeSteeringDaemon.Answering(Daemons.Store.SocketPath(Name), new SteeringSetAckDto(true, null, SteeringIpc.On));
 

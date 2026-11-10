@@ -7,6 +7,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
 using ReactiveUI.Reactive;
 
@@ -86,7 +87,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
         var saved = settings.Load();
         _name = saved.Name ?? service.DaemonName;
-        _capacity = _savedCapacity = saved.MaxAgents;
+        _capacity = _savedCapacity = saved.MaxAgents ?? DaemonSettings.DefaultMaxAgents;
         _autoResume = saved.AutoResume ?? true;
 
         Observable.FromAsync(startupSettled.WaitAsync).ObserveOn(RxSchedulers.MainThreadScheduler)

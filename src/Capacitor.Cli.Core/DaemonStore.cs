@@ -69,6 +69,7 @@ public sealed partial class DaemonStore(string directory) {
     const string ServiceLockExtension = "service-lock";
     const string ServiceLockHolderExtension = "service-lock-holder";
     const string ServiceTxnExtension = "service-txn";
+    const string RepointPreimageExtension = "repoint-preimage";
 
     /// <summary>The suffixes of the files something holds an exclusive lock on: the daemon for its
     /// lifetime, <c>daemon start</c> around a spawn, a service transaction around an install.</summary>
@@ -121,6 +122,17 @@ public sealed partial class DaemonStore(string directory) {
 
     /// <summary>The crash-visible record of an in-flight service transaction.</summary>
     public string ServiceTxnPath(string daemonName) => File(daemonName, ServiceTxnExtension);
+
+    /// <summary>The launchd plist a repoint replaced, held until the job runs again. Here rather than beside the
+    /// plist, where launchd may load any file at login.</summary>
+    public string RepointPreimagePath(string daemonName) => File(daemonName, RepointPreimageExtension);
+
+    /// <summary>The daemon names holding a <see cref="RepointPreimagePath"/>.</summary>
+    public IReadOnlyList<string> RepointPreimageNames() =>
+        System.IO.Directory.Exists(Directory)
+            ? [.. System.IO.Directory.EnumerateFiles(Directory, $"*.{RepointPreimageExtension}")
+                .Select(Path.GetFileNameWithoutExtension).OfType<string>().Where(n => n.Length > 0).Order()]
+            : [];
 
     /// <summary>The consent decision log. Under the state directory rather than a suffixed file,
     /// because it rotates.</summary>

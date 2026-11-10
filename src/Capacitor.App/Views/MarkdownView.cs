@@ -25,6 +25,16 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<ICommand?> OpenLinkProperty =
         AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(OpenLink));
 
+    /// The caller owns the original document's destination and access policy; fenced text supplies neither.
+    public static readonly StyledProperty<ICommand?> OpenSourceCommandProperty =
+        AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(OpenSourceCommand));
+
+    public static readonly StyledProperty<object?> OpenSourceCommandParameterProperty =
+        AvaloniaProperty.Register<MarkdownView, object?>(nameof(OpenSourceCommandParameter));
+
+    public static readonly StyledProperty<bool> CanOpenSourceProperty =
+        AvaloniaProperty.Register<MarkdownView, bool>(nameof(CanOpenSource), true);
+
     public static readonly StyledProperty<MarkdownFlavor> FlavorProperty =
         AvaloniaProperty.Register<MarkdownView, MarkdownFlavor>(nameof(Flavor));
 
@@ -45,6 +55,10 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<ICommand?> RunCodeProperty =
         AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(RunCode));
 
+    /// Text to mark wherever it occurs, as a find bar's matches. Unset marks nothing.
+    public static readonly StyledProperty<string?> FindQueryProperty =
+        AvaloniaProperty.Register<MarkdownView, string?>(nameof(FindQuery));
+
     // The extension builds its TextMate highlighters on first use and keeps them, so one
     // instance serves the app; a per-view instance rebuilds them on every render.
     static readonly TextMateExtension Highlighting = new();
@@ -55,6 +69,7 @@ public sealed class MarkdownView : ContentControl {
     readonly MarkdownViewer _viewer = new();
     ChatTabView? _selectionHost;
     readonly DetailsState _details = new();
+    readonly DetailsState _mermaidSources = new();
     readonly DetailsExtension _detailsExtension;
     readonly CodeBlockActions _codeActions;
     readonly ReferenceLinks _referenceLinks;
@@ -66,12 +81,20 @@ public sealed class MarkdownView : ContentControl {
     bool _attached;
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
+    readonly FindHighlighter _find = new();
+    int _currentFind = -1;
     bool _nonLeftRelease;
 
     static MarkdownView() {
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
             view._details.Clear();
+            view._mermaidSources.Clear();
+            view._currentFind = -1;
             view.Render();
+        });
+        FindQueryProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
+            view._currentFind = -1;
+            view.ApplyFind();
         });
         RunCodeProperty.Changed.AddClassHandler<MarkdownView>((view, _) => view._codeActions.ApplyRunCode());
         FlavorProperty.Changed.AddClassHandler<MarkdownView>((view, _) => view.ApplyFlavor());
@@ -114,6 +137,15 @@ public sealed class MarkdownView : ContentControl {
     }
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
+
+    internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
+        if (Content is not MarkdownViewer) return false;
+        var point = e.GetPosition(this);
+        if (point.Y < 0 || point.Y >= Bounds.Height) return false;
+        if (!MarkViewSelection.TryStartFromLeft(_viewer, e)) return false;
+        _selectionHost?.UpdateSelection(this);
+        return true;
+    }
 
     internal void ExtendSelection(Point pointInView) {
         if (Content is MarkdownViewer) MarkViewSelection.Extend(_viewer, pointInView);
@@ -221,6 +253,7 @@ public sealed class MarkdownView : ContentControl {
         _untitledAgents.Clear();
         _unsettledAgentLinks.Clear();
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
+        _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
         try {
             _viewer.Markdown = Text;
@@ -229,9 +262,29 @@ public sealed class MarkdownView : ContentControl {
             _viewer.Markdown = null;
             Content = new SelectableTextBlock { Text = Text, TextWrapping = TextWrapping.Wrap };
         }
+        ApplyFind();
         _selectionHost?.UpdateSelection(this);
         WatchTitles();
     }
+
+    void ApplyFind() {
+        _find.Apply(_viewer, Content is MarkdownViewer ? FindQuery : null);
+        _find.SetCurrent(_currentFind, this);
+    }
+
+    internal int FindMatchCount => _find.Count;
+
+    /// Marks one match as the current one, or none for -1; it stays marked across a re-render.
+    internal void SetCurrentFind(int index) {
+        _currentFind = index;
+        _find.SetCurrent(index, this);
+    }
+
+    /// Where a match's first line sits, in this view's coordinates.
+    internal Rect? FindMatchBounds(int index) =>
+        _find.Bounds(index) is var (block, bounds) && block.TranslatePoint(bounds.Position, this) is { } at
+            ? new Rect(at, bounds.Size)
+            : null;
 
     internal string? AgentLinkLabel(string url) {
         var label = GetValue(AgentLinksProperty)?.For(url);
@@ -272,6 +325,21 @@ public sealed class MarkdownView : ContentControl {
         set => SetValue(OpenLinkProperty, value);
     }
 
+    public ICommand? OpenSourceCommand {
+        get => GetValue(OpenSourceCommandProperty);
+        set => SetValue(OpenSourceCommandProperty, value);
+    }
+
+    public object? OpenSourceCommandParameter {
+        get => GetValue(OpenSourceCommandParameterProperty);
+        set => SetValue(OpenSourceCommandParameterProperty, value);
+    }
+
+    public bool CanOpenSource {
+        get => GetValue(CanOpenSourceProperty);
+        set => SetValue(CanOpenSourceProperty, value);
+    }
+
     public MarkdownFlavor Flavor {
         get => GetValue(FlavorProperty);
         set => SetValue(FlavorProperty, value);
@@ -287,9 +355,15 @@ public sealed class MarkdownView : ContentControl {
         set => SetValue(RunCodeProperty, value);
     }
 
+    public string? FindQuery {
+        get => GetValue(FindQueryProperty);
+        set => SetValue(FindQueryProperty, value);
+    }
+
     void ApplyFlavor() {
         _linkKeys.Clear();
         _details.Clear();
+        _mermaidSources.Clear();
         _viewer.Extensions.Clear();
         if (Flavor == MarkdownFlavor.GitHub) {
             _viewer.Extensions.Add(KcapMarkdownExtension.GitHub);
@@ -308,6 +382,8 @@ public sealed class MarkdownView : ContentControl {
             MarkdownFlavor.Prompt => ChatPipeline.Prompt,
             _                     => ChatPipeline.Instance,
         };
+        _find.Forget();
+        ApplyFind();
         _selectionHost?.UpdateSelection(this);
     }
 
@@ -317,14 +393,26 @@ public sealed class MarkdownView : ContentControl {
     /// below it, and the scroll offset alone would let the header wander with it.
     void OnDetailsToggled(int ordinal, bool expanded) {
         _details.Set(ordinal, expanded);
-        var header = Header(ordinal);
-        var hadFocus = header?.IsFocused == true;
+        RerenderDisclosure(() => Header(ordinal));
+    }
+
+    internal bool IsMermaidSourceExpanded(int position) => _mermaidSources.IsExpanded(position, false);
+
+    internal void ToggleMermaidSource(int position, bool expanded) {
+        _mermaidSources.Set(position, expanded);
+        RerenderDisclosure(() => this.GetVisualDescendants().OfType<ToggleButton>().FirstOrDefault(button =>
+            button.Classes.Contains("markdown-mermaid-toggle") && button.Tag is int tag && tag == position));
+    }
+
+    void RerenderDisclosure(Func<ToggleButton?> header) {
+        var current = header();
+        var hadFocus = current?.IsFocused == true;
         var scroll = this.FindAncestorOfType<ScrollViewer>();
-        var anchorY = scroll is not null ? header?.TranslatePoint(new Point(0, 0), scroll)?.Y : null;
+        var anchorY = scroll is not null ? current?.TranslatePoint(new Point(0, 0), scroll)?.Y : null;
         Dispatcher.UIThread.Post(() => {
             Render();
-            if (hadFocus) Header(ordinal)?.Focus();
-            if (anchorY is { } y && scroll is not null) new ToggleAnchor(scroll, () => Header(ordinal), y).Hold();
+            if (hadFocus) header()?.Focus();
+            if (anchorY is { } y && scroll is not null) new ToggleAnchor(scroll, header, y).Hold();
         });
     }
 

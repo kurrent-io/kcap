@@ -898,6 +898,152 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    const string FollowUpSubmitted = PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r";
+
+    static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingFollowUpAsync(FakeTimeProvider time) {
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+        runtime.NoteTurnRelayed();
+        await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var send = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await send;
+
+        return (runtime, pty);
+    }
+
+    /// <summary>A message the agent took no turn for is submitted once more: a large paste can still be
+    /// arriving when the first Enter lands, which then becomes a newline in it.</summary>
+    [Test]
+    public async Task A_message_no_turn_followed_is_submitted_once_more() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait - TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FollowUpSubmitted);
+
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Writes.Count >= 5);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FollowUpSubmitted + "|\r");
+
+        runtime.NoteTurnRelayed();
+        var outcome = await runtime.FollowUpConfirmation!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.ConfirmedAfterResubmit);
+        pty.Exit();
+    }
+
+    /// <summary>An empty input frame writes nothing to the composer, so it does not hold back the
+    /// second Enter.</summary>
+    [Test]
+    public async Task An_empty_input_frame_does_not_withhold_the_second_enter() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await runtime.SendRawInputAsync([]);
+        await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
+
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(3);
+        pty.Exit();
+    }
+
+    /// <summary>A viewer's terminal answering the agent's own query changes nothing in its composer,
+    /// so it does not hold back the second Enter.</summary>
+    [Test]
+    public async Task A_terminal_reply_does_not_withhold_the_second_enter() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await runtime.SendRawInputAsync("\x1b[12;40R"u8.ToArray());
+        await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
+
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(3);
+        pty.Exit();
+    }
+
+    /// <summary>A key typed while the launch prompt awaits its turn may sit in the composer, and a
+    /// second Enter would submit it, so none follows.</summary>
+    [Test]
+    public async Task A_launch_prompt_gets_no_second_enter_once_someone_types_at_the_agent() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+
+        await runtime.SendRawInputAsync("x"u8.ToArray());
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2, () => runtime.LaunchPromptDelivery!.IsCompleted);
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.NotConfirmed);
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(1);
+        pty.Exit();
+    }
+
+    /// <summary>A write parked in the input lane holds neither the Enter nor the verdict past
+    /// <see cref="PtyHostedAgentRuntime.ResubmitLaneWait"/>.</summary>
+    [Test]
+    public async Task A_confirmation_stops_waiting_for_a_lane_a_parked_write_holds() {
+        var time    = new FakeTimeProvider();
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, confirmsLaunchPrompt: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        _ = PumpAsync(runtime);
+        pty.Inner.Emit("banner");
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Inner.Writes.Count >= 2);
+        runtime.NoteTurnRelayed();
+        await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var send = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await send;
+        var confirmation = runtime.FollowUpConfirmation!;
+
+        var parked = runtime.SendRawInputAsync("\x1b[12;40R"u8.ToArray());
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + PtyHostedAgentRuntime.ResubmitLaneWait + TimeSpan.FromSeconds(1),
+            () => confirmation.IsCompleted);
+
+        await Assert.That(await confirmation.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(LaunchPromptOutcome.NotConfirmed);
+        await Assert.That(pty.Inner.Writes.Count(w => w == "\r")).IsEqualTo(2);
+        pty.ReleaseRawWrites();
+        await parked.WaitAsync(TimeSpan.FromSeconds(5));
+        pty.Inner.Exit();
+    }
+
+    /// <summary>A second message sent before the first's turn is reported shares its wait, so the
+    /// one turn confirms both and neither reports a miss.</summary>
+    [Test]
+    public async Task One_reported_turn_confirms_every_message_still_waiting_for_one() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+        var first = runtime.FollowUpConfirmation!;
+
+        var send = runtime.SendUserInputAsync("and ship it");
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await send;
+        var second = runtime.FollowUpConfirmation!;
+
+        runtime.NoteTurnRelayed();
+
+        await Assert.That(await first.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        await Assert.That(await second.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        pty.Exit();
+    }
+
+    /// <summary>A key typed at the agent after the message may sit in its composer, and a second Enter
+    /// would submit it, so none follows.</summary>
+    [Test]
+    public async Task A_message_gets_no_second_enter_once_someone_types_at_the_agent() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await runtime.SendRawInputAsync("x"u8.ToArray());
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2, () => runtime.FollowUpConfirmation!.IsCompleted);
+        var outcome = await runtime.FollowUpConfirmation!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.NotConfirmed);
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(2);
+        pty.Exit();
+    }
+
     /// <summary>Holds raw writes until released, so a test can keep the input lane busy.</summary>
     sealed class GatedRawPty : IPtyProcess {
         readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1032,6 +1178,123 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    static PtyHostedAgentRuntime ComposerSignalRuntime(FakeTimeProvider time, RecordingScriptedPtyProcess pty) =>
+        new("claude", pty, time, approvalsDisabled: false, bracketedPasteMeansComposerUp: true,
+            awaitsSessionStart: true, confirmsLaunchPrompt: true);
+
+    /// <summary>Waits in real time, without moving the fake clock, so a paste that needed the quiet
+    /// window to pass cannot happen here.</summary>
+    static async Task WaitWithoutAdvancingAsync(Func<bool> done) {
+        for (var i = 0; i < 100 && !done(); i++) await Task.Delay(10);
+    }
+
+    /// <summary>Bracketed paste on is the composer mounted, so output still coming after it holds
+    /// nothing up: no quiet window is waited out.</summary>
+    [Test]
+    public async Task A_composer_signal_pastes_while_output_is_still_coming() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        runtime.NoteSessionStarted();
+        await pump.EmitAsync(pty, ReadyBanner);
+
+        for (var i = 0; i < 8 && pty.Writes.Count == 0; i++) {
+            time.Advance(TimeSpan.FromMilliseconds(250));
+            await Task.Delay(20);
+            await pump.EmitAsync(pty, "redraw");
+        }
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>SessionStart can fire before the composer mounts, and a paste then is dropped whole,
+    /// so the prompt waits for bracketed paste after it however quiet the screen is.</summary>
+    [Test]
+    public async Task A_composer_signal_holds_the_paste_past_session_start_until_bracketed_paste_turns_on() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "loading");
+        runtime.NoteSessionStarted();
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await pump.EmitAsync(pty, ReadyBanner);
+        // Output keeps coming between slices, so a paste here cannot be a quiet window running out.
+        for (var slice = 0; slice < 8 && pty.Writes.Count == 0; slice++) {
+            time.Advance(TimeSpan.FromMilliseconds(250));
+            await Task.Delay(20);
+            await pump.EmitAsync(pty, "redraw");
+        }
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>The composer can unmount while the delivery waits for the input lane, so the mode is
+    /// read again once the lane is held, and a paste waits for it to come back on.</summary>
+    [Test]
+    public async Task A_composer_signal_is_rechecked_once_the_lane_is_held() {
+        var time    = new FakeTimeProvider();
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false,
+            bracketedPasteMeansComposerUp: true, awaitsSessionStart: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty.Inner, "loading");
+        runtime.NoteSessionStarted();
+
+        var parked = runtime.SendRawInputAsync([0x1b]);
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        await pump.EmitAsync(pty.Inner, ReadyBanner);
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
+        await pump.EmitAsync(pty.Inner, "\x1b[?2004l");
+
+        pty.ReleaseRawWrites();
+        await parked.WaitAsync(TimeSpan.FromSeconds(5));
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+
+        await pump.EmitAsync(pty.Inner, ReadyBanner);
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Inner.Writes.Count >= 2);
+        await Assert.That(pty.Inner.Writes[1]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Inner.Exit();
+    }
+
+    /// <summary>A startup dialog mounts an input too, so bracketed paste on before SessionStart is no
+    /// composer; once the hook arrives with the mode still on, the paste goes at once.</summary>
+    [Test]
+    public async Task A_composer_signal_still_waits_for_session_start() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "\x1b[?2004htrust this folder?");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+        time.Advance(TimeSpan.FromMilliseconds(250));
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
     /// <summary>The retry Enter must never answer a screen ahead of the REPL, so its wait starts from
     /// the paste, not from the launch.</summary>
     [Test]
@@ -1128,6 +1391,106 @@ public class PtyHostedAgentRuntimeTests {
         await runtime.SendRawInputAsync([0x0d]).WaitAsync(TimeSpan.FromSeconds(2));
 
         await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\r");
+        pty.Exit();
+    }
+
+    const string FirstMessagePasted = "\x1b[200~carry on\x1b[201~|\r";
+
+    /// <summary>A resumed agent has no launch prompt, so without the hold its first message would go
+    /// into a terminal still rewriting CR as LF, and sit unsent in the composer.</summary>
+    [Test]
+    public async Task Input_held_until_ready_waits_for_the_terminal_to_stop_cooking_input() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess { IsInputCooked = true };
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("banner");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        pty.IsInputCooked = false;
+        time.Advance(TimeSpan.FromMilliseconds(250));
+        await Task.Delay(100);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay, () => message.IsCompleted);
+
+        await message.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted);
+        pty.Exit();
+    }
+
+    /// <summary>A resumed Claude reports SessionStart once its composer is up; a quiet screen before
+    /// that may be its session picker, which the paste and its Enter would answer.</summary>
+    [Test]
+    public async Task Input_held_until_ready_waits_for_session_start() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("resume screen");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait + TimeSpan.FromSeconds(1));
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => message.IsCompleted);
+
+        await message.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted);
+        pty.Exit();
+    }
+
+    /// <summary>Running out of time proves nothing about the terminal, so the message is refused, as a
+    /// launch prompt's follow-up is; and with no launch prompt there is no first message to report
+    /// unconfirmed.</summary>
+    [Test]
+    public async Task Input_held_too_long_for_session_start_is_refused_without_reading_as_an_unconfirmed_prompt() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("resume screen");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait, () => message.IsCompleted);
+
+        var refusal = await Assert.That(async () => await message.WaitAsync(TimeSpan.FromSeconds(5))).Throws<IOException>();
+        await Assert.That(refusal!.Message).Contains("terminal");
+        await Assert.That(pty.Writes).IsEmpty();
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>Only the first message waits: once the terminal has been seen ready, later ones go at once.</summary>
+    [Test]
+    public async Task Input_after_the_hold_is_not_held_again() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.HoldInputUntilReady();
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "banner");
+        var first = runtime.SendUserInputAsync("carry on");
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay, () => first.IsCompleted);
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await pump.EmitAsync(pty, "working");
+        var second = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => second.IsCompleted);
+
+        await second.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted + "|\x1b[200~and test it\x1b[201~|\r");
         pty.Exit();
     }
 

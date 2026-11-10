@@ -20,6 +20,8 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -261,7 +263,10 @@ class WatchCommand(
 
         var source       = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
         var host         = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
-        var housekeeping = new RecorderHousekeeping(source, skipTitle, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
+        var titlesAllowed = server.LocalRoot is not { } localRoot || LocalIntelligenceGate.For(config, localRoot).Allows(Url);
+        if (!skipTitle && !titlesAllowed) Log(time, $"Not generating a title: {LocalIntelligenceGate.NotSetUp}");
+
+        var housekeeping = new RecorderHousekeeping(source, skipTitle || !titlesAllowed, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
             message => Log(time, message), TouchHeartbeat);
 
         var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
@@ -583,6 +588,8 @@ class WatchCommand(
     /// </summary>
     static readonly HashSet<string> KnownVendors = new(StringComparer.Ordinal) { "claude", "codex", "copilot", "gemini", "kiro", "pi", "opencode", "antigravity", "cursor", "mistral-vibe", "grok", "muse" };
 
+    static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// The end-synthesis suppression <see cref="RunWatch"/>
     /// applies to its own idle-ceiling exit. Cursor's end-of-session synthesis has exactly one
@@ -689,8 +696,14 @@ class WatchCommand(
         }
 
         var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+        var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
-        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+        // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:
+        // a vendor without turn hooks opened its span at SessionStart, and one with them may have died mid-turn.
+        // Its drain is bounded, and is the last chance a session with no other hook gets.
+        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
+
+        return posted;
     }
 
     /// <summary>The end a hook handed over, as the watcher posts it. The run identity is only ever the one the hook
@@ -837,9 +850,9 @@ class WatchCommand(
         return HandedEndOutcome.Posted;
     }
 
-    Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>
-        new SessionEndPoster(config, Url, http, time, message => Log(time, message), (session, endVendor) => watchers.SpawnWhatsDoneGenerator(session, endVendor))
-            .PostAsync(sessionId, vendor, endHook, repository, what);
+    async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>
+        await new SessionEndPoster(config, Url, http, time, message => Log(time, message), (session, endVendor) => watchers.SpawnWhatsDoneGenerator(session, endVendor))
+            .PostAsync(sessionId, vendor, endHook, repository, what) is SessionEndDelivery.Delivered;
 
     /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
     /// for a generator that runs after the watcher is gone.</summary>

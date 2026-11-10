@@ -705,7 +705,7 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_stale_server_row_greys_out_like_a_stale_remote_one() {
+    public async Task A_stale_server_row_greys_out_and_reads_stale() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var laneStale = new BehaviorSubject<bool>(false);
             using var fresh = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, laneStale,
@@ -715,8 +715,11 @@ public class RailSessionViewModelTests {
 
             await Assert.That(fresh.IsStale).IsFalse();
             await Assert.That(idle.IsStale).IsTrue();
+            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
+            await Assert.That(idle.Status.Label).IsEqualTo("Stale");
             laneStale.OnNext(true);
             await Assert.That(fresh.IsStale).IsTrue();
+            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
         });
     }
 }

@@ -35,6 +35,7 @@ public static class CommandServices {
 
         services.AddSingleton(endpoints);
         services.AddSingleton(localRoot);
+        services.AddSingleton(LocalIntelligenceGate.For(config, localRoot));
         services.AddSingleton(clock);
         // The hook's own clock, not a second one: every deadline a command measures has to share the
         // provider the budget was anchored on, or a faked one moves only half of them.
@@ -181,9 +182,14 @@ public static class CommandServices {
         services.AddTransient<McpAnalyticsServer>();
         services.AddTransient<McpArtefactsServer>();
         services.AddTransient<McpKnowledgeServer>();
+        services.AddTransient(sp => new McpPassServer(
+            sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>(),
+            () => McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve().SessionId)));
+        services.AddTransient(sp => new PassCommand(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url));
+        services.AddTransient(sp => new MessageCommand(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url));
         services.AddTransient<McpReviewServer>();
         services.AddTransient<McpJudgeServer>();
-        services.AddSingleton(sp => new KcapLinkRemover(KcapLinkFolders.For(sp.GetRequiredService<UserHome>()), Environment.ProcessPath ?? ""));
+        services.AddSingleton(sp => KcapLinkRemover.For(sp.GetRequiredService<UserHome>(), sp.GetRequiredService<ConfigRoot>(), Environment.ProcessPath ?? ""));
         services.AddTransient<UninstallCommand>();
         services.AddTransient<UpdateCommand>();
         services.AddTransient<RefreshCommand>();

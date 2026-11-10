@@ -54,7 +54,7 @@ public class DaemonSteeringCommandTests {
     Task<int> SteeringAsync(string state, string name = Name, ConfigRoot? config = null) =>
         Daemon(config).HandleAsync(["daemon", "steering", state, "--name", name]);
 
-    void InstallKcap(string settings) => ClaudePluginWriter.Install(settings, PluginDir);
+    void InstallKcap(string settings) => ClaudePluginWriter.Install(settings, null, PluginDir);
 
     static JsonNode? Enabled(string settings) =>
         JsonNode.Parse(File.ReadAllText(settings))!["enabledPlugins"]?[ClaudePluginInstaller.SteeringPluginKey];

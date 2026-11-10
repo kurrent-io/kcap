@@ -10,7 +10,6 @@ namespace Capacitor.App.ViewModels;
 /// a repository root is stripped as well.
 public static class ToolDetail {
     const int MaxLength = 80;
-    /// Narrow enough that a chat row at a narrow pane does not trim the path a second time.
     const int MaxPathLength = 40;
     /// A question is read rather than scanned — the row wraps it instead of eliding — so the only
     /// cap on it is the one that keeps an unbounded prompt out of a notification body.
@@ -23,30 +22,38 @@ public static class ToolDetail {
     static readonly string[] PathKeys = ["file_path", "path", "notebook_path"];
     static readonly string[] PatchTextKeys = ["input", "command"];
 
-    public static string From(string? inputJson, string? root = null, ToolCategory category = ToolCategory.Other) {
-        if (string.IsNullOrEmpty(inputJson)) return "";
+    public static string From(string? inputJson, string? root = null, ToolCategory category = ToolCategory.Other) =>
+        Read(inputJson, root, category, elidePaths: true).Text;
+
+    /// Chat trims paths against the row's measured width; notification and permission summaries
+    /// use From's character budget instead.
+    public static (string Text, bool IsPath) ForRow(string? inputJson, string? root = null, ToolCategory category = ToolCategory.Other) =>
+        Read(inputJson, root, category, elidePaths: false);
+
+    static (string Text, bool IsPath) Read(string? inputJson, string? root, ToolCategory category, bool elidePaths) {
+        if (string.IsNullOrEmpty(inputJson)) return ("", false);
         try {
             using var doc = JsonDocument.Parse(inputJson);
-            if (!doc.RootElement.IsObject) return "";
+            if (!doc.RootElement.IsObject) return ("", false);
             if (doc.RootElement.Arr("questions") is { } questions) {
                 foreach (var item in questions.EnumerateArray()) {
                     if (item.Str("question") is { } text && text.Trim().Length > 0)
-                        return TextElision.End(FirstLine(text), MaxQuestionLength);
+                        return (TextElision.End(FirstLine(text), MaxQuestionLength), false);
                 }
             }
             if (category == ToolCategory.Question && doc.RootElement.Str("prompt") is { } prompt && prompt.Trim().Length > 0)
-                return TextElision.End(FirstLine(prompt), MaxQuestionLength);
+                return (TextElision.End(FirstLine(prompt), MaxQuestionLength), false);
             if (PatchTargets(doc.RootElement, category) is { } targets)
-                return PatchDetail(targets, root);
+                return (PatchDetail(targets, root, elidePaths), targets.Count > 0);
             foreach (var key in Keys) {
                 if (category == ToolCategory.Question && key == "prompt") continue;
-                if (doc.RootElement.Str(key) is { } s && s.Trim().Length > 0)
-                    return PathKeys.Contains(key)
-                        ? TextElision.Path(FirstLine(Relative(s.Trim(), root)), MaxPathLength)
-                        : TextElision.Middle(FirstLine(s), MaxLength);
+                if (doc.RootElement.Str(key) is not { } s || s.Trim().Length == 0) continue;
+                if (!PathKeys.Contains(key)) return (TextElision.Middle(FirstLine(s), MaxLength), false);
+                var path = FirstLine(Relative(s.Trim(), root));
+                return (elidePaths ? TextElision.Path(path, MaxPathLength) : path, true);
             }
         } catch (JsonException) { }
-        return "";
+        return ("", false);
     }
 
     /// The files a patch call names; null when the input is not a patch, empty when it is one whose
@@ -75,20 +82,29 @@ public static class ToolDetail {
     }
 
     /// One file reads as its path; several as a list while it fits, then the first and a count.
-    static string PatchDetail(IReadOnlyList<string> targets, string? root) {
+    static string PatchDetail(IReadOnlyList<string> targets, string? root, bool elidePaths) {
         if (targets.Count == 0) return "";
         var paths = targets.Select(t => Relative(t, root)).ToList();
-        if (paths.Count == 1) return TextElision.Path(paths[0], MaxPathLength);
+        var first = elidePaths ? TextElision.Path(paths[0], MaxPathLength) : paths[0];
+        if (paths.Count == 1) return first;
         var list = string.Join(", ", paths);
         if (list.Length <= MaxLength) return list;
         var more = $" +{paths.Count - 1} more";
-        return TextElision.Path(paths[0], MaxPathLength) + more;
+        return first + more;
     }
 
     /// The one argument a catalogued kcap row shows, first line only, elided like any detail.
     public static string ForKey(string? inputJson, string? key) {
         var raw = RawForKey(inputJson, key);
         return raw.Length > 0 ? TextElision.End(FirstLine(raw), MaxLength) : "";
+    }
+
+    /// A catalogued row still uses its declared key; only path keys defer elision to the view.
+    public static (string Text, bool IsPath) ForKeyInRow(string? inputJson, string? key, string? root = null) {
+        var raw = RawForKey(inputJson, key);
+        return raw.Length > 0 && PathKeys.Contains(key)
+            ? (Relative(raw, root), true)
+            : (TextElision.End(raw, MaxLength), false);
     }
 
     public static string RawForKey(string? inputJson, string? key) {

@@ -65,7 +65,7 @@ public sealed class DaemonCommands(
     async Task<int> StartAsync(string[] args) {
         var detached = args.Contains("-d") || args.Contains("--detach");
 
-        return detached ? StartDetached(args) : await StartForegroundAsync(args);
+        return detached ? await StartDetachedAsync(args) : await StartForegroundAsync(args);
     }
 
     /// <summary>
@@ -168,7 +168,7 @@ public sealed class DaemonCommands(
         return process.ExitCode;
     }
 
-    int StartDetached(string[] args) {
+    async Task<int> StartDetachedAsync(string[] args) {
         var name = ResolveName(args);
 
         var startLock = TryAcquireStartLock(name);
@@ -249,41 +249,41 @@ public sealed class DaemonCommands(
         process.StandardOutput.Close();
         process.StandardError.Close();
 
-        // the daemon binary acquires its own per-name flock at
-        // startup and exits with code 2 if another live daemon already
-        // holds it (the race we couldn't catch via the PID-file guard
-        // alone, e.g. when the previous daemon's PID file got wiped but
-        // the process is still alive). Without this short readiness wait
-        // we'd happily write a stale PID file and tell the user the
-        // detached daemon is running when it actually just exited. The
-        // flock acquisition happens *very* early in DaemonRunner.RunAsync
-        // (before SignalR connect), so 1.5s is more than enough to catch
-        // an immediate exit without making the success path feel sluggish.
-        if (process.WaitForExit(1500)) {
+        // The daemon exits with code 2 when another live daemon already holds the name's lock, so a
+        // live process is not yet a started daemon: only its own pid answering on the socket is.
+        var readiness = await DetachedDaemonReadiness.AwaitAsync(
+            process, timeout => HelloProbe.RunAsync(store, name, time, timeout), time, DetachedDaemonReadiness.Bound);
+
+        if (readiness == DaemonReadiness.Exited) {
             console.Error.WriteLine(
                 $"Daemon '{name}' failed to start (exit code {process.ExitCode}). "
               + $"Check `kcap daemon doctor` to see whether the name is held by another process."
             );
 
-            // Translate the daemon's flock-conflict exit code straight
-            // through so wrappers / CI can distinguish "name in use" from
-            // a generic spawn failure.
+            // The flock-conflict exit code goes straight through so wrappers can tell "name in use"
+            // from a generic spawn failure.
             return process.ExitCode == 0 ? 1 : process.ExitCode;
         }
 
-        // No supervisor PID-file write here: the daemon wrote its own
-        // inside the flock during startup — which the readiness wait above just
-        // confirmed it survived — and owns its deletion. A redundant out-of-flock
-        // write could recreate the file after a clean daemon exit and trip the
-        // successor's unclean-exit breadcrumb falsely.
+        // No PID-file write here: the daemon writes its own inside the flock and owns its deletion. An
+        // out-of-flock write could recreate the file after a clean exit and fake the next start's
+        // unclean-exit breadcrumb.
 
-        console.Out.WriteLine($"Daemon '{name}' started (PID {process.Id})");
+        console.Out.WriteLine(DescribeDetachedStart(name, process.Id, readiness));
         console.Out.WriteLine($"  Log:       {LogPath}");
         console.Out.WriteLine($"  Stop with: kcap daemon stop --name {name}");
         console.Out.WriteLine($"  Status:    kcap daemon status --name {name}");
 
         return 0;
     }
+
+    /// <summary>The first line of a detached start that did not fail. A daemon still not serving at the
+    /// bound may yet come up or die, so the exit stays 0 and the line says it is unconfirmed.</summary>
+    internal static string DescribeDetachedStart(string name, int pid, DaemonReadiness readiness) =>
+        readiness == DaemonReadiness.Serving
+            ? $"Daemon '{name}' started (PID {pid})"
+            : $"Daemon '{name}' started (PID {pid}) but is not yet serving after {DetachedDaemonReadiness.Bound.TotalSeconds:0}s; "
+            + $"check `kcap daemon status --name {name}` and the log";
 
     /// <summary>
     /// Overlays the daemon/config roots plus the Antigravity ADC trio onto a CLI-spawned daemon's
@@ -1153,7 +1153,7 @@ public sealed class DaemonCommands(
         console.Error.WriteLine("Options for start:");
         console.Error.WriteLine("  --name <name>         Daemon name (defaults to OS username)");
         console.Error.WriteLine("  --server-url <url>    Server URL");
-        console.Error.WriteLine("  --max-agents <n>      Max concurrent hosted coding agents (default: 5; 0 = unlimited)");
+        console.Error.WriteLine("  --max-agents <n>      Max concurrent hosted coding agents (default: 20; 0 = unlimited)");
         console.Error.WriteLine("  --log-file <path>     Log to file instead of console");
         console.Error.WriteLine("  -d, --detach          Run in background (logs to file automatically)");
 

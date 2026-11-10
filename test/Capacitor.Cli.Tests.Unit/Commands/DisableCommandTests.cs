@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
@@ -288,13 +289,11 @@ public class DisableCommandTests : IDisposable {
     [Test]
     [Arguments("unreachable")]
     [Arguments("refused")]
-    [Arguments("not found")]
     public async Task An_unconfirmed_stop_with_no_deletion_leaves_nothing_behind(string server) {
         _daemon.Names = ["daemon-b"];
         _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
         if (server == "unreachable") _sessions.Failure = new CapacitorApiException(null, "The server could not be reached.");
         if (server == "refused") _sessions.Failure = new CapacitorApiException(500, "Server error.");
-        if (server == "not found") _sessions.Answer = new DeleteSessionResponse.NotFound();
         await Run();
         _out.GetStringBuilder().Clear();
         _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
@@ -304,6 +303,24 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>A send still on its way can create the session behind a deletion that found nothing, so that deletion is
+    /// doubted later as one that deleted would be.</summary>
+    [Test]
+    public async Task An_unconfirmed_stop_whose_deletion_found_nothing_is_doubted_later() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
+        _sessions.Answer = new DeleteSessionResponse.Deleted();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith(Clean);
+        await Assert.That(Printed).Contains(EarlierDeletion);
     }
 
     /// <summary>A live agent's output isn't recording, and its own line says what goes on.</summary>
@@ -562,6 +579,23 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
     }
 
+    /// <summary>Each daemon's server holds a copy this deletion never reaches, so every one is named and kept for later
+    /// runs, and one server two daemons spell differently is named once.</summary>
+    [Test]
+    public async Task Every_other_server_the_daemons_name_is_said_and_kept() {
+        _daemon.Names = ["daemon-b", "daemon-c", "daemon-d"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Stopped, Server: "https://b.example");
+        _daemon.Answers["daemon-c"] = new(RecordingDisable.NotHeld, AgentLive: true, Server: "https://c.example");
+        _daemon.Answers["daemon-d"] = new(RecordingDisable.Stopped, Server: "HTTPS://B.EXAMPLE:443/");
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
+        await Assert.That(Printed).Contains("sends to https://c.example, and nothing was deleted there");
+        await Assert.That(Printed.Split("nothing was deleted there").Length - 1).IsEqualTo(2);
+        await Assert.That(DisabledSessions.OtherServers(Session, Config.Root)).IsEquivalentTo(["https://b.example", "https://c.example"]);
+    }
+
     const string OtherServer = "https://other.example";
 
     const string FoundEarlier = $"An earlier kcap disable found a daemon sending this session to {OtherServer}. This command can't delete data there";
@@ -678,6 +712,130 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).IsEqualTo(Clean);
     }
 
+    string LifecycleSpool => new HookSpool(Config.Root, _time, ServerUrl).DirectoryPath;
+
+    string WorkspaceSpoolDirectory => new WorkspaceSpool(Config.Root, ServerUrl, _time).DirectoryPath;
+
+    /// <summary>Moves the clock on until <paramref name="run"/> is done, for a command waiting on it.</summary>
+    async Task<int> Advancing(Task<int> run) {
+        while (!run.IsCompleted) {
+            _time.Advance(TimeSpan.FromMilliseconds(50));
+            await Task.Delay(5);
+        }
+
+        return await run;
+    }
+
+    /// <summary>A drain pass can read the marker a moment before it goes down and have a post of the session on its way.
+    /// Every pass holds its spool's lease throughout, so the deletion waits for that lease.</summary>
+    [Test]
+    [Arguments("lifecycle")]
+    [Arguments("workspace")]
+    public async Task The_deletion_waits_for_a_spool_drain_under_way(string spool) {
+        var released = false;
+        bool? deletedWhileDraining = null;
+        _sessions.OnDelete = () => deletedWhileDraining = !Volatile.Read(ref released);
+        var pass = SpoolDrainLease.TryTake(spool == "lifecycle" ? LifecycleSpool : WorkspaceSpoolDirectory)!;
+
+        var run = Run();
+        await Task.Delay(100);
+        Volatile.Write(ref released, true);
+        pass.Dispose();
+
+        await Assert.That(await Advancing(run).WithinDeadlineAsync("the command")).IsEqualTo(0);
+
+        await Assert.That(deletedWhileDraining).IsFalse();
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>Past the wait the pass may still be sending, so the deletion goes ahead and says so.</summary>
+    [Test]
+    public async Task A_spool_drain_that_outlasts_the_wait_is_not_a_clean_stop() {
+        using var pass = SpoolDrainLease.TryTake(LifecycleSpool);
+
+        await Assert.That(await Advancing(Run()).WithinDeadlineAsync("the command")).IsEqualTo(1);
+
+        await Assert.That(_sessions.Deleted).IsEquivalentTo([Session]);
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("so a send of this session may still land");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+    }
+
+    sealed class Answering(Func<HttpResponseMessage> answer) : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => Task.FromResult(answer());
+    }
+
+    /// <summary>A drain pass over this profile's spool, its posts answered by <paramref name="answer"/>.</summary>
+    async Task DrainPassAsync(Func<HttpResponseMessage> answer) {
+        using var client = new HttpClient(new Answering(answer));
+
+        await LifecycleSpoolDrain.RunAsync(
+            Config.Root, new Core.Harness.Cursor.CursorMarkers(Config.Root, _time), client, ServerUrl, new HookSpool(Config.Root, _time, ServerUrl),
+            new TranscriptSpool(Config.Root, _time, ServerUrl), currentSessionId: null, TimeSpan.FromSeconds(30), _time, CancellationToken.None);
+    }
+
+    void SpoolSessionStart() =>
+        new HookSpool(Config.Root, _time, ServerUrl).Append(Session, "session-start/codex", $$"""{"session_id":"{{Session}}"}""");
+
+    /// <summary>A pass that has ended can have left a post the server never answered, which it may still be taking in
+    /// and which could land behind the deletion. A later post's answer says nothing of that one.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_spooled_post_the_server_never_answered_is_not_a_clean_stop(bool deliveredLater) {
+        SpoolSessionStart();
+        await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
+        if (deliveredLater) await DrainPassAsync(() => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("has had no answer from the server");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsFalse();
+    }
+
+    /// <summary>Nothing found says nothing of a post the server may still be taking in, which can bring the session back
+    /// behind this run, so the doubt is kept for later runs as an unconfirmed deletion's is.</summary>
+    [Test]
+    public async Task A_spooled_post_with_no_answer_behind_nothing_found_is_kept_for_later_runs() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("has had no answer from the server");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsFalse();
+    }
+
+    /// <summary>The records are the only trace of the doubt until it is kept, so they stay when it can't be, and the next
+    /// run says it again.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task Posts_with_no_answer_stay_recorded_when_the_doubt_cannot_be_kept() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
+        File.SetUnixFileMode(Config.CreateFile(Path.Combine("disabled", Session)), UnixFileMode.UserRead);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsTrue();
+        await Assert.That(Printed).DoesNotContain("so a later kcap disable won't say so");
+    }
+
+    /// <summary>An error status is an answer: the server has finished with that post.</summary>
+    [Test]
+    public async Task A_spooled_post_the_server_answered_with_an_error_is_a_clean_stop() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
     /// <summary>A failed marker can't be a reason to leave recording running, so what can be stopped still is. The person
     /// has to hear of it, because the marker is what keeps a restart or a hook from bringing the session back.</summary>
     [Test]
@@ -692,6 +850,20 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(_sessions.Deleted).IsEquivalentTo([Session]);
         await Assert.That(Printed).StartsWith($"Server data for session {Session} deleted.");
         await Assert.That(Printed).Contains("could not mark");
+    }
+
+    /// <summary>A daemon's agents' hooks read the daemon's own marker, so one it couldn't write leaves them free to record
+    /// the session again, behind the deletion.</summary>
+    [Test]
+    public async Task A_daemon_that_could_not_mark_the_session_is_not_a_clean_stop() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.Stopped, MarkFailed: true);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("A kcap daemon could not mark this session disabled");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
     }
 
     /// <summary>Every line ahead of the caveat, in every state the server can leave.</summary>
@@ -726,6 +898,26 @@ public class DisableCommandTests : IDisposable {
             await Assert.That(code).IsEqualTo(1);
             await Assert.That(Printed).DoesNotContain("Recording stopped");
             await Assert.That(Printed).Contains("could not read");
+        } finally {
+            File.SetUnixFileMode(watchers, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    /// <summary>Finding the session's own watcher needs no listing, so a directory that can't be listed still has it
+    /// stopped. On the real clock, because the stop waits for the watcher to exit.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    [ParallelLimiter<SubprocessLimit>]
+    public async Task A_watcher_directory_that_cannot_be_listed_still_stops_the_sessions_watcher() {
+        using var watcher = await WatcherOn(Session);
+        var watchers = Paths.Directory;
+        File.SetUnixFileMode(watchers, UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        try {
+            await Assert.That(await Run(TimeProvider.System)).IsEqualTo(1);
+
+            await Assert.That(watcher.HasExited).IsTrue();
+            await Assert.That(Printed).Contains("could not read what records this session");
         } finally {
             File.SetUnixFileMode(watchers, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }

@@ -186,4 +186,30 @@ public class LocalDaemonRecordingTests {
 
         await Assert.That(answer.Outcome).IsEqualTo(RecordingDisable.Stopped);
     }
+
+    Task<RecordingDisableAnswer> DisableAsync() =>
+        Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", CancellationToken.None);
+
+    /// <summary>A pid file naming a live daemon, with nothing on its socket, is that daemon starting up: it may restore
+    /// the session once it binds, so the stop can't be called confirmed.</summary>
+    [Test]
+    public async Task A_live_daemon_with_nothing_on_its_socket_is_silent_to_a_disable() {
+        Daemons.Store.EnsureDirectory();
+        await File.WriteAllTextAsync(Daemons.Store.PidPath(DaemonName), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}");
+
+        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.Silent);
+    }
+
+    /// <summary>Between the old process and its successor there is no live pid, and the queued restart says one is coming.</summary>
+    [Test]
+    public async Task A_daemon_with_a_restart_queued_and_nothing_on_its_socket_is_silent_to_a_disable() {
+        DaemonRestartMarker.Write(Daemons.Store, DaemonName, new DaemonRestartMarker("1.0.0", DaemonRestartMarker.SelfDetected, DateTimeOffset.UnixEpoch));
+
+        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.Silent);
+    }
+
+    /// <summary>No daemon at all is the common case, and it leaves nothing to doubt.</summary>
+    [Test]
+    public async Task No_daemon_at_all_is_no_socket_to_a_disable() =>
+        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
 }

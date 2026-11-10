@@ -46,12 +46,16 @@ public class DaemonRecorderTests {
     /// <param name="prepare">What a recorder's preparing waits on, which ignores its token as repository detection does.</param>
     /// <param name="probe">The server's answer, which is yes unless the test holds it.</param>
     /// <param name="settling">Wraps each source's settling once its last attempt has ended.</param>
+    /// <param name="endsFirst">How the first session-end posts go, in order; every later one is delivered.</param>
     DaemonRecorder NewRecorder(
-        bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null, string name = Name, Func<Func<Task>, Task>? settling = null) {
+            bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null, string name = Name,
+            Func<Func<Task>, Task>? settling = null, IReadOnlyList<SessionEndDelivery>? endsFirst = null) {
         if (probe is null) {
             probe = new RecordingProbe();
             probe.Report(true);
         }
+
+        var first = new Queue<SessionEndDelivery>(endsFirst ?? []);
 
         var config = NewConfig(on);
         config.Name = name;
@@ -75,9 +79,14 @@ public class DaemonRecorderTests {
                 return Exited.Contains(process.Pid);
             },
             (source, end) => {
-                lock (Ends) Ends.Add((source.Key, end, (time ?? TimeProvider.System).GetUtcNow()));
+                lock (Ends) {
+                    var delivery = first.TryDequeue(out var next) ? next : SessionEndDelivery.Delivered;
 
-                return Task.FromResult(true);
+                    if (delivery is SessionEndDelivery.Delivered) Ends.Add((source.Key, end, (time ?? TimeProvider.System).GetUtcNow()));
+                    else Undelivered.Add(source.Key);
+
+                    return Task.FromResult(delivery);
+                }
             }) { Settling = settling };
     }
 
@@ -87,6 +96,15 @@ public class DaemonRecorderTests {
     int EndCount {
         get {
             lock (Ends) return Ends.Count;
+        }
+    }
+
+    /// <summary>Every session end that was not delivered, under the lock on <see cref="Ends"/>.</summary>
+    List<string> Undelivered { get; } = [];
+
+    int UndeliveredCount {
+        get {
+            lock (Ends) return Undelivered.Count;
         }
     }
 
@@ -537,6 +555,56 @@ public class DaemonRecorderTests {
         SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
 
         await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>An end that reached neither the server nor the spool is still owed. The source waits on with its claim and
+    /// its list entry, which is what a restart picks it up by, and the end is posted once the daemon's own unmarked claim
+    /// on it is old enough to take over.</summary>
+    [Test]
+    public async Task A_session_end_neither_posted_nor_spooled_is_tried_again() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Lost]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        await Stepping(time, () => UndeliveredCount == 1);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsTrue();
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([source.Key]);
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(EndCount).IsEqualTo(0);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>An end the server refused drops, as any refused hook post does: the source is let go, and the end is not
+    /// sent again however long the daemon runs, nor by a hook that comes after the claim has gone stale.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_is_not_tried_again() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Rejected]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => UndeliveredCount == 1 && List.Load().Count == 0);
+        time.Advance(SessionEndRecord.TakeOver * 2);
+        await Task.Delay(50);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
+        await Assert.That(UndeliveredCount).IsEqualTo(1);
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
     }
 
     /// <summary>A daemon killed between its claim of the end and its post left the claim, the list entry and its own
@@ -1035,7 +1103,7 @@ public class DaemonRecorderTests {
         await using var recorder = NewRecorder(time: time);
         var source = Source();
         Directory.CreateDirectory(Paths.Directory);
-        var lockFile = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+        await using var lockFile = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
 
         var claim = recorder.ClaimAsync(source, CancellationToken.None);
         await Assert.That(claim.IsCompleted).IsFalse();
@@ -1197,6 +1265,100 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).IsEmpty();
     }
 
+    /// <summary>The agent that resumes a restored source can write its transcript somewhere else, while the file the last
+    /// daemon tailed is still there, so nothing that looks for a missing file would ever move it.</summary>
+    [Test]
+    public async Task A_restored_source_resumed_on_another_path_follows_it() {
+        const string resumedReply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Resumed elsewhere."}]}}""";
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        Transport.ResumeFrom = 1;
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Connects == 1);
+
+        var resumed = source with { AgentId = "agent-2", TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{resumedReply}\n") };
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(resumed);
+
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Any(batch => batch.Lines.Any(line => line.Contains("Resumed elsewhere."))));
+
+        await Assert.That(List.Load().Single()).IsEqualTo(resumed);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    const string ResumedReply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Resumed elsewhere."}]}}""";
+
+    bool SentResumedReply => Transport.Batches.Any(batch => batch.Lines.Any(line => line.Contains("Resumed elsewhere.")));
+
+    /// <summary>A source the last daemon left, now the resumed agent's, with every final drain held until the test
+    /// releases it.</summary>
+    async Task<(DaemonRecorder Recorder, RecordedSource Resumed, TaskCompletionSource Release)> RestoredForResumedAgentAsync() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        Transport.ResumeFrom = 1;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Transport.OnDrainComplete = _ => release.Task;
+
+        var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Connects == 1);
+
+        return (recorder, source with { AgentId = "agent-2" }, release);
+    }
+
+    async Task AssertNothingLeftRecordingAsync(DaemonRecorder recorder, string key) {
+        await Assert.That(SentResumedReply).IsTrue();
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Claims.Read(key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>The agent can end while its restored source moves to its path. Its session's end goes to the server once
+    /// its finish returns, so by then the new path's tail has gone and nothing is left recording for it.</summary>
+    [Test]
+    public async Task An_agent_that_ends_while_its_source_moves_sends_the_new_tail_and_leaves_nothing_recording() {
+        var (recorder, resumed, release) = await RestoredForResumedAgentAsync();
+        await using var _ = recorder;
+
+        var moved = resumed with { TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{ResumedReply}\n") };
+        await Assert.That(await recorder.ClaimAsync(moved, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(moved);
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+
+        var finish = recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30));
+        release.TrySetResult();
+        await finish.WithinDeadlineAsync("the agent's finish");
+
+        await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
+    }
+
+    /// <summary>The agent's finish can take its source before a move to another path does. The session's end goes to the
+    /// server once the finish returns, so the finish includes that move: by then the path's tail has gone and nothing is
+    /// left recording behind it, with no wait on the move itself.</summary>
+    [Test]
+    public async Task A_move_behind_its_agents_finish_is_over_when_the_finish_is() {
+        var (recorder, resumed, release) = await RestoredForResumedAgentAsync();
+        await using var _ = recorder;
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(resumed);
+
+        var finish = recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30));
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+        File.Delete(resumed.TranscriptPath);
+        var move = recorder.ObserveTranscriptAsync(resumed with { TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{ResumedReply}\n") });
+        release.TrySetResult();
+        await finish.WithinDeadlineAsync("the agent's finish");
+
+        await AssertNothingLeftRecordingAsync(recorder, resumed.Key);
+        await move.WithinDeadlineAsync("the move");
+    }
+
     /// <summary>Recording was turned off with sources left. A hosted claim nobody comes back for would keep a resumed
     /// session's hooks from starting the watcher it now needs.</summary>
     [Test]
@@ -1232,6 +1394,35 @@ public class DaemonRecorderTests {
         await Assert.That(Connections).IsEqualTo(0);
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
         await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A take reads the claim and writes it under the key's spawn lock, so a release reads and deletes under it
+    /// too: otherwise the claim it deletes can be one another daemon has just taken.</summary>
+    [Test]
+    public async Task A_release_waits_out_a_take_in_progress_and_leaves_what_it_took() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        await using var taking = new FileStream(Paths.SpawnLockFile(source.Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+
+        await using var recorder = NewRecorder(time: time);
+        var restore = recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo(Name);
+
+        var later = new FakeTimeProvider(DateTimeOffset.UtcNow + RecorderClaims.Grace * 2);
+        await Assert.That(new RecorderClaims(Paths.Directory, later).TryTake(source.Key, "another-daemon", isHosted: true)).IsTrue();
+        await taking.DisposeAsync();
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromMilliseconds(50));
+
+            return restore.IsCompleted;
+        });
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("another-daemon");
     }
 
     [Test]
@@ -1786,6 +1977,20 @@ public class DaemonRecorderTests {
         Transport.SilenceAnswer = Task.FromResult(false);
 
         await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.SendInFlight);
+    }
+
+    /// <summary>A run of the command that never got to delete leaves the next one nothing to stop, and a batch the first
+    /// left on its way that lost its answer is still the doubt it was.</summary>
+    [Test]
+    public async Task A_later_disable_after_a_send_lost_its_answer_says_it_may_have_landed() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        Transport.SilenceAnswer = Task.FromResult(false);
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the first disable");
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the later disable")).IsEqualTo(RecordingDisable.SendInFlight);
     }
 
     /// <summary>The lane behind a key's gate can hold it for a minute, and the command only waits seconds.</summary>

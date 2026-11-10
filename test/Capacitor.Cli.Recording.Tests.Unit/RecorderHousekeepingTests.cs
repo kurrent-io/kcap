@@ -4,7 +4,9 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.PrDetection;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -31,7 +33,8 @@ public class RecorderHousekeepingTests {
 
     string CreateParentLog() => Tmp.CreateFile("muse/session.jsonl", "");
 
-    string CreateChildLog() => Tmp.CreateFile($"muse/subagent/{Child}/session.jsonl", "");
+    // In segments, as the scan builds the path it starts the child with: a literal "/" stays one on Windows.
+    string CreateChildLog() => Tmp.CreateFile(Path.Combine("muse", "subagent", Child, "session.jsonl"), "");
 
     RecorderHousekeeping MuseHousekeeping(
         string transcript, string serverUrl = "http://127.0.0.1:1", string vendor = "muse", Action<string>? log = null, Action? beat = null,
@@ -190,5 +193,31 @@ public class RecorderHousekeepingTests {
 
         await Assert.That(_host.Started.Count).IsEqualTo(1);
         await Assert.That(housekeeping.SpawnedChildKeys).IsEmpty();
+    }
+
+    RecorderHousekeeping ClaudeHousekeeping(string? agentId, IRecorderHost host, TimeProvider time) => new(
+        new RecordingSource(Session, agentId, Tmp.PathTo("session.jsonl"), "claude", null), skipTitle: true, parentPid: null, host,
+        Config.Root, Resolutions.At("http://127.0.0.1:1", Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(),
+        new GitProviderRouter(), time, new AccountStore(Config.PathTo("accounts")), Home, _ => { }, () => { });
+
+    /// <summary>A session may run no hook that posts its workspace span, so its recorder delivers the spool, at
+    /// most once a throttle; a child's recorder leaves it to the session's.</summary>
+    [Test]
+    public async Task A_session_drains_the_workspace_spool_once_a_throttle_and_a_child_never_does() {
+        var time      = new FakeTimeProvider();
+        var childHost = new FakeRecorderHost();
+        var session   = ClaudeHousekeeping(null, _host, time);
+        var child     = ClaudeHousekeeping(ChildAgent, childHost, time);
+
+        await ScanAsync(session, Tmp.PathTo("session.jsonl"), times: 2);
+        await ScanAsync(child, Tmp.PathTo("session.jsonl"), times: 2);
+        await Assert.That(_host.WorkspaceDrains).IsEqualTo(1);
+
+        time.Advance(WorkspaceSpool.DrainThrottle);
+        await ScanAsync(session, Tmp.PathTo("session.jsonl"), times: 1);
+        await ScanAsync(child, Tmp.PathTo("session.jsonl"), times: 1);
+
+        await Assert.That(_host.WorkspaceDrains).IsEqualTo(2);
+        await Assert.That(childHost.WorkspaceDrains).IsEqualTo(0);
     }
 }

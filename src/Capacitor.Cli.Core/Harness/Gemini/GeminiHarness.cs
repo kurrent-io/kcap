@@ -21,6 +21,8 @@ public sealed class GeminiHarness : IHarness<GeminiHarness> {
     /// override a second time.</summary>
     public GeminiPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.SettingsJson];
+
     // The PATH probe covers a fresh install that has written none of the markers yet.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),

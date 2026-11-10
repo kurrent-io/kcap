@@ -132,7 +132,7 @@ public class InstallStepWindowsServiceTests {
         var ollama = new TaskCompletionSource<bool>();
 
         var (checking, keyword, ollamaPicked) = await AvaloniaSession.DispatchAsync(async () => {
-            var search = new SearchChoiceViewModel(ollamaAvailable: _ => ollama.Task, ollamaInstalled: () => false);
+            var search = new SearchChoiceViewModel(ollamaAvailable: _ => ollama.Task, ollamaInstalled: _ => Task.FromResult(false));
             var install = Step(Controller(new FakeKcapCli()), null, search);
             await install.OnEnterAsync(CancellationToken.None);
             _ = search.CheckOllamaCommand.Execute().ToTask();

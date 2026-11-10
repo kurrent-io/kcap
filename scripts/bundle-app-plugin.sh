@@ -13,6 +13,11 @@ cp -R "$here/../kcap/." "$destination/kcap/"
 # shellcheck source=lib/plugin-dev-files.sh
 source "$here/lib/plugin-dev-files.sh"
 strip_plugin_dev_files "$destination/kcap"
+# Without Git Bash, Claude Code runs a shell-form hook through PowerShell, whose start-up can outlast
+# the hook's timeout. A bundle that ships kcap.exe gives Claude the hooks that start it directly.
+if [ -f "$destination/bin/kcap.exe" ] || [ -f "$destination/kcap.exe" ]; then
+  cp "$destination/kcap/hooks/hooks.windows.json" "$destination/kcap/hooks/hooks.json"
+fi
 # shellcheck source=lib/plugin-manifests.sh
 source "$here/lib/plugin-manifests.sh"
 for manifest in "${plugin_manifests[@]}"; do

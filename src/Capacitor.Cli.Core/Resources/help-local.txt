@@ -2,6 +2,17 @@ kcap local — Run the local installation that `kcap setup --local` made
 
 Usage: kcap local <subcommand> [options]
 
+#if windows
+The server runs under the kcap-service Windows service when that is installed (`kcap setup --local
+--windows-service`, or `kcap daemon service install --system`, moves it there), and otherwise as a
+per-user Scheduled Task named kcap-local that runs while you are signed in. Moving a running server between
+the two restarts it; the move waits until it is ready again and says how long it was down.
+#endif
+#if unix
+The server runs as a per-user service that starts at login: a launchd LaunchAgent on macOS, a systemd user
+unit on Linux.
+#endif
+
 Subcommands:
   status [--json]           Explain the installation's state: version, port, service, search, each store, what to do.
                             Names a stopped, changing, uninstalled, purged or port-blocked server apart
@@ -63,11 +74,6 @@ when there was nothing to do, and 4 when no bundle is published for this version
 bundle is in the cache, 1 when it failed, 3 when the installation already runs this version, and 4 when no
 bundle is published for it yet. intelligence exits 0 when the server took the answer, 1 when it could not be
 asked, and 2 when the arguments or the server refused it, storing nothing.
-
-On Windows the server runs under the kcap-service Windows service when that is installed (`kcap setup
---local --windows-service`, or `kcap daemon service install --system`, moves it there), and otherwise as a
-per-user Scheduled Task named kcap-local that runs while you are signed in. Moving a running server between
-the two restarts it; the move waits until it is ready again and says how long it was down.
 
 The installation lives in ~/.config/kcap/local (%USERPROFILE%\.config\kcap\local on Windows), or in
 KCAP_LOCAL_ROOT when it is set; its logs are in the logs directory under it. The root must leave room

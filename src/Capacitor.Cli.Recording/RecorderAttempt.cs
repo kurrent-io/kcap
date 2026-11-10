@@ -7,6 +7,7 @@ sealed class RecorderAttempt(TimeProvider time) {
     long   _excusedAt;
     int    _superseded;
     Action _beats = static () => { };
+    Action _claim = static () => { };
 
     public bool Superseded => Volatile.Read(ref _superseded) != 0;
 
@@ -19,9 +20,12 @@ sealed class RecorderAttempt(TimeProvider time) {
     /// <summary>How long it has gone without a beat that is held against it.</summary>
     TimeSpan Quiet => time.GetElapsedTime(Math.Max(BeatAt, Volatile.Read(ref _excusedAt)));
 
-    /// <summary>What a beat beats besides this attempt. Its context is built with <see cref="Beat"/> in hand, so this
-    /// comes after.</summary>
-    public void BeatsWith(Action beats) => _beats = beats;
+    /// <summary>What a beat beats besides this attempt, and the claim part of that, which an excuse keeps up too. Its
+    /// context is built with <see cref="Beat"/> in hand, so this comes after.</summary>
+    public void BeatsWith(Action beats, Action claim) {
+        _beats = beats;
+        _claim = claim;
+    }
 
     public void Beat() {
         if (Superseded) return;
@@ -30,8 +34,14 @@ sealed class RecorderAttempt(TimeProvider time) {
         _beats();
     }
 
-    /// <summary>Holds none of the time so far against the attempt, without beating anything.</summary>
-    public void Excuse() => Volatile.Write(ref _excusedAt, time.GetTimestamp());
+    /// <summary>Holds none of the time so far against the attempt. Of what a beat beats, only the claim: one its owner
+    /// keeps through an outage would otherwise go stale under an attempt waiting that outage out.</summary>
+    public void Excuse() {
+        if (Superseded) return;
+
+        Volatile.Write(ref _excusedAt, time.GetTimestamp());
+        _claim();
+    }
 
     public void Supersede() => Volatile.Write(ref _superseded, 1);
 

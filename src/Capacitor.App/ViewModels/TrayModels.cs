@@ -75,7 +75,7 @@ public readonly record struct RemoteTraySummary(
 public sealed record TrayMenuModel(
     TrayState State, int RunningCount, string Header,
     IReadOnlyList<TrayAgentEntry> Agents, TrayPauseItem Pause, int PendingConsent, bool ShimInstallVisible = false,
-    string? UpdateItemLabel = null) {
+    string? UpdateItemLabel = null, bool FinishSwitchVisible = false) {
     const int ToolTipLimit = 127;
 
     /// The tray icon's tooltip, which screen readers also read as its name. Windows keeps only

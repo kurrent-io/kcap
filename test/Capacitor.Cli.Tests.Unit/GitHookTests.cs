@@ -15,8 +15,10 @@ public class GitHookTests {
     // Stops at the test process, so a real agent above it on a developer machine never answers.
     AgentSessions Sessions => field ??= new(Config.Root, _ => null);
 
+    // The production cap is shorter than a loaded Windows runner can take to start git.
     Task Hook(params string[] args) =>
-        GitHook.RecordAsync(new GitHookInvocation(args, Environment.ProcessId, Repo.Path), Sessions, Config.Root, TimeProvider.System);
+        GitHook.RecordAsync(new GitHookInvocation(args, Environment.ProcessId, Repo.Path), Sessions, Config.Root, TimeProvider.System,
+            gitTimeout: TimeSpan.FromMinutes(1));
 
     void Claim() => Sessions.Claim(Environment.ProcessId, Session);
 

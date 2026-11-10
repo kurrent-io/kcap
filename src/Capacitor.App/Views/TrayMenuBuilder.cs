@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -32,6 +33,10 @@ public sealed class TrayMenuBuilder(TrayViewModel vm) {
         // a manual click always re-runs the install path, regardless of the once-ever auto-offer.
         if (model.ShimInstallVisible)
             menu.Items.Add(new NativeMenuItem("Install command-line tool…") { Command = vm.InstallShimCommand });
+
+        // Visible only while an install a cancelled administrator prompt or a cut-short deletion left waits on it.
+        if (model.FinishSwitchVisible)
+            menu.Items.Add(new NativeMenuItem(AdoptionNotices.FinishSwitching) { Command = vm.FinishSwitchCommand });
 
         // One item whose label the coordinator owns: "Check for Updates…" while idle, "Restart
         // to update to <v>" once a package is downloaded; absent outside a packed bundle.

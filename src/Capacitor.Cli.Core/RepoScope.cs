@@ -16,12 +16,17 @@ public static class RepoScope {
     /// the list excludes.
     /// </summary>
     public static bool IsOutOfScope(
-            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
-        if (IsOutsideAllowlist(repoKey, allowedRepos)) return true;
+            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) =>
+        IsOutOfScope(repoKey is null ? [] : [repoKey], repoKey is null ? [] : [repoKey], allowedRepos, excludedRepos);
 
-        return repoKey is not null
-            && excludedRepos is { Count: > 0 }
-            && excludedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase);
+    /// <summary>The same for a checkout a list can name by more than one key: the allowlist admits it when it names any
+    /// of <paramref name="allowKeys"/>, and the deny list excludes it when it names any of <paramref name="excludeKeys"/>.</summary>
+    public static bool IsOutOfScope(
+            IReadOnlyList<string> allowKeys, IReadOnlyList<string> excludeKeys,
+            IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
+        if (allowedRepos is { Count: > 0 } && !allowKeys.Any(key => Names(allowedRepos, key))) return true;
+
+        return excludedRepos is { Count: > 0 } && excludeKeys.Any(key => Names(excludedRepos, key));
     }
 
     /// <summary>
@@ -31,5 +36,14 @@ public static class RepoScope {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => allowedRepos is { Count: > 0 }
-        && (repoKey is null || !allowedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase));
+        && (repoKey is null || !Names(allowedRepos, repoKey));
+
+    /// <summary>Whether the list names the key, a repository with no remote also by its folder
+    /// (<see cref="LocalRepository.Matches"/>).</summary>
+    public static bool Names(IReadOnlyList<string> entries, string repoKey) {
+        foreach (var entry in entries)
+            if (LocalRepository.Matches(entry, repoKey)) return true;
+
+        return false;
+    }
 }

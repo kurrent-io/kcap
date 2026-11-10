@@ -29,11 +29,14 @@ class CurateCommand(
             await Console.Error.WriteLineAsync("Could not determine the repo's owner/name from its git remote.");
             return 1;
         }
-        var hash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
-
         // 3. Fetch promoted curation decisions.
         CurationResult curation;
         try {
+            if (await repositories.HashForAsync(repo.Owner, repo.RepoName) is not { } hash) {
+                await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+                return 1;
+            }
+
             curation = await repositories.GetPromotedCurationAsync(hash, PageLimit);
         } catch (CapacitorApiException ex) {
             await Console.Error.WriteLineAsync(ex.Message);

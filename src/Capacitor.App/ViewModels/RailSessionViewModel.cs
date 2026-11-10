@@ -79,6 +79,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
     bool _isStarting;
     public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
+    public AgentRow Row => _row.Value;
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenPullRequestCommand { get; }
     public ReactiveCommand<RailPullRequestMenuItem, Unit> OpenPullRequestChoiceCommand { get; }

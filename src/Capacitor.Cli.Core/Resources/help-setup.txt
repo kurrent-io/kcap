@@ -49,7 +49,9 @@ Options:
                               --org, --slug, --tier, --invite-code, --device,
                               --github or --muse-assistant.
   --single-user               With --local: confirm this machine has one user.
-                              Required by --no-prompt and --json.
+                              Required by --no-prompt and --json for an
+                              install; reusing an existing installation needs
+                              neither this nor --yes.
   --yes                       With --local: confirm the install. Required by
                               --no-prompt and --json for an install; reusing an
                               existing installation needs no confirmation.
@@ -84,10 +86,14 @@ Options:
                               its variable (ANTHROPIC_API_KEY, OPENAI_API_KEY,
                               OPENROUTER_API_KEY, COHERE_API_KEY) or asked for,
                               never from the command line; none sets nothing up.
-                              Required by --no-prompt, which also needs a
-                              provider's key in its variable. A refused or
-                              unreachable answer never fails setup; kcap local
-                              intelligence answers it later.
+                              Without it, --no-prompt sets nothing up either: a
+                              new installation runs no background model calls
+                              and sends nothing off the machine for them, an
+                              existing one keeps the answer it has, and setup
+                              names the kcap local intelligence command that
+                              answers it later. A provider named under
+                              --no-prompt needs its key in its variable. A
+                              refused or unreachable answer never fails setup.
   --intelligence-model <m>    With --intelligence <provider>: the model to run.
                               Without it the server's default runs.
   --import-outcomes           With --local: imported sessions also get a summary
@@ -243,7 +249,9 @@ Options:
                               the project checklist; without one, or with
                               --no-prompt, it is simply left out. This import
                               only: recording and later imports are unchanged
-                              (kcap ignore or excluded_repos keep it out).
+                              (kcap ignore or excluded_repos keep it out),
+                              except that a later kcap setup --local on the
+                              same installation leaves it out again.
   --skip-import-folder <path> Leave the sessions that ran in <path>, a folder
                               that matched no repository, out of the Step 6
                               import, as kcap import --discover names it.
@@ -265,7 +273,7 @@ Unattended setup: --no-prompt never asks. Each question has a flag; one with
 a safe default takes it, and one without is refused (exit 2) before anything
 changes.
 
-  kcap setup --local --single-user --yes --no-embeddings --intelligence claude --no-prompt
+  kcap setup --local --single-user --yes --no-embeddings --no-prompt
   KCAP_CLIENT_ID=… KCAP_CLIENT_SECRET=… \
     kcap setup --server-url https://acme.kcap.ai --no-prompt
 
@@ -273,24 +281,25 @@ changes.
   How to run kcap                       <tenant>, --server-url,  required
                                         --local, --org/--slug
   Re-run on a configured machine        -                       yes
-  One user on this machine (local)      --single-user           required
+  One user on this machine (local)      --single-user           required*
   Install kcap local (local)            --yes                   required*
   Search by meaning (local)             --builtin-embeddings,   chosen**
                                         --embedding-model,
                                         --no-embeddings
   Share usage data (local)              - (kcap config set      not shared,
                                         telemetry on first)     nothing saved
-  Who runs background intelligence      --intelligence,         required
-  (local)                               --intelligence-model
+  Who runs background intelligence      --intelligence,         kept; none on
+  (local)                               --intelligence-model    a new install
   Summarise what imported sessions      --import-outcomes,      the server's
   achieved (local)                      --no-import-outcomes    choice (yes)
   Default visibility                    --default-visibility    the workspace's
                                                                 default
                                                                 (org_public on
                                                                 an older
-                                                                server, private
-                                                                with --local)
-  Install kcap for detected agents      --skip-harnesses,       yes
+                                                                server; private
+                                                                with --local,
+                                                                never asked)
+  Install kcap for detected agents      --skip-harnesses,       yes***
                                         --skip-<agent>-hooks
   Codex sandbox network                 --skip-codex-network-access  yes
   Another Claude/Codex config dir       - (kcap accounts add)   no
@@ -298,14 +307,15 @@ changes.
   Daemon name                           --daemon-name           suggested
   Turn on terminal steering (not on     --steering              as it stands
   Windows)
-  Import past sessions                  --skip-import           yes
-  Which projects to import              --skip-import-repo,     every one
+  Import past sessions                  --skip-import           yes***
+  Which projects to import              --skip-import-repo,     every one***
                                         --skip-import-folder
   Name imported sessions with your      -                       no
   coding agent (sends excerpts to its
   model provider; not asked once the
   local server titles them)
   * except to reuse an installation  ** see Local edition below
+  *** with --local on an installation an earlier setup answered: that answer
 
   Signing in: a machine credential (KCAP_CLIENT_ID and KCAP_CLIENT_SECRET, from
   kcap machine create) is checked with the server and used; if the server
@@ -344,9 +354,15 @@ server runs under the kcap-service Windows service when it is installed
 The first version is for a
 machine with one user: on a shared machine, other OS users can open the web UI
 and act as its admin, so setup asks you to confirm that and the install itself
-(--single-user and --yes; --no-prompt and --json cannot ask and require both).
-Under --no-prompt its sessions default to private visibility.
-Running it again reuses the existing installation.
+(--single-user and --yes; --no-prompt and --json cannot ask and require both
+for an install). Its sessions default to private visibility without a question,
+unless the profile holds another value someone chose or --default-visibility
+names one. Running it again reuses the existing installation, and a run that
+cannot ask repeats what earlier setups of that installation were answered: a
+"no" to installing kcap into the harnesses or to importing past sessions, the
+projects the import left out, and a --default-visibility. A flag on the run
+replaces the remembered answer; an interactive run asks again. The answers are
+kept in local-setup-v1.json in the config directory.
 Usage data: the local edition sends none until you choose to share it. Setup
 asks before the install, with no default answer, and saves the answer for every
 kcap command and the desktop app; a saved choice is not asked again. A run that
@@ -383,20 +399,19 @@ plugin/hooks-block rather than a shell-hooks file). The closing summary lists
 every file and directory the run installed kcap into, including the git config
 that carries the commit hook, under "Changed on this machine".
 
-Codex runs only hooks you have trusted. After Codex hooks install, the next
-interactive `codex` launch prompts to trust them — accept once to trust them
-all, or run /hooks inside Codex to trust the kcap entries individually.
-`codex exec` never shows that prompt, so running only `codex exec` records
-nothing unless each run passes --dangerously-bypass-hook-trust; run `codex`
-once first. The Codex desktop app never shows it either:
-if you only use the desktop app, trust the kcap hooks in Settings → Hooks
-there (and since setup detects Codex by `codex` on PATH, you may need
-`kcap plugin install --codex` to install the hooks first). Codex has no
-command that trusts hooks; a script can instead pass
---dangerously-bypass-hook-trust to each `codex exec`, which trusts nothing
-for later runs. Until trusted, the hooks are installed but inert and no
-sessions are captured; setup reminds you of this whenever it installs them,
-and `kcap status` and `kcap harness list` report it.
+Codex runs only hooks you have trusted. Turning Codex on has Codex trust
+kcap's own hooks, the same entries its trust prompt records in config.toml,
+so `codex exec` records from the first run; setup says when that is done.
+When Codex cannot be started for it, the next interactive `codex` launch
+prompts instead — accept once to trust them all, or run /hooks inside Codex
+to trust the kcap entries individually. `codex exec` never shows that
+prompt, and neither does the Codex desktop app (trust the kcap hooks in its
+Settings > Hooks; since setup detects Codex by `codex` on PATH, a desktop-app
+user may need `kcap plugin install --codex` to install them first); a script can instead pass --dangerously-bypass-hook-trust
+to each `codex exec`, which trusts nothing for later runs. Until trusted, the
+hooks are installed but inert and no sessions are captured; setup says so
+when it could not trust them, and `kcap status` and `kcap harness list`
+report it.
 
 The git hook that files commits under their agent session needs git 2.54 or
 later. Setup adds the hook entry, then checks `git --version` and warns when

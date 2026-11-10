@@ -1,0 +1,22 @@
+{
+  "session_id": "3fc0ace3-409c-4534-a7fb-e0bfecf274f7",
+  "transcript_path": "$HOME/.claude/projects/repo/3fc0ace3-409c-4534-a7fb-e0bfecf274f7.jsonl",
+  "cwd": "$TREE_A",
+  "prompt_id": "20051bb1-f40a-466f-aec0-d65789cffe4b",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "EnterWorktree",
+  "tool_input": {
+    "name": "probe"
+  },
+  "tool_response": {
+    "worktreePath": "$TREE_B",
+    "worktreeBranch": "worktree-probe",
+    "message": "Created worktree at “$TREE_B” on branch “worktree-probe”. The session is now working in the worktree. Use ExitWorktree to leave mid-session, or exit the session to be prompted."
+  },
+  "tool_use_id": "toolu_0113uVV6AEBJoHn3Z589kt6s",
+  "duration_ms": 235
+}

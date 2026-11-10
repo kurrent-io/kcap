@@ -12,6 +12,65 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.App.Tests.Unit;
 
 public class SessionRailViewModelTests {
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Attention_tracks_the_unfiltered_row_source_while_the_rail_hides_live_sessions() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            rail.State = RailState.Ended;
+            var waiting = AgentRow.FromLocal(Dto("waiting", "/repo") with { AwaitingInput = true }, new RepoIdentity("repo", "repo"));
+            var failed = AgentRow.FromRemote(RemoteDto("failed", "owner", "repo") with { Status = "Failed" });
+            var working = AgentRow.FromLocal(Dto("working", "/repo") with { AwaitingInput = false }, new RepoIdentity("repo", "repo"));
+            directory.Rows.AddOrUpdate([waiting, failed, working]);
+
+            await Assert.That(rail.Groups).IsEmpty();
+            await Assert.That(rail.Attention).IsEqualTo((2, 1));
+            rail.Scope = RailScope.Team;
+            rail.Grouping = RailGrouping.Status;
+            rail.State = RailState.Live;
+            foreach (var group in rail.Groups) await group.ToggleCommand.Execute();
+            await Assert.That(rail.Attention).IsEqualTo((2, 1));
+            rail.State = RailState.Ended;
+
+            directory.Rows.AddOrUpdate(waiting with { AwaitingInput = false });
+            await Assert.That(rail.Attention).IsEqualTo((1, 1));
+            directory.Rows.AddOrUpdate(failed with { Status = "Completed" });
+            await Assert.That(rail.Attention).IsEqualTo((0, 0));
+            directory.Rows.AddOrUpdate(working with { AwaitingInput = true });
+            await Assert.That(rail.Attention).IsEqualTo((1, 0));
+            directory.Rows.RemoveKey(working.Key);
+            await Assert.That(rail.Attention).IsEqualTo((0, 0));
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Permission_and_answer_changes_count_each_present_row_once() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var pending = new BehaviorSubject<IReadOnlySet<string>>(FrozenSet<string>.Empty);
+            using var answers = new BehaviorSubject<IReadOnlySet<string>>(FrozenSet<string>.Empty);
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System,
+                agentsWithPending: pending, agentsAwaitingAnswer: answers);
+            var row = AgentRow.FromLocal(Dto("a", "/repo") with { AwaitingInput = false }, new RepoIdentity("repo", "repo"));
+            directory.Rows.AddOrUpdate(row);
+            await Assert.That(rail.Attention.Count).IsEqualTo(0);
+
+            pending.OnNext(new HashSet<string> { "a", "absent" });
+            await Assert.That(rail.Attention.Count).IsEqualTo(1);
+            answers.OnNext(new HashSet<string> { "a" });
+            await Assert.That(rail.Attention.Count).IsEqualTo(1);
+            pending.OnNext(FrozenSet<string>.Empty);
+            await Assert.That(rail.Attention.Count).IsEqualTo(1);
+            answers.OnNext(FrozenSet<string>.Empty);
+            await Assert.That(rail.Attention.Count).IsEqualTo(0);
+            pending.OnNext(new HashSet<string> { "a" });
+            directory.Rows.RemoveKey(row.Key);
+            await Assert.That(rail.Attention.Count).IsEqualTo(0);
+        });
+    }
+
     // "/x/wt/<leaf>" resolves to "/x" — a stand-in for GitRepository.ResolveMainRepoRoot so no
     // test touches real .git files.
     static string Resolve(string path) {
@@ -157,6 +216,45 @@ public class SessionRailViewModelTests {
             rail.Groups.Single(r => r.IsExpanded).ToggleCommand.Execute().Subscribe();
             rail.NotifySessionOpened("missing", AgentOrigin.Local);
             await Assert.That(rail.Groups.Any(r => r.IsExpanded)).IsFalse();
+        });
+    }
+
+    /// Stepping follows the drawn order across groups, skips a folded group's rows, starts from an
+    /// end when nothing is selected and stops at either end.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Stepping_opens_the_adjacent_shown_session_in_rail_order() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var opened = new List<string>();
+            using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System);
+            var now = DateTime.UtcNow;
+            void Add(string id, string repo, int minutesAgo) =>
+                directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto(id, $"/{repo}", created: now.AddMinutes(-minutesAgo)), new RepoIdentity($"path:/{repo}", repo)));
+            Add("a-new", "a", 1);
+            Add("a-old", "a", 5);
+            Add("b-only", "b", 2);
+            Add("c-only", "c", 3);
+            await rail.Groups.Single(g => g.Label == "b").ToggleCommand.Execute();
+
+            await Assert.That(rail.OpenAdjacent(1)).IsTrue();
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            await Assert.That(opened).IsEquivalentTo(["a-new", "c-only"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            rail.SelectedSessionKey = "local:a-old";
+            await rail.OpenNextSessionCommand.Execute();
+            rail.SelectedSessionKey = "local:c-only";
+            await rail.OpenPreviousSessionCommand.Execute();
+            await Assert.That(opened).IsEquivalentTo(["c-only", "a-old"], CollectionOrdering.Matching);
+
+            opened.Clear();
+            await Assert.That(rail.OpenAdjacent(1)).IsFalse();
+            rail.SelectedSessionKey = "local:b-only";
+            await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
+            rail.SelectedSessionKey = "local:a-new";
+            await Assert.That(rail.OpenAdjacent(-1)).IsFalse();
+            await Assert.That(opened).IsEquivalentTo(["a-old"], CollectionOrdering.Matching);
         });
     }
 

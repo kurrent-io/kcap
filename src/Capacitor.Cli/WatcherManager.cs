@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli;
 
@@ -155,23 +156,74 @@ public sealed partial class WatcherManager(
     /// stops as <see cref="KillWatcher"/> stops one, and one whose pid file outlives that is still running. A daemon's
     /// sources are found by their claims, because it leaves no pid file, and it is asked to stop rather than signalled.
     /// Every daemon on the machine is asked, whatever its profile: only a daemon can say a live agent's output goes on, and
-    /// neither a hosted session on a watcher nor an ACP session has a claim.</summary>
+    /// neither a hosted session on a watcher nor an ACP session has a claim. A drain of what hooks spooled that is already
+    /// under way is waited out, within <see cref="SpoolPassBound"/>, and a post of the session one sent with no answer
+    /// leaves the stop unconfirmed.</summary>
     public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
         var report = await StopDaemonsAsync(sessionId);
 
+        // Ahead of the listing, which the session's own watcher needs none of.
         try {
-            var keys = Directory.Exists(paths.Directory)
-                ? Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid").Select(Path.GetFileNameWithoutExtension).Prepend(sessionId)
-                : [sessionId];
+            if (!await TryStopWatcher(sessionId, stderr)) report = report with { WatcherLeft = true };
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            report = report with { Unreadable = true };
+        }
 
-            foreach (var key in keys.Distinct().ToList()) {
+        try {
+            var subagents = Directory.Exists(paths.Directory) ? Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid").Select(Path.GetFileNameWithoutExtension) : [];
+
+            foreach (var key in subagents.ToList()) {
                 if (!await TryStopWatcher(key!, stderr)) report = report with { WatcherLeft = true };
             }
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return report with { Unreadable = true };
+            report = report with { Unreadable = true };
         }
 
-        return report;
+        var (ended, unanswered) = await SpoolPostsAsync(sessionId);
+
+        return report with { DrainLeft = !ended, PostsUnanswered = unanswered };
+    }
+
+    // Past the 3 s a drain gives each post, so a post a pass sent ahead of the marker has had its answer by then.
+    internal static readonly TimeSpan SpoolPassBound = TimeSpan.FromSeconds(4);
+
+    static readonly TimeSpan SpoolLeasePoll = TimeSpan.FromMilliseconds(50);
+
+    string[] SpoolDirectories => [new HookSpool(config, time, Url).DirectoryPath, new WorkspaceSpool(config, Url, time).DirectoryPath];
+
+    /// <summary>Whether every drain pass of this profile's spools that was under way ahead of the marker has ended, and
+    /// whether any post of the session a pass sent has had no answer. A pass holds its spool's lease throughout and reads
+    /// the marker before each post, so one that starts later sends nothing of the session, while one under way may have
+    /// read it a moment before it went down. A free lease says only that the pass has ended: a post it heard nothing back
+    /// for is in <see cref="UnansweredPosts"/>.</summary>
+    async Task<(bool Ended, bool Unanswered)> SpoolPostsAsync(string sessionId) {
+        using var bound = new CancellationTokenSource(SpoolPassBound, time);
+
+        var (ended, unanswered) = (true, false);
+
+        // A pass under way made its directory.
+        foreach (var dir in SpoolDirectories.Where(Directory.Exists)) {
+            SpoolDrainLease? lease = null;
+
+            while (ended && (lease = SpoolDrainLease.TryTake(dir)) is null) {
+                try {
+                    await Task.Delay(SpoolLeasePoll, time, bound.Token);
+                } catch (OperationCanceledException) {
+                    ended = false;
+                }
+            }
+
+            lease?.Dispose();
+
+            unanswered |= UnansweredPosts.Has(dir, sessionId);
+        }
+
+        return (ended, unanswered);
+    }
+
+    /// <summary>Drops the session's records of posts with no answer, once the disable has kept the doubt they stand for.</summary>
+    public void ForgetUnansweredPosts(string sessionId) {
+        foreach (var dir in SpoolDirectories) UnansweredPosts.Clear(dir, sessionId);
     }
 
     /// <summary>A daemon asked in a disable, and the claim that ties it to the session, if one does.</summary>
@@ -184,9 +236,10 @@ public sealed partial class WatcherManager(
 
         var asked = claims.GroupBy(claim => claim.Holder).Select(holder => new AskedDaemon(holder.Key, true, holder.Any(claim => claim.Fresh))).ToList();
 
-        foreach (var name in (known ?? []).Prepend(DaemonNameResolver.Resolve([], profiles.DaemonName)).Distinct()) {
-            if (asked.All(daemon => daemon.Name != name)) asked.Add(new AskedDaemon(name, Held: false, Fresh: false));
-        }
+        asked.AddRange((known ?? []).Prepend(DaemonNameResolver.Resolve([], profiles.DaemonName)).Distinct()
+            .Where(name => asked.All(daemon => daemon.Name != name))
+            .Select(name => new AskedDaemon(name, Held: false, Fresh: false))
+            .ToList());
 
         // One bound for every daemon: a person waits on the slowest.
         using var budget = new CancellationTokenSource(DisableBudget, time);
@@ -198,11 +251,19 @@ public sealed partial class WatcherManager(
         // Whatever was said: a recorder with no claim stops at its next tick, a daemon's that can't answer included.
         foreach (var claim in claims) _claims.Release(claim.Key);
 
+        var otherServers = new List<string>();
+
+        foreach (var (daemon, answer) in answers) {
+            if (HadTheSession(daemon, answer) && answer.Server is { } server && IsAnotherServer(server) && !otherServers.Any(known => DisabledSessions.SameServer(known, server)))
+                otherServers.Add(server);
+        }
+
         return new RecordingStopReport(
             OutcomeOf(answers.Select(answer => (answer.Daemon, answer.Answer.Outcome)).ToList()),
+            otherServers,
             AgentLive: answers.Any(answer => answer.Answer.AgentLive),
-            OtherServer: answers.FirstOrDefault(answer => HadTheSession(answer.Daemon, answer.Answer) && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
-            Unreadable: keys is null || known is null);
+            Unreadable: keys is null || known is null,
+            DaemonUnmarked: answers.Any(answer => answer.Answer.MarkFailed));
     }
 
     // A claim, a stop it made or an agent it hosts: a daemon under another config root has no claim here, and its answer is
@@ -367,8 +428,7 @@ public sealed partial class WatcherManager(
 
         var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
 
-        if (_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key))
-            if (!SessionEndRecord.Exists(paths, sessionId, process)) return SessionEndTurn.Yours;
+        if ((_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key)) && !SessionEndRecord.Exists(paths, sessionId, process)) return SessionEndTurn.Yours;
 
         return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow());
     }
@@ -376,6 +436,12 @@ public sealed partial class WatcherManager(
     /// <summary>The end this hook claimed has reached the server or the spool, so nobody takes the claim over.</summary>
     public void SessionEndPosted(string sessionId, ProcessIncarnation? process) {
         if (process is not null) SessionEndRecord.MarkPosted(paths, sessionId, process, time.GetUtcNow());
+    }
+
+    /// <summary>The server refused the end this hook claimed for good, so nobody takes the claim over to post one again.
+    /// A hook that claimed nothing leaves nothing.</summary>
+    public void SessionEndRefused(string sessionId, ProcessIncarnation? process) {
+        if (process is not null && SessionEndRecord.Exists(paths, sessionId, process)) SessionEndRecord.Settle(paths, sessionId, process, time.GetUtcNow());
     }
 
     internal bool PidAlive(string key) => _liveness.PidAlive(key);
@@ -809,13 +875,14 @@ public sealed partial class WatcherManager(
 
     /// <summary>Waits for the holder inside what is left of <see cref="FinishSourceBudget"/>. Short of finding nothing
     /// listening, the hook drains nothing: the source is the daemon's, which finishes it whether or not anyone is still
-    /// waiting. The process goes only with a terminal claim: a daemon that holds hosted claims alone may predate the
-    /// process in the frame, and reads the frame's whole text as the key.</summary>
+    /// waiting.</summary>
+    /// <param name="from">Told only to the holder of a terminal claim. A daemon from before terminal sessions holds only
+    /// hosted claims, and reads a finish naming a process as a key it doesn't hold.</param>
     async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId, ProcessIncarnation? from) {
         using var budget = new CancellationTokenSource(FinishWait(), time);
 
         try {
-            var finish = await _daemonRecording.FinishSourceAsync(key, holder, _claims.IsHosted(key) ? null : from, budget.Token).WaitAsync(budget.Token);
+            var finish = await _daemonRecording.FinishSourceAsync(key, holder, _claims.IsTerminal(key) ? from : null, budget.Token).WaitAsync(budget.Token);
 
             if (finish is not RecordingFinish.Unreachable)
                 await Console.Error.WriteLineAsync(finish is RecordingFinish.Finished

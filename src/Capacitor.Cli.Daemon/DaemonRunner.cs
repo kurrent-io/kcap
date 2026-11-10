@@ -1282,8 +1282,8 @@ public static partial class DaemonRunner {
 
     /// The profile's max_agents applies whenever --max-agents was not passed; the flag wins when it was.
     internal static void ApplyProfileCapacity(DaemonConfig config, DaemonSettings? profileDaemon, bool maxAgentsFromArgs) {
-        if (maxAgentsFromArgs || profileDaemon is null) return;
-        config.MaxConcurrentAgents = profileDaemon.MaxAgents;
+        if (maxAgentsFromArgs || profileDaemon?.MaxAgents is not { } max) return;
+        config.MaxConcurrentAgents = max;
     }
 
     /// <summary>Phase B (D3): parse a seconds-valued env var into a <see cref="TimeSpan"/>

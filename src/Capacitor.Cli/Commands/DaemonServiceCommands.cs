@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Install;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Commands;
 
@@ -55,7 +56,7 @@ sealed class DaemonServiceCommands(
 
         IServiceManager manager;
         try {
-            manager = ServiceManagerFactory.ForCurrentOs(root, home, time);
+            manager = ServiceManagerFactory.ForCurrentOs(root, home, time, store: store);
         } catch (PlatformNotSupportedException ex) {
             await Console.Error.WriteLineAsync(ex.Message);
             return 1;
@@ -341,9 +342,11 @@ sealed class DaemonServiceCommands(
     /// just saved, ahead of <c>KCAP_DAEMON_NAME</c>: setup chose it to be free, and an environment name
     /// it moved off would install a second service under the held one.</summary>
     static DaemonServiceCommands ForFlow(
-            ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) =>
-        new(DaemonStore.FromEnvironment(), root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time),
+            ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) {
+        var store = DaemonStore.FromEnvironment();
+        return new(store, root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time, store: store),
             DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([], null)), home, time);
+    }
 
     /// <summary>
     /// The <c>ExtraArgs</c> baked into a service unit, from the raw <c>--max-agents</c> flag value.
@@ -728,7 +731,7 @@ sealed class DaemonServiceCommands(
     /// <summary>What the unit does for the daemon. kcap-service starts a user's daemon only once they sign in, as the
     /// Scheduled Task does.</summary>
     internal static string Supervision(IServiceManager manager) => manager switch {
-        WindowsServiceManager              => "kcap-service restarts it if it stops, and starts it when you sign in.",
+        WindowsServiceManager              => "kcap-service runs from boot, starts your daemon when you sign in, and restarts it if it stops.",
         WindowsScheduledTaskServiceManager => "The Scheduled Task restarts it if it fails, and starts it when you sign in.",
         _                                  => "Auto-restarts on crash/SIGKILL; starts at login.",
     };
@@ -858,10 +861,10 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
-    /// Points every Scheduled Task whose daemon binary lies under <paramref name="dir"/> at this install's daemon,
-    /// keeping the rest of its unit, so another install's folder can be deleted without stranding the daemon. A
-    /// running daemon is stopped with its agents kept for the repointed one to resume; a busy one stays on the old
-    /// binary and fails the run, so the caller keeps that folder.
+    /// Points every Scheduled Task or launchd job whose daemon binary lies under <paramref name="dir"/> at this
+    /// install's daemon, keeping the rest of its unit, so another install's folder can be deleted without stranding
+    /// the daemon. A running daemon is stopped with its agents kept for the repointed one to resume; a busy one stays
+    /// on the old binary and fails the run, so the caller keeps that folder.
     /// </summary>
     /// <param name="daemonPath">Test seam; production resolves this install's daemon.</param>
     internal async Task<int> RepointFrom(string dir, string? daemonPath = null) {
@@ -871,7 +874,8 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        if (IsUnder(daemonPath, dir, OperatingSystem.IsWindows())) {
+        var launchd = manager as LaunchdServiceManager;
+        if (launchd is not null ? CanonicalPath.IsWithin(daemonPath, dir) : IsUnder(daemonPath, dir, OperatingSystem.IsWindows())) {
             await Console.Error.WriteLineAsync($"This install's daemon ({daemonPath}) is inside {dir}; nothing was repointed.");
             return 1;
         }
@@ -881,6 +885,8 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
+        if (launchd is not null) return await RepointLaunchdAsync(launchd, units, dir, daemonPath);
+
         var failed = false;
 
         foreach (var unit in units) {
@@ -889,7 +895,7 @@ sealed class DaemonServiceCommands(
 
                 if (manager is not WindowsScheduledTaskServiceManager tasks) {
                     await Console.Error.WriteLineAsync(
-                        $"Daemon '{unit}': {manager.Describe()} runs it from {dir}, and only a Scheduled Task can be repointed. Run `kcap daemon service install --replace --verify{SystemFlag} --name {unit}` from this install.");
+                        $"Daemon '{unit}': {manager.Describe()} runs it from {dir}, and only a launchd job or a Scheduled Task can be repointed. Run `kcap daemon service install --replace --verify{SystemFlag} --name {unit}` from this install.");
                     failed = true;
                     continue;
                 }
@@ -937,6 +943,107 @@ sealed class DaemonServiceCommands(
 
         bool Owned(string unit) =>
             manager.Status(unit).BinaryPath is { } binary && IsUnder(binary, dir, OperatingSystem.IsWindows());
+    }
+
+    /// <summary>A stopped job is left stopped. A daemon that does not stop for the reload makes the run exit 3 rather
+    /// than 1, which tells the caller a later attempt may succeed.</summary>
+    async Task<int> RepointLaunchdAsync(LaunchdServiceManager launchd, IReadOnlyList<string> units, string dir, string daemonPath) {
+        var (failed, deferred) = (false, false);
+
+        foreach (var unit in units.Union(store.RepointPreimageNames())) {
+            var preimage = store.RepointPreimagePath(unit);
+            bool Within(string? binary) => binary is not null && CanonicalPath.IsWithin(binary, dir);
+
+            // Whether the unit runs from dir; null once it has said why kcap cannot tell. A preimage marks a run cut short
+            // with the plist already rewritten, and launchd runs the program it loaded whatever the plist now says. The
+            // caller may delete dir on success, so nothing kcap cannot read passes as unrelated.
+            async Task<bool?> OwnedAsync() {
+                if (File.Exists(preimage)) return true;
+
+                var unknown = launchd.UnitUnreadable(unit) ? "its unit could not be read"
+                    : File.Exists(launchd.UnitPath(unit)) && !launchd.DeclaresOwnLabel(unit) ? $"its plist does not declare the label {LaunchdUnit.Label(unit)}"
+                    : null;
+                if (unknown is null) {
+                    if (Within(launchd.UnitBinary(unit))) return true;
+
+                    var job = launchd.LoadedJob(unit);
+                    if (Within(job.Program)) return true;
+                    if (job is { Label: LabelProbe.Absent } or { Program: not null }) return false;
+
+                    unknown = job.Label == LabelProbe.Unknown ? "launchd's state for its job could not be read" : "launchd does not show the program its job runs";
+                }
+
+                await Console.Error.WriteLineAsync($"Daemon '{unit}': {unknown}, so kcap cannot tell whether it runs from {dir}.");
+                return null;
+            }
+
+            try {
+                if (await OwnedAsync() is not { } owned) {
+                    failed = true;
+                    continue;
+                }
+                if (!owned) continue;
+
+                if ((HostsCaller ?? HostsCallerOf(store))(unit)) {
+                    await Console.Error.WriteLineAsync(HostedCaller.Refusal(unit, $"`kcap daemon service repoint --from {dir}`"));
+                    failed = true;
+                    continue;
+                }
+
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                if (txn is null) {
+                    await RefuseContendedAsync(unit);
+                    failed = true;
+                    continue;
+                }
+
+                // An install holding the lock may have repointed the unit already, or changed it since the first read.
+                if (await OwnedAsync() is not { } stillOwned) {
+                    failed = true;
+                    continue;
+                }
+                if (!stillOwned) continue;
+
+                ReloadStop? stop    = null;
+                var         started = time.GetTimestamp();
+                var outcome = launchd.RefreshUnit(
+                    unit, () => Proceeds((stop = StopForReload(unit, "now", whenIdle: true)).Value), () => RefreshDeadline - time.GetElapsedTime(started),
+                    out var error, binary => Within(binary) ? daemonPath : binary, leaveStoppedUnloaded: true, preimagePath: preimage);
+
+                var runs = launchd.UnitBinary(unit);
+                if (outcome is (UnitRefresh.Reloaded or UnitRefresh.NotLoaded or UnitRefresh.Current) && Within(runs)) {
+                    await Console.Error.WriteLineAsync(
+                        $"Daemon '{unit}': its unit still runs {runs}, which kcap cannot rewrite. Run `kcap daemon service install --replace --verify --name {unit}` from this install.");
+                    failed = true;
+                    continue;
+                }
+
+                switch (outcome) {
+                    case UnitRefresh.Reloaded:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': now runs {runs}; it restarted and resumes its agents.{OverrunNote(stop)}");
+                        break;
+                    case UnitRefresh.NotLoaded or UnitRefresh.Current:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': runs {runs} from its next start.");
+                        break;
+                    case UnitRefresh.UnitMissing:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': no service unit is installed, so nothing was repointed.");
+                        break;
+                    case UnitRefresh.Deferred:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}' {DeferralReason(stop)}, so it still runs from {dir}. Try again once it is idle.");
+                        deferred = true;
+                        break;
+                    default:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}': could not repoint it ({error ?? RefreshToken(outcome)}).");
+                        failed = true;
+                        break;
+                }
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) {
+                await Console.Error.WriteLineAsync($"Could not repoint service '{unit}': {ex.Message}");
+                failed = true;
+            }
+        }
+
+        return failed ? 1 : deferred ? 3 : 0;
     }
 
     internal static string? UnderArg(string[] rest) => DirectoryArg(rest, "--under");
@@ -1506,7 +1613,7 @@ sealed class DaemonServiceCommands(
         Console.Error.WriteLine("                          (bakes the born-prompt consent seed; gate refusals emit recovery_surface=)");
         Console.Error.WriteLine("  status [--name N] [--json]   Show installed/running state (--json for machine-readable output)");
         Console.Error.WriteLine("  refresh                Update installed units to this version's format; a reload resumes the daemon's agents");
-        Console.Error.WriteLine("  repoint --from DIR     Windows: point every Scheduled Task whose daemon binary is inside DIR at this install's daemon");
+        Console.Error.WriteLine("  repoint --from DIR     Point every launchd job or Scheduled Task whose daemon binary is inside DIR at this install's daemon");
         return 1;
     }
 }

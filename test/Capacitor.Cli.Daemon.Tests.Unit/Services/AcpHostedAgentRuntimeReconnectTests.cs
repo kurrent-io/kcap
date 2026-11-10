@@ -431,6 +431,23 @@ public class AcpHostedAgentRuntimeReconnectTests {
         await Assert.That(h.EnvelopeSnapshot().Any(e => e.Kind == AcpEventKind.SystemNote)).IsFalse();
     }
 
+    /// <summary>A turn parked by a reconnect that never finishes is never written, so a teardown must fault
+    /// its write rather than leave whoever waits on it waiting for good.</summary>
+    [Test]
+    public async Task A_turn_parked_by_a_reconnect_faults_its_write_when_the_runtime_is_disposed() {
+        await using var h = new Harness();
+        h.ConfigureCandidate = (fake, _) => fake.HoldInitializeResponse = new TaskCompletionSource();
+        await h.StartAsync();
+
+        h.CrashOriginal();
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+        var written = await h.Runtime.SendDispatchedInputAsync("parked", Guid.NewGuid()).WaitAsync(HangGuard);
+
+        await h.Runtime.DisposeAsync();
+
+        await Assert.That(async () => await written.WaitAsync(HangGuard)).Throws<InvalidOperationException>();
+    }
+
     [Test]
     public async Task Committed_successor_death_before_reopen_chains_into_the_same_incident() {
         await using var h = new Harness();

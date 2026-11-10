@@ -197,7 +197,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             return 1;
         }
 
-        var installed = SetupCommand.InstallPlugin(settingsPath, pluginPath);
+        var installed = SetupCommand.InstallPlugin(settingsPath, pluginPath, scope == "user" ? Path.GetDirectoryName(settingsPath) : null);
 
         if (installed) {
             await env.Stdout.WriteLineAsync(
@@ -455,9 +455,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                 // A byte-order mark makes Codex refuse the file whatever the marker says.
                 if (CodexHooksInstaller.ReadMarker(hooksPath) != CapacitorVersion.Current()
                  || CodexHooksInstaller.StartsWithByteOrderMark(hooksPath)) {
-                    if (InstallCodexHooks(hooksPath))
+                    if (InstallCodexHooks(hooksPath)) {
                         await env.Stdout.WriteLineAsync($"Codex hooks refreshed ({scope}: {hooksPath})");
-                    else {
+                        if (scope == "user") await TrustCodexHooksAsync(codex, refreshOnly: true);
+                    } else {
                         _refreshFailed = true;
                         await env.Stderr.WriteLineAsync(
                             $"Warning: could not refresh Codex hooks ({hooksPath}); continuing with MCP registration.");
@@ -532,12 +533,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         await env.Stdout.WriteLineAsync($"Codex hooks installed ({scope}: {hooksPath})");
 
-        await env.Stdout.WriteLineAsync(
-            "Next: Codex will prompt to trust the kcap hooks on its next interactive launch — " +
-            "accept once to trust them all (or run /hooks inside Codex to trust them individually). " +
-            "`codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks in the app's Settings → Hooks. " +
-            "Until then Codex records nothing, except a run passed `--dangerously-bypass-hook-trust`."
-        );
+        // Installing is the user's consent to kcap's hooks running. Project hooks live in the repository rather than
+        // this Codex home, so they stay with Codex's own prompt.
+        if (scope == "user") await TrustCodexHooksAsync(codex, refreshOnly: false);
+        else await env.Stdout.WriteLineAsync(CodexTrustPromptNote);
 
         // Skills are user-scoped only. Written to ~/.agents/skills/ so they
         // work across Codex and other compatible agents.
@@ -636,6 +635,33 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         }
     }
 
+    internal const string CodexTrustPromptNote =
+        "Next: Codex will prompt to trust the kcap hooks on its next interactive launch — " +
+        "accept once to trust them all (or run /hooks inside Codex to trust them individually). " +
+        "`codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks in the app's Settings > Hooks. " +
+        "Until then Codex records nothing, except a run passed `--dangerously-bypass-hook-trust`.";
+
+    /// <summary>
+    /// Has Codex trust kcap's hooks in <paramref name="paths"/>. A refresh re-trusts only hooks kcap trusted before,
+    /// and stays quiet when nothing changed. Never fails the install: an untrusted outcome prints how to trust them.
+    /// </summary>
+    async Task TrustCodexHooksAsync(CodexPaths paths, bool refreshOnly) {
+        if (refreshOnly && !CodexConfigToml.HasHookTrustClaim(paths.ConfigToml)) return;
+
+        var seed = await new CodexHookTrustSeeder(env.Harnesses, env.Home, TimeProvider.System)
+            .SeedAsync(paths, CancellationToken.None);
+
+        if (refreshOnly && seed == CodexHookTrustSeed.AlreadyTrusted) return;
+
+        await env.Stdout.WriteLineAsync(CodexHookTrustLine(seed, paths.ConfigToml));
+    }
+
+    internal static string CodexHookTrustLine(CodexHookTrustSeed seed, string configPath) => seed switch {
+        CodexHookTrustSeed.Trusted        => $"Codex hooks trusted ({configPath}), so `codex exec` records too.",
+        CodexHookTrustSeed.AlreadyTrusted => "Codex already trusts the kcap hooks — no change needed.",
+        _                                 => CodexTrustPromptNote,
+    };
+
     async Task<int> RemoveCodex(string[] args) {
         var codex = env.Harnesses.Of<CodexHarness>().Paths;
 
@@ -693,6 +719,17 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         await ReportNetworkRestoreAsync(network, codex.ConfigToml);
 
+        var trust = scope == "user"
+            ? CodexConfigToml.ReleaseHookTrust(codex.ConfigToml)
+            : CodexConfigToml.Change.Unchanged;
+        var trustFailed  = trust == CodexConfigToml.Change.Failed;
+        var trustRemoved = trust is CodexConfigToml.Change.Updated or CodexConfigToml.Change.UpdatedWithPreservedEntries;
+
+        if (trustRemoved)
+            await env.Stdout.WriteLineAsync($"Removed the Codex hook trust kcap added ({codex.ConfigToml})");
+        if (trustFailed)
+            await env.Stderr.WriteLineAsync($"Could not update {codex.ConfigToml} to remove the Codex hook trust kcap added.");
+
         if (scope == "user") CodexConfigToml.DeleteEmptyOwnershipLedger(codex.ConfigToml);
 
         // The skills are user-wide, so a project remove leaves them to a user-scope Codex still installed.
@@ -704,14 +741,14 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         var accountsFailed = scope == "user" && !await UnwireUserAccountsAsync(HarnessId.Codex, codex.Home);
 
-        if (hooksFailed || mcpFailed || networkFailed || agents.HadErrors || legacy.HadErrors || accountsFailed) {
+        if (hooksFailed || mcpFailed || networkFailed || trustFailed || agents.HadErrors || legacy.HadErrors || accountsFailed) {
             await env.Stdout.WriteLineAsync("Removal incomplete — see errors above.");
 
             return 1;
         }
 
         if (!hooksRemoved && !mcpChanged && !mcpPreserved && network.Restored.Count == 0 && network.Kept.Count == 0
-         && !agents.RemovedAny && !legacy.RemovedAny) {
+         && !trustRemoved && !agents.RemovedAny && !legacy.RemovedAny) {
             await env.Stdout.WriteLineAsync("Nothing to remove — hooks and skills were not installed.");
         }
 
@@ -802,7 +839,13 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             var steps = await LockedAsync(() => WireOne(account, refreshOnly, options));
             if (steps is null) break;
 
-            if (steps.Count > 0) ok &= await ReportAsync(account, steps, "Wired", "wire");
+            if (steps.Count == 0) continue;
+
+            var wired = await ReportAsync(account, steps, "Wired", "wire");
+            ok &= wired;
+
+            if (wired && vendor is HarnessId.Codex)
+                await TrustCodexHooksAsync(AccountLayouts.Codex(env.Home, account.Directory), refreshOnly);
         }
 
         return ok;

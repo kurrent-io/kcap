@@ -507,10 +507,14 @@ public class WatcherManagerClaimTests : IDisposable {
     [Test]
     public async Task A_recycled_pid_beside_a_claim_is_swept_without_a_signal() {
         Claims.TryTake(Key, "daemon", isHosted: false);
-        using var original = DummyProcess.StartSleep(30);
-        using var recycled = DummyProcess.StartSleep(30);
-        var recycledIdentity = PidIdentity.Capture(recycled.Pid);
-        await File.WriteAllTextAsync(Paths.PidFile(Key), $"{recycled.Pid}\n{PidIdentity.Capture(original.Pid)}");
+        using var original         = DummyProcess.StartSleep(30);
+        var       originalIdentity = PidIdentity.Capture(original.Pid);
+        // Linux reads a start time in clock ticks, so a process started within the same tick carries the same token.
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        using var recycled         = DummyProcess.StartSleep(30);
+        var       recycledIdentity = PidIdentity.Capture(recycled.Pid);
+        await Assert.That(recycledIdentity).IsNotEqualTo(originalIdentity);
+        await File.WriteAllTextAsync(Paths.PidFile(Key), $"{recycled.Pid}\n{originalIdentity}");
 
         await Assert.That(await Watchers.KillWatcher(Key, TextWriter.Null)).IsFalse();
 

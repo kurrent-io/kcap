@@ -45,6 +45,9 @@ internal sealed class DaemonRecorderHost(
     public Task<bool> CoversCommitsAsync(string sessionId, string? cwd) =>
         hookCommand is null ? Task.FromResult(false) : GitHookProbe.CoversAsync(sessionId, cwd, Claimed, hookCommand, time, run);
 
+    // The daemon's spool drain loop delivers the workspace spool on its own cadence.
+    public Task DrainWorkspaceAsync() => Task.CompletedTask;
+
     // A hosted session runs under the agent process this daemon started, whatever its hooks have got round to claiming,
     // and a terminal session is handed over only by a hook that found its Claude process, which it claims first.
     static bool Claimed(SessionId session) => true;

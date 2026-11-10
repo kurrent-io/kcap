@@ -194,7 +194,8 @@ public sealed class RecorderHost {
 
     // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
     TranscriptRecorder Create(RecordingSource source, Entry entry, RecorderContext first, RecorderContext context, RecorderAttempt attempt) {
-        attempt.BeatsWith(Beats(source, context.Beat));
+        var claim = ClaimBeat(source);
+        attempt.BeatsWith(Beats(context.Beat, claim), claim);
 
         return new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = attempt.Beat }, _claims) {
             OpenTranscript          = _openTranscript,
@@ -204,22 +205,25 @@ public sealed class RecorderHost {
         };
     }
 
-    // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating a claim kept
-    // offline, or a hook would take a source this host is still retrying.
-    Action Beats(RecordingSource source, Action beat) {
+    // Guarded apart, because the heartbeat file and the claim fail apart.
+    static Action Beats(Action beat, Action claim) {
         var heartbeat = Guarded(beat);
-
-        if (_claims is not { } claims) return heartbeat;
-
-        var offline = Guarded(() => _keepsClaimOffline?.Invoke(source) ?? true, fallback: true);
-        var claim   = Guarded(() => {
-            if (offline || _transport.IsConnected) claims.Beat(source.Key);
-        });
 
         return () => {
             heartbeat();
             claim();
         };
+    }
+
+    // A backoff has to keep beating a claim kept offline, or a hook would take a source this host is still retrying.
+    Action ClaimBeat(RecordingSource source) {
+        if (_claims is not { } claims) return static () => { };
+
+        var offline = Guarded(() => _keepsClaimOffline?.Invoke(source) ?? true, fallback: true);
+
+        return Guarded(() => {
+            if (offline || _transport.IsConnected) claims.Beat(source.Key);
+        });
     }
 
     internal static Action<string> Guarded(Action<string> log) => message => {
@@ -331,7 +335,7 @@ public sealed class RecorderHost {
                 // A run given up on counts only up to its last beat: being stuck earns no quick return.
                 if (connected && ran >= MaxRetryDelay) delay = FirstRetryDelay;
 
-                if (!await DelayWithBeatsAsync(delay, Beats(source, first.Beat), token)) {
+                if (!await DelayWithBeatsAsync(delay, Beats(first.Beat, ClaimBeat(source)), token)) {
                     await DrainOnceAsync(source, entry, first);
 
                     return;

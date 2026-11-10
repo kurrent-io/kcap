@@ -89,6 +89,10 @@ public class SecretRedactorTests {
     public async Task IsSecretKey_recognises_a_secret_key_and_passes_an_innocuous_one() {
         await Assert.That(SecretRedactor.IsSecretKey("api_key")).IsTrue();
         await Assert.That(SecretRedactor.IsSecretKey("note")).IsFalse();
+        await Assert.That(SecretRedactor.IsSecretKey("DOC_INTEL_KEY")).IsTrue();
+        await Assert.That(SecretRedactor.IsSecretKey("DB_PASS")).IsTrue();
+        await Assert.That(SecretRedactor.IsSecretKey("primary_key")).IsFalse();
+        await Assert.That(SecretRedactor.IsSecretKey("MONKEY_BUSINESS")).IsFalse();
     }
 
     [Test]
@@ -375,6 +379,53 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
+    }
+
+    [Test]
+    [Arguments("SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiJ9.role", "eyJhbGciOiJIUzI1NiJ9.role")]
+    [Arguments("DOC_INTEL_KEY=0123456789abcdef0123", "0123456789abcdef0123")]
+    [Arguments("REVENUECAT_IOS_KEY=appl_AbCdEf123456", "appl_AbCdEf123456")]
+    [Arguments("VMKEY=vmk-55aa66bb77cc", "vmk-55aa66bb77cc")]
+    [Arguments("DB_PASS=correct-horse-battery", "correct-horse-battery")]
+    [Arguments("ADMINPASS=Adm1nP4ssw0rd", "Adm1nP4ssw0rd")]
+    public async Task RedactsLine_EnvVar_UppercaseNameEndingInKeyOrPass(string kv, string secret) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain(secret);
+        await Assert.That(result).Contains("[REDACTED]");
+    }
+
+    [Test]
+    [Arguments("DOC_INTEL_KEY", true)]
+    [Arguments("DB_PASS", true)]
+    [Arguments("primary_key", false)]
+    [Arguments("sort_Key", false)]
+    public async Task RedactsLine_JsonTextInAString_UppercaseKeyOrPassName(string name, bool redacted) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"{{{name}}}\":\"ordinaryOpaqueValue123\"}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result.Contains("ordinaryOpaqueValue123", StringComparison.Ordinal)).IsEqualTo(!redacted);
+    }
+
+    [Test]
+    [Arguments("primary_key=user_id")]
+    [Arguments("sort_key=created_at")]
+    [Arguments("ssh_Key=id_ed25519")]
+    public async Task DoesNotRedact_EnvVar_LowercaseOrMixedCaseKeySuffix(string kv) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).IsEqualTo(line);
     }
 
     [Test]
@@ -733,6 +784,89 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain("ghp_abcdef1234567890ABCDEF");
         await Assert.That(result).Contains("https://alice:[REDACTED]@github.com");
+    }
+
+    [Test]
+    // Each URL is split at its password so secret scanners don't flag these made-up fixtures.
+    [Arguments("postgresql://postgres.abcdefghijklmnop:" + "s3cr3t-Pw_9" + "@aws-0-eu-west-1.pooler.example.com:5432/postgres", "s3cr3t-Pw_9", "postgresql://postgres.abcdefghijklmnop:[REDACTED]@aws-0-eu-west-1.pooler.example.com")]
+    [Arguments("DATABASE_URL=postgres://app:" + "hunter2hunter2" + "@db.internal:5432/app", "hunter2hunter2", "postgres://app:[REDACTED]@db.internal")]
+    [Arguments("mysql://root:" + "rootpass123" + "@127.0.0.1/shop", "rootpass123", "mysql://root:[REDACTED]@127.0.0.1")]
+    [Arguments("mongodb+srv://svc:" + "m0ng0Pa55" + "@cluster0.example.net/db", "m0ng0Pa55", "mongodb+srv://svc:[REDACTED]@cluster0.example.net")]
+    [Arguments("rediss://default:" + "r3disPw" + "@cache.example.com:6380", "r3disPw", "rediss://default:[REDACTED]@cache.example.com")]
+    [Arguments("amqps://guest:" + "rabbitPw77" + "@mq.example.com/vhost", "rabbitPw77", "amqps://guest:[REDACTED]@mq.example.com")]
+    [Arguments("redis://:" + "emptyUserPw" + "@cache.example.com:6379", "emptyUserPw", "redis://:[REDACTED]@cache.example.com")]
+    [Arguments("redis://" + "passwordOnly42" + "@cache.example.com:6379", "passwordOnly42", "redis://[REDACTED]@cache.example.com")]
+    [Arguments("redis-sentinel://" + "sentinelPw42" + "@sentinel.example.com:26379/0#mymaster", "sentinelPw42", "redis-sentinel://[REDACTED]@sentinel.example.com")]
+    [Arguments("rediss-sentinel://" + "sentinelPw43" + "@sentinel.example.com:26379", "sentinelPw43", "rediss-sentinel://[REDACTED]@sentinel.example.com")]
+    [Arguments("valkeys://" + "valkeyPw44" + "@cache.example.com:6380", "valkeyPw44", "valkeys://[REDACTED]@cache.example.com")]
+    [Arguments("redis+tls://" + "tlsPw45" + "@cache.example.com:6380", "tlsPw45", "redis+tls://[REDACTED]@cache.example.com")]
+    [Arguments("redis+ssl://" + "sslPw46" + "@cache.example.com:6380", "sslPw46", "redis+ssl://[REDACTED]@cache.example.com")]
+    [Arguments("redis+tls://" + "alpha@beta" + "@cache.example.com:6380", "beta", "redis+tls://[REDACTED]@cache.example.com")]
+    [Arguments("postgres://app:" + "p@ss@word" + "@db.example.com/app", "ss@word", "postgres://app:[REDACTED]@db.example.com")]
+    [Arguments("postgres://app:" + "alpha@beta;gamma" + "@db.example.com/app", "beta;gamma", "postgres://app:[REDACTED]@db.example.com")]
+    [Arguments("postgres://app:" + "alpha@beta,gamma" + "@db.example.com/app", "beta,gamma", "postgres://app:[REDACTED]@db.example.com")]
+    public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain(secret);
+        await Assert.That(result).Contains(kept);
+    }
+
+    [Test]
+    [Arguments(",")]
+    [Arguments(";")]
+    [Arguments("|")]
+    [Arguments("<")]
+    public async Task RedactsLine_UrlUserinfo_StopsBeforeALaterFieldsAddress(string separator) {
+        var tail = $"@db.example.com{separator}contact=alice@example.org";
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"postgres://app:fieldPw{{{tail}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain("fieldPw");
+        await Assert.That(result).Contains("postgres://app:[REDACTED]" + tail);
+    }
+
+    // JSON text held in a string value, as a tool result often carries it: once the outer line is
+    // decoded, the URL's slashes or its @ may still be JSON-escaped.
+    [Test]
+    [Arguments(@"redis-sentinel:\\/\\/" + "escSlashPw" + "@sentinel.example.com:26379", "escSlashPw")]
+    [Arguments(@"postgres:\\/\\/app:" + "escSlashPw2" + "@db.example.com", "escSlashPw2")]
+    [Arguments("redis://" + "escAtPw" + @"\\u0040cache.example.com:6379", "escAtPw")]
+    [Arguments(@"postgres:\\//app:" + "mixedSlashPw" + "@db.example.com", "mixedSlashPw")]
+    [Arguments(@"postgres:/\\/app:" + "mixedSlashPw2" + "@db.example.com", "mixedSlashPw2")]
+    public async Task RedactsLine_UrlUserinfo_JsonEscapedDelimiters(string url, string secret) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"url\":\"{{{url}}}\"}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain(secret);
+        await Assert.That(result).Contains("[REDACTED]");
+        using var _ = JsonDocument.Parse(result);
+    }
+
+    [Test]
+    [Arguments("ssh://git@github.com/org/repo.git")]
+    [Arguments("https://example.com:8080/users/a@b")]
+    [Arguments("postgres://example.com:8080?email=a@b")]
+    [Arguments("https://example.com:8080#section@anchor")]
+    [Arguments("reach me at alice:team@example.com")]
+    public async Task DoesNotRedact_UrlWithoutUserinfoPassword(string text) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).IsEqualTo(line);
     }
 
     // labeled secrets with no colon separator (e.g. `hcloud:token  <value>`)

@@ -356,7 +356,7 @@ public class DaemonRecorderHubTests {
         time.Advance(DaemonRecorder.DisableBound);
         var stillOnItsWay = await unsettled.WithinDeadlineAsync("the second disable");
         release.SetResult();
-        await WaitHarness.PollUntilAsync(() => recorder.DisableSessionAsync(SessionA, CancellationToken.None).Result is RecordingDisable.NotHeld);
+        await WaitHarness.PollUntilAsync(async () => await recorder.DisableSessionAsync(SessionA, CancellationToken.None) is RecordingDisable.NotHeld, "a later disable");
 
         await Assert.That(stillOnItsWay).IsEqualTo(RecordingDisable.SendInFlight);
     }

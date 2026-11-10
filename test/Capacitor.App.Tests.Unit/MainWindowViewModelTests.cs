@@ -100,7 +100,7 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             for (var i = 0; i < 46; i++) emit!(new StreamedLine(ProcessStreamKind.Stdout, $"  Loading s{i} (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 46 of 94 sessions processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 46 of 94 sessions processed");
             await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 * 46 / 94);
 
             gate.SetResult(new StreamingResult(0, false, []));
@@ -122,12 +122,13 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 1 of 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 1 session processed");
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner.IsVisible).IsTrue();
         });
     }
 
@@ -158,8 +159,8 @@ public class MainWindowViewModelTests {
     /// Every value the window announced for its import bar, in order.
     static List<double> ProgressShown(MainWindowViewModel vm) {
         var shown = new List<double>();
-        vm.PropertyChanged += (_, e) => {
-            if (e.PropertyName == nameof(MainWindowViewModel.HistoryImportProgress)) shown.Add(vm.HistoryImportProgress);
+        vm.HistoryImportBanner!.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(HistoryImportBannerViewModel.Progress)) shown.Add(vm.HistoryImportBanner.Progress);
         };
         return shown;
     }
@@ -464,33 +465,38 @@ public class MainWindowViewModelTests {
     }
 
     [Test]
-    [Arguments(false, false, false, true, null, RailRecovery.None)]
-    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer)]
-    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None)]
-    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None)]
-    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None)]
+    [Arguments(false, false, false, true, null, RailRecovery.None, null)]
+    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer, StatusColors.InProgress)]
+    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None, StatusColors.InProgress)]
+    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None, StatusColors.Pending)]
+    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None, StatusColors.Disrupted)]
     public async Task LocalServerAlertFor_names_a_stopped_server_and_offers_start_when_the_launcher_does(
-            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery) {
+            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery, string? tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed, starting, stopped, canStart);
         await Assert.That(alert?.Text).IsEqualTo(text);
+        await Assert.That(alert?.Tone).IsEqualTo(tone);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
     }
 
     /// A stopped server whose installation is gone, is being changed by another kcap, or whose port another program
-    /// holds never carries Start, and its hover says why.
+    /// holds never carries Start, and its hover says why. Only an installation missing its server's files is red: it
+    /// cannot run until it is reinstalled.
     [Test]
-    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText)]
-    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText)]
-    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText)]
-    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(LocalServerCondition condition, string text) {
+    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText, StatusColors.Pending)]
+    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.Disrupted)]
+    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Unreadable, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText, StatusColors.Pending)]
+    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(
+            LocalServerCondition condition, string text, string tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true, condition);
 
         await Assert.That(alert!.Text).IsEqualTo(text);
+        await Assert.That(alert.Tone).IsEqualTo(tone);
         await Assert.That(alert.Recovery).IsEqualTo(RailRecovery.None);
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }
@@ -1939,6 +1945,46 @@ public class MainWindowViewModelTests {
             background.OnNext(false);
             await Assert.That(vm.ReloadFailureText).IsNull();
             await Assert.That(vm.ShowsReloadBlock).IsFalse();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Rail_attention_combines_session_footer_and_daemon_recovery_changes() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            using var background = new BehaviorSubject<bool>(false);
+            using var reload = new BehaviorSubject<ReloadState?>(null);
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                rail: rail, backgroundPriority: background, reloadState: reload);
+            using var activation = vm.Activator.Activate();
+            await Assert.That(vm.RailAttention.HasAttention).IsFalse();
+
+            var row = AgentRow.FromLocal(new AgentStatusDto("a", "agent", "claude", "/repo", "Running", null, null, null,
+                DateTime.UtcNow, null, null, AwaitingInput: true), new RepoIdentity("repo", "repo"));
+            directory.Rows.AddOrUpdate(row);
+            await Assert.That(vm.RailAttention.Text).IsEqualTo("1 session needs you");
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_incompatible", null));
+            await Assert.That(vm.RailAttention.Text).Contains(vm.Alert!.Text);
+            await Assert.That(vm.RailAttention.Tone).IsEqualTo(StatusColors.Disrupted);
+            background.OnNext(true);
+            await Assert.That(vm.RailAttention.Text.Contains(MainWindowViewModel.BackgroundPriorityMessage, StringComparison.Ordinal)).IsFalse();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            await Assert.That(vm.RailAttention.Text).Contains(MainWindowViewModel.BackgroundPriorityMessage);
+            var failure = new ReloadState(ReloadOutcomeKind.Unconfirmed, "unconfirmed", null, "daemon-a", 1);
+            reload.OnNext(failure);
+            await Assert.That(vm.RailAttention.Text).Contains(ReloadCopy.For(failure));
+            directory.Rows.RemoveKey(row.Key);
+            background.OnNext(false);
+            await Assert.That(vm.RailAttention.SessionCount).IsEqualTo(0);
+            await Assert.That(vm.RailAttention.HasAttention).IsTrue();
+            reload.OnNext(null);
+            await Assert.That(vm.RailAttention.HasAttention).IsFalse();
         });
     }
 

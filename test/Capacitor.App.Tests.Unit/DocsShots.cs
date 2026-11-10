@@ -90,7 +90,7 @@ public sealed class DocsShots {
             "desktop-settings-notifications", "desktop-settings-accounts", "desktop-settings-profiles", "desktop-settings-search",
             "desktop-launch-approvals", "desktop-consent-prompt", "desktop-wizard-agents", "desktop-wizard-visibility",
             "desktop-settings-privacy", "desktop-wizard-usage-data", "desktop-settings-usage-data", "desktop-settings-harnesses",
-            "desktop-settings-about"]);
+            "desktop-settings-about", "desktop-launcher-next-work", "desktop-launcher-next-work-filled"]);
     }
 
     [Test]
@@ -165,6 +165,16 @@ public sealed class DocsShots {
         await CaptureAsync(DocsShotScenes.LauncherAsync, "GoalInput");
     }
 
+    [Test, DocsShot("desktop-launcher-next-work")]
+    public async Task The_launcher_shows_what_to_pick_up_next() {
+        await CaptureAsync(DocsShotScenes.LauncherNextWorkAsync, "BandRows");
+    }
+
+    [Test, DocsShot("desktop-launcher-next-work-filled")]
+    public async Task A_next_work_row_fills_the_composer() {
+        await CaptureAsync(DocsShotScenes.LauncherFilledFromNextWorkAsync, "NextWorkSourceChip");
+    }
+
     [Test, DocsShot("desktop-pull-request")]
     public async Task The_pull_request_tab_shows_its_checks_and_offers_a_fix() {
         await CaptureAsync(DocsShotScenes.PullRequestAsync, "FixPullRequestButton");
@@ -204,12 +214,12 @@ public sealed class DocsShots {
 
     [Test, DocsShot("desktop-settings-privacy")]
     public async Task The_settings_window_shows_who_reads_new_sessions_and_the_recording_rules() {
-        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "CaptureTab", height: 1060), "AllowedReposInput");
+        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "PrivacyTab", height: 1060), "AllowedReposInput");
     }
 
     [Test, DocsShot("desktop-settings-usage-data")]
     public async Task The_settings_window_shows_the_usage_data_switch_on() {
-        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "PrivacyTab", height: 520, usageData: true), "UsageDataSwitch");
+        await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "UsageDataTab", height: 520, usageData: true), "UsageDataSwitch");
     }
 
     [Test, DocsShot("desktop-settings-harnesses")]

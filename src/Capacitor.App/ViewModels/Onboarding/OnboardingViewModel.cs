@@ -41,6 +41,7 @@ public sealed class OnboardingViewModel : ReactiveObject {
 
     int _index;
     readonly bool[] _visited;
+    readonly Func<IWizardStep, bool> _counted;
 
     IWizardStep? _current;
     public IWizardStep Current {
@@ -59,13 +60,12 @@ public sealed class OnboardingViewModel : ReactiveObject {
         }
     }
 
-    /// Counts the pages this run shows: a page it passes through is not a step, unless it was already shown
-    /// before it began passing through.
+    /// Counts the pages this run shows: one already shown always counts, one ahead while the run expects to show it.
     public string Eyebrow {
         get {
             var (position, total) = (0, 0);
             for (var i = 0; i < Steps.Count; i++) {
-                if (!_visited[i] && Steps[i].PassThrough) continue;
+                if (!_visited[i] && !_counted(Steps[i])) continue;
                 total++;
                 if (i <= _index) position++;
             }
@@ -138,8 +138,10 @@ public sealed class OnboardingViewModel : ReactiveObject {
     public OnboardingViewModel(
             IEnumerable<IWizardStep> steps, CancellationToken shutdownToken = default,
             WizardLifecycleSurface? surface = null, WizardStepId? startAt = null,
-            IObservable<bool>? canFinishLater = null, HarnessPreflight? preflight = null, IObservable<Unit>? restate = null) {
+            IObservable<bool>? canFinishLater = null, HarnessPreflight? preflight = null, IObservable<Unit>? restate = null,
+            Func<IWizardStep, bool>? counted = null) {
         _shutdownToken = shutdownToken;
+        _counted = counted ?? (step => !step.PassThrough);
         Surface = surface;
         Preflight = preflight;
         var applicable = steps.Where(s => s.Applicable).ToList();

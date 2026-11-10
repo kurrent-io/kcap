@@ -20,6 +20,8 @@ fi
 source "$here/lib/plugin-manifests.sh"
 # shellcheck source=lib/plugin-dev-files.sh
 source "$here/lib/plugin-dev-files.sh"
+windows=0
+if [ -f "$bundle/bin/kcap.exe" ] || [ -f "$bundle/kcap.exe" ]; then windows=1; fi
 for manifest in "${plugin_manifests[@]}"; do
   grep -qF '"version": "'"$version"'"' "$plugin/$manifest" || { echo "$manifest is not stamped $version" >&2; exit 1; }
 done
@@ -32,7 +34,9 @@ while IFS= read -r -d '' file; do
   test -f "$plugin/$relative" || { echo "missing bundled plugin file: $relative" >&2; exit 1; }
   stamped=false
   for manifest in "${plugin_manifests[@]}"; do [ "$relative" = "$manifest" ] && stamped=true; done
-  if [ "$stamped" = false ]; then
+  if [ "$relative" = hooks/hooks.json ] && [ "$windows" = 1 ]; then
+    cmp "$source_dir/hooks/hooks.windows.json" "$plugin/$relative"
+  elif [ "$stamped" = false ]; then
     cmp "$file" "$plugin/$relative"
   fi
 done < <(find "$source_dir" -type f -print0)

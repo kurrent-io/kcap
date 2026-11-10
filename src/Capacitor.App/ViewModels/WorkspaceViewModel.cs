@@ -199,7 +199,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             IAttachmentUploader uploader, Action? requestSignIn = null, IObservable<Unit>? signInCompleted = null, IPullRequestSource? pullRequests = null, Action? linkGitHub = null,
             SessionAccessService? access = null, IObservable<bool>? localDaemonOnAppServer = null, IAgentDirectory? directory = null,
             IPlanSource? plans = null, IPlanArtifactSource? planArtifacts = null, SessionRunActivity? commands = null,
-            ComposerDrafts? drafts = null, Func<string, Action>? inputSending = null,
+            ComposerDrafts? drafts = null, ChatFindMemory? finds = null, Func<string, Action>? inputSending = null,
             Func<string, ResumeLedgerEntry?>? resumeLedger = null, LastReads<PullRequestSnapshot>? pullRequestSnapshots = null,
             LocalTranscripts? transcripts = null, Action<string>? pullRequestLinksChanged = null, AccountReadings? readings = null,
             IMessageSenderSource? senders = null,
@@ -247,7 +247,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 if (!show && IsArtefactsActive) ActiveTab = WorkspaceTab.Chat;
             }).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(presence.Select(p => p.Dto), workContext, time, opener, runs, requestSignIn, signInCompleted,
-            actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane, layout: workContextLayout);
+            actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
+            canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the transcript it was opened from.
@@ -385,7 +387,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink,
+                    openLink: Artefacts.OpenLink, findMemory: finds,
                     viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
@@ -395,6 +397,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
                 if (PullRequests is { } fixHost)
                     Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
+                Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
+                    .Subscribe(_ => WorkContext.AgentInputAvailabilityChanged()).DisposeWith(_disposables);
             })
             .DisposeWith(_disposables);
 

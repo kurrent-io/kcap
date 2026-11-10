@@ -258,7 +258,7 @@ sealed class LocalCommand(
     }
 
     static async Task<int> PrintUsage(int exit) {
-        var usage = EmbeddedResources.TryLoad("help-local.txt") ?? "Usage: kcap local <subcommand>";
+        var usage = EmbeddedResources.TryLoadHelp("help-local.txt") ?? "Usage: kcap local <subcommand>";
 
         if (exit == 0) await Console.Out.WriteAsync(usage);
         else await Console.Error.WriteAsync(usage);

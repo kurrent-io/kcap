@@ -67,8 +67,12 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     string? LivePathFor(string sessionId) =>
         SafeSessionId.IsMatch(sessionId) ? Path.Combine(DirectoryPath, $"{EncodeKey(sessionId)}.transcript.jsonl") : null;
 
-    string? MarkerPathFor(string sessionId) =>
-        SafeSessionId.IsMatch(sessionId) ? Path.Combine(DirectoryPath, $"{EncodeKey(sessionId)}.needs-import") : null;
+    // An owner's marker sits beside the shared one, which every older build reads and writes, so
+    // removing it never races another writer.
+    string? MarkerPathFor(string sessionId, int? owner = null) =>
+        SafeSessionId.IsMatch(sessionId)
+            ? Path.Combine(DirectoryPath, owner is { } o ? $"{EncodeKey(sessionId)}.p{o}.needs-import" : $"{EncodeKey(sessionId)}.needs-import")
+            : null;
 
     /// <summary>With <paramref name="reserving"/>, refuses the batch unless that one still fits after it.</summary>
     public AppendResult Append(string sessionId, string batchJson, string? reserving = null) {
@@ -98,10 +102,11 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     /// <summary>
     /// Records a needs-import marker for the session. Returns <c>true</c> if the marker was
     /// persisted; <c>false</c> (and tells <see cref="FailureLog"/>) if it could not be written — the
-    /// caller must not assume a marker exists just because it asked for one.
+    /// caller must not assume a marker exists just because it asked for one. With <paramref name="owner"/>, the
+    /// marker is that owner's own, which only <see cref="ClearNeedsImport"/> with the same owner removes.
     /// </summary>
-    public bool MarkNeedsImport(string sessionId, string reason) {
-        var p = MarkerPathFor(sessionId);
+    public bool MarkNeedsImport(string sessionId, string reason, int? owner = null) {
+        var p = MarkerPathFor(sessionId, owner);
         if (p is null) return false;
         try {
             Directory.CreateDirectory(DirectoryPath);
@@ -118,9 +123,26 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         else Console.Error.WriteLine(message);
     }
 
+    /// <summary>Removes the marker <paramref name="owner"/> set. Best effort: one that stays only asks for an
+    /// import nobody needed.</summary>
+    public void ClearNeedsImport(string sessionId, int owner) {
+        if (MarkerPathFor(sessionId, owner) is not { } p) return;
+        try {
+            File.Delete(p);
+        } catch {
+            // Ignore: the marker stays, and the reap removes it
+        }
+    }
+
+    /// <summary>True while any marker for the session is down, its owner's or the shared one.</summary>
     public bool NeedsImport(string sessionId) {
-        var p = MarkerPathFor(sessionId);
-        return p is not null && File.Exists(p);
+        if (MarkerPathFor(sessionId) is not { } p) return false;
+        if (File.Exists(p)) return true;
+        try {
+            return Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import").Any();
+        } catch {
+            return false;
+        }
     }
 
     // ---- filename key encoding -------------------------------------------------------------
@@ -263,7 +285,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
         var key = EncodeKey(sessionId);
 
-        foreach (var pattern in new[] { $"{key}.transcript.jsonl", $"{key}.*.transcript.draining", $"{key}.needs-import" }) {
+        foreach (var pattern in new[] { $"{key}.transcript.jsonl", $"{key}.*.transcript.draining", $"{key}.needs-import", $"{key}.p*.needs-import" }) {
             try {
                 foreach (var file in Directory.GetFiles(DirectoryPath, pattern)) File.Delete(file);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {

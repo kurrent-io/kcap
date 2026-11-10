@@ -442,6 +442,16 @@ public class McpWorkItemsServerTests {
     public async Task Server_instructions_lead_with_the_completion_rule() =>
         await Assert.That(McpWorkItemsServer.ServerInstructions).StartsWith(NextWorkEmitter.CompletionInstruction);
 
+    [Test]
+    public async Task A_headless_run_is_not_told_to_present_next_work_but_keeps_the_rest() {
+        var headless = McpWorkItemsServer.InstructionsFor(headless: true);
+
+        await Assert.That(headless).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+        await Assert.That(headless).Contains("declare_work_item");
+        await Assert.That(McpWorkItemsServer.ServerInstructions).EndsWith(headless);
+        await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false)).IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
     // ── declared breakdown + relations ───────────────────────────────────────
 
     [Test]

@@ -431,6 +431,18 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(DisabledSessions.IsDisabledByPerson(Moved, f.Config.ConfigRoot)).IsTrue();
     }
 
+    /// <summary>This daemon's agents' hooks read that marker, so without it they can record the session again, and a
+    /// command told the stop worked would call the deletion final.</summary>
+    [Test]
+    public async Task The_disable_frame_says_when_the_session_could_not_be_marked() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await File.WriteAllTextAsync(f.Config.ConfigRoot.Path("disabled"), "in the way of the directory");
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        await Assert.That(ack.MarkFailed).IsTrue();
+    }
+
     /// <summary>The frame comes from any local process, and an id that isn't a session would put the marker's file
     /// wherever it pointed.</summary>
     [Test]

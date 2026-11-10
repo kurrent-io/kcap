@@ -929,6 +929,30 @@ public class RecorderHostTests {
         await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
     }
 
+    /// <summary>A source waiting out an outage in a call that never returns beats nothing of its own, and a claim its owner
+    /// keeps offline, as a hosted session's is, stays fresh all the same. One not kept offline goes stale, as it does in a
+    /// backoff.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_source_stuck_through_an_outage_keeps_its_claim_only_if_kept_offline(bool keptOffline) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: keptOffline);
+        var host = NewHost(claims: Claims, keepsClaimOffline: _ => keptOffline);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+        var down = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - down > RecorderClaims.Grace * 3, "an outage past the grace three times", TimeSpan.FromSeconds(1));
+
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(keptOffline ? RecorderClaimState.DaemonFresh : RecorderClaimState.DaemonStale);
+    }
+
     /// <summary>Time while the transport is down isn't held against a source, but the source still went that long without
     /// a beat, and the log of its wedge has to say so.</summary>
     [Test]
@@ -2340,6 +2364,18 @@ public class RecorderHostTests {
         await Assert.That(failure).DoesNotContain("retry");
     }
 
+    // The host's own read of the lines just appended holds the file shared for a moment, and an exclusive open fails
+    // while it does.
+    static async Task<FileStream> HoldExclusivelyAsync(string path) {
+        for (var attempt = 0;; attempt++) {
+            try {
+                return new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            } catch (IOException) when (attempt < 200) {
+                await Task.Delay(10);
+            }
+        }
+    }
+
     /// <summary>An exclusive holder makes every shared open fail with an IOException, as a failing disk would. Neither
     /// read can say what is left, so only a mark stands between those lines and silence.</summary>
     [Test]
@@ -2351,7 +2387,7 @@ public class RecorderHostTests {
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
 
-        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
@@ -2371,7 +2407,7 @@ public class RecorderHostTests {
         await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
-        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
