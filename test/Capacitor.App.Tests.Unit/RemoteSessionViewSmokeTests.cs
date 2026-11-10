@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reflection;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Platform;
@@ -663,18 +664,39 @@ public class RemoteSessionViewSmokeTests {
     [Test]
     public async Task A_denied_session_replaces_the_chat_with_the_access_note() {
         await AvaloniaSession.DispatchAsync(async () => {
-            using var host = new Host();
+            const string repository = "/private/PRIVATE_REPOSITORY_SENTINEL/repo";
+            const string worktree = "/private/PRIVATE_WORKTREE_SENTINEL/checkout";
+            const string branch = "PRIVATE_BRANCH_SENTINEL";
+            using var host = new Host(row: AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s1", Status = "Running", DaemonName = "work-mac",
+                Vendor = "claude", OwnerUserId = "u1", RegisteredAt = DateTime.UtcNow,
+                RepoPath = repository,
+            }) with {
+                WorktreePath = worktree, Branch = branch,
+                WorkLocation = "borrowed", BorrowedFrom = "PRIVATE_BORROWED_SENTINEL",
+            });
             await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
 
             var banner = host.View.FindControl<Border>("AccessBanner")!;
             var chat = host.View.FindControl<ChatTabView>("ChatHost")!;
+            var context = host.View.FindControl<WorkContextView>("WorkContextHost")!;
+            if (!host.Vm.WorkContext.CheckoutExpanded) await host.Vm.WorkContext.ToggleCheckoutCommand.Execute();
+            host.Settle();
+            var facts = context.FindControl<Grid>("CheckoutFacts")!;
+            string AccessibleCheckout() => string.Join('\n', context.GetVisualDescendants().OfType<Control>()
+                .Where(c => c.IsEffectivelyVisible).Select(c => ControlAutomationPeer.CreatePeerForElement(c).GetName()));
             await Assert.That(banner.IsVisible).IsFalse();
             await Assert.That(chat.IsVisible).IsTrue();
+            await Assert.That(facts.IsEffectivelyVisible).IsTrue();
+            await Assert.That(AccessibleCheckout()).Contains(branch);
 
             host.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
             host.Lane.SessionAccessChangedSubject.OnNext("s1");
             await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Denied, "denied");
-            await Assert.That(host.View.GetVisualDescendants().OfType<WorkContextView>().Single().IsVisible).IsFalse();
+            await Assert.That(context.IsEffectivelyVisible).IsFalse();
+            await Assert.That(host.Vm.WorkContext.RepositoryPath).IsNull();
+            await Assert.That(host.Vm.WorkContext.WorktreePath).IsNull();
+            await Assert.That(host.Vm.WorkContext.Branch).DoesNotContain(branch);
 
             await Assert.That(chat.IsVisible).IsFalse();
             await Assert.That(banner.IsVisible).IsTrue();
@@ -686,8 +708,34 @@ public class RemoteSessionViewSmokeTests {
             host.Vm.RecheckAccess();
             await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Connecting, "access recheck");
             await Assert.That(chat.IsVisible).IsFalse().Because("a refusal must stand until access is established again");
-            watch.SetResult(HubCallOutcome.Denied("still denied"));
-            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Denied, "refusal retained");
+            await Assert.That(context.IsEffectivelyVisible).IsFalse();
+            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+            await Assert.That(host.Vm.WorkContext.CheckoutExpanded).IsTrue();
+            await Assert.That(AccessibleCheckout()).DoesNotContain("PRIVATE_");
+            await Assert.That(host.Vm.WorkContext.RepositoryPath).IsNull();
+            await Assert.That(host.Vm.WorkContext.WorktreePath).IsNull();
+            await Assert.That(host.Vm.WorkContext.Branch).DoesNotContain(branch);
+
+            host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Denied, "refusal retained while offline");
+            watch.SetResult(HubCallOutcome.Ok);
+            host.Settle();
+            await Assert.That(context.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AccessibleCheckout()).DoesNotContain("PRIVATE_");
+
+            var restored = new TaskCompletionSource<HubCallOutcome>();
+            host.Lane.AccessWatchHandler = _ => restored.Task;
+            host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 2));
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Connecting, "restoring access");
+            await Assert.That(context.IsEffectivelyVisible).IsFalse();
+            restored.SetResult(HubCallOutcome.Ok);
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "access restored");
+            await Assert.That(context.IsEffectivelyVisible).IsTrue();
+            await Assert.That(facts.IsEffectivelyVisible).IsTrue();
+            await Assert.That(host.Vm.WorkContext.RepositoryPath).IsEqualTo(repository);
+            await Assert.That(host.Vm.WorkContext.WorktreePath).IsEqualTo(worktree);
+            await Assert.That(host.Vm.WorkContext.Branch).IsEqualTo(branch);
+            await Assert.That(AccessibleCheckout()).Contains(branch);
             await host.Vm.TeardownAsync();
             return true;
         });

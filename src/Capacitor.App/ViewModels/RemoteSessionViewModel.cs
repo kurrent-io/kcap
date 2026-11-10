@@ -236,7 +236,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             || Access == RemoteSessionAccess.Connecting && _hasEstablishedAccess) && !OriginChangedToLocal;
 
     // Loading and transport loss do not revoke context. A refusal still hides server data.
-    public bool ShowsWorkContext => Access != RemoteSessionAccess.Denied && !OriginChangedToLocal;
+    public bool ShowsWorkContext => !_workAccessDenied && Access != RemoteSessionAccess.Denied && !OriginChangedToLocal;
     public bool HasAccessNotice => AccessNote.Length > 0;
 
     public bool ShowsChatPane =>
@@ -614,10 +614,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     void PublishWorkPresence() {
         var sessionId = _workAccessDenied ? null : _row.SessionId;
-        _presence.OnNext(new AgentStatusDto(_row.Id, _row.Kind, _row.Vendor, _row.RepoPath, _row.Status,
+        _presence.OnNext(new AgentStatusDto(_row.Id, _row.Kind, _row.Vendor, _workAccessDenied ? null : _row.RepoPath, _row.Status,
             null, null, null, _row.CreatedAt, _row.Model, _row.RequesterDisplay,
-            Title: _row.Title, WorktreePath: _row.WorktreePath, WorkLocation: _row.WorkLocation,
-            BorrowedFrom: _row.BorrowedFrom, SessionId: sessionId, Branch: _row.Branch, AwaitingInput: _row.AwaitingInput));
+            Title: _row.Title, WorktreePath: _workAccessDenied ? null : _row.WorktreePath,
+            WorkLocation: _workAccessDenied ? null : _row.WorkLocation,
+            BorrowedFrom: _workAccessDenied ? null : _row.BorrowedFrom, SessionId: sessionId,
+            Branch: _workAccessDenied ? null : _row.Branch, AwaitingInput: _row.AwaitingInput));
         if (string.IsNullOrEmpty(sessionId)) PullRequests?.ClearSession();
     }
 
