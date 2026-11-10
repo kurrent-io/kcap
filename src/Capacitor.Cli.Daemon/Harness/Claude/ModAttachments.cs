@@ -317,10 +317,15 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     /// is admitted. An agent the process carried on from leaves without an unregistration: the server ended it when this
     /// one registered, and ending it again would discard what it still waits behind.</summary>
     string? Admit(ModAttachmentRecord record) {
+        var session = SessionIds.Canonical(record.SessionId)!;
+
+        // A hosted agent can learn this session while the server answers.
+        if (Hosts(session, ModAttachedAgentRuntime.PidOf(record.ProcessKey))) return HostedAnswer;
+
         lock (_gate) {
             if (!SteeringOn) return SteeringOffAnswer;
 
-            if (Barred(record.AgentId, SessionIds.Canonical(record.SessionId)!, record.ProcessKey, record.ReplacesAgentId) is { } barred) return barred;
+            if (Barred(record.AgentId, session, record.ProcessKey, record.ReplacesAgentId) is { } barred) return barred;
 
             var current = _live.GetValueOrDefault(record.AgentId);
 

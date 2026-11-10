@@ -503,6 +503,26 @@ public class ModAttachmentsTests {
         await Assert.That(server.AttachedRegistrations).IsEmpty();
     }
 
+    /// <summary>A hosted agent can learn the session while the server registers the attachment, so the answer is held to
+    /// what the daemon hosts by then, and the registration it made is taken back.</summary>
+    [Test]
+    public async Task A_session_the_daemon_comes_to_host_while_the_server_answers_is_refused() {
+        var gate   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new CaptureServerConnection { AttachedRegistrationGate = gate };
+        await using var attachments = Attachments(server);
+        await using var orch = Orchestrator(server, attachments);
+        var hosted = orch.SeedAgentForTest("hosted-1", vendor: "claude");
+
+        var attaching = attachments.AttachAsync(Session, Key, null, CancellationToken.None);
+        await server.AttachedRegistrationEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        hosted.SessionId = Session;
+        gate.SetResult();
+
+        await Assert.That(await attaching.WaitAsync(TimeSpan.FromSeconds(30))).IsEqualTo(SteeringAttachReply.Refusal("hosted", retry: false));
+        await Assert.That(attachments.Holds(AgentOf(Session))).IsFalse();
+        await Assert.That(server.AgentUnregisteredCalls).IsEquivalentTo([AgentOf(Session)]);
+    }
+
     /// <summary>A link the server never took is kept, through a dropped connection and a daemon restart, and sent once
     /// the server is there again; sent once, it is gone.</summary>
     [Test]
