@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Tests.Unit.Capture;
@@ -24,7 +25,7 @@ public class HeldLineDrainTests {
     readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
     readonly SwitchableRedactionClock _clock = new() { Exhausted = false };
 
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), _time, TestAccounts.None, Home) {
+    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), _time, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root)) {
         RedactionClock = _clock
     };
 

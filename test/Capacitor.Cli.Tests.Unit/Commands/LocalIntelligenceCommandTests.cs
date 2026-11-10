@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -9,13 +10,17 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// exit code a script can branch on</summary>
 [NotInParallel]
 public class LocalIntelligenceCommandTests {
+    const string InstallationId = "0123456789abcdef0123456789abcdef";
+
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
     const string Applied =
         """{"mode":"local_agent","harness":"claude","vendor":null,"import_outcomes":true,"backlog_session_touches_per_day":200,"resolving":["titles","outcomes"]}""";
 
-    static LocalIntelligenceCommand Command(string? server, Func<string, string?>? env = null) =>
-        new(new FixedCapacitorHttpClient(), new Core.LocalEdition.LocalRoot("/no-local-root")) {
-            Server   = () => server,
-            Variable = env ?? (_ => null),
+    LocalIntelligenceCommand Command(string? server, Func<string, string?>? env = null) =>
+        new(new FixedCapacitorHttpClient(), new Core.LocalEdition.LocalRoot("/no-local-root"), Config.Root) {
+            Installation = () => server is null ? null : new Core.LocalEdition.LocalInstallation(InstallationId, new Uri(server).Port, server, "1.0.0"),
+            Variable     = env ?? (_ => null),
         };
 
     static WireMockServer Serve(int status, string body) {
@@ -89,5 +94,30 @@ public class LocalIntelligenceCommandTests {
         var exit = await Command("http://127.0.0.1:9").HandleAsync(["local", "intelligence", "none", "--json"]);
 
         await Assert.That(exit).IsEqualTo(1);
+    }
+
+    /// <summary>The applied mode is what decides whether this CLI calls a model for the installation's sessions, so
+    /// none is recorded as surely as an answer that turns it on.</summary>
+    [Test]
+    [Arguments("local_agent", "claude")]
+    [Arguments("none", "none")]
+    public async Task An_applied_answer_records_the_mode_the_server_returned(string mode, string answer) {
+        using var server = Serve(200, Applied.Replace("\"local_agent\"", $"\"{mode}\""));
+        using var _ = ConsoleOutput.StartCapture();
+
+        await Command(server.Url).HandleAsync(["local", "intelligence", answer, "--json"]);
+
+        await Assert.That(LocalIntelligenceRecord.For(Config.Root, InstallationId)).IsEqualTo(new LocalIntelligenceRecord(InstallationId, mode));
+    }
+
+    [Test]
+    public async Task A_refused_answer_keeps_the_recorded_mode() {
+        new LocalIntelligenceRecord(InstallationId, "local_agent").Save(Config.Root);
+        using var server = Serve(400, """{"error":"key_rejected: 401"}""");
+        using var capture = ConsoleOutput.StartCapture();
+
+        await Command(server.Url, _ => "sk").HandleAsync(["local", "intelligence", "anthropic", "--json"]);
+
+        await Assert.That(LocalIntelligenceRecord.For(Config.Root, InstallationId).Mode).IsEqualTo("local_agent");
     }
 }

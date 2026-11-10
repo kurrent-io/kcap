@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Acp;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.LocalIpc;
@@ -6637,6 +6638,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : null;
 
     async Task<string?> GenerateTitleForAsync(TitleAgentView agent, CancellationToken ct) {
+        if (_config.LocalRoot is { } root && !LocalIntelligenceGate.For(_configRoot, root).Allows(_config.ServerUrl)) {
+            _logger.LogInformation("Not generating a title for {AgentId}: {Reason}", agent.Id, LocalIntelligenceGate.NotSetUp);
+
+            return null;
+        }
+
         var result = await TitleGeneration.GenerateAsync(
             agent.Prompt!, null, _time, msg => _logger.LogDebug("Title generation ({AgentId}): {Message}", agent.Id, msg),
             _config.Profiles.Resolution.Profile, _harnesses,

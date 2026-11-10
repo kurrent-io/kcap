@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup.Intelligence;
 
 namespace Capacitor.Cli.Commands;
@@ -6,7 +8,8 @@ namespace Capacitor.Cli.Commands;
 /// <c>kcap setup --local</c>'s background intelligence question. A flag answers it; otherwise a person is asked until
 /// the server takes an answer or they choose not now, and a run that can do neither posts nothing. Not now stores
 /// nothing either, so a re-run never clears what an earlier one chose. A refused or unreachable answer never fails
-/// setup: it says how to answer later.
+/// setup: it says how to answer later. An applied answer is recorded for <paramref name="installationId"/>, since
+/// whether this CLI may call a model for the installation's sessions depends on it.
 /// </summary>
 /// <param name="questions">Null when nobody can be asked.</param>
 /// <param name="say">One line for the person, unformatted.</param>
@@ -15,7 +18,9 @@ sealed class LocalIntelligenceStep(
         Func<Task<string[]>> harnesses,
         Func<string, string?> variable,
         IIntelligenceQuestions? questions,
-        Action<string> say) {
+        Action<string> say,
+        ConfigRoot config,
+        string installationId) {
     public const string ProviderChoice = "provider";
 
     /// <summary>The command that sets it up, with every answer that turns it on.</summary>
@@ -92,6 +97,8 @@ sealed class LocalIntelligenceStep(
     Task<IntelligenceSetupOutcome> ApplyAsync(IntelligenceSetupRequest request) => apply(request);
 
     IntelligenceSetupResponse Applied(IntelligenceSetupResponse applied) {
+        new LocalIntelligenceRecord(installationId, applied.Mode).Save(config);
+
         foreach (var line in LocalIntelligenceCommand.Summary(applied)) say(line);
 
         return applied;

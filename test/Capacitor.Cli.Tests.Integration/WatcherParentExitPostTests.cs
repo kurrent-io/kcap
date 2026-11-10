@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
@@ -25,7 +26,7 @@ public class WatcherParentExitPostTests : IDisposable {
     // Instance, not static: the parent-exit POST resolves its client against a config dir, so it
     // must be this test's own root — which a static helper cannot see, TUnit injecting it after
     // construction.
-    WatchCommand Watch(TimeProvider? time = null) => new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), time ?? TimeProvider.System, TestAccounts.None, Home);
+    WatchCommand Watch(TimeProvider? time = null) => new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), time ?? TimeProvider.System, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     HookSpool Spool() => new(Config.Root, TimeProvider.System, _server.Url);
 
@@ -397,7 +398,7 @@ public class WatcherParentExitPostTests : IDisposable {
     WatchCommand Watch(IWatcherSpawner spawner) =>
         new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(),
             TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), spawner), new GitProviderRouter(),
-            TimeProvider.System, TestAccounts.None, Home);
+            TimeProvider.System, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     /// <summary>An end that can be neither posted nor spooled does not end the pass: the requests after it are still
     /// settled, it is retried as the end its hook handed over, never one rebuilt from the watcher, and it goes back

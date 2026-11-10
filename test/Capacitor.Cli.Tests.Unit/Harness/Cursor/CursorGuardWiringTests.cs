@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
@@ -20,7 +21,7 @@ public class CursorGuardWiringTests {
     [TempHome] public required TempHome Home { get; init; }
 
     WatchCommand? _watch;
-    WatchCommand Watch => _watch ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    WatchCommand Watch => _watch ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);
 

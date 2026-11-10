@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Capture;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -46,7 +47,7 @@ namespace Capacitor.Cli.Commands;
 partial class WatchCommand(
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses,
         ICapacitorHttpClient http, ICredentialSource credentials, WatcherManager watchers,
-        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home) {
+        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home, LocalIntelligenceGate intelligence) {
     readonly CursorMarkers  _markers  = new(config, time);
     readonly WatcherPaths   _paths    = WatcherPaths.FromEnvironment(config);
     readonly Dictionary<(string, string?), HeldLineRedaction> _heldLines = [];
@@ -3129,6 +3130,12 @@ partial class WatchCommand(
 
                     if (!state.HarnessTitleSeen) ObserveTitleLine(state, vendor, sessionId, line);
                 }
+            }
+
+            // Settled rather than retried, so the first-prompt title stays and nothing waits on a title at shutdown.
+            if (ShouldGenerateLlmTitle(state, agentId) && !intelligence.Allows(Url)) {
+                Log(time, $"Not generating a title: {LocalIntelligenceGate.NotSetUp}");
+                state.TitleGenerated = true;
             }
 
             if (ShouldGenerateLlmTitle(state, agentId)) {

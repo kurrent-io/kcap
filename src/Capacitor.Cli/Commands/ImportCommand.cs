@@ -1600,7 +1600,8 @@ class ImportCommand(
                             await concurrencyLimit.WaitAsync();
 
                             try {
-                                var rc = await new WhatsDoneCommand(config, profiles, harnesses, http, time)
+                                var rc = await new WhatsDoneCommand(config, profiles, harnesses, http, time,
+                                        LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)))
                                     .GenerateForSessionAsync(baseUrl, sid, _ => { }, vnd.VendorId);
 
                                 if (rc == 0) Interlocked.Increment(ref summariesGenerated);

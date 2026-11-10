@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Cursor;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -19,7 +20,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 public class CursorTopLevelStreamingTests {
     [TempHome] public required TempHome Home { get; init; }
 
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 

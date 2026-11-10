@@ -1426,7 +1426,8 @@ sealed class SetupCommand(
                 () => HeadlessHarnesses(daemonName, CancellationToken.None),
                 Environment.GetEnvironmentVariable,
                 canAskIntelligence ? IntelligenceQuestions ?? new IntelligenceQuestions() : null,
-                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}")).RunAsync(local, existing: localReused);
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"),
+                config, remembered!.InstallationId).RunAsync(local, existing: localReused);
 
             _json?.Completed(outcome: intelligence?.Mode ?? "skipped");
 

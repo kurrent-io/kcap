@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
@@ -190,7 +191,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         return new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(),
-            TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), _time, TestAccounts.None, Home);
+            TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), _time, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
     }
 
     /// <summary>A Codex session that dies mid-turn runs no other hook; its watcher posts the end and then

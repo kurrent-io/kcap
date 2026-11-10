@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup.Intelligence;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -6,6 +7,10 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// <summary>Setup's background intelligence step: a flag answers it, a person is asked until the server takes an answer
 /// or they choose not now, and a run that can do neither leaves it unset and says how to set it later</summary>
 public class LocalIntelligenceStepTests {
+    const string Installation = "0123456789abcdef0123456789abcdef";
+
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
     static readonly IntelligenceSetupResponse Took =
         new("local_agent", "claude", null, true, 200, ["titles", "outcomes"]);
 
@@ -53,10 +58,10 @@ public class LocalIntelligenceStepTests {
     static LocalSetupArgs Args(string? answer = null, string? model = null, bool? outcomes = null) =>
         new(false, true, true, answer is not null, Intelligence: IntelligenceAnswer.Parse(answer), IntelligenceModel: model, ImportOutcomes: outcomes);
 
-    static (LocalIntelligenceStep Step, List<string> Said) Step(Server server, IIntelligenceQuestions? questions, Func<string, string?>? env = null) {
+    (LocalIntelligenceStep Step, List<string> Said) Step(Server server, IIntelligenceQuestions? questions, Func<string, string?>? env = null) {
         var said = new List<string>();
 
-        return (new LocalIntelligenceStep(server.Apply, () => Task.FromResult<string[]>(["claude", "codex"]), env ?? (_ => null), questions, said.Add), said);
+        return (new LocalIntelligenceStep(server.Apply, () => Task.FromResult<string[]>(["claude", "codex"]), env ?? (_ => null), questions, said.Add, Config.Root, Installation), said);
     }
 
     [Test]
@@ -188,5 +193,27 @@ public class LocalIntelligenceStepTests {
 
         await Assert.That(await step.RunAsync(Args())).IsNull();
         await Assert.That(string.Join('\n', said)).Contains("connection refused");
+    }
+
+    [Test]
+    public async Task An_applied_answer_is_recorded_for_the_installation() {
+        var (step, _) = Step(new Server(new IntelligenceSetupOutcome.Applied(Took)), null);
+
+        await step.RunAsync(Args("claude"));
+
+        await Assert.That(LocalIntelligenceRecord.For(Config.Root, Installation)).IsEqualTo(new LocalIntelligenceRecord(Installation, "local_agent"));
+    }
+
+    /// <summary>Not now posts nothing and a refused answer applies nothing, so the mode an earlier run recorded stands.</summary>
+    [Test]
+    [Arguments(IntelligenceAnswer.NoneToken)]
+    [Arguments("openai")]
+    public async Task An_answer_the_server_did_not_apply_keeps_the_recorded_mode(string answer) {
+        new LocalIntelligenceRecord(Installation, "provider").Save(Config.Root);
+        var (step, _) = Step(new Server(new IntelligenceSetupOutcome.Refused("key_rejected: 401")), null, _ => "sk");
+
+        await step.RunAsync(Args(answer));
+
+        await Assert.That(LocalIntelligenceRecord.For(Config.Root, Installation).Mode).IsEqualTo("provider");
     }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup.Intelligence;
@@ -9,7 +10,7 @@ namespace Capacitor.Cli.Commands;
 /// <summary><c>kcap local intelligence</c>: tells the local server who runs its background model calls — titles,
 /// outcomes, evals — and whether imported sessions get outcomes. The local server authenticates nobody, so the answer
 /// goes over the loopback lane with no credential.</summary>
-sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root) {
+sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root, ConfigRoot config) {
     public const int Applied = 0;
 
     /// <summary>The server could not be asked, or may not have taken the answer.</summary>
@@ -18,7 +19,7 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root)
     /// <summary>Nothing was stored: the arguments or the server refused the answer.</summary>
     public const int Refused = 2;
 
-    internal Func<string?> Server { get; init; } = () => LocalEndpoints.Read(root).Active?.ServerUrl;
+    internal Func<LocalInstallation?> Installation { get; init; } = () => LocalEndpoints.Read(root).Active;
 
     internal Func<string, string?> Variable { get; init; } = Environment.GetEnvironmentVariable;
 
@@ -28,7 +29,7 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root)
 
         if (parsed is null) return Report(json, Refused, error!);
 
-        if (Server() is not { } server)
+        if (Installation() is not { } installation)
             return Report(json, Failed, "There is no local installation to configure. Run kcap setup --local first.");
 
         string? key = null;
@@ -41,7 +42,10 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root)
         }
 
         var outcome = await IntelligenceSetupClient.ApplyAsync(
-            http.Loopback(), server, parsed.Answer.Request(parsed.Model, key, parsed.ImportOutcomes), CancellationToken.None);
+            http.Loopback(), installation.ServerUrl, parsed.Answer.Request(parsed.Model, key, parsed.ImportOutcomes), CancellationToken.None);
+
+        if (outcome is IntelligenceSetupOutcome.Applied { Response: var applied })
+            new LocalIntelligenceRecord(installation.Id, applied.Mode).Save(config);
 
         return outcome switch {
             IntelligenceSetupOutcome.Applied { Response: var r } => Print(json, r),

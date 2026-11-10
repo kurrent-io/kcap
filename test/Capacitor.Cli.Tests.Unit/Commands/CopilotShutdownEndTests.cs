@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -22,7 +23,7 @@ public class CopilotShutdownEndTests {
 
     readonly FakeTimeProvider _time = new(T0);
 
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), _time, TestAccounts.None, Home);
+    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), _time, TestAccounts.None, Home, LocalIntelligenceGate.For(Config.Root, NoLocalInstallation.Root));
 
     async Task Drain(string path, WatchState state) {
         await using var hub = new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
