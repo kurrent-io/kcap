@@ -1521,7 +1521,7 @@ class ImportCommand(
         var       partitionSkipped   = new ConcurrentBag<string>();
         var       partitionFailed    = new ConcurrentBag<string>();
 
-        if (!skipTitle && !titlesAllowed) display.Line($"Sessions keep their first prompt as a title: {LocalIntelligenceGate.NotSetUp}.");
+        if (!skipTitle && !titlesAllowed) display.Line($"Not naming sessions with a model: {LocalIntelligenceGate.NotSetUp}.");
 
         void WarnSession(string sessionId, string message) => display.Line(
             $"! {SessionIds.Display(sessionId)}: {message}",
