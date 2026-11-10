@@ -100,7 +100,7 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             for (var i = 0; i < 46; i++) emit!(new StreamedLine(ProcessStreamKind.Stdout, $"  Loading s{i} (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 46 of 94 sessions processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 46 of 94 sessions processed");
             await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 * 46 / 94);
 
             gate.SetResult(new StreamingResult(0, false, []));
@@ -122,12 +122,13 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 1 of 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 1 session processed");
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner.IsVisible).IsTrue();
         });
     }
 
@@ -158,8 +159,8 @@ public class MainWindowViewModelTests {
     /// Every value the window announced for its import bar, in order.
     static List<double> ProgressShown(MainWindowViewModel vm) {
         var shown = new List<double>();
-        vm.PropertyChanged += (_, e) => {
-            if (e.PropertyName == nameof(MainWindowViewModel.HistoryImportProgress)) shown.Add(vm.HistoryImportProgress);
+        vm.HistoryImportBanner!.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(HistoryImportBannerViewModel.Progress)) shown.Add(vm.HistoryImportBanner.Progress);
         };
         return shown;
     }
