@@ -18,20 +18,45 @@ sealed class OutgoingRecorders(
     /// <summary>Test seam, handed this instance's store; production builds the manager for this OS.</summary>
     internal Func<DaemonStore, IServiceManager>? ServicesFor { get; init; }
 
-    /// <summary>A launch still starting is counted too: it is not in the agent table until its runtime answers. A
-    /// daemon that cannot give that count, including one too old to report it, counts as busy.</summary>
-    public async Task<IReadOnlyList<string>> BusyAsync() {
-        var busy = new List<string>();
+    /// <summary>How long the daemons together get to answer. A daemon still starting answers only once it has probed
+    /// the vendor CLIs, about 30 s on Windows.</summary>
+    internal static readonly TimeSpan StartingWait = TimeSpan.FromSeconds(60);
 
-        foreach (var name in LiveDaemons()) {
-            switch ((await LocalControlProbe.ProbeAsync(store, name, time, ProbeBudget)).Snapshot?.Busy) {
-                case null:
-                    busy.Add($"daemon '{name}': it cannot say whether agents are running");
-                    break;
-                case true:
-                    busy.Add($"daemon '{name}' is running or starting agents");
-                    break;
+    static readonly TimeSpan RetryGap = TimeSpan.FromSeconds(2);
+
+    /// <summary>A launch still starting is counted too: it is not in the agent table until its runtime answers. A
+    /// daemon too old to give that count counts as busy.</summary>
+    public Task<IReadOnlyList<DaemonBusy>> BusyAsync() =>
+        BusyAsync(LiveDaemons(), ProbeAsync, time, line => console.Error.WriteLine(line));
+
+    async Task<DaemonBusyReason?> ProbeAsync(string name) =>
+        (await LocalControlProbe.ProbeAsync(store, name, time, ProbeBudget)).Snapshot switch {
+            null           => DaemonBusyReason.NoAnswer,
+            { Busy: null } => DaemonBusyReason.Unknown,
+            { Busy: true } => DaemonBusyReason.Running,
+            _              => null,
+        };
+
+    /// <summary>Probes each daemon, asking a silent one again every <see cref="RetryGap"/> until it answers or the
+    /// shared <see cref="StartingWait"/> runs out. <paramref name="probe"/> gives null for an idle daemon.</summary>
+    internal static async Task<IReadOnlyList<DaemonBusy>> BusyAsync(
+            IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe, TimeProvider time, Action<string> say) {
+        var busy  = new List<DaemonBusy>();
+        var start = time.GetTimestamp();
+
+        foreach (var name in names) {
+            var reason = await probe(name);
+
+            if (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < StartingWait) {
+                say($"Waiting for daemon '{name}' to finish starting…");
+
+                while (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < StartingWait) {
+                    await Task.Delay(RetryGap, time);
+                    reason = await probe(name);
+                }
             }
+
+            if (reason is { } held) busy.Add(new DaemonBusy(name, held));
         }
 
         return busy;

@@ -43,8 +43,9 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
         if (installation is null) return LocalUninstallOutcome.NotInstalled;
 
         if (!force && await recorders.BusyAsync() is { Count: > 0 } busy)
-            throw new LocalLifecycleException(
-                $"A daemon is running agents ({string.Join("; ", busy)}). Stop them, or pass --force to end them with the daemon. Nothing was changed.");
+            throw new LocalLifecycleException(DaemonBusy.AnyMayRunAgents(busy)
+                ? $"A daemon is running agents ({DaemonBusy.Lines(busy)}). Stop them, or pass --force to end them with the daemon. Nothing was changed."
+                : $"A daemon did not answer ({DaemonBusy.Lines(busy)}). Run the command again once it has started, or pass --force to stop it. Nothing was changed.");
 
         if (!await recorders.StopAsync())
             throw new LocalLifecycleException("A daemon or watcher could not be stopped, so the local installation was left as it is. Run kcap local uninstall again.");

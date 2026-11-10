@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalEdition;
@@ -104,12 +105,12 @@ public class LocalUninstallTests {
     [Test]
     public async Task Running_agents_refuse_the_uninstall_before_anything_is_stopped() {
         var installed = await InstallAsync();
-        Recorders.Busy.Add("daemon 'me': 2 agent(s) running");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
         _log.Clear();
 
         var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => UninstallAsync(purge: true));
 
-        await Assert.That(refused!.Message).Contains("2 agent(s) running");
+        await Assert.That(refused!.Message).Contains("A daemon is running agents (daemon 'me' is running or starting agents)");
         await Assert.That(_log).IsEquivalentTo(["recorders:busy?"]);
         await AssertUntouched(installed);
     }
@@ -117,10 +118,25 @@ public class LocalUninstallTests {
     [Test]
     public async Task Force_uninstalls_while_agents_run() {
         await InstallAsync();
-        Recorders.Busy.Add("daemon 'me': 1 agent(s) running");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
 
         await Assert.That(await UninstallAsync(purge: false, force: true)).IsEqualTo(LocalUninstallOutcome.Uninstalled);
         await Assert.That(_log).Contains("recorders:stop");
+    }
+
+    /// <summary>A daemon still starting cannot answer yet; it is refused as silent, never as running agents.</summary>
+    [Test]
+    public async Task A_daemon_that_did_not_answer_refuses_without_claiming_running_agents() {
+        var installed = await InstallAsync();
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.NoAnswer));
+        _log.Clear();
+
+        var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => UninstallAsync(purge: false));
+
+        await Assert.That(refused!.Message).Contains("daemon 'me' did not answer within 60 s; it may still be starting");
+        await Assert.That(refused.Message).Contains("Run the command again once it has started, or pass --force");
+        await Assert.That(refused.Message).DoesNotContain("running agents");
+        await AssertUntouched(installed);
     }
 
     [Test]
@@ -440,7 +456,7 @@ public class LocalUninstallTests {
     public async Task A_purge_recovery_will_not_end_running_agents_without_force() {
         await InstallAsync();
         await CrashAfterRetiredAsync();
-        Recorders.Busy.Add("daemon 'me': 1 agent(s) running or starting");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
 
         await Assert.ThrowsAsync<LocalLifecycleException>(() => Stack.RunAsync(_events, (_, s, _) => Task.FromResult(s), CancellationToken.None));
 

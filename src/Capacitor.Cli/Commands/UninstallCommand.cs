@@ -100,9 +100,11 @@ sealed class UninstallCommand(
             var busy = await recorders.BusyAsync();
 
             if (busy.Count > 0) {
-                foreach (var line in busy) await console.Error.WriteLineAsync(line);
+                foreach (var entry in busy) await console.Error.WriteLineAsync(entry.Line);
 
-                await console.Error.WriteLineAsync("Stop them, or pass --force to end them. Nothing was changed.");
+                await console.Error.WriteLineAsync(DaemonBusy.AnyMayRunAgents(busy)
+                    ? "Stop them, or pass --force to end them. Nothing was changed."
+                    : "Run the command again once it has started, or pass --force to stop it. Nothing was changed.");
 
                 return 1;
             }
