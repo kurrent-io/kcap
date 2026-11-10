@@ -31,8 +31,13 @@ public record DaemonSettings {
     [JsonPropertyName("name")]
     public string? Name { get; init; }
 
+    public const int DefaultMaxAgents = 20;
+
+    /// Null means unset: the daemon applies <see cref="DefaultMaxAgents"/>. Left out of the file when
+    /// null, so a later change of default reaches everyone who never chose a value.
     [JsonPropertyName("max_agents")]
-    public int MaxAgents { get; init; } = 20;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxAgents { get; init; }
 
     [JsonPropertyName("claude_path")]
     public string? ClaudePath { get; init; }
