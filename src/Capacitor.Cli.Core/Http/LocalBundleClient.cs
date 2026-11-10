@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Install;
@@ -33,16 +34,24 @@ public sealed partial class LocalBundleClient(HttpClient http, TimeProvider time
     /// <summary>When true, a missing manifest is told in a user's terms, naming the developer overrides only while one is set.</summary>
     public bool Windows { get; init; } = OperatingSystem.IsWindows();
 
+    readonly ConcurrentDictionary<(string Version, string Rid), (byte[] Manifest, string Signature)> _manifests = new();
+
+    /// <summary>A fetched manifest is kept for this client's lifetime, so setup's offer lookup and its staging make one
+    /// request; a failure is not kept. The bytes are shared, so callers verify them and never write to them.</summary>
     public async Task<(byte[] Manifest, string Signature)> FetchManifestAsync(string version, string rid, CancellationToken ct) {
         if (!ReleaseManifest.IsValidVersion(version)) throw new ArgumentException("Not a release version.", nameof(version));
         if (!RidPattern().IsMatch(rid)) throw new ArgumentException("Not a runtime identifier.", nameof(rid));
+
+        if (_manifests.TryGetValue((version, rid), out var kept)) return kept;
 
         var url = $"{BaseUrl}/{rid}/kcap-local-{version}-{rid}.json";
 
         var manifest = await GetBytesAsync(url, notFound: NotPublished(url, version), ct, MaxManifestSize);
         var sig      = await GetBytesAsync(url + ".sig", notFound: null, ct, MaxManifestSize);
 
-        return (manifest, System.Text.Encoding.UTF8.GetString(sig));
+        var fetched = (manifest, System.Text.Encoding.UTF8.GetString(sig));
+        _manifests[(version, rid)] = fetched;
+        return fetched;
     }
 
     string NotPublished(string url, string version) =>

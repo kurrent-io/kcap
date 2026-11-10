@@ -107,6 +107,33 @@ public class LocalBundleClientTests {
             await Client(_ => Reply(HttpStatusCode.OK)).FetchManifestAsync(version, rid, CancellationToken.None));
     }
 
+    /// <summary>Setup looks the manifest up for its model offer and again to stage the bundle; one client asks once.</summary>
+    [Test]
+    public async Task A_fetched_manifest_is_asked_for_once_per_version_and_rid() {
+        var requests = new List<string>();
+        var client = Client(r => { requests.Add(r.RequestUri!.AbsolutePath); return Reply(HttpStatusCode.OK, "x"u8.ToArray()); });
+
+        var first  = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
+        var second = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
+        await client.FetchManifestAsync("1.4.0", "osx-arm64", CancellationToken.None);
+
+        await Assert.That(second.Manifest).IsEquivalentTo(first.Manifest);
+        await Assert.That(second.Signature).IsEqualTo(first.Signature);
+        await Assert.That(requests).Count().IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task A_failed_manifest_fetch_is_asked_for_again() {
+        var calls = 0;
+        var client = Client(_ => ++calls <= 1 ? Reply(HttpStatusCode.InternalServerError) : Reply(HttpStatusCode.OK, "x"u8.ToArray()));
+
+        await Assert.ThrowsAsync<LocalBundleException>(async () => await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None));
+        var (manifest, _) = await client.FetchManifestAsync("1.3.0", "osx-arm64", CancellationToken.None);
+
+        await Assert.That(manifest).IsEquivalentTo("x"u8.ToArray());
+        await Assert.That(calls).IsEqualTo(3);
+    }
+
     [Test, NotInParallel]
     public async Task The_base_url_override_is_honoured() {
         using var _ = EnvScope.Exclusive(LocalBundleClient.BaseUrlEnvVar, "https://mirror.test/x/");
