@@ -154,6 +154,7 @@ public class HomeViewModelBaseRefTests {
             using var vm = new HomeViewModel(ConnectedDaemon(), new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("main");
+            vm.Goal = "go";
 
             vm.Goal = "go";
             await vm.StartCommand.Execute();
@@ -177,6 +178,7 @@ public class HomeViewModelBaseRefTests {
                 daemon, new AppStateStore(path), launch, NoKnownRepos(), TimeProvider.System, directory: directory);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("feature/x");
+            vm.Goal = "go";
 
             vm.Goal = "go";
             await vm.StartCommand.Execute();
@@ -201,6 +203,7 @@ public class HomeViewModelBaseRefTests {
                 ConnectedDaemon(), store, new LaunchClient(), NoKnownRepos(), TimeProvider.System, launchFailures: failures);
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("gone");
+            vm.Goal = "go";
 
             vm.Goal = "go";
             await vm.StartCommand.Execute();

@@ -84,6 +84,21 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     public bool IsClaimed(SessionId session) => Claimants().Any(pid => Of(pid) == session);
 
     /// <summary>
+    /// Whether a live process runs <paramref name="session"/> as an agent a daemon hosts, which a hook recorded: a person's
+    /// own terminal session has nothing going on past its hooks, and a private agent has no agent id.
+    /// </summary>
+    public bool RunsHostedAgent(SessionId session) => Claimants().Any(pid => {
+        try {
+            return File.ReadAllText(Note(pid)).Split('\n') is [var named, var token]
+                && string.Equals(SessionId.Parse(named)?.Value, session.Value, StringComparison.OrdinalIgnoreCase)
+                && !HolderIsGone(pid, token)
+                && ReadOrigin(pid, token)?.AgentId is { Length: > 0 };
+        } catch {
+            return false;
+        }
+    });
+
+    /// <summary>
     /// Drops every note whose process is provably gone, keeping an exit record for its session: the
     /// only local proof a session's agent is gone when nothing told the server, as for a private
     /// daemon agent. A note whose holder cannot be compared stays, since an exit record lets another

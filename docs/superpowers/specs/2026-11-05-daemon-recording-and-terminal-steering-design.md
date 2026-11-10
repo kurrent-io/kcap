@@ -123,6 +123,8 @@ Not tested: `socketPath` on Windows or Linux, a real daemon or server, a session
 
 **Hosted sessions.** The daemon records a hosted session from launch. A hook from a hosted session never spawns a watcher on a daemon that has the new capability, because a hosted session on a watcher would go unstamped for the rest of its life.
 
+**Capture scope.** The daemon never records what a hook would refuse. A hook's capture gate decides for a profile with an exclusion configured, so the daemon takes no such session at launch, and takes it only when the hook hands it over. A profile it can't read counts as one with an exclusion.
+
 **Handoff for terminal sessions.** `WatcherManager.EnsureWatcherRunning` is the one place hooks ask for a recorder. It first asks the daemon serving the hook's own profile and server to take the session, over local control, behind a new capability. If the daemon is missing, older, or serves another profile, it spawns `kcap watch` as it does today.
 
 **One recorder per source.** A source is one transcript, keyed as `WatcherTracker.GetKey` keys it, so a subagent or child transcript is its own source. A claim per source decides who records it. `WatcherTracker.Register` silently replaces an older connection, so the server won't catch a double recorder and the claim has to hold on the machine.
@@ -136,10 +138,23 @@ The claim is a new file. It can't reuse the watcher pid file, because `KillWatch
 | A `kcap watch` process | Stops it, as today | Drains, as today |
 | The daemon, heartbeat fresh | Signals nothing | Asks the daemon to finish that source, and waits within the hook's budget |
 | The daemon, heartbeat stale, terminal session | Signals nothing | Takes the claim and drains, as today |
-| The daemon, heartbeat stale, hosted session | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
+| The daemon, heartbeat stale, hosted session, a hook from a hosted agent | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
+| The daemon, heartbeat stale, hosted session, a hook from outside one | Signals nothing | Takes the claim and drains, as for a terminal session, so a session resumed by hand while the daemon is down is still recorded |
 | Nobody | Nothing to stop | Drains, as today |
 
+A hook asking for a recorder on a stale hosted claim, from a hosted agent, first asks its daemon to take the source. If the daemon declines, the hook takes the claim and spawns a watcher, unless the source failed the path check. If the daemon doesn't answer, or hasn't yet learned what its server supports, the hook does nothing and leaves the source to the catch-up.
+
 Finishing a source runs the recorder's own final drain for that key and touches no other source, so a subagent stop leaves its parent running and a session end leaves other sessions running. If the hook's budget runs out, the daemon still finishes, because the hook only asked.
+
+**`kcap disable`.** The command tells a person recording has stopped and their data is gone, so a daemon-held session has its own stop, with no final drain. The order is the marker in `DisabledSessions`, then the stop, then the server's deletion, because whatever would start a recorder reads the marker and a send landing behind the deletion can bring rows back. Nothing removes a person's marker: the server's deletion is permanent, and a session's end can't lift it, because a daemon or a person can resume that session under the same id. A hook's exclusion of an out-of-scope repository is a separate marker that only quiets hooks and comes off at the session's end.
+
+The command finds a session's sources by their claims, a subagent's included, and asks every daemon on the machine over local control, behind a new capability, whichever profile it serves: only a daemon can say a live agent's output goes on, and neither a hosted session on a watcher nor an ACP session has a claim. A daemon with no socket has nothing running; one that takes the connection and doesn't answer may host the session. The daemon writes the marker where it reads it, since another config directory reads another. The command then releases the claims whatever came back, and stops each watcher, one whose pid file survives that still running.
+
+The daemon cuts the session off at the transport, so a source in a backoff, in a final drain or stuck where no token reaches can't send when it comes round. A final drain under way stops rather than finishes: nothing is spooled, marked for import or handed to a title process. The daemon then waits, for a few seconds, for the server to answer what had already left, and takes no key's gate to do it. `InvokeAsync` completes locally on a cancel with the server still working, so a recorder that has ended says nothing about its last batch.
+
+The marker is what reaches everything else, read just before each send. A recorder reads it beside its claim, so an older `kcap` that sends no frame still stops it. A watcher holds no claims and doesn't read it: the command stops one by signal. The daemon's title pushes, eval relays and every route to `EndAgentSession` read it, through the connection for the session end; a session an agent moved to counts, as its hooks handed it over. Both spool drains discard a disabled session and post nothing, the end sweeps queue no end for it, and the detached what's-done and Copilot finalizer send nothing for it.
+
+What the command can't confirm it says, and it exits 1. Each run asks every daemon afresh and speaks only for what it found. The marker records one fact: a deletion ran while recording wasn't confirmed stopped. It is written after a deletion that found the session, never cleared, and every later run says that what landed behind it may still be on the server, where kcap can't tell or remove it. A daemon's answer that it held the session, made a stop or hosts its agent, with another server, says the data is there and wasn't deleted. That server goes into a file of its own beside the marker, also never cleared, because the run lets go of the claims and the daemon answers for none of it next time; every later run names it. Each fact is written before the line that reports the deletion, and a run that can't write one says so. A live agent's output and tools aren't recording and go on until the agent ends, whichever runtime carries it: a PTY's terminal mirror, or an ACP agent's transcript through its forwarder. So do its status and heartbeat, which carry no session content. The command says when an agent is live.
 
 **Older binaries.** A hook binary from before this work doesn't know claims, so it can start a watcher or drain beside the daemon. The server's watermark and event ids keep the data intact. The cost is a row with no stamp, which falls back to the FIFO matcher. `kcap import` stays a manual repair and doesn't take claims.
 
@@ -147,7 +162,7 @@ Finishing a source runs the recorder's own final drain for that key and touches 
 
 **Outages.** A longer outage moves a terminal session to a watcher, and it stays there until it ends. There is no takeover: steering doesn't need the daemon to be the recorder, and a line-position handoff between two recorders isn't worth its risk for a case this rare. An idle session with no hooks firing has nothing new to record, so its gap closes on restart.
 
-**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session, so it needs to name the session in a way older watchers still accept.
+**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods, over a connection of its own. `WatcherConnect` takes a connection out of the UI topics, and the daemon's main connection has joined its owner's topic, so recording on that connection would silently cut it off. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session. A second argument won't do, because a SignalR client drops an invocation whose argument count doesn't match its handler, so an older watcher would never stop. The server pushes `StopSource(key, reason)` beside `StopWatcher` instead. An older watcher has no handler for it and ignores it, and the daemon handles only `StopSource`. A daemon needs a server that has these before it records. It finds out by calling `WatcherDetach` for a key it doesn't hold, which does nothing on a server that has it and fails as an unknown method on one that doesn't. A server version won't do, because beta, dev and self-hosted servers don't send one. The server serialises transcript batches per source rather than per connection, so one stuck batch can't hold up the others, and the daemon bounds each send.
 
 **Rollout.** Hosted Claude, then hosted Codex PTY, then terminal Claude, then the other vendors.
 
@@ -314,6 +329,7 @@ A server-side message queue drained at turn end, with daemons collecting unackno
 - A second process on a live session is refused, and its mod keeps trying until the first has gone.
 - Part 3 isn't offered on Windows until `socketPath` has been checked there.
 - Cursor and Antigravity stay on the fallback watcher, because they read SQLite and its native bundle must never reach the AOT daemon.
+- `kcap disable` on a session the daemon holds stops recording at once with no final drain, because the command tells the person recording has stopped and their data is gone.
 - A line can carry a local marker, which keeps it away from the FIFO matcher.
 - The input log persists a hash of each submission rather than its text.
 - Claims are a new file, separate from the watcher pid file.

@@ -1,14 +1,8 @@
 namespace Capacitor.Cli.Daemon.Tests.Unit;
 
-/// <summary>
-/// Covers <c>KCAP_ACP_DEBUG_FRAMES</c>'s
-/// <see cref="DaemonRunner.ParseDebugFramesFlag"/> string parse — mirrors
-/// <c>DaemonLogLevelTests.ParseLogLevel_*</c>'s pattern for the same kind of env-var-to-config
-/// toggle. The actual <c>DaemonConfig.DebugFrames</c> wiring and the one-time startup Warning at the
-/// <c>RunAsync</c> call site are not independently unit-tested (would require a full host boot),
-/// matching <c>DaemonRunnerCursorAvailabilityTests</c>' own note about its sibling one-time warning.
-/// </summary>
-public class DaemonDebugFramesFlagTests {
+/// <summary>The string parse behind the daemon's opt-in switches. The wiring and the one-time startup warning at the
+/// <c>RunAsync</c> call site would need a full host boot.</summary>
+public class DaemonOptInFlagTests {
     [Test]
     [Arguments("1")]
     [Arguments("true")]
@@ -16,8 +10,8 @@ public class DaemonDebugFramesFlagTests {
     [Arguments("True")]
     [Arguments(" 1 ")]
     [Arguments("  true  ")]
-    public async Task ParseDebugFramesFlag_OnValues_ReturnsTrue(string input) {
-        await Assert.That(DaemonRunner.ParseDebugFramesFlag(input)).IsTrue();
+    public async Task ParseOptInFlag_OnValues_ReturnsTrue(string input) {
+        await Assert.That(DaemonRunner.ParseOptInFlag(input)).IsTrue();
     }
 
     [Test]
@@ -27,8 +21,8 @@ public class DaemonDebugFramesFlagTests {
     [Arguments("false")]
     [Arguments("yes")]
     [Arguments("nonsense")]
-    public async Task ParseDebugFramesFlag_EverythingElse_ReturnsFalse(string? input) {
-        await Assert.That(DaemonRunner.ParseDebugFramesFlag(input)).IsFalse();
+    public async Task ParseOptInFlag_EverythingElse_ReturnsFalse(string? input) {
+        await Assert.That(DaemonRunner.ParseOptInFlag(input)).IsFalse();
     }
 
     // KCAP_ACP_RECONNECT has the OPPOSITE default polarity: ON unless explicitly disabled.

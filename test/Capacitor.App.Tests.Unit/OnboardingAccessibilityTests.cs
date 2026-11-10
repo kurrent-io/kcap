@@ -84,7 +84,7 @@ public class OnboardingAccessibilityTests {
     public async Task The_ollama_link_and_check_again_are_reachable_once_the_check_answers() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var answer = new TaskCompletionSource<bool>();
-            var vm = new Capacitor.App.ViewModels.SearchChoiceViewModel(_ => answer.Task, () => false);
+            var vm = new Capacitor.App.ViewModels.SearchChoiceViewModel(_ => answer.Task, _ => Task.FromResult(false));
             var window = new Window { Content = new SearchChoiceView { DataContext = vm }, Width = 640, Height = 800 };
             try {
                 window.Show();

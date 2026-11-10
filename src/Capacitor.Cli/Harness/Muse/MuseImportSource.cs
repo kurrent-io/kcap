@@ -380,13 +380,13 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
                 lastActivity = written;
 
         if (lastActivity is not { } last || time.GetUtcNow() - last <= AbandonedAfter) return false;
-        if (WatcherManager.PidAlive(watchers, sessionId)) return false;
+        if (WatcherLiveness.PidAlive(watchers, sessionId)) return false;
 
         var labels = MuseSubagentDiscovery.ResolveChildLabels(parentLog);
 
         return !childLogs.Any(childLog => {
             var label = MuseSubagentDiscovery.LabelFor(Path.GetFileName(Path.GetDirectoryName(childLog))!, labels);
-            return WatcherManager.PidAlive(watchers, $"{sessionId}-{label.AgentId}");
+            return WatcherLiveness.PidAlive(watchers, $"{sessionId}-{label.AgentId}");
         });
     }
 

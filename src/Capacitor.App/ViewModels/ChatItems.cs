@@ -250,7 +250,7 @@ public sealed class ShellCommandItem : ChatItemViewModel {
 public enum ToolOutcome { Running, Done, Error }
 
 public sealed class ToolCallItem(string name, string detail, ToolCategory category, string? label = null,
-        ToolCardKind cardKind = ToolCardKind.None, string? inputJson = null, string? chip = null) : ChatItemViewModel {
+        ToolCardKind cardKind = ToolCardKind.None, string? inputJson = null, string? chip = null, bool detailIsPath = false) : ChatItemViewModel {
     public string Name { get; } = name;
     /// Lone-call header when the category word ("Tool") would hide which server this is.
     public string? Chip { get; } = chip;
@@ -273,6 +273,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// A question's detail is the question itself — prose, read whole and wrapped. Every other
     /// detail is a command or a path, which the row keeps to one line and elides.
     public bool DetailIsProse => Category == ToolCategory.Question;
+    public bool DetailIsPath { get; } = detailIsPath;
 
     ToolCard? _card;
     public ToolCard? Card {

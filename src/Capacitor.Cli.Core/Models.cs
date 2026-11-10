@@ -1562,9 +1562,9 @@ public readonly record struct AcpEventEnvelope(
         // token_usage — a per-event additive token DELTA (codex app-server). Additive/nullable, so
         // ContractVersion stays 1: an older server ignores them. The model rides the Model field
         // above (attributed to the model resolved at the delta's instant — correct across a reroute).
-        // input is GROSS (server converts to net = input − cached before stamping $usage, matching
-        // UsageMetadataHelper's cross-vendor contract). cache-write is the cache-CREATION tier, billed
-        // separately from cached reads. total is derived server-side and not carried.
+        // input is GROSS of both cache tiers whatever the vendor reports, and every reader normalises to
+        // that; the server converts it to net = input − cached − cache-write. cache-write is the
+        // cache-CREATION tier, billed separately from cached reads. total is derived server-side and not carried.
         long?   UsageInputTokens       = null,
         long?   UsageCachedInputTokens = null,
         long?   UsageCacheWriteInputTokens = null,

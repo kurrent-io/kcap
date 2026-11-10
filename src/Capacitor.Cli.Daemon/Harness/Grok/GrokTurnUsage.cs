@@ -22,13 +22,23 @@ internal static class GrokTurnUsage {
         foreach (var model in byModel.EnumerateObject()) {
             if (!model.Value.IsObject || model.Name.Length == 0) continue;
 
+            var input      = model.Value.Num("inputTokens");
+            var output     = model.Value.Num("outputTokens");
+            var cacheWrite = model.Value.Num("cacheCreationTokens");
+
+            // Cached reads are inside inputTokens. A total that also counts cache creation on top of
+            // input and output says creation is outside it, and the envelope carries input gross of both.
+            if (input is { } i && cacheWrite is > 0 && model.Value.Num("totalTokens") is { } total
+             && total >= i + (output ?? 0) + cacheWrite.Value)
+                input = i + cacheWrite.Value;
+
             (usage ??= []).Add(new AcpEventEnvelope(
                 Kind:                       AcpEventKind.TokenUsage,
                 Model:                      model.Name,
-                UsageInputTokens:           model.Value.Num("inputTokens"),
+                UsageInputTokens:           input,
                 UsageCachedInputTokens:     model.Value.Num("cachedReadTokens"),
-                UsageCacheWriteInputTokens: model.Value.Num("cacheCreationTokens"),
-                UsageOutputTokens:          model.Value.Num("outputTokens"),
+                UsageCacheWriteInputTokens: cacheWrite,
+                UsageOutputTokens:          output,
                 UsageReasoningTokens:       model.Value.Num("reasoningTokens")));
         }
 

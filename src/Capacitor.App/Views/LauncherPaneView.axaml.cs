@@ -22,6 +22,14 @@ namespace Capacitor.App.Views;
 /// The launcher pane: DataContext is supplied externally (a plainly-constructed HomeViewModel);
 /// this view never builds its own ViewModel.
 public partial class LauncherPaneView : UserControl {
+    public static readonly StyledProperty<HistoryImportBannerViewModel?> HistoryImportProperty =
+        AvaloniaProperty.Register<LauncherPaneView, HistoryImportBannerViewModel?>(nameof(HistoryImport));
+
+    public HistoryImportBannerViewModel? HistoryImport {
+        get => GetValue(HistoryImportProperty);
+        set => SetValue(HistoryImportProperty, value);
+    }
+
     AttachmentDropPaste? _attachments;
     Flyout? _openMenu;
     IDisposable? _nudgeEnd;
@@ -40,6 +48,8 @@ public partial class LauncherPaneView : UserControl {
 
     public void FocusComposer() => GoalInput.Focus();
 
+    void OnHistoryImportDismissClick(object? sender, RoutedEventArgs e) => FocusComposer();
+
     /// New session pressed while this pane is already showing: focus the goal and ring the card
     /// briefly, so the press does not read as a dead button.
     public void Nudge() {
@@ -56,10 +66,24 @@ public partial class LauncherPaneView : UserControl {
 
     internal bool IsNudgingForTesting => GoalNudgeRing.Classes.Contains("on");
 
+    IDisposable? _historyLease;
+    bool _historyAttached;
+
+    void BindHistoryNotice() {
+        _historyLease?.Dispose();
+        _historyLease = _historyAttached ? (DataContext as HomeViewModel)?.AttachHistoryImport(HistoryImport) : null;
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property == HistoryImportProperty) BindHistoryNotice();
+    }
+
     IDisposable? _fills;
 
     protected override void OnDataContextChanged(EventArgs e) {
         base.OnDataContextChanged(e);
+        BindHistoryNotice();
         _fills?.Dispose();
         _fills = (DataContext as HomeViewModel)?.ComposerFills.Subscribe(_ => Dispatcher.UIThread.Post(Nudge));
     }
@@ -77,6 +101,8 @@ public partial class LauncherPaneView : UserControl {
     /// re-attaches the same view, and a behaviour disposed on the way out has to come back with it.
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
+        _historyAttached = true;
+        BindHistoryNotice();
         _attachments ??= AttachmentDropPaste.Attach(
             GoalCard, GoalInput, AttachButton,
             () => (DataContext as HomeViewModel)?.Attachments, TimeProvider.System);
@@ -85,6 +111,9 @@ public partial class LauncherPaneView : UserControl {
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         _attachments?.Dispose();
         _attachments = null;
+        _historyAttached = false;
+        _historyLease?.Dispose();
+        _historyLease = null;
         base.OnDetachedFromVisualTree(e);
     }
 

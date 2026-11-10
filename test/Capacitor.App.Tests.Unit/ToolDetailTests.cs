@@ -60,6 +60,39 @@ public class ToolDetailTests {
     }
 
     [Test]
+    [Arguments("file_path")]
+    [Arguments("path")]
+    [Arguments("notebook_path")]
+    public async Task Rows_keep_the_path_for_width_trimming_while_summaries_stay_bounded(string key) {
+        const string path = "src/Capacitor.App/AnExtremelyLongFolderName/ViewModels/ToolDetail.cs";
+        var input = new System.Text.Json.Nodes.JsonObject { [key] = "/repo/" + path }.ToJsonString();
+
+        var row = ToolDetail.ForRow(input, "/repo");
+
+        await Assert.That(row.Text).IsEqualTo(path);
+        await Assert.That(row.IsPath).IsTrue();
+        var named = ToolDetail.ForKeyInRow(input, key, "/repo");
+        await Assert.That(named.Text).IsEqualTo(path);
+        await Assert.That(named.IsPath).IsTrue();
+        await Assert.That(ToolDetail.From(input, "/repo")).IsEqualTo("src/…/ViewModels/ToolDetail.cs");
+    }
+
+    [Test]
+    public async Task Row_path_trimming_applies_only_when_a_path_is_the_selected_detail() {
+        const string input = """{"command":"cat src/a.cs\nthen continue","file_path":"/repo/src/a.cs\nsecond line"}""";
+        var row = ToolDetail.ForRow(input);
+
+        await Assert.That(row.Text).IsEqualTo("cat src/a.cs");
+        await Assert.That(row.IsPath).IsFalse();
+        var named = ToolDetail.ForKeyInRow(input, "command");
+        await Assert.That(named.Text).IsEqualTo("cat src/a.cs");
+        await Assert.That(named.IsPath).IsFalse();
+        var path = ToolDetail.ForKeyInRow(input, "file_path", "/repo");
+        await Assert.That(path.Text).IsEqualTo("src/a.cs");
+        await Assert.That(path.IsPath).IsTrue();
+    }
+
+    [Test]
     public async Task ForKey_reads_the_named_string_first_line_elided_and_nothing_else() {
         var long120 = new string('a', 120);
         await Assert.That(ToolDetail.ForKey("""{"issue_key":"WK-3084","title":"x"}""", "issue_key")).IsEqualTo("WK-3084");
@@ -82,6 +115,9 @@ public class ToolDetailTests {
     public async Task A_patch_reads_as_the_files_it_targets(string input, string expected) {
         await Assert.That(ToolDetail.From(input, "/Users/me/dev/repo", ToolCategory.Edit)).IsEqualTo(expected);
         await Assert.That(ToolDetail.From(input, "/Users/me/dev/repo")).IsEqualTo(expected);
+        var row = ToolDetail.ForRow(input, "/Users/me/dev/repo", ToolCategory.Edit);
+        await Assert.That(row.Text).IsEqualTo(expected);
+        await Assert.That(row.IsPath).IsEqualTo(expected.Length > 0);
     }
 
     [Test]
@@ -93,6 +129,19 @@ public class ToolDetailTests {
         var detail = ToolDetail.From(input, null, ToolCategory.Edit);
 
         await Assert.That(detail).IsEqualTo("src/Capacitor.App/ViewModels/File1.cs +5 more");
+    }
+
+    [Test]
+    public async Task Patch_rows_keep_the_first_path_and_count_without_preelision() {
+        const string path = "src/Capacitor.App/AnExtremelyLongFolderName/ViewModels/ToolDetail.cs";
+        var patch = $"*** Begin Patch\n*** Update File: /repo/{path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
+        var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
+
+        var row = ToolDetail.ForRow(input, "/repo", ToolCategory.Edit);
+
+        await Assert.That(row.Text).IsEqualTo(path + " +1 more");
+        await Assert.That(row.IsPath).IsTrue();
+        await Assert.That(ToolDetail.From(input, "/repo", ToolCategory.Edit)).IsEqualTo("src/…/ViewModels/ToolDetail.cs +1 more");
     }
 
     [Test]

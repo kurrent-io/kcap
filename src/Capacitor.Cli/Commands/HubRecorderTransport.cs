@@ -15,6 +15,7 @@ sealed class HubRecorderTransport : IRecorderTransport {
     readonly Action<string> _log;
     readonly TimeProvider   _time;
     bool _startAttempted;
+    bool _invoked;
 
     public HubRecorderTransport(HubConnection hub, string key, Action beat, Action<string> log, TimeProvider time) {
         _hub  = hub;
@@ -33,21 +34,21 @@ sealed class HubRecorderTransport : IRecorderTransport {
 
     public bool IsConnected => _hub.State == HubConnectionState.Connected;
 
-    /// <summary>A stop arrived before the first connect finished, so nothing was registered with the server.</summary>
-    public bool StoppedBeforeConnect { get; private set; }
+    /// <summary>A stop arrived before the first connect left this client, so nothing was registered with the server.
+    /// Read from the call itself, because a caller stopped while connecting doesn't wait for it to unwind.</summary>
+    public bool StoppedBeforeConnect => _startAttempted && !Volatile.Read(ref _invoked);
 
     public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         if (!_startAttempted) {
             _startAttempted = true;
             await StartWithRetryAsync(ct);
-
-            if (ct.IsCancellationRequested) {
-                StoppedBeforeConnect = true;
-                ct.ThrowIfCancellationRequested();
-            }
         }
 
-        return await _hub.InvokeAsync<int>("WatcherConnect", source.SessionId, source.AgentId, ct);
+        ct.ThrowIfCancellationRequested();
+        Volatile.Write(ref _invoked, true);
+
+        // No token: given one, InvokeAsync completes the moment it fires, with the server's WatcherConnect still running.
+        return await _hub.InvokeAsync<int>("WatcherConnect", source.SessionId, source.AgentId, CancellationToken.None);
     }
 
     public async Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {
@@ -67,6 +68,9 @@ sealed class HubRecorderTransport : IRecorderTransport {
 
     public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) =>
         _hub.InvokeAsync("WatcherDrainComplete", source.SessionId, source.AgentId, cancellationToken: ct);
+
+    // This connection ends with its one source.
+    public Task DetachAsync(RecordingSource source, CancellationToken ct) => Task.CompletedTask;
 
     async Task StartWithRetryAsync(CancellationToken ct) {
         var retryDelay = TimeSpan.FromSeconds(1);

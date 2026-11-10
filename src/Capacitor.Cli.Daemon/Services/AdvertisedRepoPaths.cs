@@ -21,22 +21,30 @@ static class AdvertisedRepoPaths {
 
     /// <summary>Persisted paths first, in their own order, then the allowlist's: a literal entry exactly
     /// as written, since the allowlist matches it as that string, and a wildcard entry as the
-    /// repositories found under it.</summary>
-    public static string[] Merge(IReadOnlyList<string> persisted, IReadOnlyList<string> allowed) {
-        if (allowed.Count == 0) return [.. persisted];
-
+    /// repositories found under it. A persisted path or literal entry that is not a directory now is
+    /// left out and returned in <c>Missing</c> instead: <c>repos.json</c> keeps a deleted clone, and an
+    /// unmounted volume's repositories come back when it does.</summary>
+    public static (string[] Paths, string[] Missing) Merge(IReadOnlyList<string> persisted, IReadOnlyList<string> allowed) {
         var comparer = RepoPathStore.PathComparison == StringComparison.Ordinal ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
-        var seen = new HashSet<string>(persisted, comparer);
-        var merged = new List<string>(persisted);
+        var seen = new HashSet<string>(comparer);
+        var merged = new List<string>();
+        var missing = new List<string>();
+
+        void AddChecked(string path) {
+            if (path.Length == 0 || !seen.Add(path)) return;
+            (Directory.Exists(path) ? merged : missing).Add(path);
+        }
+
+        foreach (var path in persisted) AddChecked(path);
 
         foreach (var entry in allowed) {
             if (RepoPathPattern.IsGlob(entry))
                 merged.AddRange(RepositoriesUnder(entry[..^2] + Path.DirectorySeparatorChar).Where(seen.Add));
-            else if (entry.Length > 0 && seen.Add(entry))
-                merged.Add(entry);
+            else
+                AddChecked(entry);
         }
 
-        return [.. merged];
+        return ([.. merged], [.. missing]);
     }
 
     /// <summary>The prefix itself when it is a repository, else the repositories below it, in name order,

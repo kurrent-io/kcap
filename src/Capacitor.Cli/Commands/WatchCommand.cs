@@ -11,11 +11,11 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
-using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Harness.OpenCode;
+using Capacitor.Cli.Recording.Harness.Claude;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -282,6 +282,10 @@ class WatchCommand(
         var crewFinished = 0;
         var armDeadParentOnConnect = false;
 
+        // Read by whatever decides how the session ended: a server stop sets the recorder's token a moment before cts
+        // hears of it, so a watch that fires in between would report an end the stop already owns.
+        var stopping = CancellationToken.None;
+
         var source       = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
         var host         = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
         var housekeeping = new RecorderHousekeeping(source, skipTitle, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
@@ -294,6 +298,8 @@ class WatchCommand(
             server, housekeeping, time, message => Log(time, message), TouchHeartbeat));
 
         var state = recorder.State;
+
+        stopping = recorder.Stopping;
 
         // The recorder can stop itself, and only cts stops what runs beside it. Left to the end of RunAsync, a
         // parent monitor could see an agent exit right after its end hook and post a parent_exited end.
@@ -357,6 +363,8 @@ class WatchCommand(
                     }
 
                     if (!ProcessHelpers.IsProcessAlive(ppid)) {
+                        if (stopping.IsCancellationRequested) return;
+
                         Log(time, $"Parent pid {ppid} exited; shutting down watcher");
                         Interlocked.Exchange(ref parentExited, 1);
                         cts.Cancel();
@@ -411,6 +419,8 @@ class WatchCommand(
                                     return;
 
                                 case ParentDeadRecovery.EndTerminal:
+                                    if (stopping.IsCancellationRequested) return;
+
                                     Log(time, $"Parent unresolved and no transcript progress for >{ceiling.TotalMinutes:F0}m; "
                                       + "ending session (parent_dead_ceiling)");
                                     Interlocked.Exchange(ref wedgedCeilingExit, 1);
@@ -456,6 +466,8 @@ class WatchCommand(
                         }
 
                         if (crewEnd.IsFinished()) {
+                            if (stopping.IsCancellationRequested) return;
+
                             Log(time, "Kiro Crew is finished with this session; shutting down watcher");
                             Interlocked.Exchange(ref crewFinished, 1);
                             cts.Cancel();

@@ -57,6 +57,10 @@ public enum FrameType : byte {
     HandoffOutcomeQuery = 35, // Text = the successor's session id
     // In-place resume probe — one-shot; answered on ResumeProbeReply.
     ResumeProbe = 36, // Text = ResumeProbeRequestDto JSON
+    // Recording — one-shot. RecordSource goes only to a daemon advertising RecordingIpc.Capability.
+    RecordSource = 37, // Text = RecordSourceDto JSON; answered on RecordSourceAck
+    FinishSource = 38, // Text = the source's key; answered on FinishSourceAck
+    DisableSession = 39, // Text = the session's id; goes only to a daemon advertising RecordingIpc.DisableCapability; answered on DisableSessionAck
     // daemon → client
     Attached  = 64,
     Stdout    = 65,
@@ -88,4 +92,7 @@ public enum FrameType : byte {
     HandoffProbeReply = 89, // Text = HandoffProbeReplyDto JSON, reply to HandoffProbe
     HandoffOutcomeReply = 90, // Text = HandoffOutcomeReplyDto JSON, reply to HandoffOutcomeQuery
     ResumeProbeReply = 91, // Text = ResumeProbeReplyDto JSON, reply to ResumeProbe
+    RecordSourceAck = 92, // Text = RecordingIpc.Recording | RecordingIpc.Refused
+    FinishSourceAck = 93, // Text = RecordingIpc.Finished | RecordingIpc.NotHeld
+    DisableSessionAck = 94, // Text = RecordingIpc.Stopped | RecordingIpc.SendInFlight | RecordingIpc.NotHeld
 }
