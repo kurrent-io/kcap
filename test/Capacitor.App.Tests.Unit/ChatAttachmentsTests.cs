@@ -188,7 +188,7 @@ public class ChatAttachmentsTests {
                 await chat.SendCommand.Execute();
 
                 await Assert.That(chat.ComposerHint).IsEqualTo(
-                    "Add text to send these files, or update and restart the daemon to send files without text.");
+                    "Add text to send these files, or update the daemon.");
                 await Assert.That(chat.Tray.Items.Single()).IsSameReferenceAs(chip);
                 await Assert.That(chat.ComposerText).IsEqualTo(text);
                 await Assert.That(chat.HasQueuedMessages).IsFalse();
