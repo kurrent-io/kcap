@@ -70,6 +70,39 @@
         <Setter Property="FontSize" Value="13.5" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
+    <Style Selector="mv|MarkdownViewer TextBlock.markdown-mermaid-title">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer TextBlock.markdown-mermaid-note">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer WrapPanel.markdown-mermaid-actions > :is(Button)">
+        <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+    <!-- ToggleButton is a distinct theme/type selector; match the surrounding kcapChip actions. -->
+    <Style Selector="mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                     mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle:checked /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
     <!-- Resting code carries no chrome. The strip hides by going transparent and untouchable rather
          than invisible, because an invisible control is skipped by tab navigation and the buttons
          would be reachable by pointer alone; focus inside it reveals it as a hover does. The
