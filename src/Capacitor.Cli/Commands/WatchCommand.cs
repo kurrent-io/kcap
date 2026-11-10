@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -251,6 +252,7 @@ class WatchCommand(
         // guarantees the write is observed even though awaits already act as memory
         // barriers in practice.
         var parentExited = 0;
+        var stopRequested = 0;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
@@ -300,14 +302,17 @@ class WatchCommand(
         // waits on any other exit, so these tell the recorder rather than only cancelling.
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
+            Interlocked.Exchange(ref stopRequested, 1);
             recorder.RequestStop();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
+            Interlocked.Exchange(ref stopRequested, 1);
             recorder.RequestStop();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
+            Interlocked.Exchange(ref stopRequested, 1);
             recorder.RequestStop();
         });
 
@@ -531,6 +536,27 @@ class WatchCommand(
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
             copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
 
+        // A sessionEnd hook that ran took the end over. Quitting VS Code terminates the watchers it started, and a
+        // session whose hook Copilot skipped has nothing else to send its end.
+        var copilotSession = vendor == "copilot" && agentId is null;
+        var endHandedOff   = copilotSession && CopilotEndHandoff.Covers(_paths, sessionId, Environment.ProcessId, ProcessStartToken.ForCurrent());
+
+        if (endHandedOff && endReason is not null) {
+            Log(time, $"Not posting a {endReason} session-end: the sessionEnd hook took it over");
+            endReason = null;
+        }
+
+        if (endReason is null && copilotSession && Volatile.Read(ref stopRequested) == 1
+         && !DisabledSessions.IsDisabledByPerson(sessionId, config)) {
+            endReason = await CopilotStopRequestEnd.DecideAsync(
+                endHandedOff,
+                () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
+                () => CopilotFinalizeDrainCommand.LastLineIsShutdown(transcriptPath),
+                time, CopilotStopRequestEnd.Wait);
+
+            if (endReason is not null) Log(time, $"Stopped with the Copilot session over; ending it ({endReason})");
+        }
+
         // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the
         // sessionEnd hook or the server's lease-gated sweep, and posting here would race whichever fires.
         // The watcher only exits and final-drains. Its other exit paths post as usual.
@@ -548,6 +574,7 @@ class WatchCommand(
         // so an end written after this look finds none and gets a watcher of its own.
         watchers.RemoveOwnPidFile(
             agentId is null ? sessionId : $"{sessionId}-{agentId}", Environment.ProcessId);
+        if (copilotSession) CopilotEndHandoff.Retire(_paths, sessionId, Environment.ProcessId);
         recorder.RetireAckCursor();
 
         var museEndRequest = housekeeping.HandedMuseEnd;

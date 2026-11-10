@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -66,8 +67,9 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(starter.Seen!.ArgumentList.Last()).IsEqualTo(posted);
     }
 
-    /// <summary>The hook asks the watcher to stop and leaves its going to the finalizer, which waits for it. One that
-    /// ignores the request is still running when the hook returns: a hook that waited would have killed it.</summary>
+    /// <summary>The hook records the watcher whose end it took over, asks it to stop and leaves its going to the
+    /// finalizer. One that ignores the request is still running when the hook returns: a hook that waited would have
+    /// killed it.</summary>
     [Test, RunOn(OS.Linux | OS.MacOs)]
     public async Task the_hook_asks_the_watcher_to_stop_without_waiting_for_it() {
         var paths  = WatcherPaths.FromEnvironment(Config.Root);
@@ -85,6 +87,7 @@ public class CopilotSessionEndHookTests : IDisposable {
 
             await Assert.That(watcher.HasExited).IsFalse();
             await Assert.That(await WaitForFile(marker)).IsTrue();
+            await Assert.That(CopilotEndHandoff.CoversCurrentWatcher(paths, Session.Replace("-", ""))).IsTrue();
         } finally {
             watcher.Kill();
         }

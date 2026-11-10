@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
 using System.Runtime.InteropServices;
@@ -29,6 +30,11 @@ sealed class CopilotFinalizeDrainCommand(
     // Past KillWatcher's 5s force-kill bound, so a watcher the hook is stopping has gone by then.
     static readonly TimeSpan DefaultWatcherStopGrace = TimeSpan.FromSeconds(8);
 
+    // With the grace and KillWatcher's own 5s, these bound the work after the poll, and so how long the termination
+    // signals stay ignored, to about 50s. A tail the cap cuts off is the server's to pull or `kcap import`'s.
+    static readonly TimeSpan DefaultDrainCap = TimeSpan.FromSeconds(20);
+    static readonly TimeSpan DefaultPostCap  = TimeSpan.FromSeconds(15);
+
     /// <summary>
     /// Process entry point: <c>kcap copilot-finalize &lt;sessionId&gt; &lt;transcriptPath&gt; [endBody]</c>.
     /// </summary>
@@ -51,12 +57,16 @@ sealed class CopilotFinalizeDrainCommand(
         ProcessHelpers.DetachFromControllingTerminal();
 
         // Quitting VS Code terminates the processes it started about a second in, before Copilot has
-        // written session.shutdown. The default action would drop the end this process carries, and its
-        // lifetime is already bounded by the poll budget.
+        // written session.shutdown. The default action would drop the end this process carries, so the
+        // signals are ignored until the end is posted or spooled.
         using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Ignore);
         using var sighup  = PosixSignalRegistration.Create(PosixSignal.SIGHUP, Ignore);
 
-        await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval, DefaultWatcherStopGrace);
+        await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval, DefaultWatcherStopGrace,
+            endDurable: () => {
+                sigterm.Dispose();
+                sighup.Dispose();
+            });
 
         return 0;
     }
@@ -77,7 +87,10 @@ sealed class CopilotFinalizeDrainCommand(
             string?  endBody,
             TimeSpan pollBudget,
             TimeSpan pollInterval,
-            TimeSpan watcherStopGrace
+            TimeSpan watcherStopGrace,
+            TimeSpan? drainCap   = null,
+            TimeSpan? postCap    = null,
+            Action?   endDurable = null
         ) {
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
@@ -104,24 +117,38 @@ sealed class CopilotFinalizeDrainCommand(
             ? $"session.shutdown observed; draining tail for {sessionId}"
             : $"poll budget ({pollBudget.TotalSeconds:0}s) elapsed without session.shutdown; best-effort tail drain for {sessionId}");
 
-        // Idempotent: resumes from the server watermark; deterministic event ids
-        // dedupe anything the hook's inline-drain already delivered.
-        await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot");
+        // Idempotent: resumes from the server watermark, and deterministic event ids dedupe what the watcher sent.
+        if (!await TimeBudget.RunCappedAsync(() => watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot"), drainCap ?? DefaultDrainCap, time))
+            Log($"tail drain cap elapsed for {sessionId}; recoverable via: kcap import --copilot --session {sessionId}");
 
-        if (endBody is not null) await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace);
+        var posted = endBody is not null && await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace, postCap ?? DefaultPostCap);
+
+        endDurable?.Invoke();
+
+        // Only after an end the server took: a span must never outlive a lost end.
+        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
     }
 
-    async Task EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace) {
-        // The hook asks the watcher to stop when it starts this process, and a watcher stopped that way sends
-        // no end, so it gets time to go. One still running after that is a resumed run this end would close, or one
-        // the hook died before stopping, whose parent-exit path sends the end itself.
+    /// <summary>Delivers the end, posted or spooled, and says whether the server took it.</summary>
+    async Task<bool> EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace, TimeSpan postCap) {
+        // The hook asks the watcher to stop when it starts this process, and a watcher stopped that way sends no end, so it
+        // gets time to go. Past that, the watcher the hook handed off is stopped outright; any other is a resumed run this
+        // end would close, or one the hook died before handing off, which sends its own end.
         var deadline = time.GetUtcNow() + watcherStopGrace;
+        var paths    = WatcherPaths.FromEnvironment(config);
 
         while (watchers.IsWatcherAlive(sessionId)) {
             if (time.GetUtcNow() >= deadline) {
-                Log($"session end not sent for {sessionId}: a watcher is running");
+                if (!CopilotEndHandoff.CoversCurrentWatcher(paths, sessionId)) {
+                    Log($"session end not sent for {sessionId}: a watcher is running");
 
-                return;
+                    return false;
+                }
+
+                Log($"the watcher {sessionId}'s hook handed off is still running; stopping it");
+                await watchers.KillWatcher(sessionId);
+
+                break;
             }
 
             await Task.Delay(pollInterval, time);
@@ -131,7 +158,7 @@ sealed class CopilotFinalizeDrainCommand(
         if (DisabledSessions.IsDisabledByPerson(sessionId, config)) {
             Log($"session end not sent for {sessionId}: it was disabled");
 
-            return;
+            return false;
         }
 
         const string route = "session-end/copilot";
@@ -141,14 +168,31 @@ sealed class CopilotFinalizeDrainCommand(
         // A spooled start must reach the server before its end does.
         var outcome = spool.HasBacklog(sessionId)
             ? spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped
-            : await new AgentHookPoster(config, profiles, http, watchers, time)
-                .PostOrSpoolAsync(route, endBody, "copilot-finalize", spool, sessionId, route);
+            : await PostWithinAsync(spool, sessionId, route, endBody, postCap);
 
         Log($"session end for {sessionId}: {outcome}");
 
-        // Only after an end the server took: a span must never outlive a lost end.
-        if (outcome == HookPostOutcome.Posted)
-            await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return outcome == HookPostOutcome.Posted;
+    }
+
+    // A post still in flight at the cap goes to the spool as well: the server derives the end's event id from its reason
+    // and ended_at, so delivering this body twice records one end.
+    async Task<HookPostOutcome> PostWithinAsync(HookSpool spool, string sessionId, string route, string endBody, TimeSpan cap) {
+        var post = new AgentHookPoster(config, profiles, http, watchers, time)
+            .PostOrSpoolAsync(route, endBody, "copilot-finalize", spool, sessionId, route);
+
+        using var timer = new CancellationTokenSource();
+
+        if (await Task.WhenAny(post, Task.Delay(cap, time, timer.Token)) == post) {
+            await timer.CancelAsync();
+
+            return await post;
+        }
+
+        _ = post.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
+        Log($"session end post for {sessionId} unanswered after {cap.TotalSeconds:0}s; spooling it");
+
+        return spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped;
     }
 
     /// <summary>

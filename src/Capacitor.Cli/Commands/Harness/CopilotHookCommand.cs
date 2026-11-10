@@ -377,6 +377,9 @@ sealed class CopilotHookCommand(
 
         var end = forwarded.ToJsonString();
 
+        // From here the end is this hook's, so the watcher it stops sends none of its own.
+        CopilotEndHandoff.Record(WatcherPaths.FromEnvironment(config), sessionId);
+
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
         // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started
         // finalizer carries the end and the hook returns at once; the finalizer waits for the watcher to go.
