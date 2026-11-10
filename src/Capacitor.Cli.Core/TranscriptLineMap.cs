@@ -14,11 +14,16 @@ public sealed class TranscriptLineMap {
 
     readonly List<ulong> _hashes = [];
 
+    int _polls;
+
     // From each segment's first file line on, a line is sent under its file number plus the segment's shift.
     readonly List<(int FileLine, int Shift)> _segments = [(0, 0)];
 
     /// <summary>How many lines from the top of the file have been read.</summary>
     public int Known => _hashes.Count;
+
+    /// <summary>Counts a poll; true for the first and every <paramref name="every"/>th after it.</summary>
+    public bool PollIsDue(int every) => _polls++ % every == 0;
 
     public int ToSent(int fileLine) => fileLine + SegmentAt(fileLine).Shift;
 

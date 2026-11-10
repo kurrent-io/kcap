@@ -116,11 +116,14 @@ public class CopilotRewrittenTranscriptTests {
         await Assert.That(SentLines.Skip(13).ToArray()).IsEquivalentTo(new[] { (11, Line("b", 1)), (12, Line("b", 2)) });
     }
 
+    /// <summary>The final drain can be cut off before its read, leaving the spool the first to see the rewrite.</summary>
     [Test]
-    public async Task The_shutdown_tail_after_a_rewrite_is_spooled_above_the_cursor() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task The_shutdown_tail_after_a_rewrite_is_spooled_above_the_cursor(bool polledSinceRewrite) {
         var (path, state) = await Sent(10);
         await File.WriteAllTextAsync(path, Lines("a", 0, 4));
-        await Drain(path, state);
+        if (polledSinceRewrite) await Drain(path, state);
         await File.AppendAllTextAsync(path, Lines("b", 0, 2));
         var spool = new TranscriptSpool(Tmp.PathTo("spool"), time: TimeProvider.System);
 
@@ -132,5 +135,29 @@ public class CopilotRewrittenTranscriptTests {
             () => false, CancellationToken.None);
         var numbers = System.Text.Json.Nodes.JsonNode.Parse(replay.Single())!["line_numbers"]!.AsArray().Select(n => n!.GetValue<int>());
         await Assert.That(numbers.ToArray()).IsEquivalentTo(new[] { 10, 11 });
+    }
+
+    // Line 9, just before the cursor, is left as it was.
+    static string EditedBeforeTheLastLine => Lines("a", 0, 5) + Lines("b", 5, 4) + Line("a", 9) + "\n";
+
+    [Test]
+    public async Task The_final_drain_catches_a_rewrite_that_kept_the_line_before_the_cursor() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, EditedBeforeTheLastLine);
+
+        await Recorders.For(Sid, path, null, "copilot").DrainNewLines(state, CancellationToken.None, isFinalDrain: true);
+
+        await Assert.That(SentLines.Skip(10).ToArray()).IsEquivalentTo(
+            Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).Append((14, Line("a", 9))).ToArray());
+    }
+
+    [Test]
+    public async Task Live_polls_catch_a_rewrite_that_kept_the_line_before_the_cursor() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, EditedBeforeTheLastLine);
+
+        for (var i = 0; i < TranscriptRecorder.RewrittenPrefixCheckEveryNPolls; i++) await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(10).Select(s => s.Number).ToArray()).IsEquivalentTo(Enumerable.Range(10, 5).ToArray());
     }
 }
