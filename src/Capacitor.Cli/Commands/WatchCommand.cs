@@ -846,9 +846,9 @@ class WatchCommand(
         return HandedEndOutcome.Posted;
     }
 
-    Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>
-        new SessionEndPoster(config, Url, http, time, message => Log(time, message), (session, endVendor) => watchers.SpawnWhatsDoneGenerator(session, endVendor))
-            .PostAsync(sessionId, vendor, endHook, repository, what);
+    async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>
+        await new SessionEndPoster(config, Url, http, time, message => Log(time, message), (session, endVendor) => watchers.SpawnWhatsDoneGenerator(session, endVendor))
+            .PostAsync(sessionId, vendor, endHook, repository, what) is SessionEndDelivery.Delivered;
 
     /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
     /// for a generator that runs after the watcher is gone.</summary>

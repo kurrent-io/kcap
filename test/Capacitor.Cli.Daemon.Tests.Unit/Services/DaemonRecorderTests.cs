@@ -43,11 +43,16 @@ public class DaemonRecorderTests {
 
     /// <param name="prepare">What a recorder's preparing waits on, which ignores its token as repository detection does.</param>
     /// <param name="probe">The server's answer, which is yes unless the test holds it.</param>
-    DaemonRecorder NewRecorder(bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null, string name = Name) {
+    /// <param name="endsFirst">How the first session-end posts go, in order; every later one is delivered.</param>
+    DaemonRecorder NewRecorder(
+            bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null, string name = Name,
+            IReadOnlyList<SessionEndDelivery>? endsFirst = null) {
         if (probe is null) {
             probe = new RecordingProbe();
             probe.Report(true);
         }
+
+        var first = new Queue<SessionEndDelivery>(endsFirst ?? []);
 
         var config = NewConfig(on);
         config.Name = name;
@@ -71,9 +76,14 @@ public class DaemonRecorderTests {
                 return Exited.Contains(process.Pid);
             },
             (source, end) => {
-                lock (Ends) Ends.Add((source.Key, end, (time ?? TimeProvider.System).GetUtcNow()));
+                lock (Ends) {
+                    var delivery = first.TryDequeue(out var next) ? next : SessionEndDelivery.Delivered;
 
-                return Task.FromResult(true);
+                    if (delivery is SessionEndDelivery.Delivered) Ends.Add((source.Key, end, (time ?? TimeProvider.System).GetUtcNow()));
+                    else Undelivered.Add(source.Key);
+
+                    return Task.FromResult(delivery);
+                }
             });
     }
 
@@ -83,6 +93,15 @@ public class DaemonRecorderTests {
     int EndCount {
         get {
             lock (Ends) return Ends.Count;
+        }
+    }
+
+    /// <summary>Every session end that was not delivered, under the lock on <see cref="Ends"/>.</summary>
+    List<string> Undelivered { get; } = [];
+
+    int UndeliveredCount {
+        get {
+            lock (Ends) return Undelivered.Count;
         }
     }
 
@@ -455,6 +474,55 @@ public class DaemonRecorderTests {
         SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
 
         await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>An end that reached neither the server nor the spool is still owed. The source waits on with its claim and
+    /// its list entry, which is what a restart picks it up by, and the end is posted once the daemon's own unmarked claim
+    /// on it is old enough to take over.</summary>
+    [Test]
+    public async Task A_session_end_neither_posted_nor_spooled_is_tried_again() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Lost]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        await Stepping(time, () => UndeliveredCount == 1);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsTrue();
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([source.Key]);
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(EndCount).IsEqualTo(0);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>An end the server refused drops, as any refused hook post does: the source is let go, and the end is not
+    /// sent again however long the daemon runs.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_is_not_tried_again() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Rejected]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => UndeliveredCount == 1 && List.Load().Count == 0);
+        time.Advance(SessionEndRecord.TakeOver * 2);
+        await Task.Delay(50);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
+        await Assert.That(UndeliveredCount).IsEqualTo(1);
+        await Assert.That(EndCount).IsEqualTo(0);
     }
 
     /// <summary>A daemon killed between its claim of the end and its post left the claim, the list entry and its own

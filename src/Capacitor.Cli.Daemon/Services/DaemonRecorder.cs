@@ -77,7 +77,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly TimeProvider _time;
     readonly ILogger _logger;
     readonly Func<ProcessIncarnation, bool> _processExited;
-    readonly Func<RecordedSource, JsonObject, Task<bool>> _postSessionEnd;
+    readonly Func<RecordedSource, JsonObject, Task<SessionEndDelivery>> _postSessionEnd;
     readonly WatcherPaths _paths;
     readonly RecorderClaims _claims;
     readonly WatcherLiveness _liveness;
@@ -102,12 +102,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <param name="connect">Builds the transport, for the first source. Nothing connects before that.</param>
     /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log, its own stop and its beat.</param>
     /// <param name="processExited">Whether a terminal source's process has gone, conclusively.</param>
-    /// <param name="postSessionEnd">Posts a terminal session's end, given its source and the end; true once the server has
-    /// it or it is spooled.</param>
+    /// <param name="postSessionEnd">Posts a terminal session's end, given its source and the end.</param>
     public DaemonRecorder(
             DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<ISilenceableRecorderTransport> connect,
             Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger,
-            Func<ProcessIncarnation, bool>? processExited = null, Func<RecordedSource, JsonObject, Task<bool>>? postSessionEnd = null) {
+            Func<ProcessIncarnation, bool>? processExited = null, Func<RecordedSource, JsonObject, Task<SessionEndDelivery>>? postSessionEnd = null) {
         _config        = config;
         _server        = server;
         _serverRecords = serverRecords;
@@ -116,7 +115,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         _time          = time;
         _logger        = logger;
         _processExited  = processExited ?? (process => process.HasExited());
-        _postSessionEnd = postSessionEnd ?? ((_, _) => Task.FromResult(false));
+        _postSessionEnd = postSessionEnd ?? ((_, _) => Task.FromResult(SessionEndDelivery.Lost));
 
         _paths    = WatcherPaths.FromEnvironment(config.ConfigRoot);
         _claims   = new RecorderClaims(_paths.Directory, time, config.Name);
@@ -859,10 +858,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     /// <summary>Posts a terminal session's end once its process has gone and the grace has passed with no SessionEnd hook,
     /// as a watcher's parent monitor does, unless someone else claimed that run's end first. A claim that is never marked
-    /// posted is taken over once it is old enough, so the decision waits on one moments old. The claim and list entry stay
-    /// until then, so a hook inside the grace finds the source, and a daemon stopping inside it leaves the decision to the
-    /// next boot. A session resumed in another process meanwhile is followed there instead: that process's SessionStart
-    /// found this claim fresh and started nothing.</summary>
+    /// posted is taken over once it is old enough, so the decision waits on one moments old, and on its own after a post
+    /// that was lost. The claim and list entry stay until then, so a hook inside the grace finds the source, and a daemon
+    /// stopping inside it leaves the decision to the next boot. A session resumed in another process meanwhile is followed
+    /// there instead: that process's SessionStart found this claim fresh and started nothing.</summary>
     async Task EndSessionAsync(Tracked tracked) {
         for (var waited = TimeSpan.Zero;;) {
             var step = waited < SessionEndGrace && SessionEndGrace - waited < ProcessCheck ? SessionEndGrace - waited : ProcessCheck;
@@ -890,7 +889,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    // False while another's claim on the end is too new to take over.
+    // False while the end is still owed: another's claim on it is too new to take over, or the last post was lost.
     async Task<bool> DecideEndAsync(Tracked tracked) {
         var source = tracked.Source;
 
@@ -919,8 +918,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return true;
     }
 
-    // False while another's claim on the end is too new to take over. A post that reached neither the server nor the spool
-    // leaves its claim unmarked, for whoever comes next to take over.
+    // False while the end is still owed. A post that reached neither the server nor the spool leaves its claim unmarked, and
+    // the next try takes that over once it is old enough. A refused one is decided: sent again, it would be refused again.
     async Task<bool> PostEndAsync(Tracked tracked) {
         var source  = tracked.Source;
         var reason  = SessionEnd.DecideEndReason(parentExited: true, crewFinished: false, wedgedCeiling: false, idle: false, copilotShutdown: false);
@@ -942,12 +941,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 return true;
         }
 
-        if (await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal)))
-            SessionEndRecord.MarkPosted(_paths, source.SessionId, exited, _time.GetUtcNow());
-        else
-            LogEndNotPosted(source.Key);
+        var delivery = await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal));
 
-        return true;
+        if (delivery is SessionEndDelivery.Delivered) SessionEndRecord.MarkPosted(_paths, source.SessionId, exited, _time.GetUtcNow());
+        if (delivery is SessionEndDelivery.Lost) LogEndNotPosted(source.Key);
+
+        return delivery is not SessionEndDelivery.Lost;
     }
 
     async Task FollowAsync(Tracked ended, ProcessIncarnation resumed) {
@@ -1221,7 +1220,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Information, Message = "No session end posted for {Key}: a hook posts it, the session was disabled, or it runs on elsewhere")]
     partial void LogNoEndPosted(string key);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The session end of {Key} was neither posted nor spooled")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The session end of {Key} was neither posted nor spooled; trying again")]
     partial void LogEndNotPosted(string key);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Starting the CLI's {Command} for {SessionId} failed")]
