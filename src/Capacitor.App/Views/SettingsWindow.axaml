@@ -83,8 +83,8 @@
                                 <Border x:Name="StatusChip" Classes="kcapBadge" Margin="0,6,0,0"
                                         ToolTip.Tip="{Binding StatusTip}">
                                     <StackPanel Orientation="Horizontal" Spacing="5">
-                                        <TextBlock x:Name="StatusCaptionText" Text="Agents" IsVisible="{Binding StatusShowsAgents}" />
-                                        <TextBlock x:Name="StatusText" Text="{Binding StatusLabel}" />
+                                        <TextBlock x:Name="StatusCaptionText" Classes="kcapStatusWord" Text="Agents" IsVisible="{Binding StatusShowsAgents}" />
+                                        <TextBlock x:Name="StatusText" Classes="kcapStatusWord" Text="{Binding StatusLabel}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

@@ -9,7 +9,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
-    <Style Selector="TextBlock.kcapStatusWord, Border.kcapBadge TextBlock">
+    <Style Selector="TextBlock.kcapStatusWord">
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="LineHeight" Value="16" />
@@ -28,35 +28,35 @@
         <Setter Property="Background" Value="{StaticResource KcapPurpleDimBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="TextBlock.kcapStatusWord.inflight, Border.kcapBadge.inflight TextBlock">
+    <Style Selector="TextBlock.kcapStatusWord.inflight, Border.kcapBadge.inflight TextBlock.kcapStatusWord">
         <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.success">
         <Setter Property="Background" Value="{StaticResource KcapSuccessDimBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="TextBlock.kcapStatusWord.success, Border.kcapBadge.success TextBlock">
+    <Style Selector="TextBlock.kcapStatusWord.success, Border.kcapBadge.success TextBlock.kcapStatusWord">
         <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.attention">
         <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="TextBlock.kcapStatusWord.attention, TextBlock.kcapStatusWord.warning, Border.kcapBadge.attention TextBlock">
+    <Style Selector="TextBlock.kcapStatusWord.attention, TextBlock.kcapStatusWord.warning, Border.kcapBadge.attention TextBlock.kcapStatusWord">
         <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.danger">
         <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="TextBlock.kcapStatusWord.danger, Border.kcapBadge.danger TextBlock">
+    <Style Selector="TextBlock.kcapStatusWord.danger, Border.kcapBadge.danger TextBlock.kcapStatusWord">
         <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.neutral">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
     </Style>
-    <Style Selector="Border.kcapBadge.neutral TextBlock">
+    <Style Selector="Border.kcapBadge.neutral TextBlock.kcapStatusWord">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.inflight views|AppIcon">

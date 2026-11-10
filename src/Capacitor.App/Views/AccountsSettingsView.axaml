@@ -89,15 +89,15 @@
                                                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                                                     <views:AppIcon Kind="TriangleAlert" Size="12" IsVisible="{Binding StateIsAttention}" />
                                                                     <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding StateIsHealthy}" />
-                                                                    <TextBlock Classes="accountState" Classes.attention="{Binding StateIsAttention}"
+                                                                    <TextBlock Classes="accountState kcapStatusWord" Classes.attention="{Binding StateIsAttention}"
                                                                                Text="{Binding StateLabel}" ToolTip.Tip="{Binding StateHint}" />
                                                                 </StackPanel>
                                                             </Border>
                                                             <Border Classes="kcapBadge accountPlan" IsVisible="{Binding Plan, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                                <TextBlock Text="{Binding Plan}" />
+                                                                <TextBlock Classes="kcapStatusWord" Text="{Binding Plan}" />
                                                             </Border>
                                                             <Border Classes="kcapBadge danger accountBlocked" IsVisible="{Binding Usage.View.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
-                                                                <TextBlock Text="{Binding Usage.View.BlockedText}" />
+                                                                <TextBlock Classes="kcapStatusWord" Text="{Binding Usage.View.BlockedText}" />
                                                             </Border>
                                                         </WrapPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="6">

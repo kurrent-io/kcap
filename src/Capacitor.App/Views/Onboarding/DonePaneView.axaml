@@ -61,11 +61,11 @@
                             <Border Classes="onboardingRowRule" Padding="0,8">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                     <TextBlock Text="{Binding Label}" FontSize="13" LineHeight="20" Foreground="{StaticResource OnboardingTextBrush}" VerticalAlignment="Center" />
-                                    <Border Grid.Column="1" Classes="kcapBadge word success" Classes.attention="{Binding NeedsYou}">
+                                    <Border Grid.Column="1" Classes="kcapBadge word" Classes.success="{Binding !NeedsYou}" Classes.attention="{Binding NeedsYou}">
                                         <StackPanel Orientation="Horizontal" Spacing="5">
                                             <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding !NeedsYou}" />
                                             <views:AppIcon Kind="TriangleAlert" Size="12" IsVisible="{Binding NeedsYou}" />
-                                            <TextBlock Text="{Binding State}" />
+                                            <TextBlock Classes="kcapStatusWord" Text="{Binding State}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -112,7 +112,7 @@
                                            Classes.kcapSpinning="{Binding ServiceInstalling}" />
                             <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding ServiceRunning}" />
                             <views:AppIcon Kind="CircleX" Size="12" IsVisible="{Binding ServiceFailed}" />
-                            <TextBlock x:Name="ServiceStatusText" Text="{Binding ServiceStatus}" />
+                            <TextBlock x:Name="ServiceStatusText" Classes="kcapStatusWord" Text="{Binding ServiceStatus}" />
                         </StackPanel>
                     </Border>
                 </Grid>

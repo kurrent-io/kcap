@@ -36,7 +36,7 @@
                                                     <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding ShowRecordingStatus}" />
                                                     <views:AppIcon Kind="Wrench" Size="12" IsVisible="{Binding ToolsOnly}" />
                                                     <views:AppIcon Kind="TriangleAlert" Size="12" IsVisible="{Binding NeedsAttention}" />
-                                                    <TextBlock Text="{Binding ConnectionLabel}" />
+                                                    <TextBlock Classes="kcapStatusWord" Text="{Binding ConnectionLabel}" />
                                                 </StackPanel>
                                             </Border>
                                         </StackPanel>
