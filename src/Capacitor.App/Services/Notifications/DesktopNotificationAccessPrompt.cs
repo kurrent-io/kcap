@@ -32,7 +32,7 @@ public sealed class DesktopNotificationAccessPrompt : IDisposable {
             !(wanted.Permissions || wanted.Questions || wanted.Idle) || !_isForeground()) return;
         _asked = true;
         try {
-            if (await _access.GetAsync() != DesktopNotificationAccess.NotDetermined) return;
+            if (!await _access.NeedsRequestAsync()) return;
             // The read is asynchronous: the user may have left the app while it ran.
             if (_disposed || !_isForeground()) {
                 _asked = false;
