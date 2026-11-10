@@ -23,6 +23,9 @@ static partial class WindowsConsoleWidth {
         if (ActiveWindowWidth() is { } width) AnsiConsole.Profile.Width = width;
     }
 
+    /// <summary>The active window's width, read from <c>CONOUT$</c>; null for a console without a window.</summary>
+    public static int? Measure() => ActiveWindowWidth();
+
     static bool StandardHandlesMeasure() {
         try {
             return Console.BufferWidth > 0;
