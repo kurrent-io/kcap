@@ -14,7 +14,7 @@ public class DaemonConfig {
     public string   Name                { get; set; } = "";
     public string   ServerUrl           { get; set; } = "";
     public string[] AllowedRepoPaths    { get; set; } = [];
-    public int      MaxConcurrentAgents { get; set; } = 5;
+    public int      MaxConcurrentAgents { get; set; } = DaemonSettings.DefaultMaxAgents;
 
     /// <summary>The path this daemon's binary was started from, read at process start. The restart poll watches it and
     /// a self-respawn runs it: on Windows <c>kcap update</c> moves the running image elsewhere, so the process's own
