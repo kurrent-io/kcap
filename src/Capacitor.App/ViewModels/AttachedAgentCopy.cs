@@ -14,6 +14,8 @@ public static class AttachedAgentCopy {
     public const string SteeringEnded = "Steering ended";
     public const string InterruptAtTerminal = "Interrupt it in its terminal";
     public const string NoFiles = "files can't be sent to a terminal session";
+    /// The daemon's own row for the session, shown while the server's isn't: only the server can send to it.
+    public const string NotListed = "Messages reach a terminal session through the server, which isn't listing this one";
 
     /// Discarding a message the server still holds for an attached agent cancels it: the server gates its handover.
     public const string DiscardCancels = "Cancel this message. It hasn't reached the terminal session, so it never will.";
