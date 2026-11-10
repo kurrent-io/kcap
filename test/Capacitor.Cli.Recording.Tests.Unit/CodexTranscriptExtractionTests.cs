@@ -40,6 +40,14 @@ public class CodexTranscriptExtractionTests {
     }
 
     [Test]
+    public async Task UserText_keeps_every_prompt_block_after_a_context_block() {
+        var line = UserLine(RecommendedPlugins, "What does the src folder hold?", "And the test folder?");
+
+        await Assert.That(TranscriptLineText.TryExtractUserText(line, "codex"))
+            .IsEqualTo("What does the src folder hold?\nAnd the test folder?");
+    }
+
+    [Test]
     public async Task UserText_Extracts_InputText_FromResponseItem() {
         const string line = """
             {"type":"response_item","payload":{"type":"message","role":"user",
