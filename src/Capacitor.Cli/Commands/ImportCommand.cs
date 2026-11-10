@@ -18,7 +18,8 @@ using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
 using Spectre.Console;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 
@@ -3241,7 +3242,7 @@ class ImportCommand(
             }
 
             var result = await TitleGeneration.GenerateAsync(
-                userText, assistantText, time, _ => { }, profiles.Resolution.Profile, harnesses, vendor.VendorId);
+                userText, assistantText, time, _ => { }, profiles.Resolution.Profile, harnesses, config, vendor.VendorId);
 
             if (result is null) {
                 return TitleResult.Skipped;

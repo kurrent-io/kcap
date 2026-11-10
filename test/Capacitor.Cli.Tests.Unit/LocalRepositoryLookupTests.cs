@@ -2,7 +2,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.SessionStartMemory;
 using System.Net;
 using System.Text.Json.Nodes;

@@ -100,7 +100,7 @@ public sealed class CodexSubagentTurnTracker {
     /// minutes (<c>0</c> = post immediately at <c>task_complete</c>), anything
     /// unset/blank/non-numeric/negative falls back to <see cref="DefaultStopGrace"/>. Pure
     /// so the parsing is unit-testable (mirrors
-    /// <c>WatchCommand.ResolveCodexIdleTimeout</c>).
+    /// <c>IdleEnd.ResolveCodexIdleTimeout</c>).
     /// </summary>
     public static TimeSpan ResolveStopGrace(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes >= 0

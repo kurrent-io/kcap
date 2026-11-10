@@ -13,7 +13,7 @@ using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Harness.MuseAssistant;
 using Capacitor.Cli.LocalEdition;
 using Microsoft.Extensions.DependencyInjection;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 

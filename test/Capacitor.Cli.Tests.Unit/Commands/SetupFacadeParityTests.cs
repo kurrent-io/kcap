@@ -9,7 +9,7 @@ using Capacitor.Cli.Core.Telemetry;
 using Spectre.Console;
 using TUnit.Assertions.Enums;
 using Profile = Capacitor.Cli.Core.Config.Profile;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 

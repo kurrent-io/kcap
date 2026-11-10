@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Auth;
 
 namespace Capacitor.Cli.Core.Harness.Muse;
 
@@ -154,6 +155,12 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
         return null;
     }
+
+    /// <summary>Only a request handed over for <paramref name="serverUrl"/>, or one that recorded none: a recorder posts
+    /// to its own server, and one for another is left to that server's drain.</summary>
+    public static MuseSessionEndRequest? ClaimHandedEnd(WatcherPaths paths, string sessionId, string serverUrl, TimeProvider time) =>
+        TryClaim(paths, sessionId, Environment.ProcessId.ToString(CultureInfo.InvariantCulture), time,
+            recorded => recorded is null || ServerIdentity.SameServer(recorded, serverUrl));
 
     static MuseSessionEndRequest? TryClaimAt(string source, string owner) {
         var claimed = $"{source}.{owner}.claimed";

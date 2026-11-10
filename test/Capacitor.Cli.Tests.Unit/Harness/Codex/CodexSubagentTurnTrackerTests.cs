@@ -1,6 +1,6 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Codex;
 
@@ -137,7 +137,7 @@ public class CodexSubagentTurnTrackerTests {
 
         var state = new WatchState();
         await TranscriptReplay.ReplayAsync(
-            path, upToLine ?? lines.Length, [WatchCommand.CodexWatcherStateReplay(state, isChildWatcher)], CancellationToken.None, _ => { });
+            path, upToLine ?? lines.Length, [ToolCallTracking.CodexWatcherStateReplay(state, isChildWatcher)], CancellationToken.None, _ => { });
 
         return state;
     }
@@ -178,10 +178,10 @@ public class CodexSubagentTurnTrackerTests {
         using var tmp = new TempDir();
         var state = await BackfilledFrom(tmp, isChildWatcher: false, upToLine: null, FunctionCall, TokenCount);
 
-        var idle = WatchCommand.ShouldEndOnIdle(
+        var idle = IdleEnd.ShouldEndOnIdle(
             "codex", isSessionWatcher: true, thresholdReached: true,
             lastActivityAt: T0, now: T0 + TimeSpan.FromHours(3),
-            idleTimeout: WatchCommand.DefaultCodexIdleTimeout,
+            idleTimeout: IdleEnd.DefaultCodexIdleTimeout,
             toolInFlight: state.PendingCodexToolCalls.Count > 0);
 
         await Assert.That(idle).IsFalse();

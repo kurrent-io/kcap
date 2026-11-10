@@ -1,8 +1,9 @@
+using Capacitor.Cli.Recording;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;

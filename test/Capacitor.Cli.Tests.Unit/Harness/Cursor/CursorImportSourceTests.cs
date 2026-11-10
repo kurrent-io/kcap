@@ -8,7 +8,8 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
 using TUnit.Assertions.Enums;
 using TUnit.Core.Enums;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 

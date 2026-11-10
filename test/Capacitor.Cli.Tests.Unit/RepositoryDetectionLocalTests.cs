@@ -1,7 +1,8 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Tests.Unit;

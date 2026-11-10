@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;

@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Harness.Claude;

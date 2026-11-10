@@ -3,8 +3,9 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -190,7 +191,8 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         return new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(),
-            TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), _time, TestAccounts.None, Home);
+            TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), _time, TestAccounts.None, Home,
+            new CapacitorServer(_server.Url!, Config.Root, profiles));
     }
 
     /// <summary>A Codex session that dies mid-turn runs no other hook; its watcher posts the end and then

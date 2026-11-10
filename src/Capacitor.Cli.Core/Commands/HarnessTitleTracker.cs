@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Commands;
 /// <summary>Decides when a harness store's title is posted and with what change time. A change the store does not
 /// time is timed by the last read that still showed the old value — a lower bound, so an error favours a Capacitor
 /// Regenerate — and the first such read after start is untimed.</summary>
-internal sealed class HarnessTitleTracker(bool recordsChangeTime) {
+public sealed class HarnessTitleTracker(bool recordsChangeTime) {
     StoreTitle?       _lastRead;
     DateTimeOffset?   _lastReadAt;
     HarnessTitlePost? _pending;
