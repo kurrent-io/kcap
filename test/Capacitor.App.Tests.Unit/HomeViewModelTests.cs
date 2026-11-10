@@ -3178,7 +3178,8 @@ public class HomeViewModelTests {
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
             // The adoption must hold the first load before the remote pick, or the pick's own
             // load takes the held one and the switch never returns.
-            await WaitUntilAsync(() => vm.SelectedRepoPath == local, "the local default adopted");
+            await store.FirstLoadStarted.WaitAsync(TimeSpan.FromSeconds(10));
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(local);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             store.Release();
@@ -3221,7 +3222,8 @@ public class HomeViewModelTests {
                 daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
             // The existence check runs off the UI thread; the adoption must be parked on the held
             // load before the remote pick, or this test proves nothing.
-            await WaitUntilAsync(() => vm.SelectedRepoPath == local, "the local default adopted");
+            await store.FirstLoadStarted.WaitAsync(TimeSpan.FromSeconds(10));
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(local);
 
             await vm.SelectMachineAsync("home-pc", isLocal: false);
             await Assert.That(vm.SelectedVendor).IsEqualTo("codex");
@@ -3233,14 +3235,20 @@ public class HomeViewModelTests {
         });
     }
 
-    /// Holds the first LoadAsync, the constructor's default-repository adoption, until Release. The
-    /// source completes without RunContinuationsAsynchronously, so the adoption finishes inside
-    /// Release on the test's own thread rather than racing it from the pool.
+    /// Holds the first claimed LoadAsync until Release. The held result preserves inline
+    /// continuations for the late-adoption assertion; FirstLoadStarted acknowledges ownership.
     sealed class HeldAppStateStore(AppState state) : IAppStateStore {
         readonly TaskCompletionSource<AppState> _first = new();
+        readonly TaskCompletionSource<bool> _firstLoadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         int _loads;
 
-        public Task<AppState> LoadAsync() => Interlocked.Increment(ref _loads) == 1 ? _first.Task : Task.FromResult(state);
+        public Task FirstLoadStarted => _firstLoadStarted.Task;
+
+        public Task<AppState> LoadAsync() {
+            if (Interlocked.Increment(ref _loads) != 1) return Task.FromResult(state);
+            _firstLoadStarted.SetResult(true);
+            return _first.Task;
+        }
 
         public Task<bool> UpdateAsync(Func<AppState, AppState> mutate) => Task.FromResult(true);
 
