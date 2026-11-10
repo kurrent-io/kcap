@@ -1322,6 +1322,28 @@ public class RecorderHostTests {
         await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
     }
 
+    /// <summary>An outage excuses a source waiting for the transport to come back, and an abandoned one has nothing to come
+    /// back for: it ends within the threshold however long the server stays out.</summary>
+    [Test]
+    public async Task An_abandoned_source_stuck_through_an_outage_ends_within_the_threshold() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+
+        var abandoned = host.AbandonAsync(source.Key);
+        var asked     = _time.GetUtcNow();
+        await Eventually(() => abandoned.IsCompleted, "the abandoned source to end", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_time.GetUtcNow() - asked).IsLessThanOrEqualTo(RecorderHost.WedgedAfter + TimeSpan.FromSeconds(2));
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
     /// <summary>A shutdown marks a source it can't finish, and this one's person asked for it to be gone.</summary>
     [Test]
     public async Task A_shutdown_marks_no_abandoned_source_stuck_where_no_token_reaches() {

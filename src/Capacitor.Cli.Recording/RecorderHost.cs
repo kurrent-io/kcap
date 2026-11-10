@@ -273,7 +273,7 @@ public sealed class RecorderHost {
                         var current = recorder;
                         var run     = Task.Run(() => current.RunAsync(token), CancellationToken.None);
 
-                        if (!await EndsBeatingAsync(run, attempt)) {
+                        if (!await EndsBeatingAsync(run, attempt, entry)) {
                             // Read ahead of the supersession, which stops the recorder too.
                             stopped   = token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested;
                             connected = recorder.Connected;
@@ -378,7 +378,7 @@ public sealed class RecorderHost {
             if (entry.Hurried) recorder.RequestStop();
 
             var drain = Task.Run(() => recorder.FinishAsync(entry.DrainToken), CancellationToken.None);
-            if (!await EndsBeatingAsync(drain, attempt)) return GiveUpDrain(source, entry, first, recorder, attempt, drain);
+            if (!await EndsBeatingAsync(drain, attempt, entry)) return GiveUpDrain(source, entry, first, recorder, attempt, drain);
 
             await drain;
 
@@ -407,7 +407,7 @@ public sealed class RecorderHost {
 
             var drain = Task.Run(() => recorder.DrainOnceAsync(entry.DrainToken), CancellationToken.None);
 
-            if (await EndsBeatingAsync(drain, attempt)) await drain;
+            if (await EndsBeatingAsync(drain, attempt, entry)) await drain;
             else failure = GiveUpDrain(source, entry, first, recorder, attempt, drain);
         } catch (Exception ex) {
             failure = ex;
@@ -422,11 +422,12 @@ public sealed class RecorderHost {
         }
     }
 
-    // A transport that is down retries, and a source waiting on it has the whole threshold again once it is back. Callers
-    // start the work off their own thread: a call that never returns before its first await would never reach the watch.
-    async Task<bool> EndsBeatingAsync(Task work, RecorderAttempt attempt) {
+    // A transport that is down retries, and a source waiting on it has the whole threshold again once it is back; one
+    // abandoned has nothing to come back for. Callers start the work off their own thread: a call that never returns
+    // before its first await would never reach the watch.
+    async Task<bool> EndsBeatingAsync(Task work, RecorderAttempt attempt, Entry entry) {
         while (!await attempt.EndsBeatingAsync(work, Watchdog)) {
-            if (_transport.IsConnected) return false;
+            if (_transport.IsConnected || entry.Abandoned) return false;
 
             attempt.Excuse();
         }
