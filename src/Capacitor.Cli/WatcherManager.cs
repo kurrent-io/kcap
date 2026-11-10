@@ -859,11 +859,13 @@ public sealed partial class WatcherManager(
     /// <summary>Waits for the holder inside what is left of <see cref="FinishSourceBudget"/>. Short of finding nothing
     /// listening, the hook drains nothing: the source is the daemon's, which finishes it whether or not anyone is still
     /// waiting.</summary>
+    /// <param name="from">Told only to the holder of a terminal claim. A daemon from before terminal sessions holds only
+    /// hosted claims, and reads a finish naming a process as a key it doesn't hold.</param>
     async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId, ProcessIncarnation? from) {
         using var budget = new CancellationTokenSource(FinishWait(), time);
 
         try {
-            var finish = await _daemonRecording.FinishSourceAsync(key, holder, from, budget.Token).WaitAsync(budget.Token);
+            var finish = await _daemonRecording.FinishSourceAsync(key, holder, _claims.IsTerminal(key) ? from : null, budget.Token).WaitAsync(budget.Token);
 
             if (finish is not RecordingFinish.Unreachable)
                 await Console.Error.WriteLineAsync(finish is RecordingFinish.Finished

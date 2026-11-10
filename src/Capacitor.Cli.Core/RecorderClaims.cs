@@ -99,6 +99,9 @@ public sealed class RecorderClaims(string directory, TimeProvider time, string? 
     /// watcher, unstamped for the rest of its life but recorded.</summary>
     public bool IsHosted(string key) => Contents(key)?.IsHosted == true;
 
+    /// <summary>Whether the claim says its session is a terminal one. A claim that can't be read says neither.</summary>
+    public bool IsTerminal(string key) => Contents(key)?.IsHosted == false;
+
     /// <summary>The daemon the claim names, or null for a claim that can't be read.</summary>
     public string? Holder(string key) => Contents(key)?.Holder;
 
