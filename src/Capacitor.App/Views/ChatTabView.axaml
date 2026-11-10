@@ -457,7 +457,7 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapWarningBrush}" />
+                                                Background="{StaticResource KcapPurpleBrush}" />
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"

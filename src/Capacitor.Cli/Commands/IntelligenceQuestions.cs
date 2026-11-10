@@ -41,5 +41,5 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
     public string? Key(IntelligenceVendor vendor) => LocalIntelligenceCommand.AskKey(vendor);
 
     public bool ImportOutcomes() =>
-        AnsiConsole.Prompt(new ConfirmationPrompt("Also summarise what each imported session achieved?") { DefaultValue = true });
+        AnsiConsole.Prompt(new ConfirmationPrompt("Also summarize what each imported session achieved?") { DefaultValue = true });
 }

@@ -100,7 +100,7 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             for (var i = 0; i < 46; i++) emit!(new StreamedLine(ProcessStreamKind.Stdout, $"  Loading s{i} (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 46 of 94 sessions processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 46 of 94 sessions processed");
             await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 * 46 / 94);
 
             gate.SetResult(new StreamingResult(0, false, []));
@@ -122,12 +122,13 @@ public class MainWindowViewModelTests {
             run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
             emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (claude)"));
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 1 of 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 1 session processed");
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
 
-            await Assert.That(vm.HistoryImportStatus).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("History imported · 1 session processed");
+            await Assert.That(vm.HistoryImportBanner.IsVisible).IsTrue();
         });
     }
 
@@ -158,8 +159,8 @@ public class MainWindowViewModelTests {
     /// Every value the window announced for its import bar, in order.
     static List<double> ProgressShown(MainWindowViewModel vm) {
         var shown = new List<double>();
-        vm.PropertyChanged += (_, e) => {
-            if (e.PropertyName == nameof(MainWindowViewModel.HistoryImportProgress)) shown.Add(vm.HistoryImportProgress);
+        vm.HistoryImportBanner!.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(HistoryImportBannerViewModel.Progress)) shown.Add(vm.HistoryImportBanner.Progress);
         };
         return shown;
     }
@@ -1944,6 +1945,46 @@ public class MainWindowViewModelTests {
             background.OnNext(false);
             await Assert.That(vm.ReloadFailureText).IsNull();
             await Assert.That(vm.ShowsReloadBlock).IsFalse();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Rail_attention_combines_session_footer_and_daemon_recovery_changes() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            using var background = new BehaviorSubject<bool>(false);
+            using var reload = new BehaviorSubject<ReloadState?>(null);
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                rail: rail, backgroundPriority: background, reloadState: reload);
+            using var activation = vm.Activator.Activate();
+            await Assert.That(vm.RailAttention.HasAttention).IsFalse();
+
+            var row = AgentRow.FromLocal(new AgentStatusDto("a", "agent", "claude", "/repo", "Running", null, null, null,
+                DateTime.UtcNow, null, null, AwaitingInput: true), new RepoIdentity("repo", "repo"));
+            directory.Rows.AddOrUpdate(row);
+            await Assert.That(vm.RailAttention.Text).IsEqualTo("1 session needs you");
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_incompatible", null));
+            await Assert.That(vm.RailAttention.Text).Contains(vm.Alert!.Text);
+            await Assert.That(vm.RailAttention.Tone).IsEqualTo(StatusColors.Disrupted);
+            background.OnNext(true);
+            await Assert.That(vm.RailAttention.Text.Contains(MainWindowViewModel.BackgroundPriorityMessage, StringComparison.Ordinal)).IsFalse();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            await Assert.That(vm.RailAttention.Text).Contains(MainWindowViewModel.BackgroundPriorityMessage);
+            var failure = new ReloadState(ReloadOutcomeKind.Unconfirmed, "unconfirmed", null, "daemon-a", 1);
+            reload.OnNext(failure);
+            await Assert.That(vm.RailAttention.Text).Contains(ReloadCopy.For(failure));
+            directory.Rows.RemoveKey(row.Key);
+            background.OnNext(false);
+            await Assert.That(vm.RailAttention.SessionCount).IsEqualTo(0);
+            await Assert.That(vm.RailAttention.HasAttention).IsTrue();
+            reload.OnNext(null);
+            await Assert.That(vm.RailAttention.HasAttention).IsFalse();
         });
     }
 

@@ -1115,7 +1115,7 @@ async Task PrintUsage() {
 }
 
 async Task<int> PrintCommandHelp(string cmd) {
-    var text = EmbeddedResources.TryLoad($"help-{cmd}.txt");
+    var text = EmbeddedResources.TryLoadHelp($"help-{cmd}.txt");
 
     if (text is not null) {
         await Console.Out.WriteAsync(text);

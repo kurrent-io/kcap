@@ -407,6 +407,17 @@ internal static class WizardComposition {
             addAgent: () => shell?.TryGoTo(WizardStepId.Harnesses));
         IWizardStep[] steps = [edition, installStep, signIn, harnesses, intelligence, history, new UsageDataStepViewModel(options.UsageNotice), done];
 
+        // Until an edition is chosen the step count follows the one the first page leads with, so taking it leaves
+        // the total where it was.
+        bool Counted(IWizardStep step) =>
+            edition.Choice is null && !OnLocalPath() && edition.LocalPreselected
+                ? step switch {
+                    SignInStepViewModel                                => false,
+                    InstallStepViewModel or IntelligenceStepViewModel => true,
+                    _                                                  => !step.PassThrough,
+                }
+                : !step.PassThrough;
+
         // Before a server is connected the app has nothing to show, so deferring is offered only for the optional steps after.
         var canFinishLater = signIn.WhenAnyValue(x => x.Satisfied).Select(_ => Unit.Default)
             .Merge(install.WhenAnyValue(x => x.Outcome).Select(_ => Unit.Default))
@@ -419,7 +430,7 @@ internal static class WizardComposition {
         if (startAt == WizardStepId.SignIn) SettleUsageData(local: false);
         var wizard = shell = new OnboardingViewModel(
             steps, options.ShutdownToken, options.Surface, startAt, canFinishLater,
-            preflight: new HarnessPreflight(detect), restate: durable.Select(_ => Unit.Default));
+            preflight: new HarnessPreflight(detect), restate: durable.Select(_ => Unit.Default), counted: Counted);
         signIn.SignUpExpired += () => {
             edition.ShowNotice(SignInStepViewModel.SignUpExpiredNotice);
             wizard.TryGoTo(WizardStepId.Edition);

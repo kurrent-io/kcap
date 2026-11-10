@@ -2083,7 +2083,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.HasDetail).IsTrue();
             var pulse = ToolRows(host.View)[0].GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("toolRunning") && b.IsVisible);
-            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapWarningBrush"));
+            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);

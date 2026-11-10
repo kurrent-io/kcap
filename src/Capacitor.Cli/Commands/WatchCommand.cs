@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands;
@@ -262,7 +263,10 @@ class WatchCommand(
 
         var source       = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
         var host         = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
-        var housekeeping = new RecorderHousekeeping(source, skipTitle, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
+        var titlesAllowed = server.LocalRoot is not { } localRoot || LocalIntelligenceGate.For(config, localRoot).Allows(Url);
+        if (!skipTitle && !titlesAllowed) Log(time, $"Not generating a title: {LocalIntelligenceGate.NotSetUp}");
+
+        var housekeeping = new RecorderHousekeeping(source, skipTitle || !titlesAllowed, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
             message => Log(time, message), TouchHeartbeat);
 
         var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");

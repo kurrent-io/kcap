@@ -1006,8 +1006,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.WhenAnyValue(x => x.HasTerminalMenu),
             _queuedSendBusy,
             this.WhenAnyValue(x => x.HasSeed),
-            (text, can, readOnly, menu, busy, _) => can && !readOnly && !menu && !busy && !string.IsNullOrWhiteSpace(text)
-                && CanSendBeforeSeed);
+            Tray.WhenAnyValue(t => t.HasAttachments),
+            (text, can, readOnly, menu, busy, _, files) => can && !readOnly && !menu && !busy
+                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed);
         // The composer keeps whatever the user typed while the channel was deciding: only the
         // snapshot that was actually sent is cleared, and only once the channel commits it. The
         // edit count is what the text alone cannot say — an edit that lands back on the sent text

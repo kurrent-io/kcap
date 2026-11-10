@@ -39,6 +39,10 @@ public sealed class ClaudeHookCommand(
     // The Claude process a SessionEnd reports, read once and only for a session end.
     readonly Lazy<ProcessIncarnation?> _endingProcess = new(endingProcess ?? ClaudeSessionEndProcess.Current);
 
+    internal Func<string, string?> Env { get; init; } = Environment.GetEnvironmentVariable;
+
+    SessionStartAudience Audience => SessionStartAudience.From(hosted) with { IsHeadless = ClaudeEntrypoint.IsHeadless(Env) };
+
     // Hard ceiling on the best-effort pre-POST drain (watcher kill + inline transcript
     // drain) for session-end / subagent-stop. Session-end runs in the detached continuation
     // (ClaudeSessionEndHandoff) under HookBudget's 15s, subagent-stop inside the hook; either
@@ -1077,9 +1081,9 @@ public sealed class ClaudeHookCommand(
             // delivered, run the feed, or route passes for output no agent ever sees. Each opt-out is
             // read from the effective profile, which also covers KCAP_URL users. The feed's guidance
             // names kcap-workitems tools, so without them it is neither requested nor rendered.
-            var audience                    = SessionStartAudience.From(hosted);
+            var audience                    = Audience;
             var coordinationNoticesDisabled = activeProfile?.DisableCoordinationNotices is true;
-            var nextWorkDisabled            = activeProfile?.DisableNextWorkNudge is true
+            var nextWorkDisabled            = activeProfile?.DisableNextWorkNudge is true || !audience.GetsNextWork
                                            || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? capabilityNode = null;
             try {
@@ -1209,7 +1213,7 @@ public sealed class ClaudeHookCommand(
                     var disabled        = activeProfile?.DisableSessionGuidelines is true;
                     var lessonsFragment = SessionGuidelinesEmitter.BuildFragment(responseNode, disabled);
                     audience = audience.WithAck(responseNode);
-                    var nextWorkFragment = NextWorkEmitter.BuildFragmentOrInstruction(responseNode, nextWorkDisabled || !audience.GetsDriverGuidance);
+                    var nextWorkFragment = NextWorkEmitter.BuildFragmentOrInstruction(responseNode, nextWorkDisabled || !audience.GetsNextWork, Url);
                     // update_check=false opts out of ALL kcap update nudging, including the
                     // in-agent one — skip emission entirely rather than let a server that still
                     // sends `version` sneak the fragment past a locally-disabled preference.
@@ -1436,7 +1440,7 @@ public sealed class ClaudeHookCommand(
             try { ack = await response.Content.ReadAsStringAsync(); } catch { }
 
             // The block's reason names kcap-workitems tools, so without them it is never sent.
-            var audience         = SessionStartAudience.From(hosted);
+            var audience         = Audience;
             var nextWorkDisabled = activeProfile?.DisableNextWorkNudge is true
                                 || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? payload = null;
