@@ -22,7 +22,7 @@ public class HistoryImportBannerSmokeTests {
         var run = new HistoryImportRun(1, 1, "recent history", 1, action => Dispatcher.UIThread.Post(action));
         run.Start(new FakeKcapCli { ImportBehavior = (_, _, _) => gate.Task },
             [new ImportRequest(ImportScopeChoice.Repo, null, [], ["a/b"])]);
-        var service = new FakeDaemonClientService();
+        var service = ReadyService();
         using var home = new HomeViewModel(service, new AppStateStore(Tmp.PathTo("app-state.json")), new NoLaunch(),
             () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
@@ -59,7 +59,7 @@ public class HistoryImportBannerSmokeTests {
         run.Start(new FakeKcapCli { ImportBehavior = (_, _, _) => Task.FromResult(new StreamingResult(1, false, [])) },
             [new ImportRequest(ImportScopeChoice.Repo, null, [], ["a/b"])]);
         await run.Completion;
-        var service = new FakeDaemonClientService();
+        var service = ReadyService();
         using var home = new HomeViewModel(service, new AppStateStore(Tmp.PathTo("app-state.json")), new NoLaunch(),
             () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
         var reopened = 0;
@@ -99,7 +99,8 @@ public class HistoryImportBannerSmokeTests {
             var reopened = 0;
             var presentation = new HistoryImportBannerViewModel(run, () => reopened++);
             using var watch = presentation.Watch();
-            using var home = new HomeViewModel(new FakeDaemonClientService(), new AppStateStore(Tmp.PathTo("app-state.json")),
+            var service = ReadyService();
+            using var home = new HomeViewModel(service, new AppStateStore(Tmp.PathTo("app-state.json")),
                 new NoLaunch(), () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
             var launcher = new LauncherPaneView { DataContext = home, HistoryImport = presentation };
             var window = new Window { Width = width, Height = WindowSizeMemory.MinHeight, Content = launcher };
@@ -110,11 +111,19 @@ public class HistoryImportBannerSmokeTests {
                 var goal = launcher.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "GoalCard");
                 var before = goal.TranslatePoint(default, launcher)!.Value.Y;
                 var bannerHeight = banner.Bounds.Height;
+                service.StatusSubject.OnNext(new(AttachState.Unreachable, "unreachable", null));
+                Settle(window);
+                await Assert.That(banner.IsEffectivelyVisible).IsFalse();
+                await Assert.That(launcher.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "ConnectionBanner").IsEffectivelyVisible).IsTrue();
                 gate.SetResult(new StreamingResult(exitCode, false, []));
                 await run.Completion;
                 Settle(window);
 
                 await Assert.That(presentation.Running).IsFalse();
+                await Assert.That(banner.IsEffectivelyVisible).IsFalse();
+                await Assert.That(run.BannerDismissed).IsFalse();
+                service.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+                Settle(window);
                 await Assert.That(banner.IsEffectivelyVisible).IsTrue();
                 await Assert.That(banner.Bounds.Height).IsEqualTo(bannerHeight);
                 await Assert.That(goal.TranslatePoint(default, launcher)!.Value.Y).IsEqualTo(before);
@@ -136,6 +145,13 @@ public class HistoryImportBannerSmokeTests {
                 window.Close();
             }
         });
+
+    static FakeDaemonClientService ReadyService() {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
+        service.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+        return service;
+    }
 
     static void Settle(Window window) {
         Dispatcher.UIThread.RunJobs();

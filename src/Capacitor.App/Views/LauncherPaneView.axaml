@@ -67,6 +67,10 @@
             <Setter Property="Padding" Value="12,5" />
             <Setter Property="FontSize" Value="12.5" />
         </Style>
+        <Style Selector="Button.importDismiss.kcapGhost">
+            <Setter Property="Padding" Value="0,5" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
         <Style Selector="Border.startError">
             <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
@@ -89,7 +93,7 @@
         <StackPanel x:Name="LauncherNotices" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="680" Spacing="8">
             <Border x:Name="HistoryImportBanner" Classes="notice" x:DataType="vm:HistoryImportBannerViewModel"
                     DataContext="{Binding $parent[views:LauncherPaneView].HistoryImport}"
-                    IsVisible="{Binding IsVisible, FallbackValue=False}"
+                    IsVisible="{Binding $parent[views:LauncherPaneView].((vm:HomeViewModel)DataContext).Notices.ShowHistory, FallbackValue=False}"
                     AutomationProperties.Name="{Binding Status}" AutomationProperties.AccessibilityView="Content"
                     AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
@@ -106,14 +110,20 @@
                         <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
                         <WrapPanel Classes="noticeActions">
-                            <Button x:Name="HistoryImportDismissButton" Classes="kcapGhost" Content="Dismiss"
-                                    Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
+                            <!-- Measure the primary action so switching to tertiary does not reflow the row. -->
+                            <Panel>
+                                <Button Classes="kcapPrimary" Content="Dismiss" Opacity="0" IsHitTestVisible="False"
+                                        Focusable="False" IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button x:Name="HistoryImportDismissButton" Classes="importDismiss" Content="Dismiss"
+                                        Classes.kcapPrimary="{Binding !ShowsReopenSetup}" Classes.kcapGhost="{Binding ShowsReopenSetup}"
+                                        Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
+                            </Panel>
                             <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
                             <Panel>
-                                <Button Classes="kcapChip" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
+                                <Button Classes="kcapPrimary" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
                                         Opacity="0" IsHitTestVisible="False" Focusable="False"
                                         IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
-                                <Button x:Name="HistoryImportSetupButton" Classes="kcapChip"
+                                <Button x:Name="HistoryImportSetupButton" Classes="kcapPrimary"
                                         Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
                                         Command="{Binding ReopenSetupCommand}" IsVisible="{Binding ShowsReopenSetup}" />
                             </Panel>
