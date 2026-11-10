@@ -69,10 +69,12 @@ public class HomeViewModelBaseRefTests {
             await vm.SelectRepositoryAsync("/repo/a");
 
             await Assert.That(await vm.ChooseBaseRefAsync("  feature/x ")).IsNull();
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.BaseRef).IsEqualTo("feature/x");
 
             await Assert.That(await vm.ChooseBaseRefAsync("   ")).IsNull();
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.BaseRef).IsNull();
         });
@@ -153,6 +155,7 @@ public class HomeViewModelBaseRefTests {
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("main");
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(launch.Last).IsNull();
@@ -175,6 +178,7 @@ public class HomeViewModelBaseRefTests {
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("feature/x");
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(await vm.ListRecentBaseRefsAsync()).IsEquivalentTo(new[] { "feature/x" });
@@ -198,6 +202,7 @@ public class HomeViewModelBaseRefTests {
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.ChooseBaseRefAsync("gone");
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(AgentId,
                 "git fetch origin gone:refs/kcap/fetched/agent-1 failed: fatal: couldn't find remote ref gone"));
