@@ -2734,24 +2734,39 @@ public class RecorderHostTests {
                 : Source(Tmp.CreateFile($"s{i}.jsonl", string.Concat(Enumerable.Repeat(body, 60))), $"a{i}"))
             .ToList();
         var host = NewHost(path => new CountingFileStream(path, n => read.AddOrUpdate(path, n, (_, total) => total + n)));
+        var redaction = new SwitchableRedactionClock();
 
-        foreach (var source in sources) host.TryAdd(source);
+        // Read volume should not depend on wall-clock redaction deadlines.
+        foreach (var source in sources) {
+            _clocks[source.Key] = source.Key == sources[0].Key ? redaction : new FakeTimeProvider();
+            host.TryAdd(source);
+        }
 
-        await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read");
-        await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1));
+        try {
+            var heldPrefix = $"{sources[0].Key}: Holding line";
+            await Eventually(() => _log.Any(line => line.StartsWith(heldPrefix, StringComparison.Ordinal)), "a held initial read");
+            redaction.Exhausted = false;
 
-        var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
-        var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
+            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1));
 
-        await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
+            var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
+            var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
 
-        // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
-        var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
 
-        await Assert.That(new FileInfo(sources[1].TranscriptPath).Length).IsGreaterThan(90_000);
-        await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
-        await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
-        await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
+            // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
+            var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
+
+            await Assert.That(new FileInfo(sources[1].TranscriptPath).Length).IsGreaterThan(90_000);
+            await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
+            await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
+            await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
+        } finally {
+            redaction.Exhausted = false;
+            await Task.WhenAll(sources.Select(source => host.FinishAsync(source.Key, CancellationToken.None)))
+                .WithinDeadlineAsync("stopping recorder sources");
+        }
     }
 
     /// <summary>A record-budget clock that never runs out, and moves <paramref name="host"/> on at every read, so redaction
