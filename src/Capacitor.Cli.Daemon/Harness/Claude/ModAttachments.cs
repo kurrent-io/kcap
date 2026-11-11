@@ -276,8 +276,8 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                 return false;
             default:
                 lock (_gate)
-                    foreach (var agentId in agentIds)
-                        if (_live.ContainsKey(agentId)) _unregistered.Add(agentId);
+                    foreach (var agentId in agentIds.Where(_live.ContainsKey))
+                        _unregistered.Add(agentId);
 
                 return false;
         }
