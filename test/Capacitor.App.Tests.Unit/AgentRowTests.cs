@@ -175,20 +175,23 @@ public class AgentRowTests {
         await Assert.That(AgentRow.FromRemote(Remote(null)).ViewerRights).IsNull();
     }
 
-    /// The remote daemon fetches with its owner's credential, so another user's daemon is never
-    /// offered files, nor one whose build predates fetching on dispatched input.
+    /// The remote daemon fetches with its owner's credential, so files are offered only when the
+    /// signed-in account owns both the session and the daemon, and the daemon's build fetches on
+    /// dispatched input. The listing's own ownership flag plays no part: it can be unset, or stale
+    /// after an account switch.
     [Test]
-    [Arguments(true,  "u7",    "1.0.3",       true)]
-    [Arguments(true,  "u7",    "1.0.3-beta.1", true)]
-    [Arguments(true,  "u7",    "1.0.2",       false)]
-    [Arguments(true,  "other", "1.0.3",       false)]
-    [Arguments(false, "u7",    "1.0.3",       false)]
-    public async Task A_remote_session_accepts_attachments_only_on_the_viewers_capable_daemon(
-            bool ownerIsViewer, string daemonOwner, string version, bool expected) {
+    [Arguments("u7",  "u7",    "1.0.3",        null,  true)]
+    [Arguments("u7",  "u7",    "1.0.3-beta.1", false, true)]
+    [Arguments("u7",  "u7",    "1.0.2",        true,  false)]
+    [Arguments("u7",  "other", "1.0.3",        true,  false)]
+    [Arguments("u8",  "u7",    "1.0.3",        true,  false)]
+    [Arguments(null,  "u7",    "1.0.3",        true,  false)]
+    public async Task A_remote_session_accepts_attachments_only_on_the_signed_in_accounts_capable_daemon(
+            string? viewer, string daemonOwner, string version, bool? ownerIsViewer, bool expected) {
         var row = AgentRow.FromRemote(Remote("t")) with { OwnerIsViewer = ownerIsViewer };
         IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = daemonOwner, Version = version }];
 
-        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons)).IsEqualTo(expected);
+        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons, viewer)).IsEqualTo(expected);
     }
 
     /// An attached terminal session submits text alone, so even the viewer's own capable daemon refuses files for it.
@@ -198,6 +201,6 @@ public class AgentRowTests {
         IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = "u7", Version = "1.0.3" }];
 
         await Assert.That(row.IsAttached).IsTrue();
-        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons)).IsFalse();
+        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons, "u7")).IsFalse();
     }
 }

@@ -406,7 +406,9 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             ? new ReadOnlyChatInput()
             : new ServerChatInput(row.Id, lane, _accessStates, _session, hasTerminal,
                 WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer,
-                uploader is null || remoteAgents is null ? null : _rows.CombineLatest(remoteAgents.Daemons, AcceptsAttachments).DistinctUntilChanged());
+                uploader is null || remoteAgents is null ? null
+                    : _rows.CombineLatest(remoteAgents.Daemons, appSubject ?? SignedInSubject.From(lane.Status), AcceptsAttachments)
+                        .DistinctUntilChanged());
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
             ? null
@@ -686,11 +688,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
     /// unless the ended session's hand-off composer stands in its place.
-    /// Only the viewer's own daemon, which fetches the files with its owner's credential, and only a
-    /// session it hosts: an attached terminal session submits text alone, so its daemon refuses files.
-    internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons) =>
-        !row.IsAttached && row.OwnerIsViewer == true && row.MachineBadge is { } name
-        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == row.OwnerUserId) is { } daemon
+    /// Only a daemon of the signed-in account, which fetches the files with its owner's credential, and
+    /// only a session it hosts: an attached terminal session submits text alone, so its daemon refuses files.
+    internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
+        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId == viewer && row.MachineBadge is { } name
+        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == viewer) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
     ChatSessionInfo SessionInfo(AgentRow row, bool ended) =>
