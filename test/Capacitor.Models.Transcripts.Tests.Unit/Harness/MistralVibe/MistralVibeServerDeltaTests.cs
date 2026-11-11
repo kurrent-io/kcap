@@ -1,5 +1,4 @@
-using System.IO.Hashing;
-using System.Text;
+using System.Globalization;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
 using Kurrent.Agent.Schema.Events;
 using TUnit.Assertions.Enums;
@@ -8,7 +7,7 @@ namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.MistralVibe;
 
 /// <summary>The inputs on which the server's Mistral Vibe normalizer and this projection gave different events,
 /// each pinned to the behaviour kept: a call carries its tool kind and the child it spawned, and an effect's
-/// result follows its call in source order at the call's own time, on the ids the server stamps.</summary>
+/// result follows its call in source order at the call's own time, on the ids the server's baseline holds.</summary>
 public class MistralVibeServerDeltaTests {
     static readonly DateTimeOffset Received = new(2026, 10, 7, 0, 0, 0, TimeSpan.Zero);
 
@@ -47,27 +46,28 @@ public class MistralVibeServerDeltaTests {
         await Assert.That(SchemaExtensions.Slug(calls, MistralVibeExtension.Slug)).IsNull();
     }
 
-    static Guid ServerSibling(Guid primary, string suffix) {
-        var input = new byte[16 + Encoding.UTF8.GetByteCount(suffix)];
-        primary.TryWriteBytes(input);
-        Encoding.UTF8.GetBytes(suffix).CopyTo(input, 16);
-        return new Guid(XxHash128.Hash(input));
-    }
+    /// <summary>A bash effect from kcap-server's corpus (<c>test/data/mistral-vibe/tool-turn.jsonl</c>), and what its
+    /// normalizer stored for it in the <c>v1</c> golden baseline: the call and result ids below, and the result at
+    /// <c>22:09:42.214000100Z</c>, one tick after the call.</summary>
+    const string RecordedEffect = """{"createdAt":1791497382214,"detail":{"display":{"message":"file_system.bash","settledMessage":"file_system.bash","settledVerb":"Ran","statusText":"Running file_system.bash","summary":"file_system.bash","verb":"Running"},"input":{"command":"python3 hello.py"},"kind":"tool","toolName":"file_system.bash"},"generationStatus":"completed","id":"effect-71a7b78b-717b-5096-8df3-72b38473c111","inputEntryId":"ad2e89f7-f27b-4b15-83ac-589146a16892","relatedEntryId":null,"sessionId":"66f6af87-9047-d8f4-293b-de942752d13d","state":{"approvalSource":"bypass","approvalType":"always","decision":"execute","display":{"message":"file_system.bash","success":true},"output":{"_meta":{"approval":{"approvalSource":"bypass","approvalType":"always","decision":"execute"}},"content":[],"structured_content":{"command":"python3 hello.py","returncode":0,"stderr":"","stdout":"hello from vibe e2e\n","was_truncated":false},"type":"success"},"outputText":"","status":"completed"},"title":"file_system.bash","turnId":"turn-c304339c8931b5a618eebff1958e2c42","type":"effect","updatedAt":1791497382710}""";
 
-    /// <summary>The server stamps the result one tick after its call to keep the pair in order; here the
-    /// result shares the call's time and follows it in the returned list, and both ids are the server's:
-    /// the entry id under its <c>vibe-entry:</c> prefix, and that id's <c>result</c> sibling.</summary>
+    const string RecordedCallId   = "425faa72-c541-b4bc-b133-4bc36b9ca6e7";
+    const string RecordedResultId = "5d8bd6d1-5edb-bac0-2cc7-a61ffdcbaf7b";
+
+    /// <summary>The ids are the baseline's; the result follows its call in the returned list at the call's own
+    /// time, where the baseline holds it a tick later.</summary>
     [Test]
-    public async Task An_effects_result_follows_its_call_at_the_calls_time_on_the_servers_ids() {
-        var e = E(Spawn);
+    public async Task An_effects_result_follows_its_call_at_the_calls_time_on_the_ids_the_baseline_recorded() {
+        var e = E(RecordedEffect);
 
         await Assert.That(e.Select(x => x.EventType)).IsEquivalentTo(
             [CanonicalEventTypes.AssistantToolCallsGenerated, CanonicalEventTypes.ToolResultReceived], CollectionOrdering.Matching);
+        await Assert.That(e[0].EventId).IsEqualTo(Guid.Parse(RecordedCallId));
+        await Assert.That(e[1].EventId).IsEqualTo(Guid.Parse(RecordedResultId));
+
+        await Assert.That(e[0].Timestamp).IsEqualTo(DateTimeOffset.Parse("2026-10-08T22:09:42.214Z", CultureInfo.InvariantCulture));
         await Assert.That(e[1].Timestamp).IsEqualTo(e[0].Timestamp);
         await Assert.That(((ToolResultReceived)e[1].Payload).Timestamp).IsEqualTo(((AssistantToolCallsGenerated)e[0].Payload).Timestamp);
-
-        var serverCallId = new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("vibe-entry:effect-s")));
-        await Assert.That(e[0].EventId).IsEqualTo(serverCallId);
-        await Assert.That(e[1].EventId).IsEqualTo(ServerSibling(serverCallId, "result"));
+        await Assert.That(((ToolResultReceived)e[1].Payload).Result).IsEqualTo("hello from vibe e2e\n");
     }
 }
