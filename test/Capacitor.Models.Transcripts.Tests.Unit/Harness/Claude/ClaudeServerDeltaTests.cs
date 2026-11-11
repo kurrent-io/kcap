@@ -131,6 +131,40 @@ public class ClaudeServerDeltaTests {
         await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
     }
 
+    /// <summary>An answer often reaches its prompt through the records between them, a system record the
+    /// projection otherwise ignores among them.</summary>
+    [Test]
+    public async Task An_answer_that_descends_from_its_prompt_through_other_records_answers_it() {
+        const string between = "a1b2c3d4-0000-4000-8000-0000000000b1";
+        const string meta    = "a1b2c3d4-0000-4000-8000-0000000000b2";
+        var ctx = Ctx();
+        E(Prompt(Cancelled, Parent), ctx);
+        E($$$"""{"type":"system","subtype":"informational","uuid":"{{{between}}}","parentUuid":"{{{Cancelled}}}","content":"x"}""", ctx);
+        E(Prompt(meta, between, meta: true), ctx);
+        E(Answer(meta), ctx);
+        E(Prompt(Cancelled, Parent), ctx);
+
+        await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
+    }
+
+    /// <summary>A re-delivered answer to another prompt closes the open one, as the server's does, but does not
+    /// make it answered: that prompt's own re-delivery reopens it, and its sibling then retracts it.</summary>
+    [Test]
+    public async Task A_redelivered_answer_to_another_prompt_does_not_answer_the_open_one() {
+        const string earlier = "a1b2c3d4-0000-4000-8000-0000000000e1";
+        const string other   = "8b1f0000-0000-0000-0000-000000000000";
+        var ctx = Ctx();
+        E(Prompt(earlier, Parent), ctx);
+        E(Answer(earlier), ctx);
+        E(Prompt(Cancelled, other), ctx);
+        E(Answer(earlier), ctx);
+        E(Prompt(Cancelled, other), ctx);
+
+        var e = E(Prompt(Resubmit, other), ctx);
+        await Assert.That(e).Count().IsEqualTo(2);
+        await Assert.That(((UserMessageRetractedEvent)e[0].Payload).MessageId).IsEqualTo(Guid.Parse(Cancelled));
+    }
+
     [Test]
     public async Task A_child_of_the_unanswered_prompt_retracts_nothing() {
         var ctx = Ctx();

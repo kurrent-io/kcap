@@ -24,8 +24,12 @@ public sealed class ClaudeTranscriptContext(string idScope) : TranscriptContext 
     /// again and a re-delivered cancelled prompt is not taken for an unanswered one.
     internal Dictionary<Guid, Guid>? Retractions { get; set; }
 
-    /// Every prompt an assistant record has followed, so a re-delivered one is not taken for unanswered.
+    /// Every prompt its own answer has followed, so a re-delivered one is not taken for unanswered.
     internal HashSet<Guid>? Answered { get; set; }
+
+    /// The records descending from the open prompt, so its own answer can be told from a re-delivered
+    /// answer to another prompt.
+    internal HashSet<string>? OpenLine { get; set; }
 }
 
 /// Claude Code's project transcript (`~/.claude/projects/&lt;slug&gt;/&lt;session&gt;.jsonl`): one JSON
@@ -53,6 +57,9 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             // attachments that are anything else are settled here, before the id is read.
             var ctx  = (ClaudeTranscriptContext)context;
             var type = root.Str("type");
+            // Followed through every record, the ones ignored below included: they sit between a prompt and its answer.
+            if (ctx.OpenLine is { } openLine && root.Str("parentUuid") is { } fromId && openLine.Contains(fromId)
+             && root.Str("uuid") is { } selfId && Guid.TryParse(selfId, out _)) openLine.Add(selfId);
             (string Prompt, string Content)? command = type == "system" && root.Str("subtype") == "local_command" ? LocalCommand(root) : null;
             var compaction = type == "system" ? CompactionBoundary(root) : null;
             if (type is not ("user" or "assistant" or "attachment") && command is null && compaction is null) {
@@ -80,13 +87,15 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                     return ProjectionResult.Reject("uuid is not a GUID");
             }
 
-            // Every valid record but an assistant one re-arms the usage memory, and an assistant one answers the
-            // open prompt; a rejected one, above, touches nothing.
+            // Every valid record but an assistant one re-arms the usage memory, and an assistant one closes the open
+            // prompt, as the server's does; only the prompt's own answer marks it answered. A rejected one, above,
+            // touches nothing.
             if (type != "assistant") {
                 ctx.PreviousUsage = null;
-            } else if (ctx.UnansweredPrompt is { } answered) {
-                (ctx.Answered ??= []).Add(answered.Id);
+            } else if (ctx.UnansweredPrompt is { } open) {
+                if (root.Str("parentUuid") is { } answering && ctx.OpenLine?.Contains(answering) == true) (ctx.Answered ??= []).Add(open.Id);
                 ctx.UnansweredPrompt = null;
+                ctx.OpenLine         = null;
             }
 
             var (at, recordTimestamp) = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt);
@@ -193,7 +202,10 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             cancelled = open.Id;
             (ctx.Retractions ??= []).Add(id, open.Id);
         }
-        if (!answered) ctx.UnansweredPrompt = (id, record.CausedBy);
+        if (!answered) {
+            ctx.UnansweredPrompt = (id, record.CausedBy);
+            ctx.OpenLine         = new(StringComparer.OrdinalIgnoreCase) { id.ToString() };
+        }
 
         if (cancelled is not { } cancelledId) return prompt;
         var retraction = new CanonicalEvent(CanonicalEventTypes.UserMessageRetracted, new UserMessageRetractedEvent { MessageId = cancelledId },
