@@ -1077,7 +1077,7 @@ class ImportCommand(
         }
 
         var (ignored, ignoredBeyondRemap) =
-            await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved);
+            await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved, cwdRemap);
 
         // Folders that no longer exist explain why a session matches no repository and can be remapped. An allow
         // list that rejects an unresolved repository may admit it once remapped, so only a session no remap can
@@ -3118,14 +3118,15 @@ class ImportCommand(
     /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
     /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
     /// recorded repository placed it elsewhere, so only those folders' repositories are detected. A transcript that
-    /// records no cwd is placed by the import in its project folder's repository as decoded, unremapped, so that folder's
-    /// repository stands in for the one discovery could not resolve.
+    /// records no cwd is placed by the import in the repository of its decoded project folder after remap and worktree
+    /// fallback, which stands in for the one discovery could not resolve.
     /// </summary>
     async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap)> CaptureScopeExclusionsAsync(
             IEnumerable<DiscoveredSession>                            sessions,
             IReadOnlyDictionary<string, string>                       rawCwds,
             IReadOnlyDictionary<string, string>                       sessionCwds,
-            IReadOnlyDictionary<string, (string Owner, string Name)?> resolved) {
+            IReadOnlyDictionary<string, (string Owner, string Name)?> resolved,
+            IReadOnlyList<CwdRemap>?                                  cwdRemap) {
         if (profiles.Effective is not { } profile) return (FrozenSet<string>.Empty, FrozenSet<string>.Empty);
 
         var judged = sessions
@@ -3135,42 +3136,47 @@ class ImportCommand(
                     ? SessionImporter.DecodeCwdFromDirName(encoded)
                     : null;
 
-                return (d.SessionId, Cwd: recordedCwd ?? folderCwd,
-                    FromFolder: folderCwd is not null && !sessionCwds.ContainsKey(d.SessionId),
+                var placedCwd   = folderCwd is not null && !sessionCwds.ContainsKey(d.SessionId)
+                    ? ResolveCwd(folderCwd, cwdRemap, worktreeAttributed: null, d.SessionId)
+                    : null;
+
+                return (d.SessionId, Cwd: recordedCwd ?? folderCwd, PlacedCwd: placedCwd,
                     Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null);
             })
             .ToList();
 
-        var rawRepos     = new ConcurrentDictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
+        var repos        = new ConcurrentDictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
         var excludesRepo = profile.ExcludedRepos is { Length: > 0 };
         var judgesRepo   = excludesRepo || profile.AllowedRepos is { Length: > 0 };
 
-        var detect = judged
-            .Where(j => j.Cwd is not null && Directory.Exists(j.Cwd)
-                     && (judgesRepo && j.FromFolder && !j.Recorded
-                      || excludesRepo
-                      && (j.Recorded
-                       || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal))))
-            .Select(j => j.Cwd!)
+        var rawDetect = judged
+            .Where(j => excludesRepo && j.Cwd is not null
+                     && (j.Recorded || j.PlacedCwd is not null
+                      || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
+            .Select(j => j.Cwd!);
+        var placedDetect = judged
+            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Select(j => j.PlacedCwd!);
+        var detect = rawDetect.Concat(placedDetect)
+            .Where(Directory.Exists)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
         await Parallel.ForEachAsync(detect, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
             try {
                 var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
-                rawRepos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? (o, n) : null;
+                repos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? (o, n) : null;
             } catch {
-                rawRepos[cwd] = null;
+                repos[cwd] = null;
             }
         });
 
         var all         = new HashSet<string>(StringComparer.Ordinal);
         var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var (sessionId, cwd, fromFolder, recorded) in judged) {
-            var folderRepo = cwd is null ? null : rawRepos.GetValueOrDefault(cwd);
-            var rawRepo    = folderRepo is { } f ? $"{f.Owner}/{f.Name}" : null;
-            var repo       = fromFolder && !recorded ? folderRepo : resolved.GetValueOrDefault(sessionId);
+        foreach (var (sessionId, cwd, placedCwd, recorded) in judged) {
+            var rawRepo = cwd is not null && repos.GetValueOrDefault(cwd) is { } f ? $"{f.Owner}/{f.Name}" : null;
+            var repo    = placedCwd is not null && !recorded ? repos.GetValueOrDefault(placedCwd) : resolved.GetValueOrDefault(sessionId);
 
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
             if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)) all.Add(sessionId);

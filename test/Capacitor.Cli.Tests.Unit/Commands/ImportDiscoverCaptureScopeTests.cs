@@ -97,6 +97,23 @@ public class ImportDiscoverCaptureScopeTests {
         await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
     }
 
+    /// <summary>The import remaps a cwd-less transcript's project folder before judging its repository, so an allow list
+    /// admits the session when the remap lands in an allowed checkout. The decoded folder does not exist, so only the
+    /// remapped one can resolve to a repository.</summary>
+    [Test]
+    public async Task A_session_without_a_recorded_cwd_is_judged_on_its_remapped_project_folder() {
+        var checkout   = Tmp.CreateDir("widgets-checkout");
+        using var repo = GitRepo.InitIn(checkout);
+        repo.AddRemote("https://github.com/acme/widgets.git");
+        WriteClaudeSession("99999999-9999-4999-8999-999999999999", cwd: null, projectDir: "-kcapfallback-moved");
+
+        var found = await DiscoverAsync(new ProfileContext(
+            new(null, "default", new Profile { AllowedRepos = ["acme/widgets"] }, null),
+            new ProfileConfig { CwdRemap = [new CwdRemap { From = "/kcapfallback/moved", To = checkout.Path }] }));
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(0);
+    }
+
     /// <summary>The import excludes a session whose recorded folder is in an excluded repository even when a remap
     /// moves it elsewhere, so discovery must leave it out too. Without the remap the folder's own repository is
     /// what resolves, so the remap is what makes this test about the recorded folder.</summary>
