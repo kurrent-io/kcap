@@ -132,7 +132,7 @@ public class CopilotSpanCloseTests {
         await Assert.That(await Close()).IsEmpty();
         await Assert.That(Owed).IsTrue();
 
-        File.SetLastWriteTimeUtc(Path.Combine(Paths.Directory, Session + ".span-close-pending"), DateTime.UtcNow - TimeSpan.FromHours(25));
+        File.SetLastWriteTimeUtc(Path.Join(Paths.Directory, Session + ".span-close-pending"), DateTime.UtcNow - TimeSpan.FromHours(25));
 
         await Assert.That(await Close()).IsEmpty();
         await Assert.That(Owed).IsFalse();
@@ -142,7 +142,7 @@ public class CopilotSpanCloseTests {
     [Test]
     public async Task An_unreadable_marker_is_dropped() {
         Directory.CreateDirectory(Paths.Directory);
-        var marker = Path.Combine(Paths.Directory, Session + ".span-close-pending");
+        var marker = Path.Join(Paths.Directory, Session + ".span-close-pending");
         await File.WriteAllTextAsync(marker, """{"server":"https://kcap.exa""");
 
         await Assert.That(CopilotSpanClose.Pending(Paths, Server)).IsEmpty();

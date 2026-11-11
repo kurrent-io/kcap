@@ -28,9 +28,10 @@ public class CopilotHookDrainSweepTests {
         var http      = new FixedCapacitorHttpClient();
         var profiles  = Resolutions.At(Server, Config.Root);
         var poster    = new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), TimeProvider.System);
+        using var client = new HttpClient();
 
         await poster.DrainSpoolsCoreAsync(lifecycle, new TranscriptSpool(Config.Root, TimeProvider.System, Server), null,
-            _ => Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired)), sweep);
+            _ => Task.FromResult(new AuthAttempt(client, AuthStatus.Expired)), sweep);
 
         await Assert.That(CopilotPendingEnd.SessionsWithPending(paths).Contains(Session)).IsEqualTo(!sweep);
         await Assert.That(lifecycle.HasBacklog(Session)).IsEqualTo(sweep);

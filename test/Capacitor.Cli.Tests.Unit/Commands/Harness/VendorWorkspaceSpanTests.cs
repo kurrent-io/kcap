@@ -335,7 +335,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         var spool   = new WorkspaceSpool(Config.Root, _server.Url, _time);
         Directory.CreateDirectory(spool.DirectoryPath);
-        var blocker = Path.Combine(spool.DirectoryPath, Session.Replace("-", ""));
+        var blocker = Path.Join(spool.DirectoryPath, Session.Replace("-", ""));
         File.WriteAllText(blocker, "");
         await CopilotAsync("sessionStart");
         File.Delete(blocker);
