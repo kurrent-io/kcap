@@ -456,6 +456,27 @@ public class CopilotPendingEndTests {
         await Assert.That(Sweep()).IsEqualTo(1);
     }
 
+    /// <summary>A sweep decides on a transcript it read unlocked. A run that begins while it waits for the record is a new
+    /// run's end to own, so the end decided on before it is not spooled.</summary>
+    [Test]
+    public async Task A_run_that_begins_while_a_sweep_waits_for_the_record_stops_its_promotion() {
+        var transcript = Transcript(StartA + "\n" + Down);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+
+        var held  = CopilotPendingEndLock.TryAcquire(Paths, Session)!;
+        var sweep = Task.Run(() => CopilotPendingEnd.SpoolDue(Paths, Spool, Server, TimeProvider.System, lockWait: TimeSpan.FromSeconds(30)));
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        await File.AppendAllTextAsync(transcript, ResumeB + "\n");
+
+        // Still waiting for the record, so it decided on the transcript before the new run began.
+        await Assert.That(sweep.IsCompleted).IsFalse();
+        held.Dispose();
+
+        await Assert.That(await sweep).IsEqualTo(0);
+        await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+        await Assert.That(Pending).IsTrue();
+    }
+
     /// <summary>A watcher retries its end through its stop window rather than lose it to a writer holding the record.</summary>
     [Test]
     public async Task A_watchers_write_is_retried_past_a_held_record() {

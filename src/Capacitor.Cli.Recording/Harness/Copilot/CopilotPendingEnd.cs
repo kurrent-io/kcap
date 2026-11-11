@@ -163,6 +163,9 @@ public static class CopilotPendingEnd {
                 using var held = CopilotPendingEndLock.TryAcquire(paths, session, lockWait);
                 if (held is null || ReadText(paths, session) is not { } now || IdentityOf(now) != IdentityOf(read)) continue;
 
+                // The transcript was read unlocked: a run that began, or a rewrite, since then leaves this pass deciding nothing.
+                if (outcome.Transcript is { } seen && ShapeOf(seen.Path) != seen.Shape) continue;
+
                 if (outcome.Why is { } why) Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: {why}");
 
                 switch (outcome.Kind) {
@@ -206,7 +209,9 @@ public static class CopilotPendingEnd {
     enum Change { None, Save, Drop, Promote }
 
     /// <summary>What a sweep decided for a record; nothing is written until the record is locked and found unchanged.</summary>
-    readonly record struct Outcome(Change Kind, JsonObject? Record = null, string? Body = null, string? RunId = null, string? Why = null) {
+    /// <param name="Transcript">The transcript a promotion or a drop was decided on, as it looked before it was read.</param>
+    readonly record struct Outcome(Change Kind, JsonObject? Record = null, string? Body = null, string? RunId = null, string? Why = null,
+            (string Path, string Shape)? Transcript = null) {
         public static readonly Outcome Keep = new(Change.None);
         public static Outcome Dropped(string? why = null) => new(Change.Drop, Why: why);
     }
@@ -235,6 +240,7 @@ public static class CopilotPendingEnd {
          || time.GetUtcNow() - writtenAt > Retention) return Outcome.Dropped();
 
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
+        var seen       = (transcript, ShapeOf(transcript));
 
         // A later run owns the session's end, even one that has since shut down too. A rewrite that took this run's own line
         // away leaves nothing to tell, and a premature end cannot be undone where a sweep's late one can. A known run waits
@@ -256,7 +262,7 @@ public static class CopilotPendingEnd {
             } else {
                 var (settled, noted) = Settle(record, transcript, time);
 
-                return settled ? Outcome.Dropped(mismatch) : noted is not null ? new Outcome(Change.Save, noted) : Outcome.Keep;
+                return settled ? Outcome.Dropped(mismatch) with { Transcript = seen } : noted is not null ? new Outcome(Change.Save, noted) : Outcome.Keep;
             }
         }
 
@@ -275,14 +281,13 @@ public static class CopilotPendingEnd {
 
         if (!shutdown && !runtimeGone && !quietUnidentified) return cleared ? new Outcome(Change.Save, record) : Outcome.Keep;
 
-        return record["body"]?.GetValue<string>() is { } body ? new Outcome(Change.Promote, Body: body, RunId: runId) : Outcome.Dropped();
+        return record["body"]?.GetValue<string>() is { } body ? new Outcome(Change.Promote, Body: body, RunId: runId, Transcript: seen) : Outcome.Dropped();
     }
 
     /// <summary>Whether the transcript has stayed exactly as a mismatch first found it for <see cref="MismatchSettles"/>;
     /// when the mismatch is new or the file has changed, the record noting how it looks now, for a later pass to compare.</summary>
     static (bool Settled, JsonObject? Noted) Settle(JsonObject record, string transcript, TimeProvider time) {
-        var info  = new FileInfo(transcript);
-        var shape = $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
+        var shape = ShapeOf(transcript);
 
         if (record["mismatch"] is JsonObject seen && seen["shape"]?.GetValue<string>() == shape
          && DateTimeOffset.TryParse(seen["since"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var since)) {
@@ -292,6 +297,17 @@ public static class CopilotPendingEnd {
         record["mismatch"] = new JsonObject { ["since"] = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture), ["shape"] = shape };
 
         return (false, record);
+    }
+
+    /// <summary>The transcript's length and last write, which an append or a rewrite changes; "missing" when it is gone.</summary>
+    static string ShapeOf(string transcript) {
+        try {
+            var info = new FileInfo(transcript);
+
+            return info.Exists ? $"{info.Length}:{info.LastWriteTimeUtc.Ticks}" : "missing";
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return "unreadable";
+        }
     }
 
     static bool EndsOnShutdown(string transcript) {

@@ -205,6 +205,11 @@ sealed class CopilotFinalizeDrainCommand(
 
         Log($"session end for {sessionId}: {ended?.ToString() ?? "left spooled"}");
 
+        // Copilot's own hooks never sweep pending ends, since they share its shutdown budget. This process runs under no
+        // budget of its own, and only once its own end is settled.
+        if (CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(config), spool, profiles.Resolution.ServerUrl, time) > 0)
+            await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(spool, sessionId);
+
         return ended == DrainOutcome.Delivered;
     }
 
