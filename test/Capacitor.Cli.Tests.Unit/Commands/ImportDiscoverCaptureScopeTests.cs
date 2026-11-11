@@ -44,4 +44,28 @@ public class ImportDiscoverCaptureScopeTests {
         await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
         await Assert.That(found.Summary.IgnoredFolders.Single().Folder).Contains("secret-project");
     }
+
+    /// <summary>The import judges ignored paths on the recorded cwd alone, so a remap into an ignored folder still
+    /// imports the session and discovery must count it.</summary>
+    [Test]
+    public async Task A_remap_into_an_ignored_folder_does_not_leave_the_session_out() {
+        var secret = Tmp.CreateDir("secret-project");
+        var moved  = Tmp.PathTo("moved-project");
+        WriteClaudeSession("33333333-3333-3333-3333-333333333333", moved);
+
+        var profile  = new Profile { ExcludedPaths = [secret.Path] };
+        var profiles = new ProfileContext(
+            new(null, "default", profile, null),
+            new ProfileConfig { CwdRemap = [new CwdRemap { From = moved, To = secret.Path }] });
+
+        ImportCommand.ImportDiscoveryResult? found = null;
+        var exit = await new ImportCommand(Config.Root, profiles, Home,
+                TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(),
+                time: TimeProvider.System, accounts: TestAccounts.None, console: new TestImportTerminal().Console)
+            .HandleImport(filterCwd: null, minLines: 1, discoverOnly: true, onDiscovered: r => found = r);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(found!.Summary.IgnoredCount).IsEqualTo(0);
+        await Assert.That(found.Summary.UnmatchedCount).IsEqualTo(1);
+    }
 }

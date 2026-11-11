@@ -1087,8 +1087,7 @@ class ImportCommand(
             var ignored = profiles.Effective is { } scopedProfile
                 ? discoveriesPerSource.SelectMany(d => d)
                     .Where(d => CaptureScope.ExcludesDiscovered(
-                        scopedProfile, home, rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd, sessionCwds.GetValueOrDefault(d.SessionId),
-                        resolved.GetValueOrDefault(d.SessionId)))
+                        scopedProfile, home, rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd, resolved.GetValueOrDefault(d.SessionId)))
                     .Select(d => d.SessionId)
                     .ToHashSet(StringComparer.Ordinal)
                 : [];
