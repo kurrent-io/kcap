@@ -129,6 +129,31 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
     }
 
+    /// A failed status read says nothing about the job, so it does not cut the wait on launchd short.
+    [Test]
+    public async Task Row2_launchd_wait_outlasts_a_failed_status_read() {
+        await using var h = new Harness();
+        var failNext = 0;
+        h.Cli.StatusBehavior = _ => Task.FromResult(Interlocked.Exchange(ref failNext, 0) == 1
+            ? null
+            : Snap(unitPresent: true, state: "installed", supervisor: "launchd"));
+        h.Start();
+
+        h.PushUnreachable();
+        var timers = 0;
+        for (var waited = TimeSpan.Zero; waited < DaemonLifecycleController.LaunchdSpawnGrace; waited += DaemonLifecycleController.LaunchdSpawnPoll) {
+            await WaitUntilAsync(() => h.Time.TimersCreated > timers || h.Lane.Requests.Count > 0,
+                what: "the next look at whether launchd started the job");
+            await Assert.That(h.Lane.Requests).IsEmpty();
+            timers = h.Time.TimersCreated;
+            if (waited == TimeSpan.Zero) Volatile.Write(ref failNext, 1);
+            h.Clock.Advance(DaemonLifecycleController.LaunchdSpawnPoll);
+        }
+
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the verified start after the grace");
+        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+    }
+
     /// Daemon attaching while the app waits on launchd leaves nothing to do.
     [Test]
     public async Task Row2_launchd_job_whose_daemon_attaches_during_the_wait_is_not_started() {

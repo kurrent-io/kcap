@@ -661,13 +661,14 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         snap.Supervisor == "launchd" && ServiceStateClassifier.Parse(snap.State) == ServiceState.Installed
         && snap.UnitPresent && snap.JobPid is null && snap.DaemonPid is null && !snap.TxnMarker && !snap.TxnActive;
 
-    /// <returns>True when a daemon attached; false once the grace runs out or the job changed under some other hand</returns>
+    /// <returns>True when a daemon attached; false once the grace runs out or a read shows the job changed under some
+    /// other hand. A failed read shows nothing, so the wait goes on.</returns>
     async Task<bool> AttachesWhileLaunchdHoldsJobAsync() {
         var deadline = _time.GetUtcNow() + LaunchdSpawnGrace;
         while (_time.GetUtcNow() < deadline) {
             await Task.Delay(LaunchdSpawnPoll, _time, _lifetime.Token).ConfigureAwait(false);
             if (IsCurrentlyAttached()) return true;
-            if (await ReadStatusAsync(_lifetime.Token).ConfigureAwait(false) is not { } snap || !LaunchdMayStartJob(snap)) return false;
+            if (await ReadStatusAsync(_lifetime.Token).ConfigureAwait(false) is { } snap && !LaunchdMayStartJob(snap)) return false;
         }
         return IsCurrentlyAttached();
     }
