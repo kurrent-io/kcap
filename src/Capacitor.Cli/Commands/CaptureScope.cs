@@ -179,7 +179,7 @@ sealed class CaptureScope {
         NeedsRepo && cwd is not null && _repoCache.TryGetValue(cwd, out var key) ? key : null;
 
     string? ExcludedRepo(string? repoKey) =>
-        repoKey is not null && _excludedRepos!.Contains(repoKey, StringComparer.OrdinalIgnoreCase) ? repoKey : null;
+        repoKey is not null && RepoScope.Names(_excludedRepos!, repoKey) ? repoKey : null;
 
     async Task<string?> DetectAsync(string cwd) {
         try {
