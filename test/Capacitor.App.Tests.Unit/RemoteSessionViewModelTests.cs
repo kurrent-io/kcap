@@ -870,8 +870,8 @@ public class RemoteSessionViewModelTests {
     }
 
     /// A startup dialog holds the session back and only the terminal can show it, but a normal start
-    /// has no session for a few seconds too: the empty chat offers the terminal rather than switching
-    /// to it, opening it asks the server, and the session's start leaves a live terminal as it is.
+    /// has no session for a few seconds too: the shared loading state offers the terminal rather than
+    /// switching to it, and the session's start leaves an already-open terminal live.
     [Test]
     public async Task Before_the_session_the_chat_offers_the_terminal_and_it_carries_on_when_the_session_starts() {
         await RunOnUiAsync(async () => {
@@ -880,13 +880,14 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(row);
             await Assert.That(vm.ShowsChatPane).IsTrue();
             await Assert.That(vm.AccessNote).IsEqualTo("Waiting for the session to start");
-            await Assert.That(vm.Chat.ShowsTerminalOffer).IsTrue();
+            await Assert.That(vm.Chat.ShowsTerminalOffer).IsFalse();
+            await Assert.That(vm.Chat.EmptyState?.HasAction).IsTrue();
             await Assert.That(await vm.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
             await Assert.That(vm.ShowsTerminalPane).IsFalse();
             await Task.Delay(50);
             await Assert.That(h.Lane.TerminalSubscribes).IsEmpty();
 
-            await vm.Chat.ShowTerminalCommand.Execute();
+            vm.Chat.EmptyState!.Action!.Execute(null);
             await Assert.That(vm.ShowsTerminalPane).IsTrue();
             await WaitUntilAsync(() => vm.Terminal!.Phase == RemoteTerminalPhase.Live, what: "the terminal live");
             var surface = vm.Terminal!.Surface;
