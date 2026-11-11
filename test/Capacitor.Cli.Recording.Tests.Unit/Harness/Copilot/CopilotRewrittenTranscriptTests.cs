@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
@@ -161,7 +162,7 @@ public class CopilotRewrittenTranscriptTests {
         await Recorders.For(Sid, path, null, "copilot").DrainNewLines(state, CancellationToken.None, isFinalDrain: true);
 
         await Assert.That(SentLines.Skip(10).ToArray()).IsEquivalentTo(
-            Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).Append((14, Line("a", 9))).ToArray());
+            Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).ToArray());
     }
 
     [Test]
@@ -171,6 +172,48 @@ public class CopilotRewrittenTranscriptTests {
 
         for (var i = 0; i < TranscriptRecorder.RewrittenPrefixCheckEveryNPolls; i++) await Drain(path, state);
 
-        await Assert.That(SentLines.Skip(10).Select(s => s.Number).ToArray()).IsEquivalentTo(Enumerable.Range(10, 5).ToArray());
+        await Assert.That(SentLines.Skip(10).Select(s => s.Number).ToArray()).IsEquivalentTo(Enumerable.Range(10, 4).ToArray());
+    }
+
+    /// <summary>A line appended after an in-place edit goes out before a later poll finds the edit.</summary>
+    [Test]
+    public async Task A_line_sent_before_its_rewrite_was_found_is_not_sent_again() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, EditedBeforeTheLastLine + Lines("a", 10, 1));
+
+        for (var i = 0; i < TranscriptRecorder.RewrittenPrefixCheckEveryNPolls; i++) await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(10).ToArray()).IsEquivalentTo(
+            Enumerable.Range(5, 4).Select(i => (i + 6, Line("b", i))).Prepend((10, Line("a", 10))).ToArray());
+    }
+
+    /// <summary>A file that changes under every read leaves nothing the spool can trust, so the session is marked for
+    /// import rather than spooled as having no tail.</summary>
+    [Test]
+    public async Task A_shutdown_tail_that_never_reads_stable_marks_the_session_for_import() {
+        var path    = Tmp.CreateFile("events.jsonl", Lines("a", 0, 10));
+        var rewrite = -1;
+        var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, path, "copilot", null), Recorders.Transport, new NoStamps(), TimeProvider.System,
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)),
+                Recorders.Housekeeping, TimeProvider.System, _ => { }, () => { })) {
+            // Each read keeps fewer of the original lines than the last.
+            OpenTranscript = p => {
+                if (rewrite >= 0) File.WriteAllText(p, Lines("a", 0, 6 - 2 * rewrite) + Lines($"r{rewrite}", 0, 3));
+                if (rewrite >= 0) rewrite++;
+                return new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            }
+        };
+        var state = new WatchState { ThresholdReached = true };
+        Recorders.Transport.IsConnected = true;
+        await recorder.DrainNewLines(state, CancellationToken.None);
+        rewrite = 0;
+        var spool = new TranscriptSpool(Tmp.PathTo("spool"), time: TimeProvider.System);
+
+        var result = await recorder.SpoolUndeliveredTranscriptTailAsync(
+            spool, state.LinesProcessed, new CommitObservation.Uncovered(), CancellationToken.None, lineMap: state.LineMap);
+
+        await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.MarkedNeedsImport);
+        await Assert.That(spool.NeedsImport(Sid)).IsTrue();
     }
 }

@@ -16,6 +16,9 @@ public sealed class TranscriptLineMap {
 
     int _polls;
 
+    // The lines a rewrite renumbered that had already been sent, so one the rewrite kept is not sent twice.
+    HashSet<ulong> _sentBeforeRewrite = [];
+
     // From each segment's first file line on, a line is sent under its file number plus the segment's shift.
     readonly List<(int FileLine, int Shift)> _segments = [(0, 0)];
 
@@ -79,15 +82,24 @@ public sealed class TranscriptLineMap {
 
     /// <summary>
     /// Forgets what was read from <paramref name="fileLine"/> on, which a rewrite changed, and numbers the file's lines
-    /// from there on from <paramref name="nextSentLine"/>.
+    /// from there on from <paramref name="nextSentLine"/>. The lines from there up to <paramref name="fileCursor"/> had
+    /// been sent.
     /// </summary>
-    public void Rewritten(int fileLine, int nextSentLine) {
+    public void Rewritten(int fileLine, int nextSentLine, int fileCursor) {
+        _sentBeforeRewrite = [];
+        for (var i = fileLine; i < Math.Min(fileCursor, _hashes.Count); i++) {
+            if (_hashes[i] != BlankHash) _sentBeforeRewrite.Add(_hashes[i]);
+        }
+
         if (fileLine < _hashes.Count) _hashes.RemoveRange(fileLine, _hashes.Count - fileLine);
         _segments.RemoveAll(s => s.FileLine >= fileLine && s.FileLine > 0);
 
         var shift = nextSentLine - fileLine;
         if (shift != SegmentAt(fileLine).Shift) _segments.Add((fileLine, shift));
     }
+
+    /// <summary>Whether <paramref name="line"/> was sent before the last rewrite renumbered it.</summary>
+    public bool SentBeforeRewrite(string line) => _sentBeforeRewrite.Count > 0 && _sentBeforeRewrite.Contains(Hash(line));
 
     (int FileLine, int Shift) SegmentAt(int fileLine) {
         for (var i = _segments.Count - 1; i > 0; i--) {

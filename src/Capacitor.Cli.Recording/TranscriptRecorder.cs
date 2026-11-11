@@ -896,11 +896,18 @@ public sealed class TranscriptRecorder(
                     lineOffsets: state.LineOffsets);
             }
 
-            var lineMap   = state.LineMap ??= RewritesTranscriptInPlace(vendor) ? new() : null;
-            var drainRead = lineMap is null
+            var lineMap = state.LineMap ??= RewritesTranscriptInPlace(vendor) ? new() : null;
+            var read    = lineMap is null
                 ? await ReadFrom(state.LinesProcessed)
                 : await ReadRewritableAsync(state.LinesProcessed, lineMap, state.LineOffsets, ReadFrom,
                     isFinalDrain || lineMap.PollIsDue(RewrittenPrefixCheckEveryNPolls), ct);
+
+            // The next poll reads again, and at shutdown the tail spool after the final drain does.
+            if (read is not { } drainRead) {
+                log("Transcript kept changing under every read; reading it again next poll");
+
+                return [];
+            }
 
             if (vendor == "cursor" && cursorGuard is not null) {
                 state.CursorGuardPollCount = cursorGuardPollCountPeek;
@@ -1373,9 +1380,10 @@ public sealed class TranscriptRecorder(
     /// is sent. The line before the cursor is read again to check it is unchanged, and with
     /// <paramref name="wholePrefix"/> every line below it is. When one changed, or the file is now shorter than the
     /// cursor, the lines from the first one the rewrite changed are numbered on from the cursor and read again.
-    /// Lines a watcher before this one read are taken as they now are, since nothing recorded them.
+    /// A line sent before the rewrite was found is not sent again. Lines a watcher before this one read are taken as
+    /// they now are, since nothing recorded them. Null when the file changed under every read.
     /// </summary>
-    async Task<NewTranscriptLines> ReadRewritableAsync(
+    async Task<NewTranscriptLines?> ReadRewritableAsync(
             int                                 sentCursor,
             TranscriptLineMap                   map,
             TranscriptLineIndex?                offsets,
@@ -1414,7 +1422,7 @@ public sealed class TranscriptRecorder(
 
             if (rewrittenAt is { } changed) {
                 context.Log($"Transcript was rewritten from line {changed}; numbering the lines after it from {sentCursor}");
-                map.Rewritten(changed, sentCursor);
+                map.Rewritten(changed, sentCursor, cursor);
                 offsets?.Reset();
                 wholePrefix = false;
                 continue;
@@ -1425,7 +1433,7 @@ public sealed class TranscriptRecorder(
             var lines   = new List<string>(read.Lines.Count);
             var numbers = new List<int>(read.Lines.Count);
             for (var i = 0; i < read.Lines.Count; i++) {
-                if (read.LineNumbers[i] < cursor) continue;
+                if (read.LineNumbers[i] < cursor || map.SentBeforeRewrite(read.Lines[i])) continue;
                 lines.Add(read.Lines[i]);
                 numbers.Add(map.ToSent(read.LineNumbers[i]));
             }
@@ -1433,7 +1441,7 @@ public sealed class TranscriptRecorder(
             return read with { Lines = lines, LineNumbers = numbers, NextPosition = map.ToSent(read.NextPosition) };
         }
 
-        return new NewTranscriptLines([], [], sentCursor);
+        return null;
     }
 
     /// <summary>Spool only records beyond the acknowledged source frontier.</summary>
@@ -1462,21 +1470,31 @@ public sealed class TranscriptRecorder(
             return null;
         }
 
-        NewTranscriptLines tail;
+        NewTranscriptLines? read;
         try {
-            await using var stream = new FileStream(
-                transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            Task<NewTranscriptLines> ReadFrom(int line) => TranscriptReader.ReadNewCompleteLinesAsync(
-                stream, line, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
+            async Task<NewTranscriptLines> ReadFrom(int line) {
+                await using var stream = OpenTranscript?.Invoke(transcriptPath) ?? new FileStream(
+                    transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+                return await TranscriptReader.ReadNewCompleteLinesAsync(
+                    stream, line, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
+            }
 
             // The final drain may have been cut off before its read, so this can be the first to see a rewrite.
-            tail = lineMap is null
+            read = lineMap is null
                 ? await ReadFrom(linesProcessed)
                 : await ReadRewritableAsync(linesProcessed, lineMap, lineOffsets, ReadFrom, wholePrefix: true, ct);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // Nothing is left that could say what the final drain missed, and a mark is the only way those lines survive.
             log($"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
             MarkForImport(transcriptSpool, $"shutdown tail: transcript could not be read: {ex.Message}");
+
+            return TranscriptSpool.AppendResult.MarkedNeedsImport;
+        }
+
+        if (read is not { } tail) {
+            log($"Shutdown-tail spool: transcript for {sessionId} kept changing under every read");
+            MarkForImport(transcriptSpool, "shutdown tail: transcript kept being rewritten while it was read");
 
             return TranscriptSpool.AppendResult.MarkedNeedsImport;
         }

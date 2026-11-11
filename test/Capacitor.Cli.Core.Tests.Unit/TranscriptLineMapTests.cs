@@ -8,8 +8,8 @@ public class TranscriptLineMapTests {
     // Ten lines sent, then the file rewritten from line 4; six more sent, then rewritten again from line 6.
     static TranscriptLineMap TwiceRewritten() {
         var map = new TranscriptLineMap();
-        map.Rewritten(4, 10);
-        map.Rewritten(6, 16);
+        map.Rewritten(4, 10, 10);
+        map.Rewritten(6, 16, 10);
 
         return map;
     }
@@ -40,7 +40,7 @@ public class TranscriptLineMapTests {
     [Test]
     public async Task A_whole_file_rewrite_numbers_every_line_from_the_cursor() {
         var map = new TranscriptLineMap();
-        map.Rewritten(0, 5);
+        map.Rewritten(0, 5, 5);
 
         await Assert.That(map.ToSent(0)).IsEqualTo(5);
         await Assert.That(map.ToFile(3)).IsEqualTo(0);
