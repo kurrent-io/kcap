@@ -613,6 +613,104 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task Collapsed_sidebar_attention_tracks_hidden_rows_and_a_pointer_click_expands_it() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var directory = new FakeAgentDirectory();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        rail.State = RailState.Ended;
+        var waiting = AgentRow.FromLocal(new AgentStatusDto("a", "agent", "claude", "/repo", "Running", null, null, null,
+            DateTime.UtcNow, null, null, AwaitingInput: true), new RepoIdentity("repo", "repo"));
+        var failed = waiting with { Key = "local:b", Id = "b", Status = "Failed", AwaitingInput = false };
+        directory.Rows.AddOrUpdate([waiting, failed]);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
+        var window = new MainWindow { DataContext = vm };
+        window.Panes.RailCollapsed = true;
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var mark = window.FindControl<Panel>("RailAttentionMark")!;
+            var toggle = window.RailToggleButton;
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(toggle);
+            await Assert.That(rail.Groups).IsEmpty();
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible).Text).IsEqualTo("2");
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar: 2 sessions need attention (1 failed)");
+            ToolTip.SetIsOpen(toggle, true);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(((TextBlock)ToolTip.GetTip(toggle)!).Text).Contains("2 sessions need attention (1 failed)");
+            ToolTip.SetIsOpen(toggle, false);
+
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            var point = toggle.TranslatePoint(new Point(toggle.Bounds.Width / 2, toggle.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            await Assert.That(window.SessionRail.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+            await Assert.That(peer.GetName()).IsEqualTo("Hide sidebar");
+
+            window.Panes.RailCollapsed = true;
+            directory.Rows.RemoveKey(failed.Key);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar: 1 session needs you");
+            directory.Rows.AddOrUpdate(waiting with { AwaitingInput = false });
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+            await Assert.That(peer.GetName()).IsEqualTo("Show sidebar");
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Collapsed_sidebar_surfaces_footer_and_priority_warnings_without_a_session_count() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var background = new BehaviorSubject<bool>(true);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, backgroundPriority: background);
+        var window = new MainWindow { DataContext = vm };
+        window.Panes.RailCollapsed = true;
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var mark = window.FindControl<Panel>("RailAttentionMark")!;
+            var toggle = window.RailToggleButton;
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(toggle);
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(mark.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible)).IsFalse();
+            await Assert.That(peer.GetName()).Contains(MainWindowViewModel.BackgroundPriorityMessage);
+            background.OnNext(false);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
+            await Assert.That(peer.GetName()).Contains(MainWindowViewModel.DaemonStoppedText);
+            await Assert.That(((TextBlock)ToolTip.GetTip(toggle)!).Text).Contains(MainWindowViewModel.DaemonStoppedText);
+            toggle.Focus();
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            await Assert.That(window.SessionRail.FindControl<StackPanel>("RailAlertRow")!.IsEffectivelyVisible).IsTrue();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         using var directory = new FakeAgentDirectory();
@@ -1107,7 +1205,7 @@ public class MainWindowSmokeTests {
 
     /// The vendor mark, the status word, and the age share one baseline. The age has no extra
     /// padding, or it sits below that line. The row carries the only tip, and it names the
-    /// harness and the model; no child shows a tip of its own.
+    /// harness and the model; no child shows a tip of its own. A screen reader finds the mark by the harness's name.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Vendor_mark_and_running_time_share_the_status_line() {
@@ -1135,6 +1233,8 @@ public class MainWindowSmokeTests {
                     Glyph: Center(glyph),
                     Meta: Center(meta),
                     VendorName: AutomationProperties.GetName(vendor),
+                    VendorPeer: Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(vendor) is var peer && peer.IsControlElement()
+                        ? peer.GetName() : null,
                     VendorLeft: Left(vendor),
                     MarkLeft: Left(mark),
                     MarkRight: Right(mark),
@@ -1150,6 +1250,7 @@ public class MainWindowSmokeTests {
                 return result;
             });
             await Assert.That(seen.VendorName).IsEqualTo("Claude Code");
+            await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
             await Assert.That(seen.RowTipIsStatus).IsTrue();
             await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
@@ -1561,6 +1662,37 @@ public class MainWindowSmokeTests {
         }
     });
 
+    /// The menu takes focus when it opens, so Escape closes it and hands focus back to its button.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Escape_closes_the_rail_help_menu() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            flyout.ShowAt(help);
+            Dispatcher.UIThread.RunJobs();
+            var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
+            var focused = TopLevel.GetTopLevel(docs)?.FocusManager?.GetFocusedElement() as Button;
+            await Assert.That(focused?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+
+            focused!.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(flyout.IsOpen).IsFalse();
+            await Assert.That(help.IsFocused).IsTrue();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Rail_help_flyout_items_close_the_flyout_and_invoke_their_commands_when_clicked() => AvaloniaSession.RunOnUiAsync(async () => {
@@ -1759,16 +1891,20 @@ public class MainWindowSmokeTests {
     });
 
     /// A healthy footer says Connected beside the org and no alert. A stopped daemon swaps Connected
-    /// for the alert with its long copy on hover, and its Start runs the same start as the launcher's.
+    /// for the alert with its long copy on hover; the alert opens the launcher, whose banner has the repair.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
         var shown = await AvaloniaSession.DispatchAsync(() => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+                () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
+            var (actions, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-                tenantName: "kurrent");
+                tenantName: "kurrent", home: home, workspaceFactory: id => NewWorkspace(service, actions, id));
             var window = new MainWindow { DataContext = vm };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -1782,11 +1918,20 @@ public class MainWindowSmokeTests {
             var healthyTexts = footer.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
 
+            vm.OpenSession("0123456789abcdef0123456789abcdef");
+            Dispatcher.UIThread.RunJobs();
+            var launcher = window.FindControl<Grid>("LauncherPane")!;
+            var workspaceOpened = vm.CurrentWorkspace is not null && !launcher.IsVisible;
+
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var text = rail.FindControl<TextBlock>("RailAlertText")!;
-            var action = rail.FindControl<Button>("RailAlertActionButton")!;
+            var link = rail.FindControl<Button>("RailAlertLink")!;
+            link.Focus(NavigationMethod.Tab);
+            Dispatcher.UIThread.RunJobs();
+            var focusUnderlined = link.IsFocused && text.TextDecorations == TextDecorations.Underline;
+            ClickFlyoutButton(link);
             var result = (
                 HealthyRow: healthyRow,
                 HealthyConnected: healthyConnected,
@@ -1794,11 +1939,13 @@ public class MainWindowSmokeTests {
                 HealthyTexts: healthyTexts,
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
-                ActionVisible: action.IsEffectivelyVisible,
-                ActionLabel: action.Content as string,
-                Starts: 0);
-            ClickFlyoutButton(action);
-            result.Starts = service.StartDaemonCallCount;
+                Buttons: row.GetVisualDescendants().OfType<Button>().Count(b => b.IsEffectivelyVisible),
+                OpensLauncher: ReferenceEquals(link.Command, vm.OpenRailAlertCommand),
+                WorkspaceOpened: workspaceOpened,
+                FocusUnderlined: focusUnderlined,
+                LauncherVisibleAfterClick: launcher.IsVisible,
+                StartDaemonVisibleAfterClick: window.FindDescendantOfType<LauncherPaneView>()!
+                    .FindControl<Button>("StartDaemonButton")!.IsEffectivelyVisible);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1813,10 +1960,103 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);
-        await Assert.That(shown.ActionVisible).IsTrue();
-        await Assert.That(shown.ActionLabel).IsEqualTo("Start daemon");
-        await Assert.That(shown.Starts).IsEqualTo(1);
+        await Assert.That(shown.Buttons).IsEqualTo(1).Because("the alert is its only control; the launcher's banner owns the repair");
+        await Assert.That(shown.OpensLauncher).IsTrue();
+        await Assert.That(shown.WorkspaceOpened).IsTrue();
+        await Assert.That(shown.FocusUnderlined).IsTrue();
+        await Assert.That(shown.LauncherVisibleAfterClick).IsTrue();
+        await Assert.That(shown.StartDaemonVisibleAfterClick).IsTrue();
     }
+
+    [Test]
+    [Arguments("daemon_unreachable", false, "StartDaemonButton")]
+    [Arguments("socket_refused", false, "RetryDaemonButton")]
+    [Arguments("daemon_incompatible", false, "RetryDaemonButton")]
+    [Arguments("daemon_unreachable", true, null)]
+    [Arguments(ExpectedDaemonRestart.Reason, false, null)]
+    [Arguments(ExpectedDaemonRestart.StartingReason, false, null)]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_reaches_local_recovery_without_repairing_the_remote_machine(
+            string reason, bool moving, string? actionName) => AvaloniaSession.DispatchAsync(async () => {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([new() { Name = "box", OwnerUserId = "u1", Connected = true, SupportedVendors = ["claude"] }]);
+        using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+            () => Task.FromResult(Array.Empty<string>()), TimeProvider.System,
+            daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+        await home.SelectMachineAsync("box", isLocal: false);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            home: home, movingToWindowsService: Observable.Return(moving));
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, reason, null));
+            Dispatcher.UIThread.RunJobs();
+            var launcher = window.FindDescendantOfType<LauncherPaneView>()!;
+            await Assert.That(home.RemoteMachineSelected).IsTrue();
+            await Assert.That(launcher.FindControl<Button>("StartDaemonButton")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(launcher.FindControl<Button>("RetryDaemonButton")!.IsEffectivelyVisible).IsFalse();
+
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(actionName is null);
+            if (actionName is not null) {
+                var action = launcher.FindControl<Button>(actionName)!;
+                await Assert.That(action.IsEffectivelyVisible).IsTrue();
+                ClickFlyoutButton(action);
+            }
+            await Assert.That(service.StartDaemonCallCount).IsEqualTo(actionName == "StartDaemonButton" ? 1 : 0);
+            await Assert.That(service.RestartCount).IsEqualTo(actionName == "RetryDaemonButton" ? 1 : 0);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    [Test]
+    [Arguments(false, "work", false, true)]
+    [Arguments(true, "work", false, true)]
+    [Arguments(true, "other", false, false)]
+    [Arguments(false, "other", false, false)]
+    [Arguments(true, "work", true, false)]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_reaches_daemon_sign_in_only_for_the_apps_profile_and_server(
+            bool remoteSelected, string daemonProfile, bool foreignServer, bool offered) => AvaloniaSession.DispatchAsync(async () => {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        const string server = "https://app.example";
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: daemonProfile,
+            serverUrl: foreignServer ? "https://other.example" : server));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([new() { Name = "box", OwnerUserId = "u1", Connected = true, SupportedVendors = ["claude"] }]);
+        var lane = new FakeServerLane();
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+        var signIns = 0;
+        using var home = new HomeViewModel(service, new AppStateStore(path), new NeverLaunchClient(),
+            () => Task.FromResult(Array.Empty<string>()), TimeProvider.System,
+            daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"), laneStatus: lane.Status,
+            requestSignIn: () => signIns++, appServerUrl: server);
+        if (remoteSelected) await home.SelectMachineAsync("box", isLocal: false);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            tenantName: "work", home: home, laneStatus: lane.Status, requestSignIn: () => signIns++, appServerUrl: server);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected && !offered);
+            var action = window.FindDescendantOfType<LauncherPaneView>()!.FindControl<Button>("HomeSignInButton")!;
+            await Assert.That(action.IsEffectivelyVisible).IsEqualTo(offered);
+            if (offered) ClickFlyoutButton(action);
+            await Assert.That(signIns).IsEqualTo(offered ? 1 : 0);
+        } finally { window.Close(); }
+        return true;
+    });
 
     /// Signed-out is a rail diagnosis; the launcher's Sign in is on the other pane and hidden
     /// once a workspace is open, so the help flyout has to offer the same action (not the footer).

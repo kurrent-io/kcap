@@ -14,7 +14,7 @@ internal sealed partial class LocalControlServer(
         DaemonConfig config, AgentOrchestrator orchestrator,
         RestartCoordinator restart, LaunchConsentIpc consentIpc, PermissionIpc permissionIpc, DaemonStatusIpc statusIpc,
         DaemonSettingsIpc settingsIpc, AdmissionFenceIpc fenceIpc,
-        DaemonShutdownIpc shutdownIpc, AccountsIpc accountsIpc, ILogger<LocalControlServer> logger
+        DaemonShutdownIpc shutdownIpc, AccountsIpc accountsIpc, SteeringSwitch steering, ILogger<LocalControlServer> logger
     ) : BackgroundService {
     protected override async Task ExecuteAsync(CancellationToken ct) {
         var path = config.Store.SocketPath(config.Name);
@@ -90,7 +90,12 @@ internal sealed partial class LocalControlServer(
                 case FrameType.HandoffProbe: await orchestrator.HandleLocalHandoffProbeAsync(first.Text, stream, ct); break;
                 case FrameType.ResumeProbe: await orchestrator.HandleLocalResumeProbeAsync(first.Text, stream, ct); break;
                 case FrameType.HandoffOutcomeQuery: await orchestrator.HandleLocalHandoffOutcomeQueryAsync(first.Text, stream, ct); break;
-                default: await FrameCodec.WriteAsync(stream, LocalFrame.Error($"expected Spawn/Attach/AttachWithRuntime/List/Stop/StopV2/Restart/ConsentSubscribe/ConsentResolve/ConsentRulesGet/ConsentRulesPut/ConsentSubscribeV2/ConsentResolveV2/ConsentRulesPutV2/PermissionSubscribe/PermissionResolve/Hello/StatusSubscribe/SendText/SendTextWithAttachments/DaemonSettingsPut/AdmissionFenceAcquire/Shutdown/AgentResume/AgentSession/AccountsSubscribe/SessionRename/HandoffProbe/HandoffOutcomeQuery/ResumeProbe, got {first.Type}"), ct); break;
+                case FrameType.RecordSource: await orchestrator.HandleLocalRecordSourceAsync(first.Text, stream, ct); break;
+                case FrameType.RecordTerminalSource: await orchestrator.HandleLocalRecordTerminalSourceAsync(first.Text, stream, ct); break;
+                case FrameType.FinishSource: await orchestrator.HandleLocalFinishSourceAsync(first.Text, stream, ct); break;
+                case FrameType.DisableSession: await orchestrator.HandleLocalDisableSessionAsync(first.Text, stream, ct); break;
+                case FrameType.SteeringSet: await steering.HandleSetAsync(first.Text, stream, ct); break;
+                default: await FrameCodec.WriteAsync(stream, LocalFrame.Error($"expected Spawn/Attach/AttachWithRuntime/List/Stop/StopV2/Restart/ConsentSubscribe/ConsentResolve/ConsentRulesGet/ConsentRulesPut/ConsentSubscribeV2/ConsentResolveV2/ConsentRulesPutV2/PermissionSubscribe/PermissionResolve/Hello/StatusSubscribe/SendText/SendTextWithAttachments/DaemonSettingsPut/AdmissionFenceAcquire/Shutdown/AgentResume/AgentSession/AccountsSubscribe/SessionRename/HandoffProbe/HandoffOutcomeQuery/ResumeProbe/RecordSource/RecordTerminalSource/FinishSource/DisableSession/SteeringSet, got {first.Type}"), ct); break;
             }
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             LogConnectionError(ex);
@@ -143,7 +148,7 @@ internal sealed partial class LocalControlServer(
         } catch (JsonException) { /* diagnostics-only payload; reply identically regardless */ }
 
         var reply = new HelloReplyDto(
-            HelloProtocol.CurrentVersion, DaemonRunner.ResolveDaemonVersion(), config.Name, [.. LocalControlCapabilities.Current],
+            HelloProtocol.CurrentVersion, DaemonRunner.ResolveDaemonVersion(), config.Name, [.. LocalControlCapabilities.Advertised(orchestrator.RecordingIsOn)],
             Environment.ProcessId, config.InstanceId);
         var json = JsonSerializer.Serialize(reply, HelloIpcJsonContext.Default.HelloReplyDto);
         await FrameCodec.WriteAsync(stream, LocalFrame.HelloJson(FrameType.HelloReply, json), ct);

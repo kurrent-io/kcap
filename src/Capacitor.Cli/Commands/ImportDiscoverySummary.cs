@@ -96,7 +96,9 @@ public sealed record ImportDiscoverySummary(
                 into = bucket;
 
                 if (vendorBySession?.TryGetValue(sessionId, out var vendor) == true) bucket.Vendor(vendor).Add(startedAt, windows);
-            } else if (folderBySession?.TryGetValue(sessionId, out var folder) == true) {
+            } else if (folderBySession?.TryGetValue(sessionId, out var raw) == true) {
+                var folder = ImportScope.FolderKey(raw);
+
                 if (!folders.TryGetValue(folder, out var bucket)) folders[folder] = bucket = new Accumulator(windows.Count);
 
                 bucket.Add(startedAt, windows);

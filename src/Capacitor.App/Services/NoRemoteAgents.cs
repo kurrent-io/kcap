@@ -60,4 +60,5 @@ internal sealed class NoServerLane : IServerLane {
     public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, CancellationToken ct) => Task.FromResult(HubCallOutcome.NotConnected);
     public Task<HubCallOutcome> DiscardQueuedInputAsync(string agentId, Guid dispatchId, CancellationToken ct) => Task.FromResult(HubCallOutcome.NotConnected);
     public Task<HubCallOutcome> SendSpecialKeyAsync(string agentId, string key, CancellationToken ct) => Task.FromResult(HubCallOutcome.NotConnected);
+    public Task<HubCallOutcome> SendTerminalInputAsync(string agentId, byte[] data, CancellationToken ct) => Task.FromResult(HubCallOutcome.NotConnected);
 }

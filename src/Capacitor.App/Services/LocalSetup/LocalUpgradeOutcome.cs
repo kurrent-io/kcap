@@ -5,7 +5,7 @@ public abstract record LocalUpgradeOutcome {
     // The exit codes LocalUpgradeCommand documents.
     const int UpgradedExit          = 0;
     const int FailedAfterSwitchExit = 2;
-    const int NothingToDoExit       = 3;
+    const int NotInstalledExit      = 3;
     const int NotPublishedExit      = 4;
 
     public sealed record Upgraded(string? From, string? To, string? SearchWarning = null) : LocalUpgradeOutcome;
@@ -21,11 +21,13 @@ public abstract record LocalUpgradeOutcome {
         string? Code, string Message, bool Switched, LocalInstallAffordance Affordance, string? From, string? To) : LocalUpgradeOutcome;
 
     /// The exit code decides the kind. A `switched` line makes any failure one after the switch: a child
-    /// killed past it exits with the signal's code, and the new version is still selected.
+    /// killed past it exits with the signal's code, and the new version is still selected. Exit 0 with a
+    /// `nothing_to_do` line is a current or newer stack; an older CLI exits 3 for that, so 3 stays nothing to do.
     public static LocalUpgradeOutcome Settle(LocalUpgradeProgress progress, int exitCode, string? stderr) =>
         exitCode switch {
+            UpgradedExit when progress.NothingToDo => new NothingToDo(progress.SkipReason),
             UpgradedExit     => new Upgraded(progress.From, progress.To, progress.Embeddings.Skipped ? progress.Embeddings.Summary : null),
-            NothingToDoExit  => new NothingToDo(progress.SkipReason),
+            NotInstalledExit => new NothingToDo(progress.SkipReason),
             NotPublishedExit => new NotPublished(progress.FailedMessage),
             _ => new Failed(
                 progress.FailedCode,

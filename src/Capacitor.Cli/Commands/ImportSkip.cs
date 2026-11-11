@@ -1,9 +1,10 @@
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Repositories and folders one import run leaves out, whatever its scope. Nothing here is saved:
-/// recording from now on, and every later import, follow <c>excluded_repos</c> and <c>kcap ignore</c>
-/// alone, which stay authoritative whether or not a project is listed here.
+/// Repositories and folders one import run leaves out, whatever its scope. Recording from now on, and
+/// <c>kcap import</c>, follow <c>excluded_repos</c> and <c>kcap ignore</c> alone, which stay authoritative
+/// whether or not a project is listed here; only <c>kcap setup --local</c> keeps one, in
+/// <see cref="LocalSetupAnswers"/>, to leave the same projects out of its next import.
 /// </summary>
 public sealed record ImportSkip {
     public static ImportSkip None { get; } = new([], []);

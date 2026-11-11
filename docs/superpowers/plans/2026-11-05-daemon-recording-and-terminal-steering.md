@@ -18,7 +18,7 @@
 - Wire changes land on the server first, as optional trailing fields. An older CLI or daemon must keep today's path.
 - `FrameType` values are append-only, and each new frame has a live handler before its capability joins `LocalControlCapabilities.Current`.
 - Transcript event ids don't change. `TranscriptIds` is a persistence contract.
-- No new Postgres tables. Claims, the input log and the steering switch are daemon files, stamps are event metadata, attribution stays in `hosted_agent_input_attribution`, and dispatch states are events on `HostedAgentInput-{agentId}`. The only schema change is two nullable columns on `hosted_agent_pending_dispatches`, in Task 17.
+- No new Postgres tables. Claims, the input log and the steering switch are daemon files, stamps are event metadata, attribution stays in `hosted_agent_input_attribution`, and dispatch states are events on `HostedAgentInput-{agentId}`. The only schema change is three nullable columns on `hosted_agent_pending_dispatches`: two in Task 17, and `delivery_reason` in Task 21c, so a rejected attached message keeps its reason across a projector restart.
 - Read agent-owned files with `FileShare.ReadWrite`.
 - A redaction timeout holds its source, and never drops or marks the line.
 - A 401 spools, and only a rejected payload drops. Status classification goes through `HookSpool.IsRetryable`.
@@ -260,7 +260,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `Watcher_held_source_stops_and_drains_as_today`.
   - `A_fresh_daemon_claim_signals_nothing_and_asks_the_daemon_to_finish`: assert no signal is sent, `FinishSourceAsync` is called once, and no `/hooks/transcript` post happens.
   - `A_stale_claim_on_a_terminal_session_is_taken_and_drained`.
-  - `A_stale_claim_on_a_hosted_session_does_nothing`: no post and no claim change.
+  - `A_stale_hosted_claim_holds_back_a_hook_from_a_hosted_agent`: no post and no claim change.
+  - `A_stale_hosted_claim_is_taken_and_drained_by_a_hook_from_outside_an_agent`: a hook from outside an agent takes it, so a session never goes unrecorded because its daemon is down.
   - `An_unclaimed_source_drains_as_today`.
   - `The_claim_never_touches_the_pid_file`: assert `KillWatcher` can't reach the daemon's pid.
   - `EnsureWatcherRunning_spawns_nothing_for_a_fresh_claim`.
@@ -271,6 +272,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 ### Task 9: The daemon records hosted Claude
 
+Built in three reviewed parts: the server's wire additions first, then the recorder's readiness with no daemon reference, then the daemon itself, then `kcap disable` and the live check.
+
 **Files:**
 - Create: `src/Capacitor.Cli.Daemon/Services/DaemonRecorder.cs`, `src/Capacitor.Cli.Daemon/Services/ServerRecorderTransport.cs`
 - Modify: `src/Capacitor.Cli.Daemon/Capacitor.Cli.Daemon.csproj`, `Services/AgentOrchestrator.cs`, `Services/ServerConnection.cs`, `Services/LocalControlCapabilities.cs`, `src/Capacitor.Cli/WatcherManager.cs`
@@ -279,7 +282,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: `RecorderHost`, `RecorderClaims`.
-- Produces: capability `recording/1`. `StopWatcher(reason)` keeps its one argument, because a SignalR client drops an invocation whose argument count doesn't match its handler. The server pushes `StopSource(string key, string reason)` beside it, which an older watcher has no handler for and ignores. `DaemonRecorder.StartForAgent(HostedAgent agent)` and `FinishAsync(string key, CancellationToken ct)`.
+- Produces: capability `recording/1`. The server pushes `StopSource(string key, string reason)` beside `StopWatcher` at both sites, and adds a hub method `WatcherDetach(string sessionId, string? agentId)`, because a source that ends by itself on a long-lived connection would otherwise stay live until the connection drops and the stale-session sweep could never reap it. `IRecorderTransport` gains `DetachAsync(RecordingSource source, CancellationToken ct)`, which `HubRecorderTransport` leaves a no-op because its connection ends with its one source. A recording connection handles `StopSource` and ignores `StopWatcher`. `ServerRecorderTransport` holds its own `HubConnection` to `/hubs/sessions`, because `WatcherConnect` takes a connection out of the UI topics and the daemon's main connection has joined its owner's. `DaemonRecorder.StartForAgent(RecordedSource source)` and `FinishAsync(string key, CancellationToken ct)`.
 
 - [ ] **Tests:**
   - `The_claim_exists_before_the_agent_process_starts` (Review Focus 4).
@@ -287,15 +290,30 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `A_hosted_hook_spawns_a_watcher_on_an_older_daemon`.
   - `A_hard_killed_daemon_resumes_from_WatcherConnect`: resume from the persisted list, with no line lost and none resent past the server's position.
   - `A_restart_skips_a_session_a_live_watcher_holds`.
+  - `Disable_stops_a_daemon_held_source_with_no_final_drain`: nothing is sent after `kcap disable` reports that recording stopped.
+  - `A_source_added_without_its_claim_is_refused`.
+  - `A_finished_source_releases_its_claim_and_a_lost_one_does_not`.
+  - `A_lost_source_leaves_the_persisted_list`.
   - `Stop_with_a_key_stops_only_that_source`, on the server: two keys on one connection.
-- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only. The daemon implements `IRecorderHost`. Move `GitHook`'s probing down here, taking `isClaimed` and the hook command from the host: a hosted session is claimed by definition, and the command comes from `KcapBinaryCommand.ResolveCliSibling()`, because `Resolve()` inside the daemon names the daemon binary and would read every hosted session as uncovered. All recorders share one `GitProviderRouter`, which is one per process by design. Route the `Console.Error` writes in `CursorMarkers.Quarantine` and `TranscriptSpool.MarkNeedsImport` to the recorder's log. Decide what the recorder's idle-window environment read means in a daemon, where it reads the daemon's environment rather than the session's. A clean close from the server ends a watcher rather than reconnecting it, so `ServerRecorderTransport` must not inherit that: a daemon's reconnect is the connection's own.
+  - `An_older_watcher_still_stops`, on the server: `StopWatcher` keeps its one argument.
+  - `The_daemons_main_connection_keeps_its_topics_while_recording`.
+  - `A_source_that_ends_by_itself_detaches_from_the_server`, including one that lost its claim.
+- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only. The daemon doesn't record on a server without `WatcherDetach`, which it learns by calling that method for a key it doesn't hold. The daemon implements `IRecorderHost`. Move `GitHook`'s probing down here, taking `isClaimed` and the hook command from the host: a hosted session is claimed by definition, and the command comes from `KcapBinaryCommand.ResolveCliSibling()`, because `Resolve()` inside the daemon names the daemon binary and would read every hosted session as uncovered. All recorders share one `GitProviderRouter`, which is one per process by design. Route the `Console.Error` writes in `CursorMarkers.Quarantine` and `TranscriptSpool.MarkNeedsImport` to the recorder's log. Decide what the recorder's idle-window environment read means in a daemon, where it reads the daemon's environment rather than the session's. A clean close from the server ends a watcher rather than reconnecting it, so `ServerRecorderTransport` must not inherit that: a daemon's reconnect is the connection's own.
+- [ ] **`kcap disable`, a privacy requirement.** `kcap disable` prints "Recording stopped and server data deleted", but no recorder path reads `DisabledSessions`, and on the server `SessionDeleteHandler` stops nothing and `MayIngestAsync` checks only ownership. A daemon would keep sending, and rows would likely reappear. The disable path needs a daemon call that stops a source with no final drain, and the subagent scan in `Program.cs:691-699`, which only sees `*.pid`, has to find daemon-held children too.
+- [ ] **Taking and releasing a claim:**
+  - `TryTake` runs under the spawn lock with the live-watcher check inside it, or a hook and the daemon can both start recorders, with a fresh claim leaving nothing to stop the second. `WithSpawnLock`, `PidAlive` and `IsWatcherAlive` live in `kcap`, so they move down first. A lost lock and a fresh corrupt claim both answer false and are retried, not read as refused. `PurgeAuxiliaryFiles`' assumption that spawn locks are safe to unlink stops holding.
+  - Take before `TryAdd`, for every source including subagents. With claims, no file reads as lost, so a source added untaken silently never records.
+  - Write the key byte for byte as hooks do. Claude hooks strip dashes (`ClaudeHookCommand.cs:74,275`), and any other form reads `None`, so a watcher spawns beside the daemon. Use `WatcherPaths.FromEnvironment(config)`.
+  - Release after `FinishAsync` only, never after a loss. An idle-ended source that keeps an unbeaten claim reads as stale hosted, so the next hook spawns nothing and later rows have no recorder. The on-ended callback carries `LostClaim` and `EndedIdle`.
+  - Drop lost sources from the persisted list, or a restart re-takes a source a hook finished.
 - [ ] **What differs in a daemon,** found while moving the code. Each needs an answer here:
   - `RunWatch` calls `ClaudeJudgeWarmup` and `HostedAgent.FromEnvironment`, so a daemon recorder doesn't get them for free.
   - `git` and `gh` inherit the daemon's environment and PATH, and a failed start reads as "no repository", silently.
   - `GitProviderRouter`'s memo has no expiry, and a failed probe stores GitLab. That costs a watcher one session and would cost a daemon its whole lifetime, so give it an expiry.
   - Child start and title hand-off spawn `Environment.ProcessPath`, which in a daemon is the daemon binary.
   - `RecorderHost` disposes its recorders, so `DaemonRecorder` can't read `EndedIdle`, `SpawnedChildKeys` or a failure, and `RetireAckCursor` is never called. The host needs an on-ended callback, fired per attempt, or a failed attempt's child keys are lost.
-  - A server stop during a backoff has no subscriber. No lines are lost, because the next `WatcherConnect` redelivers it, but the server waits only 10 seconds for a drain against a backoff of up to 30, so the session end can overtake the tail, and a substantive line then reactivates an ended session (`CapacitorHub.cs:375`). Settle the order.
+  - A server stop during a backoff has no subscriber. No lines are lost, because the next `WatcherConnect` redelivers it, but the server waits only 10 seconds for a drain against a backoff of up to 30, so the session end can overtake the tail, and a substantive line then reactivates an ended session (`CapacitorHub.cs:375`). A hook finishing a fresh claim has the same race. Settle the order for both.
+  - A recorder that lost its claim leaves the daemon's registration on the server, so a session end can wait out `StopAndDrainAsync`'s 10 seconds with no answer.
   - `ServerRecorderTransport` raises `Reconnected` to every recorder. Raise them with one handler's failure or hang isolated from the rest, because in turn, one stuck `WatcherConnect` stalls every later source's re-registration and N sources cost N round trips.
   - A send that hangs in a final drain has nothing to end it. A daemon shutdown needs a bound on `RecorderHost`, and it must spool rather than cut a drain short.
   - `ServerRecorderTransport.ConnectAsync` must honour its token. A running connect that ignores it blocks both the finish and the import mark, because only a drain-once connect has a bound.
@@ -418,7 +436,13 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - `A_daemon_restart_within_grace_spawns_no_watcher`.
   - `A_daemon_gone_past_grace_spawns_a_watcher_and_keeps_it_until_the_session_ends`.
   - `A_failed_handoff_never_blocks_the_hook_past_its_budget`.
-- [ ] **Implement:** match the daemon by the hook's resolved profile and server URL. `EnsureWatcherRunning` tries the daemon first, under the per-key spawn lock.
+- [ ] **Implement:** match the daemon by the hook's resolved profile and server URL. `EnsureWatcherRunning` tries the daemon first, under the per-key spawn lock. What claims left for this task:
+  - Tell a daemon that's unreachable from one that refused. A terminal session whose daemon dies within `Grace` of its last hook gets no drain, so it has no recorder if the daemon never returns.
+  - `RecorderHost.FinishAsync` returns silently for a key it isn't recording, so `FinishSourceAsync` must not answer true for a claimed key not yet resumed.
+  - Decide the terminal beat for a backoff and for a parked first connect, which never beats. Not beating lets a hook take a source the daemon can't reach.
+  - A claimed source takes the spawn lock on every hook, because the fast path needs a live watcher, so add a fresh-claim fast path.
+  - A second daemon's take isn't seen by the first, and the loser's beats keep the winner's claim fresh. Pass the holder to the recorder if more than one daemon can serve a directory.
+  - `FinishSourceBudget`'s 5 seconds stacks across a teardown loop: a hung daemon spends Gemini's 8-second cap, and later children lose their `subagent-stop` (`GeminiSubagentTeardown.cs:52-54`).
 - [ ] **Verify:** the suites, then a real terminal session with the daemon killed and restarted mid-turn.
 - [ ] **Commit:** `Hand terminal sessions to the daemon for recording`
 
@@ -429,8 +453,8 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - Test: per-vendor recorder tests
 
 - [ ] **Tests:** for each vendor, `<Vendor>_session_end_finishes_through_the_daemon`, and for vendors with subagents `<Vendor>_subagent_stop_leaves_the_parent_running`.
-- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output. Cursor and Antigravity read SQLite, which must never reach the AOT daemon, so their title stores and Antigravity's usage rows have no daemon reader. Those two stay on the fallback watcher until there's a reader the daemon can carry.
-- [ ] **Before a vendor with subagents moves:** a source that never had a tick gets no `AfterDrainAsync` subagent scan, which matters for Codex, Gemini and OpenCode. A host can't decline by returning false yet. The Gemini, Mistral Vibe, OpenCode, Codex and Grok scans ignore `StartChildAsync`'s result, so false still logs "spawned" and, except for Grok, marks the file seen. False from `FinishGrokChildAsync` means retry, every tick, forever. Copilot: a null parent pid sets `CopilotHostMissing`, which changes idle end, and a daemon has no parent pid to pass. Muse: `MuseHookCommand` decides by pid-file liveness, which a daemon recorder doesn't have, and `KCAP_WATCHER_DIR` must match the hook's.
+- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output. `RecorderHost` has no watchdog for a wedged source, and with a claim no hook reaps one, so add it before the terminal sessions, which have no agent exit to end them. Cursor and Antigravity read SQLite, which must never reach the AOT daemon, so their title stores and Antigravity's usage rows have no daemon reader. Those two stay on the fallback watcher until there's a reader the daemon can carry.
+- [ ] **Before a vendor with subagents moves:** `IsWatcherAlive` reads false for a daemon-held source at `GrokHookCommand.cs:67`, `MuseHookCommand.cs:196`, `MistralVibeHookCommand.cs:83`, `CopilotFinalizeDrainCommand.cs:109` and `WatchRecorderHost.cs:33`. A source that never had a tick gets no `AfterDrainAsync` subagent scan, which matters for Codex, Gemini and OpenCode. A host can't decline by returning false yet. The Gemini, Mistral Vibe, OpenCode, Codex and Grok scans ignore `StartChildAsync`'s result, so false still logs "spawned" and, except for Grok, marks the file seen. False from `FinishGrokChildAsync` means retry, every tick, forever. Copilot: a null parent pid sets `CopilotHostMissing`, which changes idle end, and a daemon has no parent pid to pass. Muse: `MuseHookCommand` decides by pid-file liveness, which a daemon recorder doesn't have, and `KCAP_WATCHER_DIR` must match the hook's.
 - [ ] **Verify:** one real session per vendor on the MacVisor VM.
 - [ ] **Commit, per vendor:** `Record <Vendor> terminal sessions in the daemon`
 

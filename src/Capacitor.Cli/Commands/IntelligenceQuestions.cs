@@ -22,15 +22,16 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
             .Append((Token: IntelligenceAnswer.NoneToken, Label: "Not now"))
             .ToList();
 
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>()
+        var picked = WizardChoice.Ask(AnsiConsole.Console, new SelectionPrompt<string>()
             .Title("Who runs background intelligence?")
-            .AddChoices(choices.Select(c => c.Label)));
+            .AddChoices(choices.Select(c => c.Label)), c => c);
 
         return choices.First(c => c.Label == picked).Token;
     }
 
     public IntelligenceVendor Vendor() {
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Which provider?").AddChoices(IntelligenceVendor.All.Select(v => v.Label)));
+        var picked = WizardChoice.Ask(AnsiConsole.Console,
+            new SelectionPrompt<string>().Title("Which provider?").AddChoices(IntelligenceVendor.All.Select(v => v.Label)), v => v);
 
         return IntelligenceVendor.All.First(v => v.Label == picked);
     }
@@ -41,5 +42,5 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
     public string? Key(IntelligenceVendor vendor) => LocalIntelligenceCommand.AskKey(vendor);
 
     public bool ImportOutcomes() =>
-        AnsiConsole.Prompt(new ConfirmationPrompt("Also summarise what each imported session achieved?") { DefaultValue = true });
+        AnsiConsole.Prompt(new ConfirmationPrompt("Also summarize what each imported session achieved?") { DefaultValue = true });
 }

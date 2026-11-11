@@ -25,6 +25,16 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<ICommand?> OpenLinkProperty =
         AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(OpenLink));
 
+    /// The caller owns the original document's destination and access policy; fenced text supplies neither.
+    public static readonly StyledProperty<ICommand?> OpenSourceCommandProperty =
+        AvaloniaProperty.Register<MarkdownView, ICommand?>(nameof(OpenSourceCommand));
+
+    public static readonly StyledProperty<object?> OpenSourceCommandParameterProperty =
+        AvaloniaProperty.Register<MarkdownView, object?>(nameof(OpenSourceCommandParameter));
+
+    public static readonly StyledProperty<bool> CanOpenSourceProperty =
+        AvaloniaProperty.Register<MarkdownView, bool>(nameof(CanOpenSource), true);
+
     public static readonly StyledProperty<MarkdownFlavor> FlavorProperty =
         AvaloniaProperty.Register<MarkdownView, MarkdownFlavor>(nameof(Flavor));
 
@@ -59,6 +69,7 @@ public sealed class MarkdownView : ContentControl {
     readonly MarkdownViewer _viewer = new();
     ChatTabView? _selectionHost;
     readonly DetailsState _details = new();
+    readonly DetailsState _mermaidSources = new();
     readonly DetailsExtension _detailsExtension;
     readonly CodeBlockActions _codeActions;
     readonly ReferenceLinks _referenceLinks;
@@ -77,6 +88,7 @@ public sealed class MarkdownView : ContentControl {
     static MarkdownView() {
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
             view._details.Clear();
+            view._mermaidSources.Clear();
             view._currentFind = -1;
             view.Render();
         });
@@ -313,6 +325,21 @@ public sealed class MarkdownView : ContentControl {
         set => SetValue(OpenLinkProperty, value);
     }
 
+    public ICommand? OpenSourceCommand {
+        get => GetValue(OpenSourceCommandProperty);
+        set => SetValue(OpenSourceCommandProperty, value);
+    }
+
+    public object? OpenSourceCommandParameter {
+        get => GetValue(OpenSourceCommandParameterProperty);
+        set => SetValue(OpenSourceCommandParameterProperty, value);
+    }
+
+    public bool CanOpenSource {
+        get => GetValue(CanOpenSourceProperty);
+        set => SetValue(CanOpenSourceProperty, value);
+    }
+
     public MarkdownFlavor Flavor {
         get => GetValue(FlavorProperty);
         set => SetValue(FlavorProperty, value);
@@ -336,6 +363,7 @@ public sealed class MarkdownView : ContentControl {
     void ApplyFlavor() {
         _linkKeys.Clear();
         _details.Clear();
+        _mermaidSources.Clear();
         _viewer.Extensions.Clear();
         if (Flavor == MarkdownFlavor.GitHub) {
             _viewer.Extensions.Add(KcapMarkdownExtension.GitHub);
@@ -365,14 +393,26 @@ public sealed class MarkdownView : ContentControl {
     /// below it, and the scroll offset alone would let the header wander with it.
     void OnDetailsToggled(int ordinal, bool expanded) {
         _details.Set(ordinal, expanded);
-        var header = Header(ordinal);
-        var hadFocus = header?.IsFocused == true;
+        RerenderDisclosure(() => Header(ordinal));
+    }
+
+    internal bool IsMermaidSourceExpanded(int position) => _mermaidSources.IsExpanded(position, false);
+
+    internal void ToggleMermaidSource(int position, bool expanded) {
+        _mermaidSources.Set(position, expanded);
+        RerenderDisclosure(() => this.GetVisualDescendants().OfType<ToggleButton>().FirstOrDefault(button =>
+            button.Classes.Contains("markdown-mermaid-toggle") && button.Tag is int tag && tag == position));
+    }
+
+    void RerenderDisclosure(Func<ToggleButton?> header) {
+        var current = header();
+        var hadFocus = current?.IsFocused == true;
         var scroll = this.FindAncestorOfType<ScrollViewer>();
-        var anchorY = scroll is not null ? header?.TranslatePoint(new Point(0, 0), scroll)?.Y : null;
+        var anchorY = scroll is not null ? current?.TranslatePoint(new Point(0, 0), scroll)?.Y : null;
         Dispatcher.UIThread.Post(() => {
             Render();
-            if (hadFocus) Header(ordinal)?.Focus();
-            if (anchorY is { } y && scroll is not null) new ToggleAnchor(scroll, () => Header(ordinal), y).Hold();
+            if (hadFocus) header()?.Focus();
+            if (anchorY is { } y && scroll is not null) new ToggleAnchor(scroll, header, y).Hold();
         });
     }
 

@@ -207,7 +207,7 @@ public sealed class UpdateCommand(
     }
 
     async Task<int> UpgradeLocalAsync(string exe) =>
-        await RunLocalUpgrade(exe) is LocalUpgradeCommand.Upgraded or LocalUpgradeCommand.NothingToDo or LocalUpgradeCommand.NotPublished ? 0 : 1;
+        await RunLocalUpgrade(exe) is LocalUpgradeCommand.Upgraded or LocalUpgradeCommand.NotInstalled or LocalUpgradeCommand.NotPublished ? 0 : 1;
 
     /// <summary>Inherits the console, so its progress and any error reach the user as it happens.</summary>
     static async Task<int> RunLocalUpgradeAsync(string exe) {
@@ -222,7 +222,7 @@ public sealed class UpdateCommand(
 
         if (process.ExitCode == LocalUpgradeCommand.NotPublished)
             await Console.Error.WriteLineAsync("The matching local-server bundle is not published yet. The current version stays installed. Run `kcap local upgrade` when the bundle is available.");
-        else if (process.ExitCode is not (LocalUpgradeCommand.Upgraded or LocalUpgradeCommand.NothingToDo))
+        else if (process.ExitCode is not (LocalUpgradeCommand.Upgraded or LocalUpgradeCommand.NotInstalled))
             await Console.Error.WriteLineAsync("The local server was not upgraded. Run `kcap local upgrade` to retry.");
 
         return process.ExitCode;

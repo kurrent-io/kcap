@@ -180,6 +180,20 @@ public class AppMutationLaneWiringTests {
         await Assert.That(surface.StatusMessages).IsEmpty();
     }
 
+    /// A daemon that attaches later settles the doubt, so the line goes to the lane that can take it back then.
+    [Test]
+    public async Task UnconfirmedNoAttach_goes_to_the_until_attached_lane_when_one_is_given() {
+        var surface = new FakeLifecycleSurface();
+        var untilAttached = new List<string>();
+
+        await AppUnderTest.PresentOutcomeAsync(
+            surface, Envelope(new MutationOutcome.UnconfirmedNoAttach()), NeverRunMutation, FixedTerminalPath("/usr/bin"), () => null,
+            CancellationToken.None, attentionUntilAttached: untilAttached.Add);
+
+        await Assert.That(untilAttached).IsEquivalentTo([DaemonEnabler.UnconfirmedStatus(MutationVerb.StartVerified)]);
+        await Assert.That(surface.AttentionMessages).IsEmpty();
+    }
+
     /// The Done page shows the setup's own status beside this attention line and drops the second only when the two
     /// are the same text, so anything but the shared line shows one outcome twice.
     [Test]

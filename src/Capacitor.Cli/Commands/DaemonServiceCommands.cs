@@ -731,7 +731,7 @@ sealed class DaemonServiceCommands(
     /// <summary>What the unit does for the daemon. kcap-service starts a user's daemon only once they sign in, as the
     /// Scheduled Task does.</summary>
     internal static string Supervision(IServiceManager manager) => manager switch {
-        WindowsServiceManager              => "kcap-service restarts it if it stops, and starts it when you sign in.",
+        WindowsServiceManager              => "kcap-service runs from boot, starts your daemon when you sign in, and restarts it if it stops.",
         WindowsScheduledTaskServiceManager => "The Scheduled Task restarts it if it fails, and starts it when you sign in.",
         _                                  => "Auto-restarts on crash/SIGKILL; starts at login.",
     };
@@ -1243,7 +1243,7 @@ sealed class DaemonServiceCommands(
              + $"  Repair it with: kcap daemon service install --replace --verify --name {id}";
     }
 
-    async Task<int> StatusJson() {
+    internal async Task<int> StatusJson() {
         await StaleTxnMarker.SettleAsync(store, manager, id, time);
         var query           = manager.Query(id);
         var installBinary   = UnitIdentity.ResolveDaemonBinary();
@@ -1254,11 +1254,10 @@ sealed class DaemonServiceCommands(
         var markedAt        = txnMarker ? ServiceTxnMarker.WrittenAt(store, id) : null;
         var (unitProfile, unitServerUrl, unitExpectedServer, unitConsentSeed) = UnitEnvEvidence(query.UnitPresent);
 
-        string? supervisor = null;
+        var supervisor = ServiceManagerFactory.SupervisorWord(manager);
         bool? upgrade = null, installable = null, adopted = null, runsServer = null;
         if (OperatingSystem.IsWindows()) {
-            supervisor  = ServiceManagerFactory.SupervisorWord(manager);
-            upgrade     = manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
+            upgrade     =manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
             installable = manager is WindowsScheduledTaskServiceManager && WindowsServiceBinaries.Bundled() is not null;
             if (manager is WindowsServiceManager windows) {
                 adopted    = query.UnitPresent ? windows.Supervision().Daemon?.Adopted : null;

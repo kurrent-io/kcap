@@ -44,31 +44,16 @@
 
                     <StackPanel Margin="0,12,0,0" Orientation="Horizontal" Spacing="10"
                                 HorizontalAlignment="Left" IsVisible="{Binding ShowVersionChange}">
-                        <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
-                                IsVisible="{Binding ShowInstalledVersion}"
-                                Background="{StaticResource KcapSurfaceBrush}"
-                                BorderBrush="{StaticResource KcapBorderBrush}">
-                            <TextBlock Text="{Binding InstalledVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
-                                       Foreground="{StaticResource KcapMutedBrush}" />
-                        </Border>
+                        <views:StatusBadge Text="{Binding InstalledVersion}" FontFamily="{StaticResource OnboardingMonoFont}" IsVisible="{Binding ShowInstalledVersion}" />
                         <views:AppIcon Kind="ArrowRight" Size="12" VerticalAlignment="Center" IsVisible="{Binding ShowInstalledVersion}"
                                        Foreground="{StaticResource KcapMutedBrush}" />
-                        <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
-                                Background="{StaticResource KcapSurfaceBrush}"
-                                BorderBrush="{StaticResource KcapBorderBrush}">
-                            <TextBlock Text="{Binding UpdateVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
-                                       Foreground="{StaticResource KcapTextBrush}" />
-                        </Border>
+                        <views:StatusBadge Text="{Binding UpdateVersion}" FontFamily="{StaticResource OnboardingMonoFont}" />
                     </StackPanel>
 
                     <StackPanel Margin="0,12,0,0" Orientation="Horizontal" Spacing="10" IsVisible="{Binding ShowCurrentVersion}">
                         <TextBlock Text="Installed version" VerticalAlignment="Center" FontSize="12.5"
                                    Foreground="{StaticResource KcapMutedBrush}" />
-                        <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
-                                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}">
-                            <TextBlock Text="{Binding InstalledVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
-                                       Foreground="{StaticResource KcapTextBrush}" />
-                        </Border>
+                        <views:StatusBadge Text="{Binding InstalledVersion}" FontFamily="{StaticResource OnboardingMonoFont}" />
                     </StackPanel>
 
                     <TextBlock Margin="0,14,0,0" Width="400" Text="{Binding Disclosure}"

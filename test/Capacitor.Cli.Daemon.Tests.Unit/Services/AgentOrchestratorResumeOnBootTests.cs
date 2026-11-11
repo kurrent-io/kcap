@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
@@ -101,7 +102,7 @@ public class AgentOrchestratorResumeOnBootTests {
     sealed record Fixture(AgentOrchestrator Orch, CaptureServerConnection Server, ResumableFactory Factory, DaemonConfig Config, string Repo);
 
     Fixture Build(ResumableFactory? factory = null, Action<DaemonConfig>? configure = null, TimeProvider? time = null,
-                  CaptureServerConnection? server = null) {
+                  CaptureServerConnection? server = null, Func<DaemonConfig, DaemonRecorder>? recorder = null) {
         var repo   = Tmp.CreateDir("repo");
         server ??= new CaptureServerConnection();
         factory ??= new ResumableFactory();
@@ -115,7 +116,7 @@ public class AgentOrchestratorResumeOnBootTests {
                 c.ResumeReadinessWindow = TimeSpan.FromMilliseconds(100);
                 configure?.Invoke(c);
             },
-            timeProvider: time);
+            timeProvider: time, recorder: recorder);
 
         return new Fixture(orch, server, factory, captured!, repo);
     }
@@ -151,6 +152,35 @@ public class AgentOrchestratorResumeOnBootTests {
         return entry;
     }
 
+    sealed class BrokenClock : TimeProvider {
+        public override long GetTimestamp() => throw new InvalidOperationException("The recorder's restore failed.");
+    }
+
+    /// <summary>What a restore can't get through costs some transcript. The agents behind it are still owed their resume.</summary>
+    [Test]
+    public async Task A_failed_recording_restore_still_resumes_the_agents() {
+        var f = Build(
+            new ResumableFactory { PtyStyle = true },
+            configure: c => c.RecordHostedClaude = true,
+            recorder: c => {
+                var probe = new RecordingProbe();
+                probe.Report(true);
+
+                return new DaemonRecorder(
+                    c, new CapacitorServer(c.ServerUrl, c.ConfigRoot, Resolutions.None(c.ConfigRoot)), probe, () => new FakeRecorderTransport(),
+                    (_, _, _, _) => new FakeRecorderHousekeeping(), new BrokenClock(), NullLogger<DaemonRecorder>.Instance);
+            });
+        await using var _ = f.Orch;
+        new RecordedSourceList(f.Config.Store.StateDirectory(f.Config.Name), NullLogger.Instance)
+            .TryAdd(new RecordedSource("gone", "fedcba9876543210fedcba9876543210", null, Tmp.PathTo("left.jsonl"), "claude", null, false));
+        Entry(f, "resume-behind");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Count).IsEqualTo(1);
+    }
+
     /// <summary>An agent that was waiting comes back waiting, with nothing sent, but only where the runtime can resume
     /// without a turn. Mid-turn, an entry from an older daemon that recorded no wait, or a runtime that needs a first turn
     /// all get the nudge.</summary>
@@ -171,9 +201,43 @@ public class AgentOrchestratorResumeOnBootTests {
         var ctx = f.Factory.Contexts.Single();
         await Assert.That(ctx.Prompt).IsEqualTo(nudged ? ResumeNudge.Build(entry.ResumingAt!.Value, "build the thing") : "");
         await Assert.That(f.Orch.GetAgentForTest("resume-idle")!.ActivityClock.AwaitingInput).IsEqualTo(!nudged);
-        // The running entry holds no waiting state of its own: a crash before the next keep-agents shutdown must
-        // not read a turn started since as waiting.
-        await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-idle")!.AwaitingInput).IsNull();
+        // The running entry records the resumed agent's own state, which a kill before the next stop leaves behind.
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-idle")!.AwaitingInput).IsEqualTo(!nudged);
+    }
+
+    /// <summary>A killed daemon writes nothing at its stop, so a waiting state the entry took from the agent's last
+    /// edge is all that tells its successor the agent was idle.</summary>
+    [Test]
+    public async Task A_killed_daemons_idle_agent_comes_back_without_the_nudge() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "killed-idle", state: ResumeState.Running, predecessor: null, daemonInstanceId: "instance-killed", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo("");
+        await Assert.That(f.Orch.GetAgentForTest("killed-idle")!.ActivityClock.AwaitingInput).IsTrue();
+    }
+
+    /// <summary>A killed daemon last wrote the entry at launch, so its heartbeat is the nearer time the agent was
+    /// last alive, and the time the nudge has to name.</summary>
+    [Test]
+    public async Task The_nudge_names_the_predecessors_last_heartbeat_over_an_older_entry() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        var launchedAt = DateTimeOffset.FromUnixTimeSeconds(TimeProvider.System.GetUtcNow().ToUnixTimeSeconds() - 3 * 3600);
+        var beat       = launchedAt + TimeSpan.FromHours(2);
+        Entry(f, "killed-busy", state: ResumeState.Running, at: launchedAt, predecessor: null, daemonInstanceId: "instance-killed");
+        f.Config.Store.EnsureDirectory();
+        var heartbeat = f.Config.Store.HeartbeatPath(f.Config.Name);
+        await File.WriteAllBytesAsync(heartbeat, []);
+        File.SetLastWriteTimeUtc(heartbeat, beat.UtcDateTime);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo(ResumeNudge.Build(beat, "build the thing"));
     }
 
     /// <summary>A restart resume holds the session's lease from before it re-registers until the readiness window

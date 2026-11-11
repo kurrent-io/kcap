@@ -494,13 +494,19 @@ sealed class DaemonEvalObserver(
         Relay(() => connection.EvalFailedAsync(evalRunId, sessionId, reason), "EvalFailed");
     }
 
+    /// <summary>Settles once every relay so far has gone out or been dropped.</summary>
+    internal Task RelayedAsync() {
+        lock (_tailLock) return _tail;
+    }
+
     void Relay(Func<Task> send, string eventName) {
         // Never ExecuteSynchronously: that would chain every relay onto SignalR's completion thread.
         lock (_tailLock) {
             _tail = _tail.ContinueWith(
                 async _ => {
                     try {
-                        await send();
+                        // Here rather than at the call: a relay queues behind the ones ahead of it.
+                        if (!connection.IsDisabledByPerson(sessionId)) await send();
                     } catch (Exception ex) {
                         logger.LogWarning(ex, "Failed to relay {Event} for eval {Run}", eventName, evalRunId);
                     }

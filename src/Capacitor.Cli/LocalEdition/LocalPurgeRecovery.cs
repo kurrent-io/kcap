@@ -32,7 +32,9 @@ sealed class LocalPurgeRecovery(
 
         if (mayStop) {
             if (!force && await recorders.BusyAsync() is { Count: > 0 } busy)
-                throw Kept($"An interrupted purge cannot finish while a daemon is running agents ({string.Join("; ", busy)}). Stop them, or pass --force. The purge journal is kept.");
+                throw Kept(DaemonBusy.AnyMayRunAgents(busy)
+                    ? $"An interrupted purge cannot finish while a daemon is running agents ({DaemonBusy.Lines(busy)}). Stop them, or pass --force. The purge journal is kept."
+                    : $"An interrupted purge cannot finish while a daemon does not answer ({DaemonBusy.Lines(busy)}). Run the command again once it has started, or pass --force. The purge journal is kept.");
 
             if (!await recorders.StopAsync())
                 throw Kept("An interrupted purge cannot finish: a daemon or watcher could not be stopped. The purge journal is kept.");

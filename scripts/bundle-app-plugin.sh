@@ -10,6 +10,17 @@ mkdir -p "$destination"
 # target check; mkdir takes the name literally and still refuses an existing plugin.
 mkdir "$destination/kcap"
 cp -R "$here/../kcap/." "$destination/kcap/"
-manifest="$destination/kcap/.claude-plugin/plugin.json"
-sed -i.bak -E 's/"version": *"[^"]*"/"version": "'"${version%%+*}"'"/' "$manifest"
-rm "$manifest.bak"
+# shellcheck source=lib/plugin-dev-files.sh
+source "$here/lib/plugin-dev-files.sh"
+strip_plugin_dev_files "$destination/kcap"
+# Without Git Bash, Claude Code runs a shell-form hook through PowerShell, whose start-up can outlast
+# the hook's timeout. A bundle that ships kcap.exe gives Claude the hooks that start it directly.
+if [ -f "$destination/bin/kcap.exe" ] || [ -f "$destination/kcap.exe" ]; then
+  cp "$destination/kcap/hooks/hooks.windows.json" "$destination/kcap/hooks/hooks.json"
+fi
+# shellcheck source=lib/plugin-manifests.sh
+source "$here/lib/plugin-manifests.sh"
+for manifest in "${plugin_manifests[@]}"; do
+  sed -i.bak -E 's/"version": *"[^"]*"/"version": "'"${version%%+*}"'"/' "$destination/kcap/$manifest"
+  rm "$destination/kcap/$manifest.bak"
+done

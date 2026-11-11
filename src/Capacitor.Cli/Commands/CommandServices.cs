@@ -35,6 +35,7 @@ public static class CommandServices {
 
         services.AddSingleton(endpoints);
         services.AddSingleton(localRoot);
+        services.AddSingleton(LocalIntelligenceGate.For(config, localRoot));
         services.AddSingleton(clock);
         // The hook's own clock, not a second one: every deadline a command measures has to share the
         // provider the budget was anchored on, or a faked one moves only half of them.
@@ -46,7 +47,7 @@ public static class CommandServices {
         services.AddSingleton<IWatcherSpawner, ProcessWatcherSpawner>();
 
         // Singleton deliberately: per-resolution routers would each start with an empty memo.
-        services.AddSingleton<GitProviderRouter>();
+        services.AddSingleton(sp => new GitProviderRouter(sp.GetRequiredService<TimeProvider>()));
 
         // Factories because only a handful of commands take either. The registry is built over the
         // same probe instance, so a harness binary and a configured path search one PATH.
@@ -89,12 +90,27 @@ public static class CommandServices {
         return services;
     }
 
+    // The account registry and the process table are read only for a daemon that takes terminal sessions.
+    static TerminalHandOff TerminalHandOffFor(IServiceProvider sp) {
+        var profiles = sp.GetRequiredService<ProfileContext>();
+
+        return new TerminalHandOff(
+            DaemonNameResolver.Resolve([], profiles.DaemonName), profiles.Name, profiles.Resolution.ServerUrl,
+            sp.GetRequiredService<ConfigRoot>().Directory, sp.GetRequiredService<WatcherPaths>().Directory,
+            transcript => AccountPaths.ClaudeLayoutFor(
+                transcript, sp.GetRequiredService<AccountStore>(), sp.GetRequiredService<UserHome>(), sp.GetRequiredService<HarnessRegistry>().Of<Core.Harness.Claude.ClaudeHarness>().Paths).Home,
+            follows => ProcessIncarnation.Of(follows ?? ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false) ?? 0));
+    }
+
     /// <summary>
     /// Registers every command the dispatch switch resolves. Commands are transient: a run
     /// dispatches one, and holding them would keep a command's own state alive past its verb.
     /// </summary>
     public static IServiceCollection AddCapacitorCommands(this IServiceCollection services) {
         // Shared by every hook lane and carrying no per-run state, unlike the commands below.
+        services.AddSingleton<IDaemonRecordingClient>(sp => new LocalDaemonRecording(
+            sp.GetRequiredService<DaemonStore>(), sp.GetRequiredService<HostedAgent>(), Environment.GetEnvironmentVariable(DaemonNameResolver.NameVar),
+            TerminalHandOffFor(sp), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<WatcherManager>();
 
         services.AddTransient<AccountsCommand>();
@@ -108,6 +124,7 @@ public static class CommandServices {
         services.AddTransient<DaemonCommands>();
         services.AddTransient<ErrorsCommand>();
         services.AddTransient<SetTitleCommand>();
+        services.AddTransient<DisableCommand>();
         services.AddTransient<EvalCommand>();
         services.AddTransient(sp => new FeedbackCommand(
             sp.GetRequiredService<IFeedbackApi>(),

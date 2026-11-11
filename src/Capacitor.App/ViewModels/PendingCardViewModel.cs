@@ -65,6 +65,16 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
         }
     }
 
+    bool _offersAnswers = true;
+    /// False where nobody here can answer: the card says where it waits and shows no answer controls.
+    public bool OffersAnswers {
+        get => _offersAnswers;
+        private set {
+            if (IsDisposed) return;
+            this.RaiseAndSetIfChanged(ref _offersAnswers, value);
+        }
+    }
+
     /// Every answering command's canExecute: not in flight, and the viewer may answer.
     protected IObservable<bool> Ready { get; }
 
@@ -79,6 +89,7 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
                 if (IsDisposed) return;
                 CanAnswer = viewer.CanAnswer(entry);
                 WaitingOn = viewer.WaitingOn(entry);
+                OffersAnswers = !viewer.AtTerminal;
                 _answerable.OnNext(CanAnswer);
             }));
         Disposables.Add(_answerable);

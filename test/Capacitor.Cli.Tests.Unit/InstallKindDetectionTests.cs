@@ -47,6 +47,27 @@ public class InstallKindDetectionTests {
         await Assert.That(kind).IsEqualTo(InstallKind.App);
     }
 
+    /// <summary>Velopack installs the app's CLI in <c>current\bin</c>; detecting it there is what keeps `kcap update`
+    /// deferring to the app instead of asking npm's latest tag.</summary>
+    [Test]
+    public async Task The_windows_app_install_is_recognised_in_its_bin_folder() {
+        var kind = InstallProvenance.Detect(
+            "C:/Users/u/AppData/Local/kcap/current/bin/kcap.exe", Existing("/Local/kcap/Update.exe", "/kcap/current/kcap-desktop.exe"));
+
+        await Assert.That(kind).IsEqualTo(InstallKind.App);
+    }
+
+    [Test]
+    public async Task A_bin_folder_outside_the_apps_current_folder_is_not_the_app() {
+        await Assert.That(InstallProvenance.Detect("C:/tools/current/bin/kcap.exe", Existing("/tools/Update.exe")))
+            .IsEqualTo(InstallKind.Unknown);
+        await Assert.That(InstallProvenance.Detect("C:/tools/other/bin/kcap.exe", Existing("/tools/Update.exe", "/other/kcap-desktop.exe")))
+            .IsEqualTo(InstallKind.Unknown);
+        await Assert.That(InstallProvenance.Detect(
+                "C:/Users/u/AppData/Local/kcap/current/bin/kcap.exe", Existing("/kcap/current/bin/kcap-desktop.exe", "/kcap/current/Update.exe")))
+            .IsEqualTo(InstallKind.Unknown);
+    }
+
     /// <summary>A folder named <c>current</c> is the app's only with Velopack's root above it and the app beside it.</summary>
     [Test]
     public async Task A_current_folder_without_the_app_is_not_the_app() {

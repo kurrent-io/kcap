@@ -170,6 +170,29 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(async () => await Harness.Current(second) == SessionAccessState.Established, "established");
     }
 
+    /// A refusal outlives the lease that heard it: a replacement lease for the same session that
+    /// starts while the lane is down must read Denied, not Unavailable, which shows the transcript.
+    [Test]
+    public async Task A_replacement_lease_on_a_refused_session_inherits_the_refusal_until_established() {
+        using var h = new Harness();
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Connect();
+        using (var first = h.Service.Acquire("s1"))
+            await WaitUntilAsync(async () => await Harness.Current(first) == SessionAccessState.Denied, "first denied");
+        h.Drop();
+
+        using (var second = h.Service.Acquire("s1")) {
+            await Assert.That(await Harness.Current(second)).IsEqualTo(SessionAccessState.Denied);
+
+            h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            h.Connect(epoch: 2);
+            await WaitUntilAsync(async () => await Harness.Current(second) == SessionAccessState.Established, "established");
+        }
+        h.Drop();
+        using var third = h.Service.Acquire("s1");
+        await WaitUntilAsync(async () => await Harness.Current(third) == SessionAccessState.Unavailable, "a lifted refusal is not inherited");
+    }
+
     /// An observer runs with none of the service's locks held, so one that blocks, or calls back in
     /// from another thread, cannot stall every other lease.
     [Test]

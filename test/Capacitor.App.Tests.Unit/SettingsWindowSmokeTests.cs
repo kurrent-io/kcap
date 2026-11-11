@@ -57,7 +57,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(label.IsEffectivelyVisible).IsTrue();
             await Assert.That(label.Text).IsEqualTo("Management unavailable");
             Click(window, card);
-            await Assert.That(tabs.SelectedItem).IsEqualTo(window.FindControl<TabItem>("CaptureTab"));
+            await Assert.That(tabs.SelectedItem).IsEqualTo(window.FindControl<TabItem>("PrivacyTab"));
             var daemonPosition = daemon.TranslatePoint(default, window)!.Value;
             var alertsPosition = alerts.TranslatePoint(default, window)!.Value;
             await Assert.That(alertsPosition.X).IsEqualTo(daemonPosition.X);
@@ -182,7 +182,7 @@ public class SettingsWindowSmokeTests {
             var presenter = card.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>()
                 .Single(p => p.Name == "PART_ContentPresenter");
             await Assert.That(presenter.Background).IsEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
-            Click(window, window.FindControl<TabItem>("CaptureTab")!);
+            Click(window, window.FindControl<TabItem>("PrivacyTab")!);
             await Assert.That(presenter.Background).IsNotEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
             Click(window, card);
 
@@ -517,7 +517,7 @@ public class SettingsWindowSmokeTests {
         var window = new SettingsWindow { DataContext = vm, Width = 760, Height = 520 };
         try {
             window.Show();
-            Click(window, window.FindControl<TabItem>("CaptureTab")!);
+            Click(window, window.FindControl<TabItem>("PrivacyTab")!);
             var view = window.GetVisualDescendants().OfType<CaptureSettingsView>().Single();
             var visibility = view.FindControl<ListBox>("VisibilityInput")!;
             visibility.SelectedValue = "private";
@@ -731,7 +731,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(title.Text).IsEqualTo("Privacy");
             Click(window, window.FindControl<TabItem>("NotificationsTab")!);
             await Assert.That(title.Text).IsEqualTo("Notifications");
-            Click(window, window.FindControl<TabItem>("CaptureTab")!);
+            Click(window, window.FindControl<TabItem>("PrivacyTab")!);
             await Assert.That(title.Text).IsEqualTo("Privacy");
         } finally { window.Close(); }
     });

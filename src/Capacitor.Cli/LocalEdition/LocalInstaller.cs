@@ -123,7 +123,7 @@ sealed class LocalInstaller(
                 throw new LocalInstallFailure(LocalInstallFailureCode.AnswerRequired,
                     "A local installation needs both answers: that it serves only you (--single-user), and that you confirm it (--yes).");
 
-            var port = LocalPortPicker.Choose(Registry(lease));
+            var port = LocalPortPicker.Choose(Registry(lease), retiredForUser: RetiredForUser());
             _progress.Report(new LocalInstallEvent.PortChosen(port));
 
             details = new(Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)), port, plan.Version,
@@ -380,6 +380,16 @@ sealed class LocalInstaller(
             StateRead<InstallRegistry>.Unreadable(var path, var reason) =>
                 throw new LocalInstallFailure(LocalInstallFailureCode.RegistryUnreadable,
                     $"The installation registry {path} cannot be read ({reason}). Fix or remove it, then run setup again."),
+            _ => InstallRegistry.Empty,
+        };
+
+    /// <summary>Read under the unit lock, which a purge holds to add to it.</summary>
+    InstallRegistry RetiredForUser() =>
+        RetiredPorts.Read(home) switch {
+            StateRead<InstallRegistry>.Present(var registry) => registry,
+            StateRead<InstallRegistry>.Unreadable(var path, var reason) =>
+                throw new LocalInstallFailure(LocalInstallFailureCode.RegistryUnreadable,
+                    $"The record of retired local server ports {path} cannot be read ({reason}), so setup cannot tell which ports a purge retired. Fix it, then run setup again."),
             _ => InstallRegistry.Empty,
         };
 

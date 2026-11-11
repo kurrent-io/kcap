@@ -221,7 +221,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         if (body.Length > 300) body = body[..299] + "…";
         _notices.Add(notice.Id, notice);
         try {
-            _sink.Show(new DesktopNotification(notice.Id, title, body, Actions(request)),
+            _sink.Show(new DesktopNotification(notice.Id, title, body, Actions(request, notice.Row)),
                 action => _scheduler.Schedule(() => { _ = ActivateAsync(notice.Id, action); }));
         } catch (Exception ex) {
             Close(notice.Id);
@@ -229,8 +229,9 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         }
     }
 
-    static IReadOnlyList<DesktopNotificationAction> Actions(PendingPermissionRequest? request) {
-        if (request is null) return [new("open", "Open agent")];
+    /// Only an attached session's own terminal can answer its prompts.
+    static IReadOnlyList<DesktopNotificationAction> Actions(PendingPermissionRequest? request, AgentRow row) {
+        if (request is null || row.IsAttached) return [new("open", "Open agent")];
         if (Question(request)) return [new("open", "Respond in app")];
         var actions = new List<DesktopNotificationAction>();
         foreach (var (id, label) in new[] { ("allow", "Allow"), ("always", "Always"), ("decline", "Decline") })
@@ -267,7 +268,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
             _openAgent(row);
             return;
         }
-        if (notice.Request is not { } request || !CanAnswer(request, action)) return;
+        if (notice.Request is not { } request || row.IsAttached || !CanAnswer(request, action)) return;
         notice.Busy = true;
         try {
             var outcome = request.Options is not null

@@ -34,6 +34,10 @@ Options:
   2026-09-27              a date: the start of that day in this machine's time zone
   36h, 14d, 2w            that long before now
 
+Without a period one page is the whole listing, at most 100 rows. To see
+past it, list by period: a period that holds more than one page ends with a
+More: line, the command for the next page.
+
 A session is in the period when its span from start to end touches it; it
 is not checked event by event. Yesterday, when today is the 28th:
   kcap sessions --since 2026-09-27 --until 2026-09-28

@@ -45,6 +45,22 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("CLAUDE_CODE_GIT_BASH_PATH"));
     }
 
+    /// <summary>A Windows bundle's hooks name kcap.exe and its arguments, which Claude starts with no shell at all.</summary>
+    [Test]
+    public async Task Claude_without_git_bash_prints_no_shell_warning_when_the_plugin_hooks_need_no_shell() {
+        using var tmp = new TempDir();
+        tmp.CreateFile(["plugin", "hooks", "hooks.json"],
+            """{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"kcap.exe","args":["hook","--claude"]}]}]}}""");
+        var sink    = new Sink();
+        var options = new Options(SkipClaude: false, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
+
+        await RunAsync(options, new DetectedAgents(Claude: true, Codex: false, Cursor: false, Copilot: false, ClaudeHooksViaPowerShell: true),
+            TestPaths() with { PluginDir = tmp.PathTo("plugin") }, new InstallerCalls().AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(sink.Lines).Contains(l => l.Contains("Claude Code plugin installed"));
+        await Assert.That(sink.Lines).DoesNotContain(l => l.Contains("Git Bash"));
+    }
+
     [Test]
     public async Task Claude_with_git_bash_prints_no_shell_warning() {
         var sink    = new Sink();
@@ -131,7 +147,7 @@ public class CodingAgentsStepTests {
     }
 
     [Test]
-    public async Task Codex_detected_and_accepted_installs_hooks_and_prints_trust_hint() {
+    public async Task Codex_detected_and_accepted_installs_hooks() {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: false, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
@@ -149,13 +165,11 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CodexHooksInstalled).IsTrue();
         await Assert.That(calls.CodexHooksArg).IsEqualTo("/fake/.codex/hooks.json");
         await Assert.That(sink.Lines).Contains(l => l.Contains("Codex hooks installed"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("/hooks") && l.Contains("trust"));
     }
 
     [Test]
-    public async Task Codex_installs_and_shows_trust_hint_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — Codex hooks install (and the trust hint prints)
-        // regardless of what a (no longer consulted) prompt delegate would return.
+    public async Task Codex_installs_even_if_prompt_would_decline() {
+        // Codex hooks install whatever a prompt delegate would return: there is no per-vendor prompt.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: false, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
@@ -172,7 +186,6 @@ public class CodingAgentsStepTests {
 
         await Assert.That(result.CodexHooksInstalled).IsTrue();
         await Assert.That(calls.CodexHooksCalled).IsTrue();
-        await Assert.That(sink.Lines).Contains(l => l.Contains("/hooks") && l.Contains("trust"));
     }
 
     [Test]
@@ -242,9 +255,9 @@ public class CodingAgentsStepTests {
     }
 
     [Test]
-    public async Task Agent_skills_failure_still_keeps_codex_trust_hint() {
-        // Skills install and Codex hooks are independent steps — a skills-copy
-        // failure must not suppress the Codex trust hint.
+    public async Task Agent_skills_failure_still_installs_codex_hooks() {
+        // Skills install and Codex hooks are independent steps: a skills-copy failure must not undo the hooks, which
+        // setup then asks Codex to trust.
         var sink     = new Sink();
         var calls    = new InstallerCalls { AgentSkillsFailure = new("Access to the path is denied.", PluginIncomplete: false) };
         var options  = new Options(SkipClaude: true, SkipCodex: false, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
@@ -262,7 +275,6 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CodexHooksInstalled).IsTrue();
         await Assert.That(result.AgentSkillsInstalled).IsFalse();
         await Assert.That(sink.Lines).Contains(l => l.Contains("Agent skills could not be copied"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("/hooks") && l.Contains("trust"));
     }
 
     // ── Agent skills decoupled from Codex ──────────────────────────

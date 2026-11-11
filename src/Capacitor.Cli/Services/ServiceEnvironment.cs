@@ -19,7 +19,7 @@ static class ServiceEnvironment {
     /// rest stay uncaptured until someone asks.</para></summary>
     static readonly string[] Keys =
         ["PATH", ProfileOverrides.ProfileVar, ProfileOverrides.UrlVar, HarnessId.Claude.PathEnvVar, HarnessId.Codex.PathEnvVar,
-         "KCAP_CONSENT_SEED_DEFAULT", "KCAP_EXPECT_SERVER_URL"];
+         "KCAP_CONSENT_SEED_DEFAULT", "KCAP_EXPECT_SERVER_URL", Core.LocalIpc.RecordingIpc.EnabledVar];
 
     /// <summary>
     /// The unattended reviewers' opt-OUT switches. Carried on every platform: these are booleans, not

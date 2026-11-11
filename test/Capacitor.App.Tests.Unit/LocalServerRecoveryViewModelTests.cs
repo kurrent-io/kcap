@@ -461,13 +461,61 @@ public class LocalServerRecoveryViewModelTests {
             await Assert.That(vm.Headline).IsEqualTo("The local server isn't running");
 
             recheck.AdvanceBy(TimeSpan.FromSeconds(10));
-            await Assert.That(reads).IsEqualTo(3);
+            await Assert.That(reads).IsEqualTo(5).Because("a settled reading is read again every 5 s while the server is down");
 
             condition = LocalServerCondition.Changing;
             status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
             status.OnNext(new(ServerLaneState.Connected));
             recheck.AdvanceBy(TimeSpan.FromSeconds(10));
-            await Assert.That(reads).IsEqualTo(4).Because("a connected server is not read again");
+            await Assert.That(reads).IsEqualTo(6).Because("a connected server is not read again");
+        });
+    }
+
+    /// After a stop the port can be taken while the lane waits out a silent listener, with no new lane status to prompt a
+    /// read; the recheck names the holder instead of leaving the stale "isn't running" and its Start.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_port_taken_after_the_first_read_is_named_on_the_next_recheck() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
+            var recheck = new HistoricalScheduler();
+            var reading = new LocalServerReading(LocalServerCondition.Installed, 9473);
+            using var vm = new LocalServerRecoveryViewModel(status, isLocalServer: true, new Recorder().Start, new Recorder().Reconnect,
+                CancellationToken.None, readCondition: _ => Task.FromResult(reading),
+                readScheduler: ImmediateScheduler.Instance, recheckScheduler: recheck);
+
+            status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            await Assert.That(vm.StartOffered).IsTrue();
+
+            reading = new LocalServerReading(LocalServerCondition.PortTaken, 9473, new PortHolder(61676, "powershell"));
+            recheck.AdvanceBy(TimeSpan.FromSeconds(5));
+
+            await Assert.That(vm.Headline).IsEqualTo("Another program holds the local server's port");
+            await Assert.That(vm.Body).Contains("powershell");
+            await Assert.That(vm.StartOffered).IsFalse();
+        });
+    }
+
+    /// The rechecks belong to a server that is down: once the lane connects, nothing is read again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_connected_lane_stops_the_rechecks() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
+            var recheck = new HistoricalScheduler();
+            var reads = 0;
+            using var vm = new LocalServerRecoveryViewModel(status, isLocalServer: true, new Recorder().Start, new Recorder().Reconnect,
+                CancellationToken.None, readCondition: _ => { reads++; return Task.FromResult(new LocalServerReading(LocalServerCondition.Installed, 9473)); },
+                readScheduler: ImmediateScheduler.Instance, recheckScheduler: recheck);
+
+            status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            recheck.AdvanceBy(TimeSpan.FromSeconds(5));
+            await Assert.That(reads).IsEqualTo(2);
+
+            status.OnNext(new(ServerLaneState.Connected));
+            recheck.AdvanceBy(TimeSpan.FromMinutes(1));
+
+            await Assert.That(reads).IsEqualTo(2);
         });
     }
 

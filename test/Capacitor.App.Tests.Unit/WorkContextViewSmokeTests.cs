@@ -162,6 +162,33 @@ public class WorkContextViewSmokeTests {
         _                  => 255,
     };
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_work_item_badge_tracks_refreshed_state_with_its_shared_style_and_accessible_label() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            var read = KeyOnlyRead();
+            await host.ShowAsync(read);
+            var badge = host.Find<StatusBadge>("StatePill");
+            var word = badge.GetVisualDescendants().OfType<TextBlock>().Single();
+            var peer = Peer(badge);
+            foreach (var (kind, tone) in new[] { ("in_flight", "Purple"), ("shipped", "Success"), ("closed", "Muted"), ("in_flight", "Purple") }) {
+                host.Source.Enqueue(read with { Item = read.Item! with { State = new WorkItemStateDto { Kind = kind } } });
+                await host.Vm.RefreshCommand.Execute();
+                await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
+                Dispatcher.UIThread.RunJobs();
+                host.Window.UpdateLayout();
+
+                await Assert.That(badge.IsEffectivelyVisible).IsTrue();
+                await Assert.That(badge.Classes.Contains("kcapBadge")).IsTrue();
+                await Assert.That(word.Text).IsEqualTo(kind.Replace('_', ' ').ToUpperInvariant());
+                await Assert.That(peer.GetName()).IsEqualTo(word.Text);
+                await Assert.That(peer.GetChildren()).IsEmpty();
+                await Assert.That(word.Foreground).IsSameReferenceAs(host.Window.FindResource($"Kcap{tone}Brush"));
+            }
+        });
+    }
+
     /// Before the daemon reports the agent the pane knows no harness, checkout or requester, so the
     /// sections that would hold only dashes stay out and the waiting note stands alone.
     [Test]
@@ -880,10 +907,10 @@ public class WorkContextViewSmokeTests {
             await Assert.That(numbers).IsEquivalentTo(new[] { "1", "2" }, CollectionOrdering.Matching);
 
             var marks = summary.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
-            var warning = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapWarningBrush")!).Color;
+            var inflight = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
             var danger = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapDangerBrush")!).Color;
             await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
-                .IsEquivalentTo(new[] { warning, danger }, CollectionOrdering.Matching);
+                .IsEquivalentTo(new[] { inflight, danger }, CollectionOrdering.Matching);
             await Assert.That(summary.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(1);
         });
     }

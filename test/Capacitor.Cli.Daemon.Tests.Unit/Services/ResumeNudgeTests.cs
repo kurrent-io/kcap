@@ -11,10 +11,20 @@ public class ResumeNudgeTests {
         var nudge = ResumeNudge.Build(InterruptedAt, "refactor the parser");
 
         await Assert.That(nudge).Contains("interrupted");
-        await Assert.That(nudge).Contains("daemon restart");
-        await Assert.That(nudge).Contains(InterruptedAt.ToString("u"));
+        await Assert.That(nudge).Contains("daemon restart at ");
         await Assert.That(nudge).Contains("working tree");
         await Assert.That(nudge).Contains("do not repeat");
+    }
+
+    /// <summary>The nudge shows in the chat beside local times, so a UTC stamp reads as hours off.</summary>
+    [Test]
+    public async Task Nudge_names_the_time_in_the_given_zone_with_its_offset() {
+        var zone  = TimeZoneInfo.CreateCustomTimeZone("plus-five-thirty", TimeSpan.FromHours(5.5), "plus-five-thirty", "plus-five-thirty");
+        var nudge = ResumeNudge.Build(InterruptedAt, "refactor the parser", zone);
+
+        await Assert.That(nudge).Contains("restart at 2026-10-17 15:00 +05:30.");
+        await Assert.That(nudge).DoesNotContain("09:30");
+        await Assert.That(nudge).DoesNotContain("Z ");
     }
 
     [Test]

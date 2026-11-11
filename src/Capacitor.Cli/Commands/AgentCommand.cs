@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -288,6 +289,7 @@ internal sealed class AgentCommand(
         }
 
         string[] targets;
+        IReadOnlySet<string> steered = FrozenSet<string>.Empty;
 
         if (all) {
             var agents = await FetchAgentsAsync(sock);
@@ -307,32 +309,53 @@ internal sealed class AgentCommand(
             }
 
             var (stoppable, protectedIds) = PartitionByProtection(agents);
+            steered = agents.Where(a => a.Kind == AttachedKind).Select(a => a.Id).ToFrozenSet();
+            var review = agents.Where(a => protectedIds.Contains(a.Id) && !steered.Contains(a.Id)).ToList();
             targets = force ? agents.Select(a => a.Id).ToArray() : stoppable;
 
             if (targets.Length == 0) {
-                console.Out.WriteLine(protectedIds.Length > 0
-                    ? $"No agents to stop. {protectedIds.Length} review agent(s) skipped — pass --force to include them."
-                    : "No agents.");
+                if (review.Count == 0 && steered.Count == 0) console.Out.WriteLine("No agents.");
+                else if (review.Count == 0) console.Out.WriteLine($"No agents to stop. {steered.Count} steered terminal session(s) left alone — {ForceDisconnects}.");
+                else {
+                    console.Out.WriteLine($"No agents to stop. {review.Count} review agent(s) skipped — pass --force to include them.");
+                    if (steered.Count > 0) console.Out.WriteLine($"{steered.Count} steered terminal session(s) left alone — {ForceDisconnects}.");
+                }
 
                 return 0;
             }
 
-            console.Out.WriteLine($"Found {targets.Length} agents:");
+            var hosted = targets.Count(id => !steered.Contains(id));
+            if (hosted > 0) console.Out.WriteLine($"Found {hosted} agents:");
             foreach (var a in agents.Where(a => targets.Contains(a.Id) && !protectedIds.Contains(a.Id)))
                 console.Out.WriteLine($"  • {a.Id}  {a.Repo}");
 
             // Both branches label protected rows with their Kind before the [y/N] prompt, so the
             // blast radius of --force is as visible as the default skip list is.
-            if (protectedIds.Length > 0) {
+            if (review.Count > 0) {
                 console.Out.WriteLine(force
-                    ? $"Including {protectedIds.Length} review agent(s):"
-                    : $"Skipping {protectedIds.Length} review agent(s) — pass --force to include them:");
-                foreach (var a in agents.Where(a => protectedIds.Contains(a.Id)))
+                    ? $"Including {review.Count} review agent(s):"
+                    : $"Skipping {review.Count} review agent(s) — pass --force to include them:");
+                foreach (var a in review)
                     console.Out.WriteLine($"  • {a.Id}  {a.Kind}  {a.Repo}");
             }
 
+            if (steered.Count > 0) {
+                console.Out.WriteLine(force
+                    ? $"Will disconnect steering from {steered.Count} terminal session(s); their Claude Code sessions keep running:"
+                    : $"Leaving {steered.Count} steered terminal session(s) alone — {ForceDisconnects}:");
+                foreach (var id in agents.Select(a => a.Id).Where(steered.Contains))
+                    console.Out.WriteLine($"  • {id}");
+            }
+
             if (!yes) {
-                await console.Out.WriteAsync($"Stop {targets.Length}? [y/N] ");
+                var detached = targets.Length - hosted;
+                var question = (hosted, detached) switch {
+                    (_, 0) => $"Stop {hosted}?",
+                    (0, _) => $"Disconnect steering from {detached}?",
+                    _      => $"Stop {hosted} and disconnect steering from {detached}?",
+                };
+
+                await console.Out.WriteAsync($"{question} [y/N] ");
                 var reply = await console.In.ReadLineAsync();
 
                 if (!string.Equals(reply?.Trim(), "y", StringComparison.OrdinalIgnoreCase)) {
@@ -342,15 +365,15 @@ internal sealed class AgentCommand(
                 }
             }
         } else {
-            var resolved = await ResolveOrReportAsync(sock, args[0]);
-            if (resolved is null) return 1;
+            if (await ResolveTargetOrReportAsync(sock, args[0]) is not { } target) return 1;
 
-            targets = [resolved];
+            targets = [target.Id];
+            if (target.Kind == AttachedKind) steered = new[] { target.Id }.ToFrozenSet();
         }
 
         // Each confirmed id is sent on its own: an empty StopV2 id would expand to the daemon's
         // current set, including agents started after the confirmation.
-        var results = await Task.WhenAll(targets.Select(id => SendStopAsync(sock, id, name, force, missingIsStopped: all)));
+        var results = await Task.WhenAll(targets.Select(id => SendStopAsync(sock, id, name, force, missingIsStopped: all, steered)));
 
         return results.Any(code => code != 0) ? 1 : 0;
     }
@@ -374,7 +397,10 @@ internal sealed class AgentCommand(
         })];
     }
 
-    async Task<int> SendStopAsync(string sock, string agentId, string daemonName, bool force, bool missingIsStopped) {
+    /// <param name="steered">Ids of attached sessions, which the daemon steers but doesn't host: stopping one
+    /// disconnects steering and leaves its process alone, so it never reads as stopped.</param>
+    async Task<int> SendStopAsync(
+            string sock, string agentId, string daemonName, bool force, bool missingIsStopped, IReadOnlySet<string> steered) {
         try {
             using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             await socket.ConnectAsync(new UnixDomainSocketEndPoint(sock));
@@ -389,16 +415,11 @@ internal sealed class AgentCommand(
                     if (outcomes.Count == 0) { console.Out.WriteLine("No agents."); return 0; }
 
                     foreach (var (id, outcome) in outcomes) {
-                        switch (outcome) {
-                            case StopAckOutcome.Stopped:        console.Out.WriteLine($"Stopped {id}."); break;
-                            case StopAckOutcome.Skipped:        console.Out.WriteLine($"Skipped {id} — review agent; pass --force to stop it."); break;
-                            case StopAckOutcome.AlreadyStopped: console.Out.WriteLine($"Already stopped {id}."); break;
-                            case StopAckOutcome.NoSuchAgent:    console.Error.WriteLine($"kcap: no such agent {id}"); break;
-                            default:                            console.Error.WriteLine($"Failed to stop {id} — see `kcap daemon logs`."); break;
-                        }
+                        var (line, error) = StopLine(outcome, id, steered.Contains(id));
+                        (error ? console.Error : console.Out).WriteLine(line);
                     }
 
-                    var skipped = outcomes.Count(o => o.Outcome == StopAckOutcome.Skipped);
+                    var skipped = outcomes.Count(o => o.Outcome == StopAckOutcome.Skipped && !steered.Contains(o.Id));
                     if (skipped > 0)
                         console.Out.WriteLine($"{skipped} review agent(s) left running — pass --force to stop them.");
 
@@ -429,17 +450,38 @@ internal sealed class AgentCommand(
         }
     }
 
+    /// <summary>What one StopAck outcome says, and whether it goes to stderr. A steered session is disconnected from
+    /// steering, never stopped: its process is the person's.</summary>
+    internal static (string Line, bool Error) StopLine(StopAckOutcome outcome, string id, bool steered) => (outcome, steered) switch {
+        (StopAckOutcome.Stopped, false)        => ($"Stopped {id}.", false),
+        (StopAckOutcome.Stopped, true)         => ($"Disconnected steering from {id}. Its Claude Code session keeps running in its terminal.", false),
+        (StopAckOutcome.Skipped, false)        => ($"Skipped {id} — review agent; pass --force to stop it.", false),
+        (StopAckOutcome.Skipped, true)         => ($"Left {id} alone — steered terminal session; pass --force to disconnect steering from it.", false),
+        (StopAckOutcome.AlreadyStopped, false) => ($"Already stopped {id}.", false),
+        (StopAckOutcome.AlreadyStopped, true)  => ($"Steering was already disconnected from {id}.", false),
+        (StopAckOutcome.NoSuchAgent, _)        => ($"kcap: no such agent {id}", true),
+        (_, false)                             => ($"Failed to stop {id} — see `kcap daemon logs`.", true),
+        (_, true)                              => ($"Failed to disconnect steering from {id} — see `kcap daemon logs`.", true),
+    };
+
     /// <summary>Resolves an id or prefix, printing the reason and returning null on failure.</summary>
-    async Task<string?> ResolveOrReportAsync(string sock, string given) {
-        if (IsFullAgentId(given)) return given.ToLowerInvariant(); // skip the round-trip; ResolveAgentId agrees
+    async Task<string?> ResolveOrReportAsync(string sock, string given) => (await ResolveTargetOrReportAsync(sock, given))?.Id;
+
+    /// <summary>As <see cref="ResolveOrReportAsync"/>, with the agent's kind, which is null for a full id taken as given.</summary>
+    async Task<(string Id, string? Kind)?> ResolveTargetOrReportAsync(string sock, string given) {
+        if (IsFullAgentId(given)) return (given.ToLowerInvariant(), null); // skip the round-trip; ResolveAgentId agrees
 
         var agents = await FetchAgentsAsync(sock);
         if (agents is null) return null;
 
         var (id, error) = ResolveAgentId(agents, given);
-        if (error is not null) await console.Error.WriteLineAsync($"kcap: {error}");
+        if (error is not null) {
+            await console.Error.WriteLineAsync($"kcap: {error}");
 
-        return id;
+            return null;
+        }
+
+        return (id!, agents.First(a => a.Id == id).Kind);
     }
 
     async Task<int> ListAsync(string[] args) {
@@ -706,6 +748,11 @@ internal sealed class AgentCommand(
     /// including a kind this build doesn't recognise: an unrecognised kind fails safe rather
     /// than reading as stoppable.
     internal static bool IsProtectedKind(string kind) => kind is not "agent";
+
+    /// <summary>A terminal session the daemon steers through its mod but doesn't host.</summary>
+    internal const string AttachedKind = "attached";
+
+    const string ForceDisconnects = "pass --force to disconnect steering from them; their Claude Code sessions keep running";
 
     /// <summary>Splits an agent list into what `stop --all` will stop and what it will skip.</summary>
     internal static (string[] Stoppable, string[] Protected) PartitionByProtection(IReadOnlyList<AgentRow> agents) => (

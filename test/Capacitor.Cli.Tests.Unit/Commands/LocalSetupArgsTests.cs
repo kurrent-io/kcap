@@ -49,6 +49,7 @@ internal sealed class LocalSetupArgsTests {
     [Arguments("--plugin-scope", "user")]
     [Arguments("--default-visibility", "private")]
     [Arguments("--use-provider-api-key", "true")]
+    [Arguments("--steering", "on")]
     public async Task A_pass_through_flag_value_is_not_a_positional_name(string flag, string value) {
         var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", flag, value, "--single-user"], kcapUrlEnv: null);
 
@@ -107,6 +108,17 @@ internal sealed class LocalSetupArgsTests {
 
         await Assert.That(error).IsNull();
         await Assert.That(parsed).IsEqualTo(new LocalSetupArgs(Json: false, SingleUser: false, Yes: false, NoPrompt: true, Intelligence: IntelligenceAnswer.None));
+    }
+
+    /// <summary>A project path or repository name after a skip flag is that flag's value, not a server name.</summary>
+    [Test]
+    [Arguments("--skip-import-folder", @"C:\work\secret-project")]
+    [Arguments("--skip-import-repo", "acme/secret")]
+    public async Task A_skipped_project_is_not_read_as_a_server(string flag, string value) {
+        var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", "--no-prompt", flag, value], kcapUrlEnv: null);
+
+        await Assert.That(error).IsNull();
+        await Assert.That(parsed!.NoPrompt).IsTrue();
     }
 
     [Test]
@@ -190,12 +202,13 @@ internal sealed class LocalSetupArgsTests {
         await Assert.That(error).Contains("--windows-service");
     }
 
+    /// <summary>The unattended scripts written before the question existed pass no answer; setup then posts none.</summary>
     [Test]
-    public async Task A_run_that_cannot_ask_needs_the_intelligence_answer() {
-        var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", "--no-prompt", "--skip-import"], kcapUrlEnv: null);
+    public async Task A_run_that_cannot_ask_goes_on_without_the_intelligence_answer() {
+        var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", "--no-prompt", "--single-user", "--yes"], kcapUrlEnv: null);
 
-        await Assert.That(parsed).IsNull();
-        await Assert.That(error).Contains("--intelligence");
+        await Assert.That(error).IsNull();
+        await Assert.That(parsed!.Intelligence).IsNull();
     }
 
     [Test]
