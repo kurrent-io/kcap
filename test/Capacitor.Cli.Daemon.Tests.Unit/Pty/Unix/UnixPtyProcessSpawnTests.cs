@@ -1,5 +1,6 @@
 using System.Globalization;
 using Capacitor.Cli.Daemon.Pty.Unix;
+using Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 
@@ -100,8 +101,7 @@ public class UnixPtyProcessSpawnTests {
 
             await proc.TerminateAsync(TimeSpan.FromMilliseconds(300));
 
-            // HasExited is set only when the runtime's own waitpid returned the leader, so it means
-            // reaped. Waiting on the pid again could steal a recycled pid from another test's child.
+            // Waiting on the pid here could steal a recycled pid from another test's child.
             await Assert.That(proc.HasExited).IsTrue();
         } finally {
             await proc.DisposeAsync();
@@ -110,7 +110,7 @@ public class UnixPtyProcessSpawnTests {
 
     /// <summary>A helper that inherited the terminal and ignores SIGHUP keeps it open after the leader
     /// exits, so the terminal never hangs up: the output must still end once the leader has gone, with
-    /// the leader's own exit code.</summary>
+    /// the leader's own exit code, and the helper goes down with the group when the process is disposed.</summary>
     [Test]
     public async Task Output_ends_when_the_leader_exits_though_a_helper_holds_the_terminal() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
@@ -133,6 +133,10 @@ public class UnixPtyProcessSpawnTests {
             await Assert.That(ended).IsTrue();
             await Assert.That(proc.HasExited).IsTrue();
             await Assert.That(proc.ExitCode).IsEqualTo(3);
+            await Assert.That(helperPid).IsGreaterThan(0);
+
+            await proc.DisposeAsync();
+            await WaitHarness.SpinUntilAsync(() => PidIdentity.IsGone(helperPid, helperIdentity), TimeSpan.FromSeconds(5));
         } finally {
             await proc.DisposeAsync();
             if (helperPid > 0 && !PidIdentity.IsGone(helperPid, helperIdentity))
@@ -161,7 +165,9 @@ public class UnixPtyProcessSpawnTests {
     }
 
     /// <summary>A leader something else already reaped is gone, though its status went with the reap:
-    /// it must read as exited, or the agent stays live and a later group signal could hit a reused pid.</summary>
+    /// it must read as exited, or the agent stays live and a later group signal could hit a reused pid.
+    /// The runtime never reaps before disposal, so the test's reap always wins; its reader can still
+    /// have seen the exit first, and then the code survives.</summary>
     [Test]
     public async Task A_leader_reaped_elsewhere_reads_as_exited_with_no_code() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
@@ -176,7 +182,7 @@ public class UnixPtyProcessSpawnTests {
             await proc.WaitForExitAsync(TimeSpan.FromSeconds(1));
 
             await Assert.That(proc.HasExited).IsTrue();
-            await Assert.That(proc.ExitCode).IsNull();
+            await Assert.That(proc.ExitCode is null or 137).IsTrue();
         } finally {
             await proc.DisposeAsync();
         }

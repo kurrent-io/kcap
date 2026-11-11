@@ -329,21 +329,22 @@ public sealed class UnixPtyProcess : IPtyProcess {
 
     static readonly TimeSpan KillReapBound = TimeSpan.FromSeconds(5);
 
-    /// <summary>Serializes the reap (<see cref="CheckExited"/>'s waitpid) against group signalling
-    /// (<see cref="SignalGroup"/>). The leader's unreaped zombie is what pins its pid AND pgid
-    /// against reuse; the read loop's own <see cref="ReadOutputAsync"/> can reap concurrently with
-    /// a terminate, and a signal sent after that reap could land on a recycled id. Under this gate
-    /// a signal is provably sent while the leader is unreaped, or not at all.</summary>
+    /// <summary>Serializes the reap against group signalling (<see cref="SignalGroup"/>). The leader's
+    /// unreaped zombie is what pins its pid AND pgid against reuse, so an exit is only observed
+    /// (<see cref="CheckExited"/>) and the zombie is reaped at disposal, after the group's last
+    /// signal. Under this gate a signal is provably sent while the leader is unreaped, or not at all.</summary>
     readonly object _reapSignalGate = new();
+
+    bool _reaped;
 
     /// <summary>Signals the child's process GROUP, falling back to the pid alone (ProcessReaper's
     /// pattern). The child is a forkpty session leader (pgid == pid), so helpers it spawned —
     /// codex's code-mode host, MCP servers — are in the group; signalling only the leader orphans
     /// them whenever the leader dies without forwarding (SIGKILL always, SIGTERM vendor-dependent).
     /// Safe against pid reuse: the signal is sent under <see cref="_reapSignalGate"/> only while
-    /// the leader is unreaped (its zombie pins the pid and pgid) — once it has been reaped the
-    /// group id proves nothing and is never signalled; a descendant that outlived the group kill
-    /// is the record/scan reap layers' job.</summary>
+    /// the leader is unreaped (its zombie pins the pid and pgid) — once it has been reaped, by
+    /// someone else, the group id proves nothing and is never signalled; a descendant that outlived
+    /// the group kill is the record/scan reap layers' job.</summary>
     void SignalGroup(int sig) {
         // Same guard as ProcessReaper.SignalGroup: kill(2) gives non-positive pids special
         // meanings — kill(0) signals the CALLER's own group and kill(-1) broadcasts — so a
@@ -352,7 +353,7 @@ public sealed class UnixPtyProcess : IPtyProcess {
         if (Pid <= 0) return;
 
         lock (_reapSignalGate) {
-            if (HasExited) return; // reaped since the caller's check — the ids may be recycled
+            if (_reaped) return; // the ids may be recycled
 
             if (UnixPtyInterop.kill(-Pid, sig) != 0) UnixPtyInterop.kill(Pid, sig);
         }
@@ -375,29 +376,35 @@ public sealed class UnixPtyProcess : IPtyProcess {
     }
 
     void CheckExited() {
-        // Under the gate so the reap-and-publish is atomic with respect to SignalGroup: a signal
-        // can never interleave between the waitpid that frees the pid/pgid for reuse and the
-        // HasExited publication that tells SignalGroup to stand down.
         lock (_reapSignalGate) {
             if (HasExited) return;
 
-            var result = UnixPtyInterop.waitpid(Pid, out var status, UnixPtyInterop.WNOHANG);
+            if (UnixPtyInterop.PeekExit(Pid, out var exited, out var code) == 0) {
+                if (!exited) return;
 
-            if (result == Pid) {
                 HasExited = true;
-                ExitCode  = ExitCodeOf(status);
-            } else if (result < 0 && Marshal.GetLastPInvokeError() == UnixPtyInterop.ECHILD) {
+                ExitCode  = code;
+            } else if (Marshal.GetLastPInvokeError() == UnixPtyInterop.ECHILD) {
                 // Reaped by someone else, so the status is lost; the pid may already be another process's.
                 HasExited = true;
+                _reaped   = true;
             }
         }
     }
 
-    /// <summary>The exit status, or 128 plus the signal for a child a signal killed, as a shell reports it.</summary>
-    internal static int ExitCodeOf(int status) {
-        var signal = status & 0x7F;
+    /// <summary>Kills what is left of an exited leader's group, its helpers that kept the terminal open, and
+    /// reaps the leader, whose zombie kept the group id from being reused until then.</summary>
+    void ReleaseExitedGroup() {
+        lock (_reapSignalGate) {
+            if (!HasExited || _reaped) return;
+        }
 
-        return signal is 0 or 0x7F ? (status >> 8) & 0xFF : 128 + signal;
+        SignalGroup(UnixPtyInterop.SIGKILL);
+
+        lock (_reapSignalGate) {
+            UnixPtyInterop.waitpid(Pid, out _, UnixPtyInterop.WNOHANG);
+            _reaped = true;
+        }
     }
 
     public async ValueTask DisposeAsync() {
@@ -410,6 +417,8 @@ public sealed class UnixPtyProcess : IPtyProcess {
         if (!HasExited) {
             await TerminateAsync();
         }
+
+        ReleaseExitedGroup();
 
         await _reader.Stopped;
         _master.Dispose();
