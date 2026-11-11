@@ -11,8 +11,8 @@ public static class CodexLineText {
     /// The person's words in a role:"user" message: every <c>input_text</c> block, in order and joined by a
     /// newline as the transcript projection joins them, with the context Codex injects ahead of a prompt
     /// stripped. Null when the message holds only that context. The marker list is <see cref="CodexPrelude"/>'s,
-    /// so a block Codex adds is learnt in one place. A block with no prelude is kept verbatim, so indented code
-    /// in a later block keeps its indentation.
+    /// so a block Codex adds is learnt in one place. Only the ends of the joined prompt are trimmed, as the Claude
+    /// extraction trims them; inside it a block with no prelude is kept verbatim, so indented code keeps its indentation.
     /// </summary>
     public static string? ExtractCodexUserPrompt(JsonElement payload) {
         if (payload.Arr("content") is not { } content) return null;
