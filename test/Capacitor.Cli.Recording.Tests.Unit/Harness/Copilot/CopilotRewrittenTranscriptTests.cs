@@ -206,6 +206,20 @@ public class CopilotRewrittenTranscriptTests {
             Enumerable.Range(5, edited).Select(i => Line("b", i)).Append(Line("a", 9)).ToArray());
     }
 
+    [Test]
+    public async Task A_kept_copy_stays_held_back_when_the_send_after_the_rewrite_fails() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, EditedBeforeTheLastLine);
+
+        Recorders.Transport.IsConnected = false;
+        await Recorders.For(Sid, path, null, "copilot").DrainNewLines(state, CancellationToken.None, isFinalDrain: true);
+        Recorders.Transport.IsConnected = true;
+        await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(10).ToArray()).IsEquivalentTo(
+            Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).ToArray());
+    }
+
     /// <summary>A file that changes under every read leaves nothing the spool can trust, so the session is marked for
     /// import rather than spooled as having no tail.</summary>
     [Test]
