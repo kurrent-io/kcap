@@ -15,13 +15,8 @@ sealed class UnixPtyReaderThread {
     const int DrainPollMs   = 50;
     const int ChunkSize     = 4096;
 
-    static readonly TimeSpan ExitCheckGap = TimeSpan.FromMilliseconds(PollTimeoutMs);
-    // A descendant still writing would otherwise keep the drain going for as long as it lives.
-    static readonly TimeSpan DrainLimit = TimeSpan.FromSeconds(1);
-
     readonly int                  _masterFd;
-    readonly Func<bool>           _childExited;
-    readonly TimeProvider         _time;
+    readonly PtyExitWatch         _exit;
     readonly CancellationToken    _stop;
     readonly Channel<byte[]>      _chunks  = Channel.CreateUnbounded<byte[]>(new() { SingleWriter = true });
     readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -33,19 +28,12 @@ sealed class UnixPtyReaderThread {
     readonly object _creditGate = new();
     bool            _credit     = true;
 
-    bool _childGone;
-    long _exitCheckedAt;
-    long _exitSeenAt;
-
-    /// <param name="childExited">Reaps the child if it has exited. Asked whenever the terminal is idle, and
-    /// at least every <see cref="ExitCheckGap"/> while it is not: a descendant that inherited the terminal
-    /// keeps it open after the child dies, so no hangup comes, and it may keep writing.</param>
+    /// <param name="childExited">Reaps the child if it has exited: a descendant that inherited the terminal
+    /// keeps it open after the child dies, so no hangup comes.</param>
     public UnixPtyReaderThread(int masterFd, int pid, Func<bool> childExited, TimeProvider time, CancellationToken stop) {
-        _masterFd      = masterFd;
-        _childExited   = childExited;
-        _time          = time;
-        _exitCheckedAt = time.GetTimestamp();
-        _stop          = stop;
+        _masterFd = masterFd;
+        _exit     = new PtyExitWatch(childExited, time);
+        _stop     = stop;
 
         new Thread(Run) { IsBackground = true, Name = $"kcap-pty-reader-{pid}" }.Start();
     }
@@ -114,10 +102,10 @@ sealed class UnixPtyReaderThread {
         var pfd = new UnixPtyInterop.PollFd { fd = _masterFd, events = UnixPtyInterop.POLLIN };
 
         while (!_stop.IsCancellationRequested) {
-            if (_childGone && _time.GetElapsedTime(_exitSeenAt) >= DrainLimit) return 0;
+            if (_exit.DrainOver) return 0;
 
             pfd.revents = 0;
-            var pollResult = UnixPtyInterop.poll(ref pfd, 1, _childGone ? DrainPollMs : PollTimeoutMs);
+            var pollResult = UnixPtyInterop.poll(ref pfd, 1, _exit.ChildGone ? DrainPollMs : PollTimeoutMs);
 
             if (pollResult < 0) {
                 var errno = Marshal.GetLastPInvokeError();
@@ -127,16 +115,16 @@ sealed class UnixPtyReaderThread {
             }
 
             if (pollResult == 0) {
-                if (_childGone) return 0;
+                if (_exit.ChildGone) return 0;
 
                 // Read on until the master has nothing left, so the child's last output is not dropped.
-                CheckChildExited();
+                _exit.Check();
 
                 continue;
             }
 
             if ((pfd.revents & UnixPtyInterop.POLLIN) != 0) {
-                if (!_childGone && _time.GetElapsedTime(_exitCheckedAt) >= ExitCheckGap) CheckChildExited();
+                _exit.CheckIfDue();
 
                 var bytesRead = (int)UnixPtyInterop.read(_masterFd, buf, buf.Length);
                 if (bytesRead >= 0) return bytesRead;
@@ -156,15 +144,6 @@ sealed class UnixPtyReaderThread {
         }
 
         return 0;
-    }
-
-    void CheckChildExited() {
-        _exitCheckedAt = _time.GetTimestamp();
-
-        if (!_childExited()) return;
-
-        _childGone  = true;
-        _exitSeenAt = _exitCheckedAt;
     }
 
     static IOException Failure(string call, int errno) =>

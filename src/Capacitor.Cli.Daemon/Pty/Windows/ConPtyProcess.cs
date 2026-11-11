@@ -433,8 +433,13 @@ public sealed class ConPtyProcess : IPtyProcess {
         using var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
         var       buf        = new byte[4096];
         var       emptyPolls = 0;
+        var       exit       = new PtyExitWatch(() => {
+                CheckExited();
 
-        while (!linked.Token.IsCancellationRequested) {
+                return HasExited;
+            }, _time);
+
+        while (!linked.Token.IsCancellationRequested && !exit.DrainOver) {
             if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var avail, IntPtr.Zero)) {
                 CheckExited();
 
@@ -443,6 +448,7 @@ public sealed class ConPtyProcess : IPtyProcess {
 
             if (avail > 0) {
                 emptyPolls = 0;
+                exit.CheckIfDue();
                 var toRead = (uint)Math.Min(avail, buf.Length);
 
                 if (!ReadFile(_hOutputPipe, buf, toRead, out var read, IntPtr.Zero) || read == 0) {
@@ -456,31 +462,29 @@ public sealed class ConPtyProcess : IPtyProcess {
 
                 yield return data;
             } else {
-                CheckExited();
+                exit.Check();
 
-                if (HasExited) {
-                    emptyPolls++;
-
-                    if (emptyPolls > 5) {
-                        if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
-                            ClosePseudoConsole(_hPC);
-                        }
-
-                        // More than one read's worth can be left once the console closes.
-                        while (PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0
-                            && ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
-                            var finalData = new byte[finalRead];
-                            Array.Copy(buf, finalData, (int)finalRead);
-
-                            yield return finalData;
-                        }
-
-                        break;
-                    }
-                }
+                if (exit.ChildGone && ++emptyPolls > 5) break;
 
                 try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
             }
+        }
+
+        if (!exit.ChildGone || linked.Token.IsCancellationRequested) yield break;
+
+        if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
+            ClosePseudoConsole(_hPC);
+        }
+
+        // More than one read's worth can be left once the console closes, and a descendant may still be writing.
+        var closedAt = _time.GetTimestamp();
+        while (_time.GetElapsedTime(closedAt) < PtyExitWatch.DrainLimit
+            && PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0
+            && ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
+            var finalData = new byte[finalRead];
+            Array.Copy(buf, finalData, (int)finalRead);
+
+            yield return finalData;
         }
     }
 
