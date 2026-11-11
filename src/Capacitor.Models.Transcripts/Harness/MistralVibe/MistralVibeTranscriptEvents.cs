@@ -104,7 +104,11 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
             CallId = callId, ToolName = toolName, Arguments = arguments,
             ToolKind = MistralVibeToolKinds.Of(detail.Str("kind"), toolName),
         });
+        if (MistralVibeExtension.AgentIdOf(detail.Str("childSessionId")) is { } agentId)
+            toolCall.Extensions[MistralVibeExtension.Slug] = MistralVibeExtension.ToolCall(agentId);
 
+        // The result shares the call's time: the list's order is the source's, so no tick offset is
+        // needed to keep the result after its call.
         var events = new List<CanonicalEvent> {
             new(CanonicalEventTypes.Of(toolCall), toolCall, recordId, at, recordTs),
         };
