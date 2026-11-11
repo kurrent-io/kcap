@@ -90,6 +90,11 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     internal static readonly TimeSpan RecoveryInterval    = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan MaxRecoveryInterval = TimeSpan.FromMinutes(30);
 
+    /// How long startup leaves a loaded launchd job to launchd before starting it itself. launchd held every
+    /// login agent back for 28 s on a measured login.
+    internal static readonly TimeSpan LaunchdSpawnGrace = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan LaunchdSpawnPoll  = TimeSpan.FromSeconds(2);
+
     readonly IDaemonClientService _client;
     readonly IKcapCli _cli;
     readonly ILoginShellProbe _probe;
@@ -134,6 +139,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     readonly Lock _markerLock = new();
     long _markerSeq;           // under _markerLock: start stamp of the newest read that spoke about the marker
     string? _staleMarkerShown; // under _markerLock: the exact line Attention received, so Withdraw can match it
+    readonly Lock _untilAttachedLock = new();
+    string? _untilAttachedShown; // under _untilAttachedLock
 
     /// The attached daemon's latest reported activity; null until a snapshot arrives and whenever the attach drops.
     public DaemonActivity? LatestActivity => Volatile.Read(ref _latestActivity);
@@ -310,6 +317,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
 
         if (status.State == AttachState.Connected) {
             WithdrawMovingToWindowsService();
+            WithdrawUntilAttached();
             _ = CheckAttachedIdentityAsync();
         }
 
@@ -361,6 +369,23 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             return false;
         }
         lock (_lock) return _lastObserved.State == AttachState.Unreachable;
+    }
+
+    /// An Attention line that holds only while no daemon is attached: not posted while one is, withdrawn when one attaches.
+    public void AttentionUntilAttached(string message) {
+        lock (_untilAttachedLock) {
+            if (IsCurrentlyAttached()) return;
+            _untilAttachedShown = message;
+            _surface.Attention(message);
+        }
+    }
+
+    void WithdrawUntilAttached() {
+        lock (_untilAttachedLock) {
+            if (_untilAttachedShown is not { } shown) return;
+            _untilAttachedShown = null;
+            _surface.Withdraw(shown);
+        }
     }
 
     void ClosePhase() => _phaseClosed.TrySetResult(true);
@@ -589,33 +614,10 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                 return;
             }
 
-            if (!await TryAcquireGateAsync(_lifetime.Token).ConfigureAwait(false)) return;
-            try {
-                var snap = await QueryForStartupBranchAsync(triggering, _lifetime.Token).ConfigureAwait(false);
-                if (snap is null) return; // query failure/unknown — already surfaced above, no mutation
-
-                // The true CURRENT attach state, not the (possibly stale) reason this branch was
-                // triggered by: when QueryForStartupBranchAsync had to re-evaluate against a
-                // racing Connected, this run's only reconciliation pass must not silently run in
-                // permanently-unattached mode — that would make the attached-only checks
-                // (ownership mismatch, coexistence) unreachable for the whole run.
-                Reconcile(snap, IsCurrentlyAttached(), allowTxnActiveRequery: false);
-
-                if (snap.TxnActive) {
-                    // A held flock is waited out, never mutated into. One bounded
-                    // re-query (not offered as repair); still active afterward → no action this
-                    // run rather than risk contending the CLI's own transaction lock.
-                    snap = await AwaitOneTxnActiveRequeryAsync(_lifetime.Token).ConfigureAwait(false);
-                    if (snap is null || snap.TxnActive) return;
-                }
-
-                // A daemon that attached during the reads above needs nothing, whatever they saw.
-                if (IsCurrentlyAttached()) return;
-
-                await RunStartupMatrixAsync(snap, recovering, _lifetime.Token).ConfigureAwait(false);
-            } finally {
-                _gate.Release();
-            }
+            // The wait runs outside the gate, so a Start click is not held behind it.
+            if (!await RunStartupPassAsync(triggering, recovering, leaveToLaunchd: !recovering).ConfigureAwait(false)) return;
+            if (await AttachesWhileLaunchdHoldsJobAsync().ConfigureAwait(false)) return;
+            await RunStartupPassAsync(triggering, recovering, leaveToLaunchd: false).ConfigureAwait(false);
         } catch (OperationCanceledException) {
             // shutdown mid-branch
         } catch (Exception ex) {
@@ -623,6 +625,51 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         } finally {
             ClosePhase();
         }
+    }
+
+    /// <returns>True when it left a loaded job for launchd to start</returns>
+    async Task<bool> RunStartupPassAsync((AttachState State, string? Reason) triggering, bool recovering, bool leaveToLaunchd) {
+        if (!await TryAcquireGateAsync(_lifetime.Token).ConfigureAwait(false)) return false;
+        try {
+            var snap = await QueryForStartupBranchAsync(triggering, _lifetime.Token).ConfigureAwait(false);
+            if (snap is null) return false; // query failure/unknown — already surfaced above, no mutation
+
+            // The current attach state, not the triggering one: a Connected that raced the query still gets the attached-only checks.
+            Reconcile(snap, IsCurrentlyAttached(), allowTxnActiveRequery: false);
+
+            if (snap.TxnActive) {
+                // A held transaction lock is waited out once, never mutated into.
+                snap = await AwaitOneTxnActiveRequeryAsync(_lifetime.Token).ConfigureAwait(false);
+                if (snap is null || snap.TxnActive) return false;
+            }
+
+            // A daemon that attached during the reads above needs nothing, whatever they saw.
+            if (IsCurrentlyAttached()) return false;
+
+            if (leaveToLaunchd && LaunchdMayStartJob(snap)) return true;
+
+            await RunStartupMatrixAsync(snap, recovering, _lifetime.Token).ConfigureAwait(false);
+            return false;
+        } finally {
+            _gate.Release();
+        }
+    }
+
+    /// At login launchd holds a loaded job back until the session is up. A verified start in that window boots the job
+    /// out, and when launchd still holds the new one the start's rollback leaves it unloaded: nothing starts the daemon.
+    static bool LaunchdMayStartJob(ServiceSnapshot snap) =>
+        snap.Supervisor == "launchd" && ServiceStateClassifier.Parse(snap.State) == ServiceState.Installed
+        && snap.UnitPresent && snap.JobPid is null && snap.DaemonPid is null && !snap.TxnMarker && !snap.TxnActive;
+
+    /// <returns>True when a daemon attached; false once the grace runs out or the job changed under some other hand</returns>
+    async Task<bool> AttachesWhileLaunchdHoldsJobAsync() {
+        var deadline = _time.GetUtcNow() + LaunchdSpawnGrace;
+        while (_time.GetUtcNow() < deadline) {
+            await Task.Delay(LaunchdSpawnPoll, _time, _lifetime.Token).ConfigureAwait(false);
+            if (IsCurrentlyAttached()) return true;
+            if (await ReadStatusAsync(_lifetime.Token).ConfigureAwait(false) is not { } snap || !LaunchdMayStartJob(snap)) return false;
+        }
+        return IsCurrentlyAttached();
     }
 
     /// The startup matrix, keyed on the loaded-label/job state before plist presence. An unrecognized wire

@@ -29,8 +29,9 @@ public class DaemonLifecycleControllerTests {
     static ServiceSnapshot Snap(
             bool unitPresent = false, string state = "not_installed", string? installBinaryPath = "/opt/kcap/kcapd",
             string? binaryPath = null, int? jobPid = null, int? daemonPid = null, bool txnMarker = false,
-            bool txnActive = false) =>
-        new("default", unitPresent, state, binaryPath, installBinaryPath, jobPid, daemonPid, txnMarker, txnActive);
+            bool txnActive = false, string? supervisor = null) =>
+        new("default", unitPresent, state, binaryPath, installBinaryPath, jobPid, daemonPid, txnMarker, txnActive,
+            Supervisor: supervisor);
 
     [Test]
     [Arguments("before-start")]
@@ -86,6 +87,118 @@ public class DaemonLifecycleControllerTests {
         // Never IKcapCli directly — the lane is the ONLY caller of these now.
         await Assert.That(h.Cli.StartVerifiedCallCount).IsEqualTo(0);
         await Assert.That(h.Cli.InstallVerifiedCallCount).IsEqualTo(0);
+    }
+
+    /// At login launchd holds a loaded job back until the session is up. A verified start in that window boots
+    /// the job out, and its rollback leaves it unloaded, so the daemon launchd was about to start never runs.
+    [Test]
+    public async Task Row2_launchd_job_waiting_to_spawn_is_left_for_launchd_to_start() {
+        await using var h = new Harness();
+        var spawned = false;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(spawned
+            ? Snap(unitPresent: true, state: "running", jobPid: 100, daemonPid: 100, supervisor: "launchd")
+            : Snap(unitPresent: true, state: "installed", supervisor: "launchd"));
+        h.Start();
+
+        h.PushUnreachable();
+        await WaitUntilAsync(() => h.Time.TimersCreated >= 1, what: "the wait for launchd to start the job");
+        spawned = true;
+        h.Clock.Advance(DaemonLifecycleController.LaunchdSpawnPoll);
+
+        await h.Controller.PhaseClosed;
+        await Assert.That(h.Lane.Requests).IsEmpty();
+        await Assert.That(h.Surface.AttentionMessages).IsEmpty();
+    }
+
+    [Test]
+    public async Task Row2_launchd_job_that_never_spawns_is_started_verified_once_the_grace_runs_out() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed", supervisor: "launchd"));
+        h.Start();
+
+        h.PushUnreachable();
+        var timers = 0;
+        for (var waited = TimeSpan.Zero; waited < DaemonLifecycleController.LaunchdSpawnGrace; waited += DaemonLifecycleController.LaunchdSpawnPoll) {
+            await WaitUntilAsync(() => h.Time.TimersCreated > timers, what: "the next look at whether launchd started the job");
+            timers = h.Time.TimersCreated;
+            await Assert.That(h.Lane.Requests).IsEmpty();
+            h.Clock.Advance(DaemonLifecycleController.LaunchdSpawnPoll);
+        }
+
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the verified start after the grace");
+        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+    }
+
+    /// Daemon attaching while the app waits on launchd leaves nothing to do.
+    [Test]
+    public async Task Row2_launchd_job_whose_daemon_attaches_during_the_wait_is_not_started() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed", supervisor: "launchd"));
+        h.Start();
+
+        h.PushUnreachable();
+        await WaitUntilAsync(() => h.Time.TimersCreated >= 1, what: "the wait for launchd to start the job");
+        h.PushConnected();
+        h.Clock.Advance(DaemonLifecycleController.LaunchdSpawnPoll);
+
+        await h.Controller.PhaseClosed;
+        await Assert.That(h.Lane.Requests).IsEmpty();
+    }
+
+    /// Waiting on launchd holds no gate, so a Start click goes ahead at once instead of queueing behind it.
+    [Test]
+    public async Task Start_click_while_waiting_on_launchd_is_not_held_behind_the_wait() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed", supervisor: "launchd"));
+        h.Start();
+
+        h.PushUnreachable();
+        await WaitUntilAsync(() => h.Time.TimersCreated >= 1, what: "the wait for launchd to start the job");
+        await h.Controller.StartActionAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(h.Lane.Requests.Count).IsEqualTo(1);
+        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+    }
+
+    /// Only launchd starts a loaded job by itself; another supervisor's stopped service is started at once.
+    [Test]
+    [Arguments("systemd")]
+    [Arguments("windows_scheduled_task")]
+    public async Task Row2_loaded_inactive_under_another_supervisor_starts_verified_without_waiting(string supervisor) {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed", supervisor: supervisor));
+        h.Start();
+
+        h.PushUnreachable();
+
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the lane's service start --verify request");
+        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+        await Assert.That(h.Time.TimersCreated).IsEqualTo(0);
+    }
+
+    // ---- attention that stands only until a daemon attaches ----
+
+    [Test]
+    public async Task Attention_until_attached_is_withdrawn_when_the_daemon_connects() {
+        await using var h = new Harness();
+        h.Start();
+
+        h.Controller.AttentionUntilAttached("start unconfirmed");
+        h.PushConnected();
+
+        await Assert.That(h.Surface.AttentionMessages).Contains("start unconfirmed");
+        await Assert.That(h.Surface.Withdrawn).Contains("start unconfirmed");
+    }
+
+    [Test]
+    public async Task Attention_until_attached_is_not_posted_while_a_daemon_is_attached() {
+        await using var h = new Harness();
+        h.Start();
+        h.PushConnected();
+
+        h.Controller.AttentionUntilAttached("start unconfirmed");
+
+        await Assert.That(h.Surface.AttentionMessages).DoesNotContain("start unconfirmed");
     }
 
     [Test]
