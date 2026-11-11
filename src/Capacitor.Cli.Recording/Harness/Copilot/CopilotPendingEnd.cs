@@ -25,10 +25,10 @@ public static class CopilotPendingEnd {
     static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
 
     /// <summary>Holds <paramref name="endBody"/> until the runtime is gone or the transcript ends on its shutdown line.
-    /// <paramref name="transcriptLength"/> is where the stopped run's transcript ended, taken when the stop arrived: lines
-    /// written after it are another run's. <paramref name="watcherPid"/> is the writer, which a later watcher replaces.</summary>
+    /// <paramref name="runId"/> is the run the transcript named when the stop arrived: a later run supersedes this end.
+    /// <paramref name="watcherPid"/> is the writer, which a later watcher replaces.</summary>
     public static bool Write(WatcherPaths paths, string sessionId, string endBody, string? server, int? runtimePid, string transcriptPath, TimeProvider time,
-            long? transcriptLength = null, int? watcherPid = null) {
+            string? runId = null, int? watcherPid = null) {
         var record = new JsonObject {
             ["server"]            = server,
             ["body"]              = endBody,
@@ -36,7 +36,7 @@ public static class CopilotPendingEnd {
             ["runtime_token"]     = runtimePid is { } pid ? ProcessStartToken.ForPid(pid) : null,
             ["watcher_pid"]       = watcherPid,
             ["transcript_path"]   = transcriptPath,
-            ["transcript_length"] = transcriptLength ?? LengthOf(transcriptPath),
+            ["run_id"]            = runId,
             ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
         };
 
@@ -112,7 +112,7 @@ public static class CopilotPendingEnd {
             try {
                 // The span close it owes is recorded first, so no spooled end goes without one.
                 if (Decide(paths, session, lifecycle, server, time) is { } due
-                 && CopilotSpanClose.Record(paths, session, server, due.Body, time, due.RunBoundary) && lifecycle.Append(session, Route, due.Body)) {
+                 && CopilotSpanClose.Record(paths, session, server, due.Body, time, due.RunId) && lifecycle.Append(session, Route, due.Body)) {
                     Discard(paths, session);
                     spooled++;
                 }
@@ -126,7 +126,7 @@ public static class CopilotPendingEnd {
 
     /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
     /// <summary>A pending end that is due, with the run its transcript was on when the watcher stopped.</summary>
-    readonly record struct Due(string Body, long? RunBoundary);
+    readonly record struct Due(string Body, string? RunId);
 
     static Due? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
         JsonObject? record;
@@ -152,8 +152,19 @@ public static class CopilotPendingEnd {
 
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
 
-        // A later run owns the session's end, even one that has since shut down too.
-        if (NewRunSince(transcript, record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
+        // A later run owns the session's end, even one that has since shut down too. A rewrite that took this run's own line
+        // away leaves nothing to tell, and a premature end cannot be undone where a sweep's late one can.
+        var runId = record["run_id"]?.GetValue<string>();
+
+        if (CopilotRunBoundary.Read(transcript) is { } runs) {
+            if (runId is not null && !runs.Ids.Contains(runId)) {
+                Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: its run is gone from the rewritten transcript");
+
+                return Drop();
+            }
+
+            if (runs.LatestId != runId) return Drop();
+        }
 
         // A watcher started since this one stopped records the session and sends its end.
         if (WatcherLiveness.PidAlive(paths, session) && CurrentWatcherPid(paths, session) != record["watcher_pid"]?.GetValue<int>()) return Drop();
@@ -172,45 +183,11 @@ public static class CopilotPendingEnd {
 
         if (record["body"]?.GetValue<string>() is not { } body) return Drop();
 
-        return new Due(body, CopilotRunBoundary.Latest(transcript, record["transcript_length"]?.GetValue<long>()));
+        return new Due(body, runId);
 
         Due? Drop() {
             Discard(paths, session);
 
-            return null;
-        }
-    }
-
-    /// <summary>Whether a line written after <paramref name="offset"/> starts a run: Copilot can still append the stopped
-    /// run's final turn before its shutdown line, so growth alone proves nothing.</summary>
-    static bool NewRunSince(string transcript, long offset) {
-        try {
-            if (!File.Exists(transcript)) return false;
-
-            using var stream = new FileStream(transcript, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (offset > stream.Length) return false;
-            stream.Seek(offset, SeekOrigin.Begin);
-
-            using var reader = new StreamReader(stream);
-
-            while (reader.ReadLine() is { } line) {
-                if (TypeOf(line) is "session.start" or "session.resume" or "user.message") return true;
-            }
-
-            return false;
-        } catch (IOException) {
-            return false;
-        }
-    }
-
-    static string? TypeOf(string line) {
-        try {
-            using var doc = JsonDocument.Parse(line);
-
-            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
-                ? type.GetString()
-                : null;
-        } catch (JsonException) {
             return null;
         }
     }
@@ -240,14 +217,6 @@ public static class CopilotPendingEnd {
             return File.Exists(path) ? new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero) : fallback;
         } catch (IOException) {
             return fallback;
-        }
-    }
-
-    static long LengthOf(string path) {
-        try {
-            return File.Exists(path) ? new FileInfo(path).Length : 0;
-        } catch (IOException) {
-            return 0;
         }
     }
 }

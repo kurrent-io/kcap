@@ -59,7 +59,6 @@ public class CopilotPendingEndTests {
     [Test]
     [Arguments("""{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""")]
     [Arguments("""{"type":"session.start","data":{},"id":"evt-s","timestamp":3}""")]
-    [Arguments("""{"type":"user.message","data":{"content":"next"},"id":"evt-u","timestamp":3}""")]
     public async Task An_end_is_dropped_when_a_new_run_begins(string line) {
         using var runtime = DummyProcess.StartSleep(30);
         var transcript = Transcript(Turn);
@@ -185,18 +184,56 @@ public class CopilotPendingEndTests {
         await Assert.That(Pending).IsFalse();
     }
 
-    /// <summary>The stopped run's transcript ends where the stop found it: a run that wrote since, before the record was
-    /// written, is still a new one.</summary>
+    const string StartA  = """{"type":"session.start","data":{},"id":"run-a","timestamp":1}""";
+    const string ResumeB = """{"type":"session.resume","data":{},"id":"run-b","timestamp":4}""";
+
+    /// <summary>The stopped run is the one the transcript named when the stop arrived: a run that began before the record
+    /// was written is still a new one.</summary>
     [Test]
     public async Task An_end_is_dropped_when_a_new_run_began_before_it_was_recorded() {
         using var runtime = DummyProcess.StartSleep(30);
-        var transcript = Transcript(Turn);
-        var stoppedAt  = new FileInfo(transcript).Length;
-        await File.AppendAllTextAsync(transcript, """{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""" + "\n");
-        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, transcriptLength: stoppedAt);
+        var transcript = Transcript(StartA + "\n" + Turn + "\n" + ResumeB);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
 
         await Assert.That(Sweep()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>VS Code's Restore checkpoint rewrites the transcript in place, shorter than the stop found it. A run resumed
+    /// after that is still a new run, wherever its line now sits.</summary>
+    [Test]
+    public async Task An_end_is_dropped_when_a_run_resumes_after_a_restore_rewrote_the_transcript() {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(StartA + "\n" + Turn + "\n" + Turn + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
+        await File.WriteAllTextAsync(transcript, StartA + "\n" + ResumeB + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>A rewrite that took the stopped run's own line away leaves its end ambiguous: a premature first end cannot be
+    /// undone, so it is dropped.</summary>
+    [Test]
+    public async Task An_end_is_dropped_when_a_rewrite_removed_its_run() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+        await File.WriteAllTextAsync(transcript, Turn + "\n" + Down + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+        await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+    }
+
+    /// <summary>The same run, still the latest, keeps its end through a rewrite and sends it once it shuts down.</summary>
+    [Test]
+    public async Task An_end_of_the_latest_run_is_kept_through_a_rewrite() {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(StartA + "\n" + Turn + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
+        await File.WriteAllTextAsync(transcript, StartA + "\n" + Down + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(1);
     }
 
     /// <summary>A watcher started since this one stopped records the session and sends its end, however quiet it is.</summary>

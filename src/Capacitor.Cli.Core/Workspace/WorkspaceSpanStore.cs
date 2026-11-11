@@ -30,8 +30,8 @@ public sealed class WorkspaceSpanStore(
 
     /// <summary>Opens a span over the tree containing <paramref name="dir"/>. False when nothing was opened:
     /// outside a repository, an unusable session id, or the lock held past its wait.</summary>
-    /// <param name="runBoundary">The run opening the span, which an end bounded to its own run can tell from a later one.</param>
-    public async Task<bool> OpenAsync(string sessionId, string dir, WorkspaceOpen mode, TimeSpan budget, long? runBoundary = null) {
+    /// <param name="run">The run opening the span, which an end bounded to its own run can tell from a later one.</param>
+    public async Task<bool> OpenAsync(string sessionId, string dir, WorkspaceOpen mode, TimeSpan budget, WorkspaceRun? run = null) {
         if (SessionDir(sessionId) is not { } sessionDir) return false;
 
         var started = time.GetTimestamp();
@@ -56,7 +56,7 @@ public sealed class WorkspaceSpanStore(
         // tree; either way the earlier baseline is kept, so the next close spans both turns.
         if (reuses && File.Exists(path)) return true;
 
-        var span = new WorkspaceSpan(Guid.NewGuid(), sessionId, repo.Toplevel, time.GetUtcNow(), snapshot, runBoundary);
+        var span = new WorkspaceSpan(Guid.NewGuid(), sessionId, repo.Toplevel, time.GetUtcNow(), snapshot, run);
         return WorkspaceFiles.WriteAtomic(path, JsonSerializer.Serialize(span, WorkspaceJsonContext.Default.WorkspaceSpan));
     }
 

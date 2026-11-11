@@ -293,9 +293,10 @@ sealed class CopilotHookCommand(
         }
 
         // Copilot fires sessionStart once per run, at its start or resume, so a baseline found here is an earlier run's. The
-        // span carries the run it opens in, which an end that lands before it can tell from a later run's.
+        // span carries the run it opens in, by the id the transcript gives it, which an end landing before it can tell from a
+        // later run's.
         await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Run, WorkspaceSpanHook.StartBudget, drain: false,
-            runBoundary: CopilotRunBoundary.Latest(GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId)));
+            run: new WorkspaceRun(CopilotRunBoundary.LatestIdOf(GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId))));
 
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the
@@ -369,8 +370,8 @@ sealed class CopilotHookCommand(
         ) {
         var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
-        // The run this end closes: the transcript's latest run boundary, or, unreadable, the spans opened by now.
-        var run = new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcriptPath), clock.Time.GetUtcNow());
+        // The run this end closes: the one the transcript names now, or, unreadable, the spans opened by now.
+        var run = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcriptPath), clock.Time.GetUtcNow());
 
         var forwarded = new JsonObject {
             ["hook_event_name"] = "sessionEnd",
@@ -392,7 +393,7 @@ sealed class CopilotHookCommand(
         // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
         // The span close it owes is recorded first, so no spooled end goes without one; with neither, the finalizer
         // carries the end and closes the span itself.
-        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end, clock.Time, run.Boundary)
+        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end, clock.Time, run.RunId)
                    && new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
         if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 

@@ -264,7 +264,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
         Repo.CreateFile("made.txt", "x");
 
         await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited",
-            new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcript), stoppedAt));
+            new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), stoppedAt));
 
         await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
     }
@@ -273,7 +273,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
     [Test]
     public async Task A_Copilot_end_leaves_the_span_of_a_run_resumed_after_it() {
         var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n");
-        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
+        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
         await File.AppendAllTextAsync(transcript, RunResume + "\n");
         await CopilotAsync("sessionStart", transcript);
         Repo.CreateFile("made.txt", "x");
@@ -281,6 +281,35 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited", ended);
 
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>VS Code's Restore checkpoint rewrites the transcript in place, shorter than the stop found it, and a run
+    /// resumed after it may land where the stopped run's lines were. The earlier run's end still leaves the resumed run's span.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_the_span_of_a_run_resumed_after_a_restore() {
+        const string turn = """{"type":"assistant.message","data":{"content":"long turn"},"id":"evt-turn","timestamp":3}""";
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n" + turn + "\n" + turn + "\n" + turn + "\n");
+        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
+        await File.WriteAllTextAsync(transcript, RunStart + "\n" + RunResume + "\n");
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited", ended);
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>A span whose sessionStart could not read the transcript is no known run's, so an end that knows its own run
+    /// leaves it for the next run's start to replace.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_a_span_whose_run_was_unreadable() {
+        await CopilotAsync("sessionStart", Home.PathTo("absent/events.jsonl"));
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited",
+            new WorkspaceRunCutoff("evt-start", _time.GetUtcNow() + TimeSpan.FromHours(1)));
+
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
     }
 

@@ -43,8 +43,8 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
 
     bool Withheld(string sessionId) => DisabledSessions.IsDisabled(sessionId, config);
 
-    public Task OpenAsync(string? sessionId, string? dir, WorkspaceOpen mode, TimeSpan budget, bool drain = true, long? runBoundary = null) =>
-        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : StoreWithin(budget).OpenAsync(sessionId!, dir, mode, left(), runBoundary));
+    public Task OpenAsync(string? sessionId, string? dir, WorkspaceOpen mode, TimeSpan budget, bool drain = true, WorkspaceRun? run = null) =>
+        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : StoreWithin(budget).OpenAsync(sessionId!, dir, mode, left(), run));
 
     public Task CloseAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
         RunAsync(sessionId, budget, drain, left => StoreWithin(budget).CloseAllAsync(sessionId!, left()));

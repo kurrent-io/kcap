@@ -1,64 +1,55 @@
-using System.Text;
 using System.Text.Json;
 
 namespace Capacitor.Cli.Recording.Harness.Copilot;
 
 /// <summary>
-/// Which run of a Copilot session a point in its transcript belongs to: the byte offset of the latest <c>session.start</c>
-/// or <c>session.resume</c> line. Copilot appends one as each run begins, before it fires that run's sessionStart hook, and
-/// never rewrites the file, so a later run always has a later boundary.
+/// The runs a Copilot transcript records, each named by the top-level <c>id</c> of the <c>session.start</c> or
+/// <c>session.resume</c> line it began with. VS Code's Restore checkpoint rewrites the file in place, so a run is matched
+/// by that id, which a rewrite keeping the line keeps, and never by where its line sits.
 /// </summary>
-public static class CopilotRunBoundary {
-    /// <summary>The latest boundary in the first <paramref name="upTo"/> bytes, or in the whole file; null when the
-    /// transcript cannot be read or marks no run.</summary>
-    public static long? Latest(string? transcriptPath, long? upTo = null) {
+public sealed record CopilotRunBoundary(string? LatestId, IReadOnlySet<string> Ids) {
+    /// <summary>The runs <paramref name="transcriptPath"/> records, or null when it cannot be read.</summary>
+    public static CopilotRunBoundary? Read(string? transcriptPath) {
         try {
             if (transcriptPath is null || !File.Exists(transcriptPath)) return null;
 
+            var    ids    = new HashSet<string>(StringComparer.Ordinal);
+            string? latest = null;
+
             using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
 
-            var limit  = Math.Min(upTo ?? stream.Length, stream.Length);
-            var line   = new MemoryStream();
-            long start = 0, offset = 0;
-            long? latest = null;
-            int next;
+            while (reader.ReadLine() is { } line) {
+                if (RunIdOf(line) is not { } id) continue;
 
-            while (offset < limit && (next = stream.ReadByte()) >= 0) {
-                offset++;
-
-                if (next != '\n') {
-                    line.WriteByte((byte) next);
-
-                    continue;
-                }
-
-                if (StartsRun(line)) latest = start;
-                line.SetLength(0);
-                start = offset;
+                ids.Add(id);
+                latest = id;
             }
 
-            if (StartsRun(line)) latest = start;
-
-            return latest;
+            return new CopilotRunBoundary(latest, ids);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
         }
     }
 
-    static bool StartsRun(MemoryStream line) {
-        if (line.Length == 0) return false;
+    /// <summary>The id of the latest run <paramref name="transcriptPath"/> records, or null when it cannot be read or
+    /// records none.</summary>
+    public static string? LatestIdOf(string? transcriptPath) => Read(transcriptPath)?.LatestId;
 
-        var text = Encoding.UTF8.GetString(line.GetBuffer(), 0, (int) line.Length);
-        if (!text.Contains("\"session.start\"", StringComparison.Ordinal) && !text.Contains("\"session.resume\"", StringComparison.Ordinal)) return false;
+    static string? RunIdOf(string line) {
+        if (!line.Contains("\"session.start\"", StringComparison.Ordinal) && !line.Contains("\"session.resume\"", StringComparison.Ordinal)) return null;
 
         try {
-            using var doc = JsonDocument.Parse(text);
+            using var doc  = JsonDocument.Parse(line);
+            var       root = doc.RootElement;
 
-            return doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("type", out var type)
-                && type.GetString() is "session.start" or "session.resume";
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("type", out var type) && type.GetString() is "session.start" or "session.resume"
+                && root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+                ? id.GetString()
+                : null;
         } catch (JsonException) {
-            return false;
+            return null;
         }
     }
 }

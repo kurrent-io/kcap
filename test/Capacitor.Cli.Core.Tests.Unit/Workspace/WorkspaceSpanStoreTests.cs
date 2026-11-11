@@ -250,18 +250,20 @@ public class WorkspaceSpanStoreTests {
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "later.txt")).IsEqualTo(carriedOn);
     }
 
-    /// <summary>An end bounded to its run closes the spans opened at or below its run boundary, and those recorded before
-    /// spans named a run, whenever they were opened; a span a later run opened is left.</summary>
+    /// <summary>An end that knows its run closes that run's spans only: not a later run's, and not one whose run was
+    /// unreadable, which the next run's start replaces. A span from before spans named a run falls back to the end's time.</summary>
     [Test]
-    [Arguments(0L, 0L, true)]
-    [Arguments(null, 0L, true)]
-    [Arguments(120L, 0L, false)]
-    public async Task An_end_bounded_to_its_run_closes_that_runs_spans_only(long? spanBoundary, long endBoundary, bool closed) {
+    [Arguments("run-a", true)]
+    [Arguments("run-b", false)]
+    [Arguments("unknown", false)]
+    [Arguments("legacy", true)]
+    public async Task An_end_bounded_to_its_run_closes_that_runs_spans_only(string spanRun, bool closed) {
         using var rig = new WorkspaceRig();
-        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, spanBoundary);
+        var run = spanRun switch { "legacy" => null, "unknown" => new WorkspaceRun(null), _ => new WorkspaceRun(spanRun) };
+        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, run);
         rig.Write("made.txt", "x");
 
-        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff(endBoundary, rig.Time.GetUtcNow() - TimeSpan.FromHours(1)));
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff("run-a", rig.Time.GetUtcNow()));
 
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "made.txt")).IsEqualTo(closed);
     }

@@ -23,15 +23,15 @@ public static class CopilotSpanClose {
 
     static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
 
-    /// <summary>Records the close of the run at <paramref name="runBoundary"/> in its transcript or, where that could not
-    /// be read, of the run whose spans were opened by now.</summary>
-    public static bool Record(WatcherPaths paths, string sessionId, string? server, string endBody, TimeProvider? time = null, long? runBoundary = null) =>
+    /// <summary>Records the close of the run its transcript names <paramref name="runId"/> or, where that could not be read,
+    /// of the run whose spans were opened by now.</summary>
+    public static bool Record(WatcherPaths paths, string sessionId, string? server, string endBody, TimeProvider? time = null, string? runId = null) =>
         Write(paths, sessionId, new JsonObject {
             ["server"]       = server,
             ["end"]          = endBody,
             ["delivered"]    = false,
             ["recorded_at"]  = (time ?? TimeProvider.System).GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
-            ["run_boundary"] = runBoundary
+            ["run_id"]       = runId
         });
 
     /// <summary>What the lifecycle drain made of an entry: the owed end's delivery makes its close due, a rejection drops
@@ -110,7 +110,7 @@ public static class CopilotSpanClose {
 
                 // A marker from before markers named their run closes every span, as all did then.
                 var run = new WorkspaceRunCutoff(
-                    owed["run_boundary"]?.GetValue<long>(),
+                    owed["run_id"]?.GetValue<string>(),
                     DateTimeOffset.TryParse(owed["recorded_at"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var recorded) ? recorded : null);
 
                 if (!await close(session, run) || Read(paths, session)?.ToJsonString() != marker) continue;

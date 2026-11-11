@@ -97,7 +97,7 @@ sealed class CopilotFinalizeDrainCommand(
         // The watcher the hook asked to stop, read before anything awaits: one found later follows a resumed run. The run's
         // spans were all opened by now too, which is what this end may close.
         var askedToStop = WatcherIncarnation(sessionId);
-        var run         = new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcriptPath), time.GetUtcNow());
+        var run         = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcriptPath), time.GetUtcNow());
 
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;

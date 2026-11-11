@@ -255,9 +255,10 @@ class WatchCommand(
         // barriers in practice.
         var parentExited = 0;
         var stopRequested = 0;
-        // Where the transcript ended when a stop arrived, and when; what follows belongs to whatever runs next.
-        long stopOffset = -1;
-        long stopTicks  = 0;
+        // The run the transcript named when a stop arrived, and when; what follows belongs to whatever runs next.
+        string? stopRunId   = null;
+        var     stopNoted   = 0;
+        long    stopTicks   = 0;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
@@ -307,18 +308,20 @@ class WatchCommand(
         // waits on any other exit, so these tell the recorder rather than only cancelling.
         void NoteStopRequest() {
             Interlocked.Exchange(ref stopRequested, 1);
-            Interlocked.CompareExchange(ref stopOffset, TranscriptLength(recorder.TranscriptPath), -1);
-            Interlocked.CompareExchange(ref stopTicks, time.GetUtcNow().UtcTicks, 0);
+
+            if (Interlocked.Exchange(ref stopNoted, 1) != 0) return;
+
+            Interlocked.Exchange(ref stopTicks, time.GetUtcNow().UtcTicks);
+            if (vendor == "copilot") Volatile.Write(ref stopRunId, CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath));
         }
 
-        // The run this watcher recorded: the transcript's run boundary where the stop found it, or where it is now when the
-        // run was found over some other way. Unreadable, the spans opened by the stop, or by now.
+        // The run this watcher recorded: the one the transcript named when the stop arrived, or names now when the run was
+        // found over some other way. Unreadable, the spans opened by the stop, or by now.
         WorkspaceRunCutoff RunCutoff() {
-            var ticks  = Interlocked.Read(ref stopTicks);
-            var offset = Interlocked.Read(ref stopOffset);
+            var ticks = Interlocked.Read(ref stopTicks);
 
             return new WorkspaceRunCutoff(
-                CopilotRunBoundary.Latest(recorder.TranscriptPath, offset >= 0 ? offset : null),
+                ticks > 0 ? Volatile.Read(ref stopRunId) : CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath),
                 ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow());
         }
 
@@ -348,9 +351,8 @@ class WatchCommand(
         // The end is held before the wait, which the teardown that stopped this watcher can cut short; a later spool
         // drain sends it once the runtime has gone or the transcript ends on its shutdown line.
         async Task<string?> CopilotStopEndAsync(string path) {
-            var held   = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
-            var offset = Interlocked.Read(ref stopOffset);
-            CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, offset >= 0 ? offset : null, Environment.ProcessId);
+            var held = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+            CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, RunCutoff().RunId, Environment.ProcessId);
 
             var reason = await CopilotStopRequestEnd.DecideAsync(
                 () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
@@ -655,14 +657,6 @@ class WatchCommand(
 
         if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
             CopilotPendingEnd.Discard(_paths, sessionId);
-    }
-
-    static long TranscriptLength(string path) {
-        try {
-            return File.Exists(path) ? new FileInfo(path).Length : 0;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return 0;
-        }
     }
 
     /// <summary>
