@@ -239,7 +239,7 @@ public class CodexChatRulesTests {
     [Test]
     public async Task Codex_user_lines_show_as_the_persons_exactly_when_the_fixture_says() {
         var chat = TranscriptChat.For("codex")!;
-        foreach (var line in File.ReadLines(Path.Combine(AppContext.BaseDirectory, "fixtures", "codex", "codex-user-lines.jsonl"))) {
+        foreach (var line in File.ReadLines(Path.Join(AppContext.BaseDirectory, "fixtures", "codex", "codex-user-lines.jsonl"))) {
             using var doc = System.Text.Json.JsonDocument.Parse(line);
             var human = doc.RootElement.GetProperty("expect_human").GetBoolean();
             var text  = doc.RootElement.GetProperty("payload").GetProperty("content")[0].GetProperty("text").GetString()!;
