@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Controls;
@@ -6,6 +7,8 @@ using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
+using Capacitor.App.Platform.Mac;
+using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Http;
 using TUnit.Assertions.Enums;
@@ -14,6 +17,52 @@ namespace Capacitor.App.Tests.Unit;
 
 [NotInParallel("AvaloniaSession")]
 public class DesktopWindowLifecycleTests {
+    [Test]
+    public Task A_pending_native_notification_keeps_the_Dock_after_close_until_it_is_dismissed() =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            using var fixture = new Fixture();
+            var native = new FakeMacNotificationCenter();
+            using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+            using var count = sink.BadgeCounts.Subscribe(fixture.Lifecycle.SetPendingNotificationCount);
+            fixture.Coordinator.ShowMainWindow();
+            sink.Show(new DesktopNotification("notice", "Agent needs you", "Respond in app", []), _ => { });
+            fixture.Coordinator.Window!.Close();
+            await Assert.That(fixture.DockVisibility.Last()).IsTrue();
+            native.Respond(native.Published.Single().NativeId, "com.apple.UNNotificationDismissActionIdentifier");
+            await Assert.That(fixture.DockVisibility.Last()).IsFalse();
+        });
+
+    [Test]
+    public Task A_badge_without_windows_acquires_the_Dock_and_activation_releases_it() =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            using var fixture = new Fixture();
+            var native = new FakeMacNotificationCenter();
+            using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+            using var count = sink.BadgeCounts.Subscribe(fixture.Lifecycle.SetPendingNotificationCount);
+            sink.Show(new DesktopNotification("notice", "Agent needs you", "Respond in app", []), _ => { });
+            await Assert.That(fixture.DockVisibility.Last()).IsTrue();
+            sink.OnActivated();
+            await Assert.That(fixture.DockVisibility.Last()).IsFalse();
+            fixture.Coordinator.ShowMainWindow();
+            fixture.Lifecycle.SetPendingNotificationCount(0);
+            await Assert.That(fixture.DockVisibility.Last()).IsTrue();
+        });
+
+    [Test]
+    public Task Badge_denial_and_native_errors_do_not_keep_an_empty_Dock_entry() =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            using var fixture = new Fixture();
+            var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false) };
+            using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+            using var count = sink.BadgeCounts.Subscribe(fixture.Lifecycle.SetPendingNotificationCount);
+            sink.Show(new DesktopNotification("denied", "Agent needs you", "Respond in app", []), _ => { });
+            await Assert.That(fixture.DockVisibility.Last()).IsFalse();
+            native.Settings = (DesktopNotificationAccess.Allowed, true);
+            native.BadgeResults.Enqueue(false);
+            sink.Show(new DesktopNotification("failed", "Agent needs you", "Respond in app", []), _ => { });
+            await Assert.That(fixture.DockVisibility.Last()).IsFalse();
+        });
+
     [Test]
     public Task Dock_reopen_after_close_restores_the_same_window_and_releases_its_workspace_once() =>
         AvaloniaSession.RunOnUiAsync(async () => {
