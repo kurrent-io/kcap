@@ -340,5 +340,8 @@ public class StatusCommandHooksTests {
             .IsEqualTo("Kiro installed but kcap not configured — run `kcap plugin install --kiro`");
         await Assert.That(StatusCommand.UnconfiguredLine(claude, "kcap plugin install", cliOnPath: false))
             .IsEqualTo("Claude Code installed but kcap not configured — run `kcap plugin install`");
+        await Assert.That(StatusCommand.MissingCli(kiro, cliOnPath: false)).IsEqualTo("kiro-cli");
+        await Assert.That(StatusCommand.MissingCli(kiro, cliOnPath: true)).IsNull();
+        await Assert.That(StatusCommand.MissingCli(claude, cliOnPath: false)).IsNull();
     }
 }

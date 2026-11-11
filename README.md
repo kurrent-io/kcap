@@ -2939,7 +2939,9 @@ You'll see the offer on whichever surface reaches you:
 - **On the command line**, running an interactive `kcap` command prints a one-line notice to
   stderr (never in scripts or pipes), like the "update available" notice.
 - **`kcap status`** always lists any installed-but-unconfigured agent with the command to fix it —
-  even one you've dismissed (status tells the whole truth).
+  even one you've dismissed (status tells the whole truth). Kiro found by its IDE or data without
+  `kiro-cli` on `PATH` is listed as needing `kiro-cli` first, since kcap's install clones its agent with
+  it; `--json` names that CLI as the harness's `missing_cli` beside `install_command`.
 - **`kcap status`** also shows whether each wired agent's hooks are actually running: when it last
   ran a kcap hook on this machine, or that it has not yet (start a new session; Codex runs no hook
   until you trust kcap's). Codex hooks that Codex has not trusted show as `Codex ✗` with a line
