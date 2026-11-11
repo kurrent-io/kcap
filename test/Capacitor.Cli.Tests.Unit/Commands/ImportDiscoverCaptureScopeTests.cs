@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.Copilot;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -112,6 +114,34 @@ public class ImportDiscoverCaptureScopeTests {
 
         await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
         await Assert.That(found.Summary.UnmatchedCount).IsEqualTo(0);
+    }
+
+    /// <summary>The import excludes a session whose folder is in an excluded repository even when its harness recorded
+    /// another repository, so discovery must leave it out too.</summary>
+    [Test]
+    public async Task A_recorded_repository_does_not_hide_an_excluded_checkout() {
+        const string id = "88888888-8888-4888-8888-888888888888";
+        var checkout    = Tmp.CreateDir("secret-checkout");
+        using var repo  = GitRepo.InitIn(checkout);
+        repo.AddRemote("https://github.com/acme/secret.git");
+
+        var copilot = new CopilotPaths(Home, Tmp.PathTo("copilot"));
+        var session = Tmp.CreateDir("copilot", "session-state", id);
+        session.CreateFile("workspace.yaml",
+            $"id: {id}\ncwd: '{checkout.Path.Replace("'", "''")}'\ncreated_at: 2026-10-13T10:00:00Z\nrepository: acme/open\n");
+        session.CreateFile("events.jsonl",
+            """{"type":"user.message","timestamp":"2026-10-13T10:00:00Z","data":{"content":"hello"}}""" + "\n");
+
+        ImportCommand.ImportDiscoveryResult? found = null;
+        var exit = await new ImportCommand(Config.Root, Resolutions.Of(new Profile { ExcludedRepos = ["acme/secret"] }), Home,
+                TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(),
+                time: TimeProvider.System, accounts: TestAccounts.None, console: new TestImportTerminal().Console)
+            .HandleImport(filterCwd: null, minLines: 1,
+                sources: [new CopilotImportSource(Config.Root, copilot, new GitProviderRouter(), TimeProvider.System)],
+                discoverOnly: true, onDiscovered: r => found = r);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(found!.Summary.IgnoredCount).IsEqualTo(1);
     }
 
     /// <summary>A remap cannot bring a session under an ignored path back into scope, so its missing folder is not

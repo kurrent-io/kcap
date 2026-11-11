@@ -3116,8 +3116,8 @@ class ImportCommand(
     /// <summary>
     /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
     /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
-    /// session whose recorded folder lies in an excluded repository after a remap or worktree fallback moved it, so
-    /// only that folder's repository is detected.
+    /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
+    /// recorded repository placed it elsewhere, so only those folders' repositories are detected.
     /// </summary>
     async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap)> CaptureScopeExclusionsAsync(
             IEnumerable<DiscoveredSession>                            sessions,
@@ -3128,15 +3128,17 @@ class ImportCommand(
 
         var judged = sessions
             .Select(d => (d.SessionId, Cwd: rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd
-                ?? (d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded ? SessionImporter.DecodeCwdFromDirName(encoded) : null)))
+                ?? (d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded ? SessionImporter.DecodeCwdFromDirName(encoded) : null),
+                Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null))
             .ToList();
 
         var rawRepos = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
 
         if (profile.ExcludedRepos is { Length: > 0 }) {
             var moved = judged
-                .Where(j => j.Cwd is not null && sessionCwds.TryGetValue(j.SessionId, out var effective)
-                         && !string.Equals(effective, j.Cwd, StringComparison.Ordinal) && Directory.Exists(j.Cwd))
+                .Where(j => j.Cwd is not null && Directory.Exists(j.Cwd)
+                         && (j.Recorded
+                          || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
                 .Select(j => j.Cwd!)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
@@ -3154,7 +3156,7 @@ class ImportCommand(
         var all         = new HashSet<string>(StringComparer.Ordinal);
         var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var (sessionId, cwd) in judged) {
+        foreach (var (sessionId, cwd, _) in judged) {
             var rawRepo = cwd is null ? null : rawRepos.GetValueOrDefault(cwd);
 
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
