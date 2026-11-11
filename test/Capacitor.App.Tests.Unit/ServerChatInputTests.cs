@@ -145,15 +145,18 @@ public class ServerChatInputTests {
     }
 
     [Test]
-    public async Task A_send_with_attachments_is_refused_before_the_hub_is_called() {
+    public async Task Attachments_follow_send_availability_and_reach_the_hub_with_the_text() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            h.Ready();
             await Assert.That(h.Input.CanAttach).IsFalse();
-            await Assert.That(await h.Input.SendAsync("see this", ["0123456789abcdef0123456789abcdef"], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
-            await Assert.That(h.Lane.UserInputs).IsEmpty();
-            await Assert.That(h.Input.Hint).IsEqualTo(h.Input.AttachHint);
-            await Assert.That(h.Input.Availability).IsEqualTo(SendAvailability.Ready);
+            await Assert.That(h.Input.AttachHint).IsEqualTo(h.Input.Hint);
+            h.Ready();
+            await Assert.That(h.Input.CanAttach).IsTrue();
+            await Assert.That(h.Input.AttachHint).IsNull();
+            string[] ids = ["0123456789abcdef0123456789abcdef"];
+            await Assert.That(await h.Input.SendAsync("see this", ids, CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
+            await Assert.That(h.Lane.UserInputs).Contains(("a1", "see this"));
+            await Assert.That(h.Lane.UserInputAttachments.Single()).IsEquivalentTo(ids);
             h.Input.Dispose();
         });
     }
@@ -306,6 +309,7 @@ public class ServerChatInputTests {
             var h = new Harness(hasTerminal: true, rights: RightsFor(viewer));
             h.Ready();
             await Assert.That(h.Input.CanAcceptText).IsEqualTo(acceptsText);
+            await Assert.That(h.Input.CanAttach).IsEqualTo(acceptsText);
             await Assert.That(h.Input.CanInterrupt).IsEqualTo(interrupts);
             await Assert.That(h.Input.ControlNote).IsEqualTo(controlNote);
             await Assert.That(h.Input.Hint).IsEqualTo(hint);

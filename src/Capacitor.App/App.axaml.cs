@@ -1307,6 +1307,7 @@ public partial class App : Application {
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    uploader: uploader,
                     inAppPages: () => inAppPages.IsOn)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.

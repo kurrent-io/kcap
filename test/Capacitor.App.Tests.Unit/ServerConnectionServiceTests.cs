@@ -14,6 +14,7 @@ namespace Capacitor.App.Tests.Unit;
 
 [NotInParallel(nameof(HubTestHost))]
 public class ServerConnectionServiceTests {
+    const string AttachmentId = "0123456789abcdef0123456789abcdef";
     [TempDir] public required TempDir Tmp { get; init; }
 
     static ServerConnectionService Lane(HubTestHost host, string? token = null) =>
@@ -594,7 +595,8 @@ public class ServerConnectionServiceTests {
 
         await lane.RequestResizeTerminalAsync("a1", 100, 30, CancellationToken.None);
         await lane.ReleaseResizeTerminalAsync("a1", CancellationToken.None);
-        await lane.SendUserInputAsync("a1", "fix it", CancellationToken.None);
+        await lane.SendUserInputAsync("a1", "fix it", [], CancellationToken.None);
+        await lane.SendUserInputAsync("a1", "see this", [AttachmentId], CancellationToken.None);
         var discardedId = Guid.NewGuid();
         await Assert.That((await lane.DiscardQueuedInputAsync("a1", discardedId, CancellationToken.None)).Result).IsEqualTo(HubCallResult.Ok);
         await lane.SendSpecialKeyAsync("a1", SpecialKeys.Escape, CancellationToken.None);
@@ -602,6 +604,8 @@ public class ServerConnectionServiceTests {
         await Assert.That(HubTestHost.Resizes).Contains(("a1", 100, 30));
         await Assert.That(HubTestHost.ResizeReleases).Contains("a1");
         await Assert.That(HubTestHost.UserInputs).Contains(("a1", "fix it"));
+        await Assert.That(HubTestHost.UserInputAttachments[0]).IsNull();
+        await Assert.That(HubTestHost.UserInputAttachments[1]).IsEquivalentTo(new[] { AttachmentId });
         await Assert.That(HubTestHost.Discards).Contains(new DiscardQueuedInputRequest("a1", discardedId));
         await Assert.That(HubTestHost.SpecialKeys).Contains(("a1", "Escape"));
         await Assert.That(HubTestHost.TerminalUnsubscribes).Contains("a1");

@@ -47,6 +47,7 @@ public sealed class HubTestHost : IAsyncDisposable {
     public static List<(string AgentId, int Cols, int Rows)> Resizes { get; } = [];
     public static List<string> ResizeReleases { get; } = [];
     public static List<(string AgentId, string Text)> UserInputs { get; } = [];
+    public static List<string[]?> UserInputAttachments { get; } = [];
     public static List<DiscardQueuedInputRequest> Discards { get; } = [];
     public static List<(string AgentId, string Key)> SpecialKeys { get; } = [];
 
@@ -78,6 +79,7 @@ public sealed class HubTestHost : IAsyncDisposable {
         Resizes.Clear();
         ResizeReleases.Clear();
         UserInputs.Clear();
+        UserInputAttachments.Clear();
         Discards.Clear();
         SpecialKeys.Clear();
 
@@ -238,7 +240,11 @@ public sealed class HubTestHost : IAsyncDisposable {
         public Task UnsubscribeFromTerminal(string agentId) { TerminalUnsubscribes.Add(agentId); return Task.CompletedTask; }
         public Task RequestResizeTerminal(string agentId, int cols, int rows) { Resizes.Add((agentId, cols, rows)); return Task.CompletedTask; }
         public Task ReleaseResizeTerminal(string agentId) { ResizeReleases.Add(agentId); return Task.CompletedTask; }
-        public Task SendUserInput(string agentId, string text, string[]? attachmentIds) { UserInputs.Add((agentId, text)); return Task.CompletedTask; }
+        public Task SendUserInput(string agentId, string text, string[]? attachmentIds) {
+            UserInputs.Add((agentId, text));
+            UserInputAttachments.Add(attachmentIds);
+            return Task.CompletedTask;
+        }
         public Task DiscardQueuedInput(DiscardQueuedInputRequest request) { Discards.Add(request); return Task.CompletedTask; }
         public Task SendSpecialKey(string agentId, string key) { SpecialKeys.Add((agentId, key)); return Task.CompletedTask; }
     }

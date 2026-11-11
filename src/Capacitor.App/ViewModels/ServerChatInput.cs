@@ -112,17 +112,15 @@ internal sealed class ServerChatInput : ChatInput {
             _                        => "Connecting to the session…",
         };
 
-    /// A session on another machine has no attachment lane yet: the hub call carries text alone.
-    public override bool CanAttach => false;
-    public override string? AttachHint => "attachments to a session on another machine are not supported yet";
+    public override bool CanAttach => CanAcceptText;
+    public override string? AttachHint => CanAttach ? null : Hint;
 
     public override async Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
         if (_disposed || !CanAcceptText || ct.IsCancellationRequested) return ChatSendOutcome.Rejected;
-        if (attachmentIds.Count > 0) return Settle(ChatSendOutcome.Rejected, AttachHint);
         _sending = true; _notice = null; _noticeVersion++; Raise();
         HubCallOutcome outcome;
         try {
-            outcome = await _lane.SendUserInputAsync(_agentId, text, ct);
+            outcome = await _lane.SendUserInputAsync(_agentId, text, attachmentIds, ct);
         } catch (Exception) {
             return Settle(ChatSendOutcome.Unconfirmed, Unconfirmed);
         }
@@ -175,6 +173,8 @@ internal sealed class ServerChatInput : ChatInput {
         if (_disposed) return;
         this.RaisePropertyChanged(nameof(Availability));
         this.RaisePropertyChanged(nameof(CanAcceptText));
+        this.RaisePropertyChanged(nameof(CanAttach));
+        this.RaisePropertyChanged(nameof(AttachHint));
         this.RaisePropertyChanged(nameof(CanInterrupt));
         this.RaisePropertyChanged(nameof(ControlNote));
         this.RaisePropertyChanged(nameof(CanDiscardQueued));
