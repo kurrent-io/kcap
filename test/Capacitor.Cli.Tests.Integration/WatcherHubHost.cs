@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Microsoft.AspNetCore.Builder;
@@ -65,32 +63,25 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         }
     }
 
-    /// <param name="port">Zero takes any free port; a number from <see cref="ReservePort"/> brings a hub up where a
-    /// watcher is already looking.</param>
+    /// <param name="port">Null takes any free port; a reserved one brings a hub up where a watcher is already looking,
+    /// and is released only as the hub binds it.</param>
     /// <param name="parallelInvocations">How many calls of one connection the hub runs at once. Above one, a detach can
     /// pass a connect still running, as it can on the real server.</param>
-    public static async Task<WatcherHubHost> StartAsync(int port = 0, int parallelInvocations = 1) {
+    public static async Task<WatcherHubHost> StartAsync(ReservedPort? port = null, int parallelInvocations = 1) {
         var host    = new WatcherHubHost();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        builder.WebHost.UseUrls($"http://127.0.0.1:{port?.Port ?? 0}");
         builder.Services.AddSingleton(host);
         builder.Services.AddSignalR(o => o.MaximumParallelInvocationsPerClient = parallelInvocations).AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
         host._app = builder.Build();
         host._app.MapHub<WatcherHub>("/hubs/sessions");
+        port?.Release();
         await host._app.StartAsync();
         host.Url = host._app.Urls.Single();
 
         return host;
-    }
-
-    /// <summary>A loopback port nothing listens on yet.</summary>
-    public static int ReservePort() {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-
-        return ((IPEndPoint)probe.LocalEndpoint).Port;
     }
 
     /// <summary>Tells every connected watcher to stop, as the server does when a session ends.</summary>
