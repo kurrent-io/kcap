@@ -432,6 +432,12 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
+             && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var warning = await RefreshIntegrationsAfterUpdateAsync(install, setUp: gate is GateResult.Complete);
+                if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
+            }
             if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
@@ -507,6 +513,21 @@ public partial class App : Application {
 
     Action<UpdateCandidate> HandOver(string entry) => candidate =>
         AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time, _updates?.DaemonLeftStopped == true).Save(_config);
+
+    /// The agents' hooks, MCP servers and skills were installed by the kcap this update replaced, so a launch that
+    /// finishes an update has the new bundled CLI install them again. The marker outlives a failed run, which the
+    /// next launch retries; a launch that is not set up has nothing to refresh, and its wizard installs them.
+    async Task<string?> RefreshIntegrationsAfterUpdateAsync(Platform.Windows.VelopackInstall install, bool setUp) {
+        var refresh = new ApplicationIntegrationRefresh(_config, new ProcessRunner(_time));
+        if (_postUpdate is not null && setUp) {
+            try {
+                await Task.Run(() => refresh.Schedule(install.Root), _shutdown.Token);
+            } catch (IOException ex) {
+                Console.Error.WriteLine($"kcap: could not schedule the integration refresh: {ex.Message}");
+            }
+        }
+        return await refresh.RunPendingAsync(install.Root, install.Cli, _shutdown.Token);
+    }
 
     /// Reads what an update left for this launch. A record for another version is an update that did not apply:
     /// Velopack relaunches the old version after a failed apply, so it is reported rather than finished.
