@@ -102,6 +102,25 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
     }
 
+    /// <summary>A Copilot end that a spool drain delivers, such as a skipped hook's pending end, has no finalizer behind
+    /// it, so the drain closes the span.</summary>
+    [Test]
+    public async Task A_drained_Copilot_end_closes_the_span() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var spool    = new HookSpool(Config.Root, _time, _server.Url);
+        spool.Append(Session.Replace("-", ""), "session-end/copilot", new JsonObject { ["session_id"] = Session.Replace("-", ""), ["reason"] = "parent_exited" }.ToJsonString());
+
+        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, Session.Replace("-", ""));
+
+        var posts = PostedPaths();
+        await Assert.That(posts).Contains("/hooks/workspace-changes");
+        await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
     [Test]
     public async Task Pi_posts_the_session_end_before_the_span_is_closed() {
         using var sessions = new TempDir("pi-sessions");

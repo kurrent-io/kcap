@@ -94,10 +94,21 @@ internal sealed class SpoolDrainLoop {
                 using var cap = new CancellationTokenSource(Budget, _time);
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
 
+                var ended = new List<string>();
+
                 await LifecycleSpoolDrain.RunAsync(
                     _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
-                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
+                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
+                    onLifecycleOutcome: (route, body, outcome) => {
+                        if (CopilotPendingEnd.EndedSession(route, body, outcome) is { } copilot) ended.Add(copilot);
+                    });
+
+                // A drained Copilot end has no finalizer behind it; the workspace drain below posts what closing spans.
+                foreach (var copilot in ended.Distinct()) {
+                    await new WorkspaceSpanStore(_configRoot, _baseUrl, new WorkspaceSpool(_configRoot, _baseUrl, _time),
+                        new WorkspaceSnapshotter(new WorkspaceGit(_time), _time), _time).EndSessionAsync(copilot, Budget);
+                }
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.
