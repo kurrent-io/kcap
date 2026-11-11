@@ -28,7 +28,7 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
     readonly ConcurrentQueue<string> _log = new();
     readonly ConcurrentDictionary<string, int> _beats = new();
-    readonly ConcurrentDictionary<string, DateTimeOffset> _beatAt = new();
+    readonly ConcurrentDictionary<string, RecorderAttempt> _attempts = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
     readonly ConcurrentDictionary<string, bool> _logThrows = new();
     readonly ConcurrentDictionary<string, bool> _beatThrows = new();
@@ -56,8 +56,9 @@ public class RecorderHostTests {
 
             return new NoStamps();
         },
-        (source, _) => {
+        (source, beat) => {
             factoryHook?.Invoke("context");
+            if (beat.Target is RecorderAttempt attempt) _attempts[source.Key] = attempt;
 
             return new RecorderContext(
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
@@ -83,7 +84,6 @@ public class RecorderHostTests {
                 if (_beatThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the beat is broken");
 
                 _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
-                _beatAt[source.Key] = _time.GetUtcNow();
             });
         },
         _time, open, claims, attemptEnded ?? _ended.Enqueue, keepsClaimOffline) { Watchdog = watched ? RecorderHost.WedgedAfter : Timeout.InfiniteTimeSpan };
@@ -109,20 +109,21 @@ public class RecorderHostTests {
     }
 
     /// <summary>Waits for <paramref name="condition"/>, moving the clock a second at a time but never more than half the
-    /// watchdog's threshold past <paramref name="key"/>'s last beat: a clock that outruns a slow runner's loop starves the
-    /// watchdog of beats the source does make. A heartbeat slice the loop arms only once the clock has reached that cap is
-    /// still let fire, but nothing past it, so the clock stays well short of the watchdog until a fresh beat. A source
-    /// that stops beating stops the clock, and the wait times out.</summary>
+    /// watchdog's threshold past the beat its watchdog last saw from <paramref name="key"/>: a clock that outruns a slow
+    /// runner's loop starves the watchdog of beats the source does make. A heartbeat slice the loop arms only once the
+    /// clock has reached that cap is still let fire, but nothing past it, so the clock stays well short of the watchdog
+    /// until a fresh beat. A source that stops beating stops the clock, and the wait times out.</summary>
     async Task EventuallyPacedBy(string key, Func<bool> condition, string what) =>
         await Eventually(() => {
             if (condition()) return true;
 
-            if (_beatAt.TryGetValue(key, out var beat)) {
-                var cap = beat + RecorderHost.WedgedAfter / 2;
+            if (_attempts.TryGetValue(key, out var attempt)) {
+                var now = _time.GetUtcNow();
+                var cap = now - attempt.SinceBeat + RecorderHost.WedgedAfter / 2;
 
                 if (_time.SliceDueAt is { } due && due > cap) cap = due < cap + TranscriptRecorder.HeartbeatSlice ? due : cap + TranscriptRecorder.HeartbeatSlice;
 
-                if (_time.GetUtcNow() < cap) _time.Advance(TimeSpan.FromSeconds(1));
+                if (now < cap) _time.Advance(TimeSpan.FromSeconds(1));
             }
 
             return condition();
@@ -2811,14 +2812,16 @@ public class RecorderHostTests {
 
         public IReadOnlyList<(int Attempts, TimeSpan Due)> Timers => [.._timers];
 
-        /// <summary>When the timer no longer than a heartbeat slice armed last falls due: a loop parked between beats.</summary>
+        /// <summary>When the timer no longer than a heartbeat slice armed last falls due: a loop parked between beats.
+        /// Stamped once the timer is registered, so it is never earlier than the due time the timer holds.</summary>
         public DateTimeOffset? SliceDueAt { get; private set; }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
             _timers.Enqueue((Attempts(), dueTime));
+            var timer = base.CreateTimer(callback, state, dueTime, period);
             if (dueTime > TimeSpan.Zero && dueTime <= TranscriptRecorder.HeartbeatSlice) SliceDueAt = GetUtcNow() + dueTime;
 
-            return base.CreateTimer(callback, state, dueTime, period);
+            return timer;
         }
     }
 }
