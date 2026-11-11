@@ -8,10 +8,8 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Exercises <see cref="AcpHostedAgentRuntime"/> end-to-end against <see cref="FakeAcpAgent"/> — no
-/// real <c>cursor-agent</c> process is spawned; <see cref="FakeAcpProcess"/> stands in for the
-/// process-lifecycle side ('s factory implements the real one over
-/// <see cref="System.Diagnostics.Process"/>).
+/// Exercise <see cref="AcpHostedAgentRuntime"/> against <see cref="FakeAcpAgent"/> over real streams.
+/// <see cref="FakeAcpProcess"/> supplies process lifetime without spawning a vendor CLI.
 /// </summary>
 public class AcpHostedAgentRuntimeTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);

@@ -4,16 +4,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// <summary>Captures the one-way sequenced CommandAck/CommandRejected sends (synchronously, so an
-/// awaited SubmitAsync has already recorded them) and no-ops everything else the capacity-reject path
-/// touches. IsReady is forced true so the base sends aren't short-circuited before our override.
-///
-/// <para>also overrides <see cref="AgentRegisteredAsync"/> so a genuinely SUCCESSFUL
-/// sequenced launch (one that reaches <c>RegisterAgentAsync</c>'s awaited, un-guarded
-/// <c>_server.AgentRegisteredAsync(...)</c> call) doesn't fault on the base implementation's
-/// <c>_hub.InvokeAsync</c> against a never-started HubConnection — no pre-Task-5 test ever drove a
-/// full success through THIS server double, since every existing capacity/malformed-tuple test is
-/// rejected before reaching registration.</para></summary>
+/// <summary>
+/// Capture CommandAck and CommandRejected synchronously so awaited submission exposes both sends.
+/// Force IsReady and override AgentRegisteredAsync: successful launches must not call the base
+/// HubConnection, which this double never starts. No-op other capacity-rejection notifications.
+/// </summary>
 internal sealed class SeqCaptureServerConnection() : ServerConnection(
     new() { Name = "test", ServerUrl = "http://127.0.0.1:1" },
     new FixedCredentialSource(),

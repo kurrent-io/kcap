@@ -764,11 +764,8 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task HandleToolCall_with_model_genuine_v3_rejection_surfaces_verbatim_not_reformatted() {
-        // Task-9 review Minor: a genuine coded v3 rejection (the model IS understood by the v3
-        // protocol, but the daemon can't launch it) must reach the caller byte-for-byte, via the
-        // SAME generic FormatFlowStartError path a no-model rejection uses — never reformatted or
-        // intercepted by the model-specific protocol-skew gate (which only fires for 404/405/uncoded/
-        // protocol-skew-coded bodies).
+        // A coded model rejection must reach the caller byte for byte through FormatFlowStartError.
+        // The model-specific protocol-skew gate applies only to unsupported or uncoded responses.
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(400).WithBody(

@@ -24,7 +24,7 @@ class CommentSyntaxTests(unittest.TestCase):
 
     def test_banned_patterns(self):
         examples = {
-            "spec-coordinate": ["§4.2", "§ 3", "Task 12", "Task B4", "finding 2", "finding #3", "Decision 4", "Phase B", "Phase B2-b", "Phase 2", "Phase-2", "(D2a)"],
+            "spec-coordinate": ["§4.2", "§ 3", "Task 12", "pre-Task-12", "Task B4", "finding 2", "finding #3", "Decision 4", "Phase B", "Phase B2-b", "Phase 2", "Phase-2", "(D2a)"],
             "review-artifact": ["Qodo #1", "Bugbot", "CodeRabbit", "Codex review", "round-4 review", "round4 fix", "round 2 finding", "BLOCKER-1", "review fix #7", "Fix #4", "PR #244 review", "code-review r3", "Round-2 follow-up findings"],
             "change-narration": ["pre-fix", "an earlier revision", "an earlier version", "an earlier draft"],
         }

@@ -182,8 +182,7 @@ public class PtyShimNativeTests {
 
     [Test]
     public async Task Enoexec_shebangless_script_builds_a_plan_that_fails_at_exec_not_here() {
-        // pty_preflight itself must NOT fail this (it has no shebang to parse and no reason to
-        // reject a plain file) — the ENOEXEC surfaces at exec time ('s test, not here).
+        // Preflight must accept a plain file without a shebang; ENOEXEC belongs to execution, not plan construction.
         using var tmp  = new TempDir();
         var       path = tmp.CreateFile("no-shebang", "not a script, no shebang\n");
         UnixExecFixtures.MakeExecutable(path);

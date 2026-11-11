@@ -158,9 +158,8 @@ internal sealed partial class LaunchConsentStore {
             if ((doc.Rules ?? []).Count > 0 || doc.DefaultSource == "operator")
                 return new SeedResult(SeedOutcome.Respected, null);
 
-            // Zero-rule allow stamped "seed" (or unstamped, i.e. a pre-Task-11 file) is
-            // indistinguishable from the pre-consent factory default — rewrite it to Prompt
-            // rather than let it silently keep the daemon wide open.
+            // A zero-rule allow with a seed stamp or no stamp is indistinguishable from a factory default.
+            // Rewrite it to Prompt rather than treating it as an operator's explicit permission choice.
             var rewritten = doc with { Default = "prompt", DefaultSource = "seed" };
             return Persist(rewritten, out _)
                 ? new SeedResult(SeedOutcome.Rewritten, null)

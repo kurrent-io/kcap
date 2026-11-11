@@ -121,10 +121,8 @@ public class GeminiReviewerLiveCertTests {
         bool SessionEstablished, bool TurnCompleted, string? Detail);
 
     /// <summary>
-    /// Drives a real <c>gemini --experimental-acp</c> child. Evidence is a marker file each MCP server writes,
-    /// never the ACP transcript: the client cannot see whether Gemini spawned a server, so only the marker
-    /// proves a process ran — which is the boundary that matters ('s rule is about execution, not about
-    /// who wins tool dispatch).
+    /// Drive a real gemini --experimental-acp child and prove server execution with marker files.
+    /// The ACP transcript cannot establish whether a server process ran, regardless of tool dispatch.
     /// </summary>
     static async Task<ProbeOutcome> RunProbeAsync(
             string project, string allowlist, string injectAs, string[] hostileRepoNames) {

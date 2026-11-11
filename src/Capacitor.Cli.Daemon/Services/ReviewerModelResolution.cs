@@ -160,13 +160,11 @@ internal static class ReviewerModelResolvers {
         return new(ReviewerModelDisposition.Unavailable);
     }
 
-    /// <summary>Central anchor guard (Task-7 review Minor): only an <see cref="ReviewerModelDisposition.Accept"/>
-    /// carrying a non-null <see cref="ReviewerModelResolution.EquivalenceKey"/> is a REAL accept. A resolver
-    /// that returns accept without an anchor would ship a silent <c>no_anchor</c> bug — the server's
-    /// post-launch echo validation then has nothing to validate the report against. Enforcing the
-    /// invariant HERE (in the one coordinator) rather than trusting every resolver means a future
-    /// resolver can't leak an anchorless accept: it is treated as a non-recognition (demoted to
-    /// unavailable) both for the selected vendor and for cross-vendor recognition.</summary>
+    /// <summary>
+    /// Accept requires a non-null EquivalenceKey for post-launch server echo validation.
+    /// Enforce this centrally for selected and cross-vendor resolution so a resolver cannot leak an
+    /// anchorless accept; treat that result as unavailable.
+    /// </summary>
     static bool IsAnchoredAccept(ReviewerModelResolution r) =>
         r.Disposition == ReviewerModelDisposition.Accept && r.EquivalenceKey is not null;
 }

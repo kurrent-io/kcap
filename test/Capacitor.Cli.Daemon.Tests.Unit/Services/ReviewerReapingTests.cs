@@ -180,14 +180,9 @@ public class ReviewerReapingTests {
     }
 
     /// <summary>
-    /// The defect this task fixes: the pre-Task-12 idle rule read <see cref="AgentInstance.LastOutputAt"/>,
-    /// which only PTY output chunks ever advance — for an ACP reviewer (cursor, copilot, gemini, kiro,
-    /// ACP-codex) it never moves past launch, so "2h idle" silently became a hard 2h cap from birth
-    /// regardless of real activity. Here an ACP-shaped agent has real activity (an envelope, standing in
-    /// for transcript/turn traffic) at the 1h59m mark — under the 2h idle bound and the 6h TTL — while
-    /// <c>LastOutputAt</c> is deliberately left frozen 5 REAL hours in the past (never stamped, exactly
-    /// the ACP PTY-only defect). It must NOT be reaped. Mutating the idle check back to
-    /// <c>now - a.LastOutputAt</c> (the old comparison) makes this fail — see the task report.
+    /// ACP activity must postpone idle reaping even when the PTY-only AgentInstance.LastOutputAt is frozen.
+    /// Advance the activity clock near the idle bound and keep the six-hour lifetime unexpired so this
+    /// isolates the activity-based idle rule rather than passing because another rule disabled reaping.
     /// </summary>
     [Test]
     public async Task ACP_agent_with_envelope_activity_at_1h59m_is_not_reaped() {

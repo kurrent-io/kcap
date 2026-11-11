@@ -625,11 +625,8 @@ public class ServiceVerifyStartTests {
 
     [Test]
     public async Task Phase_b_bootout_failure_never_kickstarts_the_stale_loaded_definition() {
-        // Loaded at the fresh query, and the FIRST Stop ('s boot-out) reports an error —
-        // a foreign writer or a launchd hiccup. The gate must never fall through to the ungated
-        // Start() below on an unconfirmed bootout: that would kickstart launchd's still-loaded,
-        // possibly stale definition — exactly the path this gate exists to prevent. Rollback's
-        // own re-attempt (the second Stop) succeeds, confirming the restore.
+        // If the initial boot-out reports failure, never fall through to generic Start, which could kickstart
+        // the still-loaded stale unit. Rollback's second Stop succeeds and confirms restoration.
         var manager = new FakeServiceManager(Home) {
             Started = true,
             StopError = "launchctl bootout: 5: Input/output error",

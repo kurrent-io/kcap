@@ -163,9 +163,10 @@ sealed class ServiceVerify(
     /// </summary>
     readonly Func<bool> _profileViable = profileViable ?? (() => true);
 
-    /// <summary>Install-only seam for the on-disk plist read ('s pre/post-readiness recheck
-    /// and install's final on-disk fingerprint recheck). Real launchd needs HOME to compute the
-    /// path, so tests inject this directly.</summary>
+    /// <summary>
+    /// Inject the installed plist read for install's final fingerprint recheck and start's
+    /// pre-bootstrap and post-readiness checks. The real launchd path depends on HOME.
+    /// </summary>
     readonly Func<string, string?> _readPlist = readPlist ?? (path => {
         try { return File.Exists(path) ? File.ReadAllText(path) : null; } catch { return null; }
     });

@@ -237,7 +237,7 @@ public class ReviewerModelResolutionTests {
         await Assert.That(r.DiagnosticCode).IsEqualTo("codex");
     }
 
-    // === Central anchor guard (Task-7 review Minor, enforced at the coordinator) ===
+    // === Coordinator rejects anchorless accepts ===
 
     /// <summary>A resolver that (buggily) returns Accept WITHOUT a non-null equivalence-key anchor.</summary>
     sealed class AnchorlessAcceptResolver(string vendor, params string[] recognized) : IReviewerModelResolver {

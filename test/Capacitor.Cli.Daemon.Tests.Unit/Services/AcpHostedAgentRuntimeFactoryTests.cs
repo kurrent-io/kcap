@@ -322,12 +322,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     }
 
     /// <summary>
-    /// Negative control proving this test suite WOULD catch the round-4 regression it replaces: a
-    /// factory built with <c>connectionSource</c> returning a runtime whose <c>requestInteraction</c>
-    /// is deliberately left <see langword="null"/> (simulating the pre-Finding-4 defect) answers the
-    /// SAME inbound request with a JSON-RPC "Method not found" error, not a "cancelled" outcome —
-    /// demonstrating this test file's assertions are sensitive to the exact bug fixed and
-    /// makes verifiable end-to-end.
+    /// A null requestInteraction must produce Method not found rather than an interaction's cancelled result.
+    /// This negative control verifies the wire assertions distinguish an unwired bridge.
     /// </summary>
     [Test]
     public async Task StartAsync_IfRequestInteractionWereNull_PermissionRequestWouldGetMethodNotFound() {

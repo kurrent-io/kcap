@@ -143,13 +143,11 @@ public class StatusReportActivityFieldsTests {
         long?                         HighestResolutionGeneration = null
     );
 
-    /// <summary>Compat is proven, not asserted (spec /backwards-compatibility section): a fully
-    /// populated CURRENT payload — produced through the exact production serializer
-    /// (<see cref="CapacitorJsonContext"/>'s source-gen typed overload, same naming policy
-    /// <c>ServerConnection</c> configures on the live hub) — is deserialized by a LOCALLY DECLARED
-    /// pre-Task-11 contract shape. If the deployed SignalR JSON settings ever rejected unknown
-    /// members, this is the test that would catch it (a thrown <c>JsonException</c>), not a
-    /// same-shape round-trip.</summary>
+    /// <summary>
+    /// Serialize the full current payload through CapacitorJsonContext, then deserialize into a local
+    /// contract without activity fields. This verifies unknown-field compatibility under production JSON
+    /// settings; a same-shape round trip cannot prove an older consumer can accept the payload.
+    /// </summary>
     [Test]
     public async Task Old_server_contract_shape_deserializes_the_new_payload_ignoring_unknown_members() {
         var fullShapeReport = new DaemonStatusReport(

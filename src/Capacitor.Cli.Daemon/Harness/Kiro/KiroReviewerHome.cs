@@ -4,28 +4,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Harness.Kiro;
 
 /// <summary>
-/// The per-launch isolated <c>KIRO_HOME</c> for an unattended Kiro reviewer.
-///
-/// <para><b>Why an isolated home at all.</b> Kiro inherits the operator's GLOBAL
-/// <c>~/.kiro/settings/mcp.json</c> servers into every ACP session — measured with a positive control
-/// in <c>docs/probes/2026-08-05-kiro-reviewer-trust/</c>. One of them is the flows server, which
-/// would let a reviewer start nested review flows. Pointing <c>KIRO_HOME</c> at an empty directory
-/// initializes ZERO global servers while the injected result channel still starts. The credential is
-/// NOT under <c>KIRO_HOME</c>, so this suppresses configuration without touching authentication —
-/// which is the whole reason this approach works where an OS sandbox did not.</para>
-///
-/// <para><b>Why disposal is a security requirement, not hygiene.</b> <c>KiroPaths.ConfigRoot</c>
-/// reads <c>KIRO_HOME</c> first, so the reviewer's own conversation JSONL lands in
-/// <c>{KIRO_HOME}/sessions/cli</c> — carrying the caller's diff, source excerpts and findings. The
-/// home is read-EMPTY but write-SENSITIVE, on a host that may serve several callers.</para>
-///
-/// <para><b>The root is per daemon, and that is load-bearing.</b> An earlier design specified one
-/// shared root swept by epoch, reasoning that the epoch key made it safe for a second daemon on the
-/// same host. The opposite is true: with a shared root, daemon A's rule "delete every home whose
-/// epoch is not mine" selects daemon B's CURRENT, LIVE home, because B's epoch is not A's. Nor can
-/// reap-before-delete rescue it — A must not signal a process owned by an unrelated live daemon.
-/// Per-daemon roots remove the question instead of adjudicating it: every directory in this root
-/// belongs to an incarnation of THIS daemon, so a non-current epoch is by definition dead.</para>
+/// An empty per-launch KIRO_HOME suppresses global MCP servers while preserving authentication,
+/// whose credential lives elsewhere. Otherwise an inherited flows server could start nested reviews.
+/// Conversation JSONL under sessions/cli contains caller-sensitive source and findings, so dispose HOME.
+/// Use a per-daemon root: an epoch sweep in a shared root would delete another daemon's live homes.
 /// </summary>
 internal static class KiroReviewerHome {
     const string Prefix = "kcap-kiro-reviewer-";

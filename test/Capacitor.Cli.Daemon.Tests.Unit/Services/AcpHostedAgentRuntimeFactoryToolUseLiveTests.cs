@@ -136,10 +136,8 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
 
         var started = await factory.StartAsync(ctx, startCts.Token).WaitAsync(HandshakeTimeout);
 
-        // AcpHostedAgentRuntimeFactory.StartAsync always sets HostedRuntimeStart.Transcript to
-        // the runtime itself for the "cursor" vendor ('s bind-handoff shape) — reading
-        // through this interface, rather than downcasting Runtime, exercises exactly the seam
-        // /4's orchestrator wiring uses.
+        // Read HostedRuntimeStart.Transcript, the interface the orchestrator forwards, rather than downcasting
+        // Runtime. This verifies the factory's handoff as well as the runtime's own transcript implementation.
         var transcript = started.Transcript ?? throw new InvalidOperationException(
             "AcpHostedAgentRuntimeFactory.StartAsync did not set HostedRuntimeStart.Transcript — task 4's bind-handoff shape regressed.");
 

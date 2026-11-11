@@ -6,20 +6,9 @@ using Capacitor.Cli.Core.Harness.Cursor;
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// <c>LifecycleSpoolDrain.PostOnce</c>'s (HttpClient/production
-/// overload's) job in didn't carry <c>ClaudeHookCommand.ClaudePoster</c>'s
-/// <c>generate_whats_done</c> side effect (spawning the what's-done generator). Once this drain
-/// runs centrally ('s Program.cs wiring + the daemon-periodic sweep) it can be the one that
-/// delivers a spooled session-end for ANY vendor — the server's <c>generate_whats_done</c> signal is
-/// vendor-agnostic (see <c>WatchCommand</c>'s parent-exit session-end path, which checks it for
-/// whatever <c>vendor</c> it was invoked with) — so dropping the side effect there would silently
-/// lose what's-done generation for non-Claude sessions replayed through the generic drain.
-///
-/// These tests exercise the production <c>RunAsync(HttpClient, ...)</c> overload directly against a
-/// WireMock server, asserting the injected <c>onWhatsDoneRequested</c> callback fires exactly when it
-/// should: on a successful TERMINAL (session-end) route whose response carries
-/// <c>generate_whats_done: true</c> — for Claude's literal <c>"session-end"</c> route AND for a
-/// vendor-suffixed route like <c>"session-end/kiro"</c> — and never otherwise.
+/// A successful terminal spool delivery carrying generate_whats_done must invoke the generator
+/// callback for every vendor. Exercise the production HttpClient overload against WireMock;
+/// nonterminal routes, failed delivery and responses without that signal must not invoke it.
 /// </summary>
 public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);

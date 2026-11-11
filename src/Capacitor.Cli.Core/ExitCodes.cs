@@ -18,7 +18,7 @@ public static class ExitCodes {
     ///
     /// <para>A <c>NameInUse</c> discovered MID-RUN (the server contests the slot well after a
     /// successful initial connect — <c>DaemonRunner.cs</c>'s other <c>nameInUse ? 3 : 0</c>) is
-    /// unconditionally 3, supervised or not: out of decision-6 scope. The one resulting respawn's
+    /// unconditionally 3, supervised or not. The resulting respawn's
     /// own fresh initial connect is what actually settles the contest — winning it and exiting 0
     /// normally, or losing it and hitting the initial-connect 0/3 path above — so the loop is
     /// bounded either way.</para>

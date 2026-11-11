@@ -96,9 +96,8 @@ public class SplitNewCompleteLinesTests {
 
     [Test]
     public async Task Final_drain_holds_an_unparseable_unterminated_final_line() {
-        // The core task-7 guard: a still-growing / truncated final record (no newline, does not
-        // parse) is HELD even by the final drain — never sent-and-advanced — and flagged so the
-        // caller can mark the session needs-import.
+        // Hold an unparseable unterminated record even on final drain. Never advance past it;
+        // flag needs-import so shutdown cannot silently lose the unfinished record.
         var r = TranscriptReader.SplitNewCompleteLines(
             "{\"a\":1}\n{\"b\":2", 0, IncompleteFinalLinePolicy.ConsumeIfComplete);
 

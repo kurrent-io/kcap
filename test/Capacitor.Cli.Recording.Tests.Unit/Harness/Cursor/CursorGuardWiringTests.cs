@@ -344,8 +344,7 @@ public class CursorGuardWiringTests {
         var sid = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
-        // Two real (non-blank) lines already "delivered" — seeded directly (same baseline
-        // technique as the finding-#1 test).
+        // Seed two delivered lines directly so the failing repo-only send isolates frontier alignment.
         await File.WriteAllTextAsync(transcriptPath, "a\nb\n");
 
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);

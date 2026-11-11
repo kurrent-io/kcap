@@ -3,33 +3,13 @@ using System.Threading.Channels;
 
 namespace Capacitor.Cli.Daemon.Services;
 
-/// In-memory rendezvous between the consent gate (awaiting a verdict) and local-socket
-/// subscribers (the desktop app / kcap daemon consent). Resolution is CLAIM-based: TryResolve
-/// only succeeds if it wins the race to remove the pending entry, so a successful TryResolve
-/// (surfaced to the IPC caller as Ok=true) is a hard guarantee the decision actually applied to
-/// the launch. PromptAsync's own TIMEOUT path performs the same claiming removal before giving
-/// up — if it loses that race to a concurrent TryResolve, it awaits and returns the resolver's
-/// verdict instead of a stale timeout denial. EXTERNAL CANCELLATION (the caller's own `ct` firing
-/// — daemon shutdown / launch teardown, distinguished from a timeout by `ct.IsCancellationRequested`)
-/// performs the identical claim-or-defer removal but then RETHROWS OperationCanceledException
-/// instead of ever producing a verdict — the gate must abort without fabricating a decision, so
-/// no decision (and no decision-log record) is ever produced for a launch torn down before
-/// deciding. A request vanishes on resolve, timeout, or external cancellation, whichever claims
-/// it first; expiry surfaces as TryResolve returning false. Never persisted — a daemon restart
-/// clears pending prompts (the server retries or fails the launch with the coded timeout denial).
-///
-/// EVERY removal — PromptAsync's timeout claim, its OCE-catch claim attempt, its outer finally,
-/// and TryResolve's own claim (echo-matched or legacy) — is INSTANCE-scoped
-/// via the ConcurrentDictionary KeyValuePair-conditional overload, keyed on the exact `Pending`
-/// object PromptAsync added — never a plain key-based remove. This closes an ABA race: if a new
-/// prompt B reuses the same RequestId (agent-id retry, legacy/sequenced lane overlap) and TryAdds
-/// its own entry before request A's cleanup runs, A's cleanup can only ever remove A's own
-/// instance — it is structurally incapable of evicting B's. A successor prompt with the same id
-/// is therefore never evicted by a predecessor's cleanup.
-///
-/// Delivery to each subscriber is exactly-once per request (replay xor broadcast, never both),
-/// enforced by the _deliveryGate lock. There is NO withdrawal push — subscribers learn of
-/// expiration only when TryResolve returns false ('s consumer relies on this).
+/// TryResolve applies a decision only by claiming removal of the pending entry. Timeout uses the
+/// same claim; if a resolver won first, return its verdict. Caller cancellation also claims or defers,
+/// but always throws rather than fabricating a decision or decision-log entry.
+/// All removals match the exact Pending instance, not just RequestId: cleanup of an earlier request
+/// must never evict a successor reusing that id. Delivery is exactly once per subscriber under
+/// _deliveryGate, whether by replay or broadcast. There is no withdrawal push; expiry is observed
+/// when TryResolve returns false. Restart clears this in-memory rendezvous.
 internal sealed class LaunchConsentBroker : ILaunchConsentPrompter {
     sealed record Pending(LaunchConsentPromptRequest Request, TaskCompletionSource<bool> Tcs);
 

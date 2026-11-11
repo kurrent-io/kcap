@@ -9,20 +9,9 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// (liveness-supervision spec "ACP launch handshake" / "Immediate stage-advance
-/// reports"): before this, <c>AcpHostedAgentRuntimeFactory.StartAsync</c>'s spawn + <c>initialize</c>
-/// / <c>session/new</c> / model-selection handshake had NO launch-level timeout at all —
-/// <c>AcpConnection.RequestAsync</c> has no timer of its own, so only daemon shutdown could ever
-/// cancel a wedged call, and a wedged handshake never reaches <c>PublishAgent</c>, making it
-/// invisible to both the startup reaper and the reviewer reaper (the "inverse defect" this task
-/// closes). This suite drives the REAL <see cref="AcpHostedAgentRuntimeFactory.StartAsync"/> — the
-/// exact production wiring path, including the Task-13 fix that assigns
-/// <c>AcpHostedAgentRuntime.ActivityClock</c> BEFORE calling the runtime's own <c>StartAsync</c> —
-/// against a <see cref="FakeAcpAgent"/>-backed <c>connectionSource</c>, with a
-/// <see cref="FakeTimeProvider"/> standing in for the daemon's monotonic clock so a 90s per-stage
-/// cap fires deterministically without a real 90-second wait (proven against a real
-/// <see cref="CancellationTokenSource"/>/<see cref="TimeProvider"/> race during development — see
-/// the task report).
+/// Drive the real factory against FakeAcpAgent with a FakeTimeProvider to pin independent handshake
+/// stage deadlines and immediate stage reports. ActivityClock must be assigned before StartAsync;
+/// a wedged pre-publication handshake cannot rely on startup or reviewer reaping to time it out.
 /// </summary>
 public class AcpLaunchStageTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
