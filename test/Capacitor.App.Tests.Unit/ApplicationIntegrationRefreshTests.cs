@@ -10,8 +10,10 @@ public class ApplicationIntegrationRefreshTests {
 
     sealed class Runner(Func<string, string[], ProcessResult> run) : IProcessRunner {
         public int Calls;
+        public RunOptions? Options;
         public Task<ProcessResult> RunAsync(string fileName, string[] args, RunOptions options, CancellationToken ct) {
             Calls++;
+            Options = options;
             return Task.FromResult(run(fileName, args));
         }
         public Task<StreamingResult> RunStreamingAsync(string fileName, string[] args, RunOptions options,
@@ -110,6 +112,57 @@ public class ApplicationIntegrationRefreshTests {
         await Assert.That(commands.All(command => command.Command == Path.Combine(apps, "kcap.app", "Contents", "MacOS", "kcap"))).IsTrue();
         await Assert.That(File.ReadAllText(codex)).DoesNotContain(userApps);
         await Assert.That(File.Exists(Tmp.PathTo("home/.codex/hooks.json"))).IsFalse();
+    }
+
+    /// A Velopack install names its root in the marker and ships its CLI under current\bin, two levels below it.
+    [Test]
+    public async Task A_Windows_install_is_refreshed_by_its_bundled_cli_and_the_marker_cleared() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var root = Tmp.CreateDir("kcap");
+        var cli = Path.Combine(root, "current", "bin", "kcap.exe");
+        var ran = new List<(string File, string[] Args)>();
+        var runner = new Runner((file, args) => {
+            ran.Add((file, args));
+            return new ProcessResult(0, "", "", false);
+        });
+        var refresh = new ApplicationIntegrationRefresh(config, runner);
+        refresh.Schedule(root);
+
+        var warning = await refresh.RunPendingAsync(root, cli, CancellationToken.None);
+
+        await Assert.That(warning).IsNull();
+        await Assert.That(ran.Count).IsEqualTo(1);
+        await Assert.That(ran[0].File).IsEqualTo(cli);
+        await Assert.That(ran[0].Args).IsEquivalentTo(["refresh", "--app-migration"]);
+        await Assert.That(runner.Options!.EnvOverlay![ConfigRoot.ConfigDirEnvVar]).IsEqualTo(config.Directory);
+        await Assert.That(File.Exists(config.Path(ApplicationIntegrationRefresh.FileName))).IsFalse();
+    }
+
+    [Test]
+    public async Task A_failed_Windows_refresh_warns_and_keeps_the_marker_for_the_next_launch() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var root = Tmp.CreateDir("kcap");
+        var refresh = new ApplicationIntegrationRefresh(config, new Runner((_, _) => new ProcessResult(1, "", "hooks failed", false)));
+        refresh.Schedule(root);
+
+        var warning = await refresh.RunPendingAsync(root, Path.Combine(root, "current", "bin", "kcap.exe"), CancellationToken.None);
+
+        await Assert.That(warning).IsNotNull();
+        await Assert.That(warning!).Contains("retry");
+        await Assert.That(File.Exists(config.Path(ApplicationIntegrationRefresh.FileName))).IsTrue();
+    }
+
+    [Test]
+    public async Task A_marker_for_another_Windows_install_runs_nothing() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var runner = new Runner((_, _) => throw new InvalidOperationException("Another install must not refresh"));
+        var refresh = new ApplicationIntegrationRefresh(config, runner);
+        refresh.Schedule(Tmp.CreateDir("other"));
+        var root = Tmp.CreateDir("kcap");
+
+        await Assert.That(await refresh.RunPendingAsync(root, Path.Combine(root, "current", "bin", "kcap.exe"), CancellationToken.None)).IsNull();
+        await Assert.That(runner.Calls).IsEqualTo(0);
+        await Assert.That(File.Exists(config.Path(ApplicationIntegrationRefresh.FileName))).IsTrue();
     }
 
     [Test]

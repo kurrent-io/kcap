@@ -133,6 +133,35 @@ public class MainWindowCoordinatorTests {
         await Assert.That(order).IsEquivalentTo(["park", "navigate hidden", "restore"], CollectionOrdering.Matching);
     }
 
+    /// A user's close hides the window and says so; a quit's close is a real close and says nothing.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_user_close_reports_the_hide_and_a_quit_does_not() {
+        var (afterClose, afterShow, afterQuit) = await AvaloniaSession.DispatchAsync(() => {
+            int hidden = 0, shown = 0;
+            var coordinator = new MainWindowCoordinator(
+                () => {
+                    var window = new MainWindow();
+                    window.Show();
+                    return window;
+                },
+                onHidden: () => hidden++, onShown: () => shown++);
+            coordinator.ShowMainWindow();
+            coordinator.Window!.Close();
+            Dispatcher.UIThread.RunJobs();
+            var closed = (hidden, coordinator.Window?.IsVisible);
+            coordinator.ShowMainWindow();
+            Dispatcher.UIThread.RunJobs();
+            var reshown = shown;
+            Quit(coordinator);
+            return (closed, reshown, hidden);
+        });
+
+        await Assert.That(afterClose).IsEqualTo((1, (bool?)false));
+        await Assert.That(afterShow).IsEqualTo(2);
+        await Assert.That(afterQuit).IsEqualTo(1);
+    }
+
     static MainWindowCoordinator Shown() {
         var coordinator = new MainWindowCoordinator(() => {
             var window = new MainWindow();

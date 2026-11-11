@@ -217,6 +217,7 @@ public partial class App : Application {
     NotificationSettingsService? _notificationSettings;
     IDesktopNotificationSink? _notificationSink;
     IDesktopNotificationAccess? _notificationAccess;
+    CloseToTrayHint? _closeToTrayHint;
     IDisposable? _notificationAccessPrompt;
     IDisposable? _notificationBadgeSubscription;
     DesktopWindowLifecycle? _windowLifecycle;
@@ -432,6 +433,12 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
+             && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var warning = await RefreshIntegrationsAfterUpdateAsync(install);
+                if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
+            }
             if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
@@ -507,6 +514,23 @@ public partial class App : Application {
 
     Action<UpdateCandidate> HandOver(string entry) => candidate =>
         AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time, _updates?.DaemonLeftStopped == true).Save(_config);
+
+    /// The agents' hooks, MCP servers and skills were installed by the kcap this update replaced, so a launch that
+    /// finishes an update has the new bundled CLI install them again. The marker outlives a failed run, which the
+    /// next launch retries. Scheduled whatever the sign-in state: an expired token still has integrations to
+    /// refresh, and every refresh step is a no-op for an agent kcap was never installed into.
+    async Task<string?> RefreshIntegrationsAfterUpdateAsync(Platform.Windows.VelopackInstall install) {
+        var refresh = new ApplicationIntegrationRefresh(_config, new ProcessRunner(_time));
+        if (_postUpdate is not null) {
+            try {
+                await Task.Run(() => refresh.Schedule(install.Root), _shutdown.Token);
+            } catch (Exception ex) when (ex is not OperationCanceledException) {
+                // Lock timeout, mutex ACL or a marker AV holds open: none of them may fail the launch.
+                Console.Error.WriteLine($"kcap: could not schedule the integration refresh: {ex.Message}");
+            }
+        }
+        return await refresh.RunPendingAsync(install.Root, install.Cli, _shutdown.Token);
+    }
 
     /// Reads what an update left for this launch. A record for another version is an update that did not apply:
     /// Velopack relaunches the old version after a failed apply, so it is reported rather than finished.
@@ -1353,6 +1377,14 @@ public partial class App : Application {
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
                 : null;
 
+        // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
+        _closeToTrayHint = OperatingSystem.IsWindows()
+            ? new CloseToTrayHint(_appState,
+                // Only Allowed: an access that cannot tell may have no toast to show, and the tooltip is never lost.
+                async () => _notificationSink is not null && _notificationAccess is { } access
+                    && await access.GetAsync() == DesktopNotificationAccess.Allowed,
+                notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
+            : null;
         _coordinator = new MainWindowCoordinator(
             () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1393,7 +1425,9 @@ public partial class App : Application {
                 openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
-            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
+            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
+            onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
+            onShown: () => _closeToTrayHint?.OnShown());
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
         // close-protected (BeginShutdownPass's rule 1 is the general defense; this is the
@@ -1514,7 +1548,10 @@ public partial class App : Application {
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings,
             finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
-            openLaunchApprovals: launchApprovals.Show);
+            openLaunchApprovals: launchApprovals.Show,
+            toolTipHint: _closeToTrayHint is { } hint
+                ? Observable.FromEvent<string?>(h => hint.TrayHintChanged += h, h => hint.TrayHintChanged -= h).StartWith(hint.TrayHint)
+                : null);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }

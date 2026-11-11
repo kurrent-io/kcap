@@ -416,14 +416,14 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public const string TitleEnvVar = "KCAP_APP_TITLE";
 
-    // Names the instance, so several running side by side can be told apart. Where the window paints
-    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
-    // a non-empty Title at the top left; elsewhere the window manager draws Title. Onboarding puts
-    // its own step title in the same spot, so the label gives way to it.
+    // Names the instance, so several running side by side can be told apart. Title carries it everywhere
+    // (taskbar, Alt+Tab, screen readers); where the window paints into its title bar, whose drawn title
+    // text is hidden, the app also draws it centred. Onboarding puts its own step title in the same spot,
+    // so the label gives way to it.
     void ShowInstanceTitle() {
         if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
         InstanceTitle.Text = title;
-        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => Title = extended ? "" : title);
+        Title = title;
         InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty)
             .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }

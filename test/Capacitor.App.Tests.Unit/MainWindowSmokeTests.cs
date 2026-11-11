@@ -709,6 +709,61 @@ public class MainWindowSmokeTests {
         }
     });
 
+    /// The window's name is what Windows lists in the taskbar and Alt+Tab and what a screen reader announces,
+    /// so it stays set even though the title bar prints no title text.
+    [Test]
+    [NotInParallel]
+    [Arguments(null, "kcap Desktop")]
+    [Arguments("dev-a", "dev-a")]
+    public async Task The_main_window_is_named_for_the_taskbar_and_screen_readers(string? instanceTitle, string expected) {
+        using var env = EnvScope.Exclusive(MainWindow.TitleEnvVar, instanceTitle);
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var window = new MainWindow { DataContext = vm };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(window);
+                await Assert.That(window.Title).IsEqualTo(expected);
+                await Assert.That(peer.GetName()).IsEqualTo(expected);
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+            }
+        });
+    }
+
+    /// Where Avalonia draws the title bar (Windows, Linux) the main window's decorations theme hides the
+    /// drawn title text, so Title does not print at the top left. The headless platform never draws
+    /// decorations, so the test realizes them by hand: their parts and template are internal, hence the
+    /// reflection. A failing lookup here means Avalonia renamed them, not that the title shows.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_drawn_title_bar_prints_no_title_text() => AvaloniaSession.RunOnUiAsync(async () => {
+        var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+        var main = new MainWindow { DataContext = vm };
+        var decorations = new Avalonia.Controls.Chrome.WindowDrawnDecorations { Theme = main.WindowDecorationsTheme };
+        const System.Reflection.BindingFlags Members = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        var parts = typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetProperty("EnabledParts", Members)!;
+        parts.SetValue(decorations, Enum.ToObject(parts.PropertyType, 0xFF));
+        var host = new Panel();
+        var window = new Window { Title = "kcap Desktop", Content = host };
+        ((Avalonia.Controls.ISetLogicalParent)decorations).SetParent(window);
+        typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetMethod("ApplyTemplate", Members)!.Invoke(decorations, null);
+        host.Children.Add(decorations.Content!.Overlay!);
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var titleText = host.GetVisualDescendants().OfType<Panel>().Single(p => p.Name == "PART_TitleTextPanel");
+            await Assert.That(decorations.HasTitleBar).IsTrue();
+            await Assert.That(titleText.IsEffectivelyVisible).IsFalse();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {

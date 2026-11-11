@@ -950,6 +950,48 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// The ended list loads a page at a time, so a group's ended count is a floor until every page is in.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_group_count_reads_as_a_floor_while_ended_pages_remain() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, _, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                directory.Rows.AddOrUpdate([Server("e1"), Server("e2"), Server("e3"), Server("e4")]);
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
+                var group = rail.Groups.Single();
+                await Assert.That(group.CountText).IsEqualTo("4+ sessions");
+                await Assert.That(group.Tooltip).Contains("Counts cover the ended sessions loaded so far");
+
+                rail.State = RailState.Live;
+                rail.State = RailState.Ended;
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("4+ sessions");
+
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(106, 106, 6, false, false));
+                group = rail.Groups.Single();
+                await Assert.That(group.CountText).IsEqualTo("4 sessions");
+                await Assert.That(group.Tooltip).DoesNotContain("Counts cover");
+            }
+        });
+    }
+
+    /// A group with only live rows loaded can still have ended sessions on a later page.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_live_only_group_count_reads_as_a_floor_while_ended_pages_remain() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, _, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                directory.Rows.AddOrUpdate([Local("a"), Local("b")]);
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2+ sessions");
+
+                rail.State = RailState.Live;
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2 sessions");
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Live_filter_hides_ended_pagination_and_switching_back_restores_it() {
