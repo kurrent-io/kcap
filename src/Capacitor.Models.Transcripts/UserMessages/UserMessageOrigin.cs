@@ -1,4 +1,6 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Capacitor.Models.Transcripts.Harness.Codex;
+using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
 
 namespace Capacitor.Models.Transcripts.UserMessages;
@@ -24,10 +26,12 @@ public sealed record UserMessageOrigin {
     /// Codex's content item kinds (0.155+). A part whose kind is not `user.*` is Codex's own context.
     public IReadOnlyList<string>? ContentItemKinds { get; init; }
 
-    /// The Claude Code fields stored on the message's `claude_code` extension, or null when it carries none.
+    /// The Claude Code fields stored on the message's `claude_code` extension and the content item kinds on
+    /// its `codex` one, or null when it carries neither.
     public static UserMessageOrigin? Of(UserMessageReceived message) {
-        var slug = SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug);
-        if (slug is null) return null;
+        var kinds = ContentItemKindsOf(message);
+        var slug  = SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug);
+        if (slug is null) return kinds is null ? null : new UserMessageOrigin { ContentItemKinds = kinds };
 
         return new UserMessageOrigin {
             IsMeta           = SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta),
@@ -35,6 +39,13 @@ public sealed record UserMessageOrigin {
             IsHandback       = SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsHandback),
             IsCompactSummary = SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary),
             LocalCommand     = SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand),
+            ContentItemKinds = kinds,
         };
     }
+
+    static IReadOnlyList<string>? ContentItemKindsOf(UserMessageReceived message) =>
+        SchemaExtensions.Slug(message, CodexExtension.Slug) is { } codex
+     && codex.Fields.TryGetValue(CodexExtension.ContentItemKinds, out var kinds) && kinds.KindCase == Value.KindOneofCase.ListValue
+            ? [.. kinds.ListValue.Values.Where(k => k.KindCase == Value.KindOneofCase.StringValue).Select(k => k.StringValue)]
+            : null;
 }

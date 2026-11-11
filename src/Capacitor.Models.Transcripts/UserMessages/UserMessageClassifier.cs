@@ -16,7 +16,7 @@ public static class UserMessageClassifier {
     /// Bare text with no recorded origin and no vendor, for a caller holding only what a card stored.
     public static UserMessageClass Classify(string? text) => Classify(text ?? "", origin: null);
 
-    /// <param name="message">The message; its `claude_code` extension is read for the origin.</param>
+    /// <param name="message">The message; its `claude_code` and `codex` extensions are read for the origin.</param>
     /// <param name="vendor">The harness that recorded it, when the caller knows.</param>
     /// <param name="scheduled">Prompts the session scheduled for itself so far, when the caller tracks them.</param>
     public static UserMessageClass Classify(UserMessageReceived message, string? vendor = null, ScheduledPrompts? scheduled = null) =>

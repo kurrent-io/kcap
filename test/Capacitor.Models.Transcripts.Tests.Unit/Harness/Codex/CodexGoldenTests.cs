@@ -70,6 +70,7 @@ public class CodexGoldenTests {
         UsageApplied applied   => new JsonObject {
             ["usage"]   = JsonNode.Parse(JsonFormatter.Default.Format(applied.Usage)),
             ["anchor"]  = applied.AnchorEventId.ToString(),
+            ["cacheCreation"] = applied.CacheCreationTokens,
             ["targets"] = new JsonArray([.. applied.Targets.Select(t => (JsonNode)new JsonObject {
                 ["eventId"] = t.EventId.ToString(), ["eventType"] = t.EventType, ["toolName"] = t.ToolName, ["isEcho"] = t.IsEcho,
             })]),
