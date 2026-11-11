@@ -48,6 +48,7 @@ sealed class FakeServerLane : IServerLane {
     ImmutableList<string> _terminalSubscribes = [], _terminalUnsubscribes = [], _resizeReleases = [];
     ImmutableList<(string AgentId, int Cols, int Rows)> _resizes = [];
     ImmutableList<(string AgentId, string Text)> _userInputs = [];
+    ImmutableList<(string AgentId, string[] Ids)> _userInputAttachments = [];
     ImmutableList<(string AgentId, string Key)> _specialKeys = [];
     ImmutableList<(string AgentId, byte[] Data)> _terminalInputs = [];
     readonly Dictionary<string, Channel<StreamEventEnvelope>> _tailChannels = new(StringComparer.Ordinal);
@@ -64,6 +65,7 @@ sealed class FakeServerLane : IServerLane {
     public ImmutableList<(string AgentId, int Cols, int Rows)> Resizes => Volatile.Read(ref _resizes);
     public ImmutableList<string> ResizeReleases => Volatile.Read(ref _resizeReleases);
     public ImmutableList<(string AgentId, string Text)> UserInputs => Volatile.Read(ref _userInputs);
+    public ImmutableList<(string AgentId, string[] Ids)> UserInputAttachments => Volatile.Read(ref _userInputAttachments);
     public ImmutableList<(string AgentId, string Key)> SpecialKeys => Volatile.Read(ref _specialKeys);
     public ImmutableList<(string AgentId, byte[] Data)> TerminalInputs => Volatile.Read(ref _terminalInputs);
 
@@ -168,9 +170,10 @@ sealed class FakeServerLane : IServerLane {
         return Task.FromResult(HubCallOutcome.Ok);
     }
 
-    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, CancellationToken ct) {
+    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
         Append(ref _calls, $"input:{agentId}");
         Append(ref _userInputs, (agentId, text));
+        Append(ref _userInputAttachments, (agentId, attachmentIds.ToArray()));
         return UserInputHandler(agentId);
     }
 

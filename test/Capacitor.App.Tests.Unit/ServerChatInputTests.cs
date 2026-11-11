@@ -5,6 +5,7 @@ using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Remote.Models;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
+using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -18,9 +19,10 @@ public class ServerChatInputTests {
         public readonly BehaviorSubject<ChatSessionInfo> Session = new(Info("Running"));
         public readonly ServerChatInput Input;
 
-        public Harness(bool hasTerminal = false, IObservable<ViewerIdentityDto?>? senderIdentity = null, AgentViewerRightsDto? rights = null) =>
+        public Harness(bool hasTerminal = false, IObservable<ViewerIdentityDto?>? senderIdentity = null, AgentViewerRightsDto? rights = null,
+                IObservable<bool>? attachable = null) =>
             Input = new ServerChatInput("a1", Lane, Access, Session, hasTerminal, senderIdentity,
-                rights is null ? null : Observable.Return(AgentViewerAccess.From(rights)));
+                rights is null ? null : Observable.Return(AgentViewerAccess.From(rights)), attachable);
 
         public static ChatSessionInfo Info(string status, bool ended = false) =>
             new(status, status, "gemini", null, null, null, ended, "", "s1");
@@ -170,6 +172,28 @@ public class ServerChatInputTests {
             await Assert.That(h.Lane.UserInputs).IsEmpty();
             await Assert.That(h.Input.Hint).IsEqualTo(h.Input.AttachHint);
             await Assert.That(h.Input.Availability).IsEqualTo(SendAvailability.Ready);
+            h.Input.Dispose();
+        });
+    }
+
+    [Test]
+    public async Task An_attachable_session_passes_the_ids_to_the_hub_until_it_stops_being_attachable() {
+        await RunOnUiAsync(async () => {
+            using var attachable = new BehaviorSubject<bool>(true);
+            var h = new Harness(attachable: attachable);
+            h.Ready();
+            await Assert.That(h.Input.CanAttach).IsTrue();
+            await Assert.That(h.Input.AttachHint).IsNull();
+
+            const string id = "0123456789abcdef0123456789abcdef";
+            await Assert.That(await h.Input.SendAsync("", [id], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
+            await Assert.That(h.Lane.UserInputAttachments.Single().Ids).IsEquivalentTo(new[] { id });
+
+            attachable.OnNext(false);
+            await WaitUntilAsync(() => !h.Input.CanAttach, what: "the capability withdrawn");
+            await Assert.That(h.Input.AttachHint).IsEqualTo(ServerChatInput.AttachUnavailable);
+            await Assert.That(await h.Input.SendAsync("again", [id], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
+            await Assert.That(h.Lane.UserInputs.Count).IsEqualTo(1);
             h.Input.Dispose();
         });
     }

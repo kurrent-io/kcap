@@ -332,7 +332,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
-            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null) {
+            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
+            IAttachmentUploader? uploader = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -404,13 +405,14 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         ChatInput input = row.Origin == AgentOrigin.Server
             ? new ReadOnlyChatInput()
             : new ServerChatInput(row.Id, lane, _accessStates, _session, hasTerminal,
-                WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
+                WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer,
+                uploader is null || remoteAgents is null ? null : _rows.CombineLatest(remoteAgents.Daemons, AcceptsAttachments).DistinctUntilChanged());
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
             ? null
             : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
-            row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
+            row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, uploader ?? new NoAttachmentUploader(),
             key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),
             // A session-only chat has no agent here to answer for it: no session, no cards, no send.
             opener, time, permissions, runs, missingNote: MissingNote, sessionId: IsSessionOnly ? Observable.Return<string?>(null) : _sessionIds,
@@ -684,6 +686,13 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
     /// unless the ended session's hand-off composer stands in its place.
+    /// Only the viewer's own daemon, which fetches the files with its owner's credential, and only a
+    /// session it hosts: an attached terminal session submits text alone, so its daemon refuses files.
+    internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons) =>
+        !row.IsAttached && row.OwnerIsViewer == true && row.MachineBadge is { } name
+        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == row.OwnerUserId) is { } daemon
+        && LaunchAttachments.IsCapable(daemon.Version);
+
     ChatSessionInfo SessionInfo(AgentRow row, bool ended) =>
         ChatSessionInfo.FromRemote(row, ended,
             row.Origin != AgentOrigin.Server ? "" : ended ? _handoff is null ? EndedNote : "" : TerminalNote);

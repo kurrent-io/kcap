@@ -1,4 +1,5 @@
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using Capacitor.Remote.Models;
 
 namespace Capacitor.App.Tests.Unit;
@@ -172,5 +173,31 @@ public class AgentRowTests {
         var rights = new AgentViewerRightsDto { Reaches = true, HoldMessages = true };
         await Assert.That(AgentRow.FromRemote(Remote(null) with { ViewerRights = rights }).ViewerRights).IsEqualTo(rights);
         await Assert.That(AgentRow.FromRemote(Remote(null)).ViewerRights).IsNull();
+    }
+
+    /// The remote daemon fetches with its owner's credential, so another user's daemon is never
+    /// offered files, nor one whose build predates fetching on dispatched input.
+    [Test]
+    [Arguments(true,  "u7",    "1.0.3",       true)]
+    [Arguments(true,  "u7",    "1.0.3-beta.1", true)]
+    [Arguments(true,  "u7",    "1.0.2",       false)]
+    [Arguments(true,  "other", "1.0.3",       false)]
+    [Arguments(false, "u7",    "1.0.3",       false)]
+    public async Task A_remote_session_accepts_attachments_only_on_the_viewers_capable_daemon(
+            bool ownerIsViewer, string daemonOwner, string version, bool expected) {
+        var row = AgentRow.FromRemote(Remote("t")) with { OwnerIsViewer = ownerIsViewer };
+        IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = daemonOwner, Version = version }];
+
+        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons)).IsEqualTo(expected);
+    }
+
+    /// An attached terminal session submits text alone, so even the viewer's own capable daemon refuses files for it.
+    [Test]
+    public async Task An_attached_session_never_accepts_attachments() {
+        var row = AgentRow.FromRemote(Remote("t")) with { OwnerIsViewer = true, Kind = AgentActionService.AttachedKind };
+        IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = "u7", Version = "1.0.3" }];
+
+        await Assert.That(row.IsAttached).IsTrue();
+        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons)).IsFalse();
     }
 }
