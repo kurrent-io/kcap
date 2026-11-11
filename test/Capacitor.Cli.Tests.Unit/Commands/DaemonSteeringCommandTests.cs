@@ -43,16 +43,18 @@ public class DaemonSteeringCommandTests {
 
     string Socket => Daemons.Store.SocketPath(Name);
 
-    DaemonCommands Daemon(ConfigRoot? config = null) {
+    /// <summary>A profile whose daemon is <paramref name="daemon"/>, the one the steering mod finds.</summary>
+    DaemonCommands Daemon(ConfigRoot? config = null, string daemon = Name) {
         var root = config ?? Config.Root;
 
-        return new(Daemons.Store, root, Resolutions.None(root), Home, TestHarnesses.Under(Home), TestBinaries.None, TimeProvider.System, Streams) {
+        return new(Daemons.Store, root, Resolutions.Of(new Profile { Daemon = new DaemonSettings { Name = daemon } }), Home,
+                TestHarnesses.Under(Home), TestBinaries.None, TimeProvider.System, Streams) {
             Steering = Mod
         };
     }
 
     Task<int> SteeringAsync(string state, string name = Name, ConfigRoot? config = null) =>
-        Daemon(config).HandleAsync(["daemon", "steering", state, "--name", name]);
+        Daemon(config, name).HandleAsync(["daemon", "steering", state, "--name", name]);
 
     void InstallKcap(string settings) => ClaudePluginWriter.Install(settings, null, PluginDir);
 
@@ -145,6 +147,32 @@ public class DaemonSteeringCommandTests {
         await Assert.That(Out.ToString()).Contains($"kcap-steering isn't enabled in {Settings}");
         await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On, SteeringIpc.On, SteeringIpc.On]);
         await Assert.That(Err.ToString()).IsEmpty();
+    }
+
+    /// <summary>The mod looks its daemon up with no name, so it would never reach another: nothing is asked of that
+    /// daemon, and no plugin is installed for it.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task Steering_on_refuses_a_daemon_other_than_the_profiles() {
+        InstallKcap(Settings);
+        await using var other = FakeSteeringDaemon.Answering(Daemons.Store.SocketPath("other"), TurnedOn);
+
+        var exit = await Daemon().HandleAsync(["daemon", "steering", "on", "--name", "other"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(Err.ToString()).Contains($"finds this profile's daemon, '{Name}', so it would never reach daemon 'other'");
+        await Assert.That(other.Asked).IsEmpty();
+        await Assert.That(Enabled()).IsNull();
+    }
+
+    /// <summary>Switching steering off reaches any daemon: a stray one left on is worth turning off.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task Steering_off_reaches_a_daemon_other_than_the_profiles() {
+        await using var other = FakeSteeringDaemon.Answering(Daemons.Store.SocketPath("other"), TurnedOff);
+
+        await Assert.That(await Daemon().HandleAsync(["daemon", "steering", "off", "--name", "other"])).IsEqualTo(0);
+        await Assert.That(other.Asked).IsEquivalentTo([SteeringIpc.Off]);
     }
 
     /// <summary>Profiles share the machine's Claude settings, so a second profile's daemon finds the plugin already

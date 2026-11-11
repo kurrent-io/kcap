@@ -38,6 +38,15 @@ public static class DaemonSteeringCommand {
 
         if (await ResolveNameAsync(profiles, console, args) is not { } name) return 1;
 
+        // The mod finds its daemon through `steering-socket` with no name, so another daemon would never be reached.
+        if (state == SteeringIpc.On && DaemonNameResolver.Resolve([], profiles.DaemonName) is var found && found != name) {
+            await console.Error.WriteLineAsync(
+                $"kcap daemon steering: the steering plugin finds this profile's daemon, '{found}', so it would never reach daemon '{name}'. "
+              + $"Turn steering on from the profile whose daemon '{name}' is, or leave out --name.");
+
+            return 1;
+        }
+
         var (ack, install) = await TurnAsync(store, name, state == SteeringIpc.On, time, mod);
 
         if (!ack.Ok) {

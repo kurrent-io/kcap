@@ -315,8 +315,10 @@ Steering:
 
   The socket is owner-only, in a directory only you can enter, and that is
   its only authentication: no token ever reaches a session. Both verbs take
-  --name <n>. Steering isn't offered on Windows yet: `steering on` refuses
-  there, `steering-socket` prints nothing, and setup doesn't ask.
+  --name <n>, and `steering on --name` refuses a daemon other than the current
+  profile's, the only one the plugin finds. Steering isn't offered on Windows
+  yet: `steering on` refuses there, `steering-socket` prints nothing, and
+  setup doesn't ask.
 
 Notes:
   Each daemon holds an exclusive flock on ~/.config/kcap/daemons/<name>.lock
