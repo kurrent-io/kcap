@@ -147,6 +147,20 @@ public class ClaudeServerDeltaTests {
         await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
     }
 
+    /// <summary>A copy of the open prompt arriving between it and its answer leaves what descends from it known.</summary>
+    [Test]
+    public async Task A_redelivered_open_prompt_keeps_its_descendants() {
+        const string between = "a1b2c3d4-0000-4000-8000-0000000000b1";
+        var ctx = Ctx();
+        E(Prompt(Cancelled, Parent), ctx);
+        E($$$"""{"type":"system","subtype":"informational","uuid":"{{{between}}}","parentUuid":"{{{Cancelled}}}","content":"x"}""", ctx);
+        E(Prompt(Cancelled, Parent), ctx);
+        E(Answer(between), ctx);
+        E(Prompt(Cancelled, Parent), ctx);
+
+        await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
+    }
+
     /// <summary>A re-delivered answer to another prompt closes the open one, as the server's does, but does not
     /// make it answered: that prompt's own re-delivery reopens it, and its sibling then retracts it.</summary>
     [Test]

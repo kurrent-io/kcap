@@ -202,7 +202,8 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             cancelled = open.Id;
             (ctx.Retractions ??= []).Add(id, open.Id);
         }
-        if (!answered) {
+        // A re-delivered open prompt keeps the records already seen to descend from it.
+        if (!answered && ctx.UnansweredPrompt?.Id != id) {
             ctx.UnansweredPrompt = (id, record.CausedBy);
             ctx.OpenLine         = new(StringComparer.OrdinalIgnoreCase) { id.ToString() };
         }
