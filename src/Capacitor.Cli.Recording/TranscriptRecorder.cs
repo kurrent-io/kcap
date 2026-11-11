@@ -1433,7 +1433,7 @@ public sealed class TranscriptRecorder(
             var lines   = new List<string>(read.Lines.Count);
             var numbers = new List<int>(read.Lines.Count);
             for (var i = 0; i < read.Lines.Count; i++) {
-                if (read.LineNumbers[i] < cursor || map.SentBeforeRewrite(read.Lines[i])) continue;
+                if (read.LineNumbers[i] < cursor || map.SentBeforeRewrite(read.Lines[i], read.LineNumbers[i])) continue;
                 lines.Add(read.Lines[i]);
                 numbers.Add(map.ToSent(read.LineNumbers[i]));
             }

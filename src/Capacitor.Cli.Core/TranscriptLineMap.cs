@@ -16,8 +16,10 @@ public sealed class TranscriptLineMap {
 
     int _polls;
 
-    // The lines a rewrite renumbered that had already been sent, so one the rewrite kept is not sent twice.
-    HashSet<ulong> _sentBeforeRewrite = [];
+    // How many copies of each line a rewrite renumbered had already been sent, so one it kept is not sent twice.
+    // Only lines before the end of what had been sent can be such a copy.
+    Dictionary<ulong, int> _sentBeforeRewrite = [];
+    int                    _sentBeforeRewriteEnd;
 
     // From each segment's first file line on, a line is sent under its file number plus the segment's shift.
     readonly List<(int FileLine, int Shift)> _segments = [(0, 0)];
@@ -86,9 +88,10 @@ public sealed class TranscriptLineMap {
     /// been sent.
     /// </summary>
     public void Rewritten(int fileLine, int nextSentLine, int fileCursor) {
-        _sentBeforeRewrite = [];
+        _sentBeforeRewrite    = [];
+        _sentBeforeRewriteEnd = fileCursor;
         for (var i = fileLine; i < Math.Min(fileCursor, _hashes.Count); i++) {
-            if (_hashes[i] != BlankHash) _sentBeforeRewrite.Add(_hashes[i]);
+            if (_hashes[i] != BlankHash) _sentBeforeRewrite[_hashes[i]] = _sentBeforeRewrite.GetValueOrDefault(_hashes[i]) + 1;
         }
 
         if (fileLine < _hashes.Count) _hashes.RemoveRange(fileLine, _hashes.Count - fileLine);
@@ -98,8 +101,26 @@ public sealed class TranscriptLineMap {
         if (shift != SegmentAt(fileLine).Shift) _segments.Add((fileLine, shift));
     }
 
-    /// <summary>Whether <paramref name="line"/> was sent before the last rewrite renumbered it.</summary>
-    public bool SentBeforeRewrite(string line) => _sentBeforeRewrite.Count > 0 && _sentBeforeRewrite.Contains(Hash(line));
+    /// <summary>
+    /// Whether <paramref name="line"/>, read at <paramref name="fileLine"/>, is a copy the last rewrite kept of a line
+    /// already sent. Each sent line accounts for one copy.
+    /// </summary>
+    public bool SentBeforeRewrite(string line, int fileLine) {
+        if (_sentBeforeRewrite.Count == 0) return false;
+
+        if (fileLine >= _sentBeforeRewriteEnd) {
+            _sentBeforeRewrite.Clear();
+            return false;
+        }
+
+        var hash = Hash(line);
+        if (!_sentBeforeRewrite.TryGetValue(hash, out var copies)) return false;
+
+        if (copies == 1) _sentBeforeRewrite.Remove(hash);
+        else _sentBeforeRewrite[hash] = copies - 1;
+
+        return true;
+    }
 
     (int FileLine, int Shift) SegmentAt(int fileLine) {
         for (var i = _segments.Count - 1; i > 0; i--) {

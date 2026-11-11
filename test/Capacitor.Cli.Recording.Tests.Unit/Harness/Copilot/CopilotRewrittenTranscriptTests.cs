@@ -187,6 +187,25 @@ public class CopilotRewrittenTranscriptTests {
             Enumerable.Range(5, 4).Select(i => (i + 6, Line("b", i))).Prepend((10, Line("a", 10))).ToArray());
     }
 
+    /// <summary>Only the copies a rewrite kept of lines already sent are held back, each once: an identical record
+    /// written again is a new line.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task An_identical_record_written_again_after_a_rewrite_is_sent(bool insideTheRewrite) {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, insideTheRewrite
+            ? Lines("a", 0, 5) + Lines("b", 5, 3) + Line("a", 9) + "\n" + Line("a", 9) + "\n"
+            : EditedBeforeTheLastLine);
+        await Recorders.For(Sid, path, null, "copilot").DrainNewLines(state, CancellationToken.None, isFinalDrain: true);
+        if (!insideTheRewrite) await File.AppendAllTextAsync(path, Line("a", 9) + "\n");
+        await Drain(path, state);
+
+        var edited = insideTheRewrite ? 3 : 4;
+        await Assert.That(SentLines.Skip(10).Select(s => s.Line).ToArray()).IsEquivalentTo(
+            Enumerable.Range(5, edited).Select(i => Line("b", i)).Append(Line("a", 9)).ToArray());
+    }
+
     /// <summary>A file that changes under every read leaves nothing the spool can trust, so the session is marked for
     /// import rather than spooled as having no tail.</summary>
     [Test]
