@@ -506,6 +506,7 @@ public sealed class ConPtyProcess : IPtyProcess {
         } finally {
             // A close still waiting on unread output returns only once the pipe is gone, and disposal may be far off.
             if (!closing.IsCompleted) {
+                // Best effort: a pipe torn down under the close fails here, and DisposeAsync releases it again.
                 try { _outputStream.Dispose(); } catch (IOException) { }
             }
         }
