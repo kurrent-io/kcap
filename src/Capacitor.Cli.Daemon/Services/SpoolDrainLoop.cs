@@ -105,7 +105,8 @@ internal sealed class SpoolDrainLoop {
                 await LifecycleSpoolDrain.RunAsync(
                     _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
-                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
+                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
+                    onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.

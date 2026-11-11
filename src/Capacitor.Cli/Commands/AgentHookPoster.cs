@@ -316,7 +316,11 @@ internal sealed class AgentHookPoster(
                 await LifecycleSpoolDrain.RunAsync(
                     config, new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
-                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr), onLifecycleOutcome);
+                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr),
+                    (route, body, outcome) => {
+                        CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(config), route, body, outcome);
+                        onLifecycleOutcome?.Invoke(route, body, outcome);
+                    });
 
             }
         } catch {

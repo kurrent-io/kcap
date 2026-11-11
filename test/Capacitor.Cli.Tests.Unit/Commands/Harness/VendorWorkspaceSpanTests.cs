@@ -114,12 +114,15 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles  = Resolutions.At(_server.Url!, Config.Root);
         var http      = new FixedCapacitorHttpClient();
         var spool     = new HookSpool(Config.Root, _time, _server.Url);
-        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString());
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString();
+        CopilotSpanClose.Record(WatcherPaths.FromEnvironment(Config.Root), canonical, _server.Url, end);
+        spool.Append(canonical, "session-end/copilot", end);
 
         await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, canonical);
 
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+        await Assert.That(CopilotSpanClose.IsDelivered(WatcherPaths.FromEnvironment(Config.Root), canonical)).IsTrue();
     }
 
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
@@ -130,7 +133,9 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         var canonical = Session.Replace("-", "");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
-        CopilotSpanClose.Record(paths, canonical, _server.Url);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end);
+        CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
 
         var profiles   = Resolutions.At(_server.Url!, Config.Root);
         var http       = new FixedCapacitorHttpClient();

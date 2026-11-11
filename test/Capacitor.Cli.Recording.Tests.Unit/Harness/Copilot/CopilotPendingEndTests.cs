@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 
@@ -153,6 +154,23 @@ public class CopilotPendingEndTests {
 
         var later = new FakeTimeProvider(DateTimeOffset.UtcNow + CopilotPendingEnd.QuietPeriod + TimeSpan.FromMinutes(1));
         await Assert.That(CopilotPendingEnd.SpoolDue(Paths, Spool, Server, later)).IsEqualTo(1);
+    }
+
+    /// <summary>A pending end is promoted only with the span close it owes; one that cannot be recorded stays pending.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task An_end_whose_span_close_cannot_be_recorded_stays_pending() {
+        var transcript = Transcript(Down);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System);
+        File.SetUnixFileMode(Paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await Assert.That(Sweep()).IsEqualTo(0);
+            await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+            await Assert.That(Pending).IsTrue();
+        } finally {
+            File.SetUnixFileMode(Paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     [Test]

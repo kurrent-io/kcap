@@ -73,6 +73,40 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(posted).Contains("user_exit");
     }
 
+    /// <summary>The end and the span close it owes are durable together: a close that cannot be recorded leaves the end
+    /// out of the spool, and the finalizer carries it instead and closes the span itself.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task an_end_whose_span_close_cannot_be_recorded_is_not_spooled() {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            var client  = new FixedCapacitorHttpClient();
+            var starter = FakeProcessStarter.Running(_ => Process.GetCurrentProcess());
+            await Hook(Watchers(starter, client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
+
+            await Assert.That(SpooledEnds()).DoesNotContain("session-end/copilot");
+            await Assert.That(starter.Seen!.ArgumentList.Last()).Contains("user_exit");
+        } finally {
+            File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    /// <summary>A new run starts its own span; the close an earlier run's end owed must not close it.</summary>
+    [Test]
+    public async Task a_new_run_drops_the_span_close_an_earlier_end_owed() {
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var canonical = Session.Replace("-", "");
+        CopilotSpanClose.Record(paths, canonical, _server.Url, "{}");
+
+        var client = new FixedCapacitorHttpClient();
+        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(new StringReader(new JsonObject { ["sessionId"] = Session }.ToJsonString()), ["--event", "sessionStart"]);
+
+        await Assert.That(CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(canonical);
+    }
+
     /// <summary>A pending end goes only on a new run: a notification proves nothing about it, a sessionStart does.</summary>
     [Test]
     [Arguments("notification", true)]

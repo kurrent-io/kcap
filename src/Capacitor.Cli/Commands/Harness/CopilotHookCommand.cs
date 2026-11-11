@@ -236,8 +236,9 @@ sealed class CopilotHookCommand(
             HookSpool  spool,
             HookBudget budget
         ) {
-        // A new run: the held end of the one before it would close this one.
+        // A new run: the held end of the one before it, and the span close that end owed, would close this one.
         CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+        CopilotSpanClose.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
         var source = TryGetString(node, "source") is { Length: > 0 } s ? s : "startup";
 
@@ -383,9 +384,10 @@ sealed class CopilotHookCommand(
 
         // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap process's
         // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
-        // The span close is owed with the end; without it the finalizer carries the end, and closes the span itself.
-        var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end)
-                   && CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url);
+        // The span close it owes is recorded first, so no spooled end goes without one; with neither, the finalizer
+        // carries the end and closes the span itself.
+        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end)
+                   && new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
         if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under

@@ -62,8 +62,8 @@ public static class CopilotPendingEnd {
 
         foreach (var session in SessionsWithPending(paths)) {
             try {
-                // The span close goes with the end, or the end is retried: a delivered end must never lose it.
-                if (Decide(paths, session, lifecycle, server, time) is { } body && lifecycle.Append(session, Route, body) && CopilotSpanClose.Record(paths, session, server)) {
+                // The span close it owes is recorded first, so no spooled end goes without one.
+                if (Decide(paths, session, lifecycle, server, time) is { } body && CopilotSpanClose.Record(paths, session, server, body) && lifecycle.Append(session, Route, body)) {
                     Discard(paths, session);
                     spooled++;
                 }

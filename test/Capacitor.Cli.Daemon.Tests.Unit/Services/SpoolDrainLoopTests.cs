@@ -44,7 +44,9 @@ public class SpoolDrainLoopTests {
     public async Task Tick_closes_an_owed_Copilot_span() {
         const string session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session, "https://example.invalid");
+        var end = $$"""{"session_id":"{{session}}","reason":"user_exit"}""";
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session, "https://example.invalid", end);
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
 
         await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
 
