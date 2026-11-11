@@ -217,6 +217,116 @@ public class PullRequestContextViewModelTests {
         }
     });
 
+    /// The pick is back before the list read lands, and stays the user's after it: a default would
+    /// fall back to the newest PR.
+    [Test]
+    public Task A_reopened_session_restores_the_pull_request_the_user_picked() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Push();
+            await first.Show();
+            await Assert.That(first.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
+            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Source.ListGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            second.Push();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(1);
+            second.Vm.SetForeground(true);
+            await WaitUntilAsync(() => second.Source.Lists == 1, what: "the list read again");
+            second.Source.ListGate.SetResult();
+            await WaitUntilAsync(() => second.Vm.CanReveal && !second.Vm.IsReading, what: "restored selection admitted");
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(1);
+        } finally {
+            await second.Dispose();
+        }
+    });
+
+    /// The reopened card starts on the open PR it settled on, without reading the merged one's overview again.
+    [Test]
+    public Task A_reopened_session_remembers_which_pull_requests_merged() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Source.Links = [Link(1), Link(2), Link(3)];
+            first.Source.Lifecycles[3] = "merged";
+            first.Push(); first.Vm.SetForeground(true);
+            await WaitUntilAsync(() => first.Vm.Selected?.Subject.Number == 2 && first.Vm.CanReveal && !first.Vm.IsReading, what: "merged default advanced");
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Source.Links = [Link(1), Link(2), Link(3)];
+            second.Source.Lifecycles[3] = "merged";
+            second.Push();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            await second.Show();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            await Assert.That(second.Source.Overviews).IsEqualTo(1);
+        } finally {
+            await second.Dispose();
+        }
+    });
+
+    /// Only the user's pick is remembered: a default the card chose still hands over once its PR merges.
+    [Test]
+    public Task A_reopened_session_does_not_pin_the_default() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Push();
+            await first.Show();
+            await Assert.That(first.Vm.Selected!.Subject.Number).IsEqualTo(2);
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Source.Lifecycles[2] = "merged";
+            second.Push(); second.Vm.SetForeground(true);
+            await WaitUntilAsync(() => second.Vm.Selected?.Subject.Number == 1 && second.Vm.CanReveal, what: "merged default handed over");
+        } finally {
+            await second.Dispose();
+        }
+    });
+
+    /// A pick whose PR is no longer linked is not brought back as an unavailable entry.
+    [Test]
+    public Task A_reopened_session_drops_a_pick_that_lost_its_link() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Push();
+            await first.Show();
+            first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
+            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+            first.Source.Links = [Link(2)];
+            first.Time.Advance(TimeSpan.FromSeconds(16)); await first.Vm.RefreshCommand.Execute();
+            await WaitUntilAsync(() => !first.Vm.IsReading && first.Vm.Selected is { IsAvailable: false }, what: "unlinked pick kept in this pane");
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Source.Links = [Link(2)];
+            second.Push();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            await Assert.That(second.Vm.Choices.Count).IsEqualTo(1);
+        } finally {
+            await second.Dispose();
+        }
+    });
+
     [Test]
     public Task Teardown_does_not_wait_for_a_stalled_branch_lookup_or_publish_its_result() => RunOnUiAsync(async () => {
         using var entered = new ManualResetEventSlim();

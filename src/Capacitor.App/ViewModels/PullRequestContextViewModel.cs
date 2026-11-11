@@ -341,7 +341,10 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             _requestedSubject = choice?.Subject;
             _explicitSelection = true;
         }
-        if (choice?.Subject == _selected?.Subject) return;
+        if (choice?.Subject == _selected?.Subject) {
+            if (explicitSelection) RememberPick();
+            return;
+        }
         _explicitSelection = explicitSelection;
         if (_selected is not null) {
             if (_positions.Count >= 20 && !_positions.ContainsKey(_selected.Subject)) _positions.Remove(_positions.MinBy(x => x.Value.Touched).Key);
@@ -358,6 +361,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         if (choice is not null) _notice = ReadRetryAt > _time.GetUtcNow().UtcDateTime
             ? "GitHub reads are paused temporarily. Retry after the cooldown." : "";
         this.RaisePropertyChanged(nameof(Selected));
+        RememberPick();
         Notify();
         RequestOverview();
     }

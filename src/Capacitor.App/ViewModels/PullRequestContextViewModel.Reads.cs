@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Capacitor.Cli.Core.PullRequests;
 using ReactiveUI.Reactive;
 
@@ -88,7 +89,7 @@ public sealed partial class PullRequestContextViewModel {
                 _sessionItems.Clear();
                 _sessionItems.AddRange(links.Data.Items);
                 _hasListed = true;
-                _snapshots?.Set(session, new([.. links.Data.Items], _snapshots.Get(session)?.Overview), cacheGeneration);
+                _snapshots?.Set(session, SnapshotOf([.. links.Data.Items], _snapshots.Get(session)?.Overview), cacheGeneration);
                 ApplyChoices(listed: true);
                 if (linksChanged) _linksChanged?.Invoke(session);
             };
@@ -109,9 +110,10 @@ public sealed partial class PullRequestContextViewModel {
                     var headChanged = _overview?.HeadSha is { } old && old != read.Data.HeadSha;
                     var rollupMoved = _overview?.Checks?.Rollup != read.Data.Checks?.Rollup;
                     _overview = read.Data; _overviewRead = read;
-                    _snapshots?.Set(session, new([.. _sessionItems], read), cacheGeneration);
+                    var learned = Learn(choice.Subject, read.Data.Lifecycle);
+                    _snapshots?.Set(session, SnapshotOf([.. _sessionItems], read), cacheGeneration);
                     _notice = "";
-                    if (Learn(choice.Subject, read.Data.Lifecycle) && ReconsiderDefault()) return;
+                    if (learned && ReconsiderDefault()) return;
                     // Check rows are a snapshot while the summary tracks the overview: reload them while
                     // any is still running, or the summary goes green beside rows that still say pending.
                     var checksLive = _section == "checks" && CurrentSection is { } checks
@@ -228,7 +230,10 @@ public sealed partial class PullRequestContextViewModel {
     /// A session reopened shows its last list at once, and its overview only while that read's
     /// access still stands; the refresh that follows replaces both.
     void Seed(PullRequestSnapshot snapshot) {
+        foreach (var (subject, lifecycle) in snapshot.Lifecycles) _lifecycles[subject] = lifecycle;
         _sessionItems.AddRange(snapshot.Links);
+        if (_requestedSubject is null && snapshot.Picked is { } picked && snapshot.Links.Any(link => PullRequestWire.Subject(link) == picked))
+            _requestedSubject = picked;
         _hasListed = true;
         ApplyChoices(listed: true);
         ShowLastOverview();
@@ -237,6 +242,16 @@ public sealed partial class PullRequestContextViewModel {
         if (_session is not { } session || _snapshots?.Get(session)?.Overview is not { Data: { } overview } read || !AcceptAccess(read)) return;
         _overview = overview; _overviewRead = read;
         Notify();
+    }
+    /// A session switch rebuilds the pane, so the pick and the learned lifecycles live here: without
+    /// them a return re-picks the newest PR and walks off a merged one again.
+    PullRequestSnapshot SnapshotOf(IReadOnlyList<PullRequestLinkDto> links, PullRequestRead<PullRequestOverviewDto>? overview) =>
+        new(links, _explicitSelection ? _selected?.Subject : null,
+            _lifecycles.Count == 0 ? FrozenDictionary<PullRequestSubjectDto, string>.Empty : _lifecycles.ToFrozenDictionary(), overview);
+    void RememberPick() {
+        if (_session is not { } session || _snapshots is null) return;
+        var generation = _snapshots.Generation;
+        if (_snapshots.Get(session) is { } snapshot) _snapshots.Set(session, SnapshotOf(snapshot.Links, snapshot.Overview), generation);
     }
     void ForgetOverview() {
         if (_session is { } session && _snapshots?.Get(session) is { Overview: not null } snapshot)
