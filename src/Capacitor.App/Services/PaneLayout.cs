@@ -20,7 +20,7 @@ public sealed class PaneLayout {
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 
-    // The chat column's width includes its 22px gutters; the minimum keeps a user turn's 520 bubble whole.
+    // The chat column's width includes its 22px gutters.
     public const double ChatColumnMinWidth = 564;
     public const double ChatColumnDefaultWidth = 800;
 

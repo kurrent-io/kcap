@@ -730,6 +730,7 @@ public class ChatTabViewSmokeTests {
     });
 
     /// Either edge grows or shrinks the column about the window's centre, and the composer follows it.
+    /// A user turn stays at the window's right edge whatever the column's width.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Dragging_a_chat_column_handle_resizes_the_centred_column() => RunOnUiAsync(async () => {
@@ -745,6 +746,9 @@ public class ChatTabViewSmokeTests {
             await Assert.That(presenter.Bounds.Width).IsEqualTo(width - 44);
             await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
             await Assert.That(composer.Bounds.Width).IsEqualTo(width - 44);
+            var bubble = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("userTurn"));
+            double Right(Control c) => Left(c) + c.Bounds.Width;
+            await Assert.That(Right(bubble)).IsEqualTo(1400 - 22).Within(0.5);
 
             var handle = host.View.FindControl<Border>("ChatColumnRightHandle")!;
             var start = PresentAndLocate(host, handle);
@@ -766,6 +770,7 @@ public class ChatTabViewSmokeTests {
             host.Settle();
             await Assert.That(presenter.Bounds.Width).IsEqualTo(PaneLayout.ChatColumnMinWidth - 44);
             await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
+            await Assert.That(Right(bubble)).IsEqualTo(1400 - 22).Within(0.5);
         } finally { await host.CloseAsync(); }
     });
 

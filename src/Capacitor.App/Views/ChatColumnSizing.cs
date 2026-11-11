@@ -15,6 +15,7 @@ public sealed class ChatColumnSizing {
     const double HandleReserve = 20;
     const double HandleWidth = 8;
 
+    readonly ItemsControl _items;
     readonly Panel _area;
     readonly Control _composerContent;
     readonly Control _leftHandle;
@@ -28,6 +29,7 @@ public sealed class ChatColumnSizing {
     int _dragSign;
 
     ChatColumnSizing(Control view, ItemsControl items, Panel area, Control composerContent, Control leftHandle, Control rightHandle) {
+        _items = items;
         _area = area;
         leftHandle.Width = HandleWidth;
         rightHandle.Width = HandleWidth;
@@ -126,6 +128,8 @@ public sealed class ChatColumnSizing {
         var resizable = available - 2 * HandleReserve >= PaneLayout.ChatColumnMinWidth;
         var column = resizable ? Math.Min(_width, available - 2 * HandleReserve) : available;
         if (_tail is not null) _tail.ColumnWidth = column;
+        // On the list, not the panel: item containers inherit through their logical parent.
+        ChatOverhang.SetAmount(_items, (available - column) / 2);
         _composerContent.MaxWidth = Math.Max(0, column - 2 * Gutter);
 
         _leftHandle.IsVisible = resizable;
