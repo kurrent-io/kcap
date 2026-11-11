@@ -16,10 +16,12 @@
                      MinHeight="{x:Static svc:WindowSizeMemory.MinHeight}"
                      Background="{StaticResource KcapCanvasBrush}"
                      ExtendClientAreaToDecorationsHint="True">
-    <!-- Title names the window for the taskbar, Alt+Tab and screen readers; the drawn title bar prints none of it. -->
+    <!-- Title names the window for the taskbar, Alt+Tab and screen readers; the drawn title bar prints none of it.
+         The template binds the panel's IsVisible, which outranks a plain style setter: only a selector with a
+         pseudoclass (here :has-titlebar) is applied above it. -->
     <Window.WindowDecorationsTheme>
         <ControlTheme TargetType="WindowDrawnDecorations" BasedOn="{StaticResource {x:Type WindowDrawnDecorations}}">
-            <Style Selector="^ /template/ Panel#PART_TitleTextPanel">
+            <Style Selector="^:has-titlebar /template/ Panel#PART_TitleTextPanel">
                 <Setter Property="IsVisible" Value="False" />
             </Style>
         </ControlTheme>
