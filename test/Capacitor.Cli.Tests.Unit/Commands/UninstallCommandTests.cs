@@ -1059,11 +1059,12 @@ public class UninstallCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(output).Contains("Purged the local server");
+        await Assert.That(output).Contains($"Kept the record of retired local server ports in {Path.Combine(fixture.ConfigDir, "local-retired.json")}.");
         await Assert.That(local.Service.IsInstalled(local.Unit)).IsFalse();
         // Ahead of every other step, the uninstall's own daemon stop included.
         await Assert.That(local.Log.IndexOf("uninstall")).IsLessThan(local.Log.LastIndexOf("recorders:stop"));
         await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)!).ToArray())
-            .IsEquivalentTo(new[] { "local" });
+            .IsEquivalentTo(new[] { "local", "local-retired.json" });
     }
 
     /// <summary>A declined plan says that nothing happened, and the plan has said up front that kcap

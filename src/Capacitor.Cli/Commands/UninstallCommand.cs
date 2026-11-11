@@ -164,9 +164,14 @@ sealed class UninstallCommand(
         }
 
         if (!keepConfig) {
+            // A local server removed here is purged, which records its port as retired.
+            var keepsRetired = RetiredPortsIn(configDir) is { } retired && (removeLocal || File.Exists(retired));
+
             await console.Out.WriteLineAsync(
                 keptLocal is not null ? $"  • Remove kcap configuration from {configDir}, except the local server in {keptLocal}"
+                                        + (keepsRetired ? " and the record of retired local server ports" : "")
                 : local is not null && Directory.Exists(local.Root.Directory) ? $"  • Remove kcap configuration from {configDir} (local lifecycle safety metadata is kept)"
+                : keepsRetired ? $"  • Remove kcap configuration from {configDir}, except the record of retired local server ports"
                 : $"  • Delete the kcap config directory ({configDir})");
 
             if (!localFailed)
@@ -413,12 +418,14 @@ sealed class UninstallCommand(
                         "Investigate the errors above, then re-run `kcap uninstall` to finish.");
                 } else if (Directory.Exists(configDir)) {
                     try {
-                        UninstallFiles.DeleteConfig(configDir, localRoot, Core.LocalEdition.RetiredPorts.PathFor(home));
+                        UninstallFiles.DeleteConfig(configDir, localRoot, RetiredPortsIn(configDir));
                         await console.Out.WriteLineAsync($"Removed configuration from: {configDir}");
                         if (keptLocal is not null)
                             await console.Out.WriteLineAsync($"Kept the local server and its data in {keptLocal}.");
                         else if (localRoot is not null)
                             await console.Out.WriteLineAsync($"Kept local lifecycle safety metadata in {localRoot} (no recordings).");
+                        if (RetiredPortsIn(configDir) is { } retired && File.Exists(retired))
+                            await console.Out.WriteLineAsync($"Kept the record of retired local server ports in {retired}.");
                     } catch (Exception ex) {
                         await console.Error.WriteLineAsync($"Could not remove config directory {configDir}: {ex.Message}");
                         hadFailures = true;
@@ -487,6 +494,14 @@ sealed class UninstallCommand(
 
     static bool HoldsLocalServer(LocalRoot root) =>
         File.Exists(root.RegistryPath) || StackDirectories.Any(name => Directory.Exists(Path.Combine(root.Directory, name)));
+
+    /// <summary>The user-wide retired-ports record when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
+    string? RetiredPortsIn(string configDir) {
+        var path      = Path.GetFullPath(Core.LocalEdition.RetiredPorts.PathFor(home));
+        var directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configDir)) + Path.DirectorySeparatorChar;
+
+        return path.StartsWith(directory, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ? path : null;
+    }
 
     static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 
