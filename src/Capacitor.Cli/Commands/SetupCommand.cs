@@ -1465,7 +1465,7 @@ sealed class SetupCommand(
             AuthSatisfied:       authSatisfied,
             SkipImport:          skipImport,
             NoPrompt:            noPrompt,
-            PromptYesNo:         () => AnsiConsole.Prompt(new ConfirmationPrompt(ImportPrompt) { DefaultValue = true }),
+            PromptYesNo:         question => AnsiConsole.Prompt(new ConfirmationPrompt(Markup.Escape(question)) { DefaultValue = true }),
             // Naming runs the user's own agent, which an installation without background intelligence never does.
             PromptNameSessions:  LocalIntelligenceGate.For(config, localRoot).Allows(serverUrl)
                 ? () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false })
@@ -1700,6 +1700,20 @@ sealed class SetupCommand(
     /// <summary>Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
     internal const string ImportPrompt = "Import past sessions from this machine?";
 
+    /// <summary>Asked instead of <see cref="ImportPrompt"/> when the project checklist follows a yes, so the
+    /// question is not read as all or nothing. Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
+    internal const string ImportPromptBeforeChecklist = "Import past sessions from this machine? You choose which projects next.";
+
+    internal static string ChecklistCountLine(IReadOnlyList<SetupImportChoice> choices) {
+        var repos   = choices.Count(c => c.Repo is not null);
+        var folders = choices.Count(c => c.Folder is not null);
+        var named   = new List<string>();
+        if (repos > 0) named.Add(repos == 1 ? "1 repository" : $"{repos} repositories");
+        if (folders > 0) named.Add(folders == 1 ? "1 folder" : $"{folders} folders");
+
+        return $"{string.Join(" and ", named)} found; the next step lists them.";
+    }
+
     internal const string RememberedHarnessDeclineLine =
         "Not installing kcap into these harnesses: an earlier setup of this installation was told not to. Run kcap setup --local at a terminal to be asked again.";
 
@@ -1814,7 +1828,7 @@ sealed class SetupCommand(
         bool                          AuthSatisfied,
         bool                          SkipImport,
         bool                          NoPrompt,
-        Func<bool>                    PromptYesNo,
+        Func<string, bool>            PromptYesNo,
         ProfileContext                Profiles,
         string                        ProfileName,
         string                        ServerUrl,
@@ -1933,8 +1947,18 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
+        var skip = inputs.Skip ?? ImportSkip.None;
+        IReadOnlyList<SetupImportChoice> choices = !inputs.NoPrompt && found is not null && inputs.ChooseProjects is not null
+            ? SetupImportChoice.From(found, skip)
+            : [];
+
+        // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
+        var checklistFollows = choices.Count > 1 || choices is [{ Included: false }];
+        if (checklistFollows) AnsiConsole.MarkupLine($"  {Markup.Escape(ChecklistCountLine(choices))}");
+
+        var question = checklistFollows ? ImportPromptBeforeChecklist : ImportPrompt;
         var decision = SetupDecisions.DecideImport(
-            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, inputs.PromptYesNo);
+            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, () => inputs.PromptYesNo(question));
 
         if (decision.Outcome == SetupDecisions.ImportOutcome.Skip) {
             AnsiConsole.MarkupLine(decision.SkipReason is { } reason
@@ -1947,24 +1971,17 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
-        var skip = inputs.Skip ?? ImportSkip.None;
+        if (checklistFollows && inputs.ChooseProjects is { } choose) {
+            var kept = choose(choices);
 
-        if (!inputs.NoPrompt && found is not null && inputs.ChooseProjects is { } choose) {
-            var choices = SetupImportChoice.From(found, skip);
+            if (kept.Count == 0) {
+                AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
+                RememberImport(false);
 
-            // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
-            if (choices.Count > 1 || choices is [{ Included: false }]) {
-                var kept = choose(choices);
-
-                if (kept.Count == 0) {
-                    AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
-                    RememberImport(false);
-
-                    return new ImportStepResult(false, null, null, null);
-                }
-
-                skip = SetupImportChoice.SkipFor(choices, kept, skip);
+                return new ImportStepResult(false, null, null, null);
             }
+
+            skip = SetupImportChoice.SkipFor(choices, kept, skip);
         }
 
         if (found is not null && inputs.Intelligence is { Mode: not IntelligenceModes.None } applied
