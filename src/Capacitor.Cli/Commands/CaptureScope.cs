@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -71,6 +72,21 @@ sealed class CaptureScope {
         return scoped.ExcludedRepoKeys.Count > 0 || scoped.ExcludedPathKey is not null || scoped.OutsideAllowlist
             ? scoped with { Status = ImportCommand.ClassificationStatus.Excluded }
             : null;
+    }
+
+    /// <summary>
+    /// Whether the profile keeps a discovered session out of any import, judged on what discovery already resolved
+    /// so a report costs no further <c>git</c> runs. Paths are judged on the raw cwd and the remapped one, as
+    /// <see cref="Stamp"/> judges them.
+    /// </summary>
+    internal static bool ExcludesDiscovered(
+            Profile profile, UserHome home, string? rawCwd, string? resolvedCwd, (string Owner, string Name)? repo) {
+        var repoKey = repo is { } r ? $"{r.Owner}/{r.Name}" : null;
+
+        return PathExclusion.IsExcluded(rawCwd, profile.ExcludedPaths, home)
+            || PathExclusion.IsExcluded(resolvedCwd, profile.ExcludedPaths, home)
+            || PathExclusion.IsOutsideAllowlist(rawCwd ?? resolvedCwd, profile.AllowedPaths, home)
+            || RepoScope.IsOutOfScope(repoKey, profile.AllowedRepos, profile.ExcludedRepos);
     }
 
     /// <summary>

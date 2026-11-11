@@ -1006,6 +1006,7 @@ class ImportCommand(
         var cwdRemap           = profileConfig.CwdRemap;
         var resolved           = new Dictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
         var sessionCwds        = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rawCwds            = new Dictionary<string, string>(StringComparer.Ordinal);
         var worktreeAttributed = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var vendor in new[] { HarnessId.Claude, HarnessId.Codex }) {
@@ -1016,7 +1017,7 @@ class ImportCommand(
 
             if (slice.Count == 0) continue;
 
-            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed);
+            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed, rawCwds);
             foreach (var kv in partial) resolved[kv.Key] = kv.Value;
         }
 
@@ -1083,6 +1084,15 @@ class ImportCommand(
         ReportMissingCwds(sessionCwds, cwdRemap, display, home);
 
         if (discoverOnly) {
+            var ignored = profiles.Effective is { } scopedProfile
+                ? discoveriesPerSource.SelectMany(d => d)
+                    .Where(d => CaptureScope.ExcludesDiscovered(
+                        scopedProfile, home, rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd, sessionCwds.GetValueOrDefault(d.SessionId),
+                        resolved.GetValueOrDefault(d.SessionId)))
+                    .Select(d => d.SessionId)
+                    .ToHashSet(StringComparer.Ordinal)
+                : [];
+
             discoverySink(new ImportDiscoveryResult(
                 ImportDiscoverySummary.Build(
                     // Each source dates its own sessions: the rule differs per vendor and only the
@@ -1094,7 +1104,8 @@ class ImportCommand(
                     sources.SelectMany((src, i) => discoveriesPerSource[i].Select(d => (d.SessionId, src.Vendor)))
                         .DistinctBy(s => s.SessionId)
                         .ToDictionary(s => s.SessionId, s => s.Vendor),
-                    sessionCwds),
+                    sessionCwds,
+                    ignored),
                 ScannedVendors(sources)));
 
             return 0;
@@ -3116,7 +3127,8 @@ class ImportCommand(
             ImportDisplay                                                         display,
             IReadOnlyList<CwdRemap>?                                              cwdRemap            = null,
             IDictionary<string, string>?                                          sessionCwds        = null,
-            ISet<string>?                                                         worktreeAttributed = null
+            ISet<string>?                                                         worktreeAttributed = null,
+            IDictionary<string, string>?                                          rawCwds            = null
         ) {
         // Extract cwd per transcript first (cheap: ≤20-line file read).
         // Apply user-configured prefix remaps so historic transcripts pointing
@@ -3144,6 +3156,8 @@ class ImportCommand(
 
                 continue;
             }
+
+            if (raw is not null && rawCwds is not null) rawCwds[transcripts[i].SessionId] = raw;
 
             var effective = raw is null ? null : ResolveCwd(raw, cwdRemap, worktreeAttributed, transcripts[i].SessionId);
 

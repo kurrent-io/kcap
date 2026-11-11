@@ -40,6 +40,14 @@ public sealed record ImportDiscoverySummary(
     public IReadOnlyDictionary<string, IReadOnlyList<VendorTotals>> UnmatchedFolderVendors { get; init; } =
         FrozenDictionary<string, IReadOnlyList<VendorTotals>>.Empty;
 
+    /// <summary>Sessions the profile's capture scope keeps out of any import. They are in no other figure, so
+    /// nothing offers to import or remap them.</summary>
+    public int IgnoredCount { get; init; }
+
+    /// <summary>The folders behind <see cref="IgnoredCount"/>, most sessions first; a null folder counts
+    /// sessions with none recorded.</summary>
+    public IReadOnlyList<ImportIgnoredFolder> IgnoredFolders { get; init; } = [];
+
     /// <param name="SessionCount">Every session for this repository, whatever its age. Kept rather
     /// than read out of <paramref name="SessionsByWindow"/>, so it still means that when the caller
     /// asks for no "everything" window.</param>
@@ -79,13 +87,27 @@ public sealed record ImportDiscoverySummary(
             IReadOnlyDictionary<string, (string Owner, string Name)?>  repoBySession,
             IReadOnlyList<ImportDiscoveryWindow>                      windows,
             IReadOnlyDictionary<string, HarnessId>?                   vendorBySession = null,
-            IReadOnlyDictionary<string, string>?                      folderBySession = null) {
+            IReadOnlyDictionary<string, string>?                      folderBySession = null,
+            IReadOnlySet<string>?                                     ignoredSessions = null) {
         var byRepo    = new Dictionary<(string Owner, string Name), Accumulator>(ImportScope.RepoComparer);
         var unmatched = new Accumulator(windows.Count);
         var folders   = new Dictionary<string, Accumulator>(StringComparer.Ordinal);
         var unknown   = 0;
+        var ignored   = new Dictionary<string, int>(StringComparer.Ordinal);
+        var ignoredUnknown = 0;
 
         foreach (var (sessionId, startedAt) in sessions) {
+            if (ignoredSessions?.Contains(sessionId) == true) {
+                if (folderBySession?.TryGetValue(sessionId, out var at) == true) {
+                    var folder = ImportScope.FolderKey(at);
+                    ignored[folder] = ignored.GetValueOrDefault(folder) + 1;
+                } else {
+                    ignoredUnknown++;
+                }
+
+                continue;
+            }
+
             // `--all` includes an unattributed session and any repo selection silently drops it, so
             // its count is both the honest one and how `kcap remap` gets discovered.
             var into = unmatched;
@@ -136,6 +158,12 @@ public sealed record ImportDiscoverySummary(
             UnmatchedFolders       = unmatchedFolders,
             UnmatchedFolderWindows = folders.ToDictionary(f => f.Key, f => f.Value.ByWindow(windows), StringComparer.Ordinal),
             UnmatchedFolderVendors = folders.ToDictionary(f => f.Key, f => f.Value.ByVendor(windows), StringComparer.Ordinal),
+            IgnoredCount           = ignored.Values.Sum() + ignoredUnknown,
+            IgnoredFolders         = [
+                .. ignored.OrderByDescending(f => f.Value).ThenBy(f => f.Key, StringComparer.Ordinal)
+                    .Select(f => new ImportIgnoredFolder(f.Key, f.Value)),
+                .. ignoredUnknown > 0 ? [new ImportIgnoredFolder(null, ignoredUnknown)] : Array.Empty<ImportIgnoredFolder>(),
+            ],
         };
     }
 
