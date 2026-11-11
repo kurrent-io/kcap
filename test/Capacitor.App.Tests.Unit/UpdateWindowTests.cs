@@ -50,7 +50,8 @@ public class UpdateWindowTests {
         } finally { window.Close(); }
     });
 
-    /// The window is named by its heading, so a screen reader must be told when the settled heading replaces it.
+    /// The window is named by its heading, so a screen reader must be told when the settled heading replaces it,
+    /// and the heading is a live region so the change is announced wherever focus is.
     [Test]
     public Task The_window_name_follows_the_heading_for_screen_readers() => AvaloniaSession.RunOnUiAsync(async () => {
         using var daemon = new BehaviorSubject<(string?, string?)>(("1.4.0", "connected"));
@@ -68,6 +69,11 @@ public class UpdateWindowTests {
             peer.PropertyChanged += (_, e) => {
                 if (e.Property == AutomationElementIdentifiers.NameProperty) names.Add(e.NewValue as string);
             };
+            var heading = ControlAutomationPeer.CreatePeerForElement(window.FindControl<TextBlock>("HeadingText")!);
+            var headings = new List<string?>();
+            heading.PropertyChanged += (_, e) => {
+                if (e.Property == AutomationElementIdentifiers.NameProperty) headings.Add(e.NewValue as string);
+            };
 
             daemon.OnNext(("1.4.1", "connected"));
             Render(window);
@@ -75,6 +81,8 @@ public class UpdateWindowTests {
             await Assert.That(vm.Heading).IsEqualTo("kcap is ready");
             await Assert.That(names).IsEquivalentTo(new string?[] { "kcap is ready" });
             await Assert.That(peer.GetName()).IsEqualTo("kcap is ready");
+            await Assert.That(heading.GetLiveSetting()).IsEqualTo(AutomationLiveSetting.Polite);
+            await Assert.That(headings).IsEquivalentTo(new string?[] { "kcap is ready" });
         } finally { window.Close(); }
     });
 
