@@ -38,6 +38,7 @@ public class PaneLayoutMemoryTests {
         panes.RailWidth = 412;
         panes.ContextWidth = 500;
         panes.ContextCollapsed = true;
+        panes.ChatColumnWidth = 1000;
         panes.RailCollapsed = true;
 
         var state = await WaitForAsync(store, s => s.RailCollapsed);
@@ -47,6 +48,16 @@ public class PaneLayoutMemoryTests {
         await Assert.That(restored.RailCollapsed).IsTrue();
         await Assert.That(restored.ContextWidth).IsEqualTo(500);
         await Assert.That(restored.ContextCollapsed).IsTrue();
+        await Assert.That(restored.ChatColumnWidth).IsEqualTo(1000);
+    }
+
+    [Test]
+    public async Task A_missing_chat_column_width_restores_the_default_and_a_narrow_one_the_minimum() {
+        var panes = new PaneLayout();
+        PaneLayoutMemory.Apply(panes, new AppState());
+        await Assert.That(panes.ChatColumnWidth).IsEqualTo(PaneLayout.ChatColumnDefaultWidth);
+        PaneLayoutMemory.Apply(panes, new AppState(ChatColumnWidth: 100));
+        await Assert.That(panes.ChatColumnWidth).IsEqualTo(PaneLayout.ChatColumnMinWidth);
     }
 
     /// A width saved on a larger screen, or a long drag, must leave the content beside it usable,

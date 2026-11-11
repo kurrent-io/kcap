@@ -3,10 +3,10 @@ using Avalonia.Controls;
 
 namespace Capacitor.App.Views;
 
-/// Full-width row host that sizes its card child to the chat column up to <see cref="WidthCap"/>,
-/// always left-aligned — Stretch+MaxWidth on the card itself would center the slack in Avalonia.
+/// Full-width row host that sizes its card child to the chat column, or to <see cref="WidthCap"/> when
+/// one is set, always left-aligned — Stretch+MaxWidth on the card itself would center the slack in Avalonia.
 public partial class ChatCardRow : ContentControl {
-    public const double DefaultWidthCap = 660;
+    public const double DefaultWidthCap = double.PositiveInfinity;
 
     public static readonly StyledProperty<double> WidthCapProperty =
         AvaloniaProperty.Register<ChatCardRow, double>(nameof(WidthCap), DefaultWidthCap);

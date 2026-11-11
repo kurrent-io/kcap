@@ -729,6 +729,46 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
+    /// Either edge grows or shrinks the column about the window's centre, and the composer follows it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Dragging_a_chat_column_handle_resizes_the_centred_column() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            host.Window.Width = 1400;
+            await host.LoadAsync(Tmp.CreateFile("column.jsonl", [UserLine, AssistantLinkLine]));
+            var presenter = host.View.GetVisualDescendants().OfType<ItemsPresenter>().Single(p => p.Name == "PART_ItemsPresenter");
+            var composer = host.View.FindControl<Grid>("ComposerColumn")!;
+            double Left(Control c) => c.TranslatePoint(default, host.View)!.Value.X;
+            double Centre(Control c) => Left(c) + c.Bounds.Width / 2;
+            var width = PaneLayout.ChatColumnDefaultWidth;
+            await Assert.That(presenter.Bounds.Width).IsEqualTo(width - 44);
+            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
+            await Assert.That(composer.Bounds.Width).IsEqualTo(width - 44);
+
+            var handle = host.View.FindControl<Border>("ChatColumnRightHandle")!;
+            var start = PresentAndLocate(host, handle);
+            host.Window.MouseMove(start);
+            host.Window.MouseDown(start, MouseButton.Left);
+            host.Window.MouseMove(start + new Point(100, 0));
+            host.Window.MouseUp(start + new Point(100, 0), MouseButton.Left);
+            host.Settle();
+            await Assert.That(presenter.Bounds.Width).IsEqualTo(width + 200 - 44);
+            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
+            await Assert.That(composer.Bounds.Width).IsEqualTo(width + 200 - 44);
+
+            handle = host.View.FindControl<Border>("ChatColumnLeftHandle")!;
+            start = PresentAndLocate(host, handle);
+            host.Window.MouseMove(start);
+            host.Window.MouseDown(start, MouseButton.Left);
+            host.Window.MouseMove(start + new Point(5000, 0));
+            host.Window.MouseUp(start + new Point(5000, 0), MouseButton.Left);
+            host.Settle();
+            await Assert.That(presenter.Bounds.Width).IsEqualTo(PaneLayout.ChatColumnMinWidth - 44);
+            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
+        } finally { await host.CloseAsync(); }
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Wheel_notches_interpolate_across_animation_frames() => RunOnUiAsync(async () => {

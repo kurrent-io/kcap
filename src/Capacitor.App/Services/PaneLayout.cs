@@ -1,7 +1,8 @@
 namespace Capacitor.App.Services;
 
-/// The window's side panes: the session rail on the left and the work-context pane every session
-/// view shows on the right. One instance per window, so each retained session view follows it.
+/// The window's side panes, the session rail on the left and the work-context pane every session
+/// view shows on the right, and the width of the chat column between them. One instance per window,
+/// so each retained session view follows it.
 public sealed class PaneLayout {
     public const double RailMinWidth = 330;
     public const double ContextMinWidth = 320;
@@ -19,6 +20,10 @@ public sealed class PaneLayout {
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 
+    // The chat column's width includes its 22px gutters; the minimum keeps a user turn's 520 bubble whole.
+    public const double ChatColumnMinWidth = 564;
+    public const double ChatColumnDefaultWidth = 800;
+
     // Layout rounding can lay a pane at its minimum out a fraction below it; a click on its splitter
     // must not hide it.
     const double HideTolerance = 1;
@@ -29,11 +34,13 @@ public sealed class PaneLayout {
     bool _railCollapsed;
     double _contextWidth = ContextMinWidth;
     bool _contextCollapsed;
+    double _chatColumnWidth = ChatColumnDefaultWidth;
 
     public double RailWidth { get => _railWidth; set => Set(ref _railWidth, value); }
     public bool RailCollapsed { get => _railCollapsed; set => Set(ref _railCollapsed, value); }
     public double ContextWidth { get => _contextWidth; set => Set(ref _contextWidth, value); }
     public bool ContextCollapsed { get => _contextCollapsed; set => Set(ref _contextCollapsed, value); }
+    public double ChatColumnWidth { get => _chatColumnWidth; set => Set(ref _chatColumnWidth, value); }
 
     /// What the rail leaves beside it: the launcher's minimum, or a session's beside the open work-context pane.
     public double RailRestMinWidth =>
