@@ -26,8 +26,8 @@ sealed class OutgoingRecorders(
 
     /// <summary>A launch still starting is counted too: it is not in the agent table until its runtime answers. A
     /// daemon too old to give that count counts as busy.</summary>
-    public Task<IReadOnlyList<DaemonBusy>> BusyAsync() =>
-        BusyAsync(LiveDaemons(), ProbeAsync, time, line => console.Error.WriteLine(line));
+    public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) =>
+        BusyAsync(LiveDaemons(), ProbeAsync, time, line => console.Error.WriteLine(line), wait ?? StartingWait);
 
     async Task<DaemonBusyReason?> ProbeAsync(string name) =>
         (await LocalControlProbe.ProbeAsync(store, name, time, ProbeBudget)).Snapshot switch {
@@ -38,19 +38,19 @@ sealed class OutgoingRecorders(
         };
 
     /// <summary>Probes each daemon, asking a silent one again every <see cref="RetryGap"/> until it answers or the
-    /// shared <see cref="StartingWait"/> runs out. <paramref name="probe"/> gives null for an idle daemon.</summary>
+    /// shared <paramref name="wait"/> runs out. <paramref name="probe"/> gives null for an idle daemon.</summary>
     internal static async Task<IReadOnlyList<DaemonBusy>> BusyAsync(
-            IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe, TimeProvider time, Action<string> say) {
+            IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe, TimeProvider time, Action<string> say, TimeSpan wait) {
         var busy  = new List<DaemonBusy>();
         var start = time.GetTimestamp();
 
         foreach (var name in names) {
             var reason = await probe(name);
 
-            if (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < StartingWait) {
+            if (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < wait) {
                 say($"Waiting for daemon '{name}' to finish starting…");
 
-                while (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < StartingWait) {
+                while (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < wait) {
                     await Task.Delay(RetryGap, time);
                     reason = await probe(name);
                 }

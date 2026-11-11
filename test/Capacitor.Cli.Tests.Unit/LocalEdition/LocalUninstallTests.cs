@@ -133,10 +133,34 @@ public class LocalUninstallTests {
 
         var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => UninstallAsync(purge: false));
 
-        await Assert.That(refused!.Message).Contains("daemon 'me' did not answer within 60 s; it may still be starting");
+        await Assert.That(refused!.Message).Contains("daemon 'me' did not answer in time; it may still be starting");
         await Assert.That(refused.Message).Contains("Run the command again once it has started, or pass --force");
         await Assert.That(refused.Message).DoesNotContain("running agents");
         await AssertUntouched(installed);
+    }
+
+    /// <summary>A quick uninstall has a deadline, so a starting daemon is waited for no longer than its grace.</summary>
+    [Test]
+    public async Task A_quick_uninstall_waits_for_a_silent_daemon_only_within_its_grace() {
+        await InstallAsync();
+        var grace = TimeSpan.FromSeconds(8);
+
+        await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) { QuickGrace = grace }
+                .RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(Recorders.BusyWait).IsNotNull();
+        await Assert.That(Recorders.BusyWait!.Value).IsLessThanOrEqualTo(grace);
+    }
+
+    [Test]
+    public async Task An_ordinary_uninstall_waits_for_a_starting_daemon_as_long_as_it_takes_to_start() {
+        await InstallAsync();
+
+        await UninstallAsync(purge: false);
+
+        await Assert.That(Recorders.BusyWait).IsNull();
     }
 
     [Test]

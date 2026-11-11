@@ -18,8 +18,12 @@ sealed class FakeOutgoingRecorders(List<string> log, string watcherDirectory = "
         return [.. Alive];
     }
 
-    public Task<IReadOnlyList<DaemonBusy>> BusyAsync() {
+    /// <summary>The wait the last <see cref="BusyAsync"/> was given.</summary>
+    public TimeSpan? BusyWait { get; private set; }
+
+    public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) {
         log.Add("recorders:busy?");
+        BusyWait = wait;
         return Task.FromResult<IReadOnlyList<DaemonBusy>>(Busy);
     }
 

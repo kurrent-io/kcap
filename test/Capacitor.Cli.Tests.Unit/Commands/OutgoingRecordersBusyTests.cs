@@ -11,8 +11,9 @@ public class OutgoingRecordersBusyTests {
 
     /// <summary>Advances the fake clock until the probe loop finishes; a delay registered after an advance just waits
     /// for the next one.</summary>
-    async Task<IReadOnlyList<DaemonBusy>> RunAsync(IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe) {
-        var busy = OutgoingRecorders.BusyAsync(names, probe, _time, _said.Add);
+    async Task<IReadOnlyList<DaemonBusy>> RunAsync(IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe,
+        TimeSpan? wait = null) {
+        var busy = OutgoingRecorders.BusyAsync(names, probe, _time, _said.Add, wait ?? OutgoingRecorders.StartingWait);
 
         for (var i = 0; i < 1000 && !busy.IsCompleted; i++) {
             await Task.Delay(1);
@@ -41,7 +42,7 @@ public class OutgoingRecordersBusyTests {
 
         await Assert.That(busy).IsEquivalentTo([new DaemonBusy("me", DaemonBusyReason.NoAnswer)]);
         await Assert.That(_time.GetElapsedTime(started)).IsGreaterThanOrEqualTo(OutgoingRecorders.StartingWait);
-        await Assert.That(busy[0].Line).IsEqualTo("daemon 'me' did not answer within 60 s; it may still be starting");
+        await Assert.That(busy[0].Line).IsEqualTo("daemon 'me' did not answer in time; it may still be starting");
         await Assert.That(DaemonBusy.AnyMayRunAgents(busy)).IsFalse();
     }
 
@@ -54,7 +55,7 @@ public class OutgoingRecordersBusyTests {
                 "old"     => DaemonBusyReason.Unknown,
                 _         => null,
             }),
-            _time, _said.Add);
+            _time, _said.Add, OutgoingRecorders.StartingWait);
 
         await Assert.That(busy).IsEquivalentTo([
             new DaemonBusy("working", DaemonBusyReason.Running),
@@ -74,5 +75,16 @@ public class OutgoingRecordersBusyTests {
         await Assert.That(busy.Select(b => b.Reason)).IsEquivalentTo([DaemonBusyReason.NoAnswer, DaemonBusyReason.NoAnswer]);
         await Assert.That(_time.GetElapsedTime(started)).IsLessThan(OutgoingRecorders.StartingWait * 2);
         await Assert.That(_said).IsEquivalentTo(["Waiting for daemon 'a' to finish starting…"]);
+    }
+
+    [Test]
+    public async Task A_shorter_wait_bounds_a_silent_daemon() {
+        var started = _time.GetTimestamp();
+        var wait    = TimeSpan.FromSeconds(8);
+
+        var busy = await RunAsync(["me"], _ => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer), wait);
+
+        await Assert.That(busy).IsEquivalentTo([new DaemonBusy("me", DaemonBusyReason.NoAnswer)]);
+        await Assert.That(_time.GetElapsedTime(started)).IsLessThan(OutgoingRecorders.StartingWait);
     }
 }

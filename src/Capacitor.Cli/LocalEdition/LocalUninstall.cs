@@ -42,7 +42,10 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
 
         if (installation is null) return LocalUninstallOutcome.NotInstalled;
 
-        if (!force && await recorders.BusyAsync() is { Count: > 0 } busy)
+        // A quick uninstall waits for a starting daemon only as long as its grace lasts.
+        var busyWait = QuickGrace is { } quick ? quick - _time.GetElapsedTime(_created) : (TimeSpan?)null;
+
+        if (!force && await recorders.BusyAsync(busyWait) is { Count: > 0 } busy)
             throw new LocalLifecycleException(DaemonBusy.AnyMayRunAgents(busy)
                 ? $"A daemon is running agents ({DaemonBusy.Lines(busy)}). Stop them, or pass --force to end them with the daemon. Nothing was changed."
                 : $"A daemon did not answer ({DaemonBusy.Lines(busy)}). Run the command again once it has started, or pass --force to stop it. Nothing was changed.");

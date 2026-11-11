@@ -1239,7 +1239,7 @@ public class UninstallCommandTests {
         var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes"]);
 
         await Assert.That(exit).IsEqualTo(1);
-        await Assert.That(fixture.Err.ToString()).Contains("daemon 'x' did not answer within 60 s; it may still be starting");
+        await Assert.That(fixture.Err.ToString()).Contains("daemon 'x' did not answer in time; it may still be starting");
         await Assert.That(fixture.Err.ToString()).Contains("Run the command again once it has started, or pass --force to stop it.");
         await Assert.That(fixture.Err.ToString()).DoesNotContain("end them");
         await Assert.That(log).DoesNotContain("recorders:stop");
@@ -1495,7 +1495,7 @@ public class UninstallCommandTests {
 
     sealed class ArrivingSetup(Func<Task<IReadOnlyList<DaemonBusy>>> busy) : IOutgoingRecorders {
         public string WatcherDirectory => "/watchers";
-        public Task<IReadOnlyList<DaemonBusy>> BusyAsync() => busy();
+        public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) => busy();
         public Task<bool> StopAsync() => throw new InvalidOperationException("Uninstall stopped recorders without local-data consent.");
         public IReadOnlyList<string> Live() => [];
     }
@@ -1567,7 +1567,7 @@ public class UninstallCommandTests {
     sealed class ObservingRecorders(IOutgoingRecorders inner, Action observe) : IOutgoingRecorders {
         public string WatcherDirectory => inner.WatcherDirectory;
         public IReadOnlyList<string> Live() => inner.Live();
-        public Task<IReadOnlyList<DaemonBusy>> BusyAsync() => inner.BusyAsync();
+        public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) => inner.BusyAsync(wait);
         public async Task<bool> StopAsync() {
             var stopped = await inner.StopAsync();
             observe();
