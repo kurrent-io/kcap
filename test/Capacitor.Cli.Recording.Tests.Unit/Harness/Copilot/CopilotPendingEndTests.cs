@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Recording.Harness.Copilot;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 
@@ -116,10 +117,21 @@ public class CopilotPendingEndTests {
         await Assert.That(Sweep()).IsEqualTo(0);
         await Assert.That(Pending).IsTrue();
 
-        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow - CopilotPendingEnd.QuietPeriod - TimeSpan.FromMinutes(1));
+        var later = new FakeTimeProvider(DateTimeOffset.UtcNow + CopilotPendingEnd.QuietPeriod + TimeSpan.FromMinutes(1));
 
-        await Assert.That(Sweep()).IsEqualTo(1);
+        await Assert.That(CopilotPendingEnd.SpoolDue(Paths, Spool, Server, later)).IsEqualTo(1);
         await Assert.That(Spool.HasBacklog(Session)).IsTrue();
+    }
+
+    /// <summary>The quiet period runs from the stop too: a chat idle long before its watcher was stopped is not over yet.</summary>
+    [Test]
+    public async Task An_end_with_no_runtime_is_held_when_the_chat_was_idle_before_the_stop() {
+        var transcript = Transcript(Turn);
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow - CopilotPendingEnd.QuietPeriod - TimeSpan.FromMinutes(1));
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System);
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
     }
 
     [Test]

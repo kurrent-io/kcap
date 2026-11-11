@@ -93,7 +93,7 @@ public static class CopilotPendingEnd {
         var runtimeGone = record["runtime_pid"]?.GetValue<int>() is { } pid
                        && (record["runtime_token"]?.GetValue<string>() is not { } token || ProcessStartToken.ForPid(pid) is null || ProcessStartToken.Matches(pid, token) == false);
 
-        var quietWithNoRuntime = record["runtime_pid"] is null && time.GetUtcNow() - LastWrite(transcript, writtenAt) >= QuietPeriod;
+        var quietWithNoRuntime = record["runtime_pid"] is null && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
 
         return shutdown || runtimeGone || quietWithNoRuntime ? record["body"]?.GetValue<string>() ?? Drop() : null;
 
@@ -152,6 +152,8 @@ public static class CopilotPendingEnd {
             return false;
         }
     }
+
+    static DateTimeOffset Later(DateTimeOffset a, DateTimeOffset b) => a > b ? a : b;
 
     static DateTimeOffset LastWrite(string path, DateTimeOffset fallback) {
         try {
