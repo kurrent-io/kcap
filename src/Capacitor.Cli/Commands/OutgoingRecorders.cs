@@ -11,7 +11,11 @@ sealed class OutgoingRecorders(
         DaemonStore store, ConfigRoot config, ProfileContext profiles, UserHome home,
         HarnessRegistry harnesses, BinaryProbe binaries, WatcherManager watchers, TimeProvider time,
         StandardStreams console) : IOutgoingRecorders {
-    static readonly TimeSpan ProbeBudget = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan ProbeBudget = TimeSpan.FromSeconds(5);
+
+    /// <summary>The least a probe gets once the shared wait has run out, so a daemon that answers at once still counts
+    /// as idle rather than silent.</summary>
+    internal static readonly TimeSpan ProbeFloor = TimeSpan.FromMilliseconds(500);
 
     internal Func<bool> SystemdRunning { get; init; } = ServiceManagerFactory.SystemdRunning;
 
@@ -29,8 +33,8 @@ sealed class OutgoingRecorders(
     public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) =>
         BusyAsync(LiveDaemons(), ProbeAsync, time, line => console.Error.WriteLine(line), wait ?? StartingWait);
 
-    async Task<DaemonBusyReason?> ProbeAsync(string name) =>
-        (await LocalControlProbe.ProbeAsync(store, name, time, ProbeBudget)).Snapshot switch {
+    async Task<DaemonBusyReason?> ProbeAsync(string name, TimeSpan budget) =>
+        (await LocalControlProbe.ProbeAsync(store, name, time, budget)).Snapshot switch {
             null           => DaemonBusyReason.NoAnswer,
             { Busy: null } => DaemonBusyReason.Unknown,
             { Busy: true } => DaemonBusyReason.Running,
@@ -38,21 +42,34 @@ sealed class OutgoingRecorders(
         };
 
     /// <summary>Probes each daemon, asking a silent one again every <see cref="RetryGap"/> until it answers or the
-    /// shared <paramref name="wait"/> runs out. <paramref name="probe"/> gives null for an idle daemon.</summary>
+    /// shared <paramref name="wait"/> runs out. Each probe is given what is left of the wait, at most
+    /// <see cref="ProbeBudget"/> and at least <see cref="ProbeFloor"/>. <paramref name="probe"/> gives null for an idle
+    /// daemon.</summary>
     internal static async Task<IReadOnlyList<DaemonBusy>> BusyAsync(
-            IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe, TimeProvider time, Action<string> say, TimeSpan wait) {
+            IEnumerable<string> names, Func<string, TimeSpan, Task<DaemonBusyReason?>> probe, TimeProvider time, Action<string> say,
+            TimeSpan wait) {
         var busy  = new List<DaemonBusy>();
         var start = time.GetTimestamp();
 
-        foreach (var name in names) {
-            var reason = await probe(name);
+        TimeSpan Left() => wait - time.GetElapsedTime(start);
 
-            if (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < wait) {
+        TimeSpan Budget() {
+            var left = Left();
+            return left < ProbeFloor ? ProbeFloor : left > ProbeBudget ? ProbeBudget : left;
+        }
+
+        foreach (var name in names) {
+            var reason = await probe(name, Budget());
+
+            if (reason == DaemonBusyReason.NoAnswer && Left() > TimeSpan.Zero) {
                 say($"Waiting for daemon '{name}' to finish starting…");
 
-                while (reason == DaemonBusyReason.NoAnswer && time.GetElapsedTime(start) < wait) {
-                    await Task.Delay(RetryGap, time);
-                    reason = await probe(name);
+                while (reason == DaemonBusyReason.NoAnswer) {
+                    var left = Left();
+                    if (left <= TimeSpan.Zero) break;
+
+                    await Task.Delay(left < RetryGap ? left : RetryGap, time);
+                    reason = await probe(name, Budget());
                 }
             }
 

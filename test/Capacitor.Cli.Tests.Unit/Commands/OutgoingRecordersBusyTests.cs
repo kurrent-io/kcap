@@ -11,7 +11,7 @@ public class OutgoingRecordersBusyTests {
 
     /// <summary>Advances the fake clock until the probe loop finishes; a delay registered after an advance just waits
     /// for the next one.</summary>
-    async Task<IReadOnlyList<DaemonBusy>> RunAsync(IEnumerable<string> names, Func<string, Task<DaemonBusyReason?>> probe,
+    async Task<IReadOnlyList<DaemonBusy>> RunAsync(IEnumerable<string> names, Func<string, TimeSpan, Task<DaemonBusyReason?>> probe,
         TimeSpan? wait = null) {
         var busy = OutgoingRecorders.BusyAsync(names, probe, _time, _said.Add, wait ?? OutgoingRecorders.StartingWait);
 
@@ -27,7 +27,7 @@ public class OutgoingRecordersBusyTests {
     public async Task A_daemon_that_answers_idle_after_starting_holds_nothing_up() {
         var probes = 0;
 
-        var busy = await RunAsync(["me"], _ => Task.FromResult(++probes <= 2 ? DaemonBusyReason.NoAnswer : (DaemonBusyReason?)null));
+        var busy = await RunAsync(["me"], (_, _) => Task.FromResult(++probes <= 2 ? DaemonBusyReason.NoAnswer : (DaemonBusyReason?)null));
 
         await Assert.That(busy).IsEmpty();
         await Assert.That(probes).IsEqualTo(3);
@@ -38,7 +38,7 @@ public class OutgoingRecordersBusyTests {
     public async Task A_daemon_silent_to_the_bound_is_reported_as_not_answering() {
         var started = _time.GetTimestamp();
 
-        var busy = await RunAsync(["me"], _ => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer));
+        var busy = await RunAsync(["me"], (_, _) => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer));
 
         await Assert.That(busy).IsEquivalentTo([new DaemonBusy("me", DaemonBusyReason.NoAnswer)]);
         await Assert.That(_time.GetElapsedTime(started)).IsGreaterThanOrEqualTo(OutgoingRecorders.StartingWait);
@@ -50,7 +50,7 @@ public class OutgoingRecordersBusyTests {
     public async Task A_daemon_that_answers_at_once_is_not_waited_for() {
         var busy = await OutgoingRecorders.BusyAsync(
             ["idle", "working", "old"],
-            name => Task.FromResult<DaemonBusyReason?>(name switch {
+            (name, _) => Task.FromResult<DaemonBusyReason?>(name switch {
                 "working" => DaemonBusyReason.Running,
                 "old"     => DaemonBusyReason.Unknown,
                 _         => null,
@@ -70,7 +70,7 @@ public class OutgoingRecordersBusyTests {
     public async Task Silent_daemons_share_one_bound() {
         var started = _time.GetTimestamp();
 
-        var busy = await RunAsync(["a", "b"], _ => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer));
+        var busy = await RunAsync(["a", "b"], (_, _) => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer));
 
         await Assert.That(busy.Select(b => b.Reason)).IsEquivalentTo([DaemonBusyReason.NoAnswer, DaemonBusyReason.NoAnswer]);
         await Assert.That(_time.GetElapsedTime(started)).IsLessThan(OutgoingRecorders.StartingWait * 2);
@@ -82,9 +82,46 @@ public class OutgoingRecordersBusyTests {
         var started = _time.GetTimestamp();
         var wait    = TimeSpan.FromSeconds(8);
 
-        var busy = await RunAsync(["me"], _ => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer), wait);
+        var busy = await RunAsync(["me"], (_, _) => Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer), wait);
 
         await Assert.That(busy).IsEquivalentTo([new DaemonBusy("me", DaemonBusyReason.NoAnswer)]);
         await Assert.That(_time.GetElapsedTime(started)).IsLessThan(OutgoingRecorders.StartingWait);
+    }
+
+    /// <summary>A probe never outlasts the shared wait by more than <see cref="OutgoingRecorders.ProbeFloor"/>: one that
+    /// hangs on a daemon accepting connections but not answering would otherwise overrun a quick uninstall's grace.</summary>
+    [Test]
+    public async Task Each_probe_is_bounded_by_what_is_left_of_the_wait() {
+        var started = _time.GetTimestamp();
+        var wait    = TimeSpan.FromSeconds(8);
+        var budgets = new List<(TimeSpan Left, TimeSpan Budget)>();
+
+        await RunAsync(["me"], (_, budget) => {
+            budgets.Add((wait - _time.GetElapsedTime(started), budget));
+            return Task.FromResult<DaemonBusyReason?>(DaemonBusyReason.NoAnswer);
+        }, wait);
+
+        await Assert.That(budgets[0].Budget).IsEqualTo(OutgoingRecorders.ProbeBudget);
+        await Assert.That(budgets.Count).IsGreaterThan(1);
+
+        foreach (var (left, budget) in budgets) {
+            await Assert.That(budget).IsLessThanOrEqualTo(OutgoingRecorders.ProbeBudget);
+            await Assert.That(budget).IsLessThanOrEqualTo(left > OutgoingRecorders.ProbeFloor ? left : OutgoingRecorders.ProbeFloor);
+        }
+    }
+
+    /// <summary>A wait already spent still probes each daemon once, so one that answers idle is not refused as silent.</summary>
+    [Test]
+    public async Task A_spent_wait_still_probes_each_daemon_once() {
+        var budgets = new List<TimeSpan>();
+
+        var busy = await OutgoingRecorders.BusyAsync(["idle"], (_, budget) => {
+            budgets.Add(budget);
+            return Task.FromResult<DaemonBusyReason?>(null);
+        }, _time, _said.Add, TimeSpan.Zero);
+
+        await Assert.That(busy).IsEmpty();
+        await Assert.That(budgets).IsEquivalentTo([OutgoingRecorders.ProbeFloor]);
+        await Assert.That(_said).IsEmpty();
     }
 }
