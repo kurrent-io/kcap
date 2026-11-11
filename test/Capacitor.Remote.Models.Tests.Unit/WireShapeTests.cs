@@ -10,7 +10,7 @@ public class WireShapeTests {
         "client_connected", "registered_at", "repo_owner", "repo_name", "repo_hash",
         "pr_number", "pr_url", "pr_title", "failure_reason", "owner_user_id",
         "visibility_mode", "grants", "vendor", "ended_at", "status_changed_at",
-        "sandbox_policy", "approval_policy", "daemon_name", "permission_preset", "title",
+        "sandbox_policy", "approval_policy", "daemon_name", "permission_preset", "title", "attached",
     ];
 
     static readonly string[] AccessGrantKeys = ["grant_type", "grantee_id", "grantee_name"];
@@ -115,6 +115,37 @@ public class WireShapeTests {
         await Assert.That(items[0].SenderUserId).IsEqualTo("u2");
         await Assert.That(items[1].Text).IsEqualTo("bare");
         await Assert.That(items[1].DispatchId).IsEqualTo(Guid.Empty);
+    }
+
+    /// An older server sends neither field, and a hosted agent's payload carries neither: both read as a hosted agent's.
+    [Test]
+    public async Task An_agent_and_a_queued_message_without_the_steering_fields_read_as_hosted() {
+        const string agent = """{"agent_id":"a1","status":"Running","registered_at":"2026-09-06T10:00:00Z","daemon_name":"work-mac"}""";
+        const string queue = """[{"dispatch_id":"3f2c1b1e-1111-4a2b-9c3d-000000000001","sender_user_id":"github:1","text":"next","dispatched_at":"1970-01-01T00:00:00+00:00"}]""";
+
+        var dto = JsonSerializer.Deserialize(agent, RemoteModelsJsonContext.Default.AgentInstanceDto)!;
+        var item = JsonSerializer.Deserialize(queue, RemoteModelsJsonContext.Default.QueuedInputItemArray)!.Single();
+
+        await Assert.That(dto.Attached).IsFalse();
+        await Assert.That(item.Text).IsEqualTo("next");
+        await Assert.That(item.DeliveryState).IsNull();
+        await Assert.That(item.DeliveryReason).IsNull();
+    }
+
+    /// The queued message is the JSON the server's own wire test pins, escaped plus sign included; the agent carries the
+    /// attached flag as the server writes it.
+    [Test]
+    public async Task The_servers_attached_payloads_read_with_their_steering_fields() {
+        const string agent = """{"agent_id":"agent-1","session_id":null,"status":"running","prompt":null,"model":null,"effort":null,"repo_path":null,"client_connected":true,"registered_at":"1970-01-01T00:00:00\u002B00:00","terminal_input":false,"attached":true}""";
+        const string queue = """[{"dispatch_id":"3f2c1b1e-1111-4a2b-9c3d-000000000001","sender_user_id":"github:1","text":"next","dispatched_at":"1970-01-01T00:00:00\u002B00:00","delivery_state":"rejected","delivery_reason":"stopped"}]""";
+
+        var dto = JsonSerializer.Deserialize(agent, RemoteModelsJsonContext.Default.AgentInstanceDto)!;
+        var item = JsonSerializer.Deserialize(queue, RemoteModelsJsonContext.Default.QueuedInputItemArray)!.Single();
+
+        await Assert.That(dto.Attached).IsTrue();
+        await Assert.That(item.DispatchId).IsEqualTo(Guid.Parse("3f2c1b1e-1111-4a2b-9c3d-000000000001"));
+        await Assert.That(item.DeliveryState).IsEqualTo("rejected");
+        await Assert.That(item.DeliveryReason).IsEqualTo("stopped");
     }
 
     /// The server leaves viewer_rights off the wire while agent privileges are off, and an older server never sends it.

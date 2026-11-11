@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
@@ -9,6 +10,7 @@ using Capacitor.Cli.Core.Install;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli.Commands;
@@ -25,6 +27,11 @@ public sealed class DaemonCommands(
     /// So <c>daemon logs</c> surfaces it too — a startup that never reached the logger still leaves a
     /// trace here.</summary>
     string StderrCapturePath => Path.ChangeExtension(LogPath, null) + ".out.log";
+
+    internal ClaudeSteeringMod Steering {
+        get => field ??= ClaudeSteeringMod.For(harnesses, home, AccountStore.Beside(store));
+        init;
+    }
 
     public async Task<int> HandleAsync(string[] args) {
         if (args.Length < 2) {
@@ -47,6 +54,8 @@ public sealed class DaemonCommands(
             "shim"    => await DaemonShimCommands.DispatchAsync(remaining, time),
             "consent" => await DaemonConsentCommand.HandleAsync(store, profiles, remaining),
             "reviewer" => await DaemonReviewerCommand.HandleAsync(store, profiles, binaries, remaining),
+            "steering" => await DaemonSteeringCommand.SetAsync(store, profiles, time, console, remaining, Steering),
+            "steering-socket" => await DaemonSteeringCommand.PrintSocketAsync(store, profiles, time, console, remaining),
             _         => PrintUsage()
         };
     }
@@ -1140,7 +1149,7 @@ public sealed class DaemonCommands(
         $"kcap-daemon binary not found next to {AppContext.BaseDirectory}. Reinstall the kcap package.";
 
     int PrintUsage() {
-        console.Error.WriteLine("Usage: kcap daemon <start|stop|restart|status|logs|doctor|service|shim|consent|reviewer>");
+        console.Error.WriteLine("Usage: kcap daemon <start|stop|restart|status|logs|doctor|service|shim|consent|reviewer|steering|steering-socket>");
         console.Error.WriteLine();
         console.Error.WriteLine("  start [-d] [--name <n>]    Start the daemon (foreground, or -d for background)");
         console.Error.WriteLine("  stop [--name <n>] [--yes] [--keep-agents]  Stop a running daemon and end its agents (prompts on multi unless --yes);");
@@ -1151,6 +1160,9 @@ public sealed class DaemonCommands(
         console.Error.WriteLine("  doctor [--clean]           Diagnose lock-file state, optionally clean stale entries");
         console.Error.WriteLine("  service <action>           Manage the OS service (launchd/systemd/Scheduled Task)");
         console.Error.WriteLine("  consent <verb>             Manage the launch-consent policy (run `kcap daemon consent` for verbs)");
+        console.Error.WriteLine("  steering <on|off>          Let the web and mobile apps steer this profile's terminal Claude Code sessions (off by default;");
+        console.Error.WriteLine("                             the first `on` installs the kcap-steering Claude Code plugin)");
+        console.Error.WriteLine("  steering-socket            Print the daemon's steering socket, or nothing when steering is off");
         console.Error.WriteLine();
         console.Error.WriteLine("Options for start:");
         console.Error.WriteLine("  --name <name>         Daemon name (defaults to OS username)");

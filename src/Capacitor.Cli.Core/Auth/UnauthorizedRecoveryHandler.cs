@@ -49,6 +49,11 @@ internal sealed class UnauthorizedRecoveryHandler(ICredentialSource source, bool
         if (rotated.Bearer is null) return response;
 
         Volatile.Write(ref _current, rotated.Bearer);
+
+        // Asked after the rotation, which can take a while: a request its caller has withdrawn meanwhile gets the
+        // refusal it already has. A request with no guard is resent as ever.
+        if (request.Options.TryGetValue(HttpClientExtensions.MayResend, out var mayResend) && !mayResend()) return response;
+
         response.Dispose();
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rotated.Bearer);

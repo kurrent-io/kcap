@@ -206,6 +206,38 @@ public class ServerConnectionAgentRegisteredTests {
         await Assert.That(conn.LegacyCalls).IsEmpty();
     }
 
+    /// <summary>Only the acked method can refuse, so an attached agent never falls back to the unanswered one, which
+    /// would read a refusal as success.</summary>
+    [Test]
+    public async Task An_attached_agent_on_a_server_without_the_acked_method_is_refused_as_unsupported() {
+        var conn = new TestServerConnection { Acked = UnknownMethod };
+
+        var response = await conn.AttachedAgentRegisteredAsync("mod-0123456789abcdef", "session-1", "4242:start", null);
+
+        await Assert.That(response).IsEqualTo(new AgentRegisteredResponse(false, "steering_unsupported"));
+        await Assert.That(conn.LegacyCalls).IsEmpty();
+    }
+
+    /// <summary>Serialized and read as the hub does, in the names the server's records take.</summary>
+    [Test]
+    public async Task The_attached_input_payloads_carry_the_servers_names() {
+        var options = new JsonHubProtocolOptions().PayloadSerializerOptions;
+        ServerConnection.ConfigureHubPayload(options);
+        var dispatch = Guid.Parse("5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90");
+        var row      = Guid.Parse("6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90");
+
+        await Assert.That(JsonSerializer.Serialize(new ConfirmInputHandoverRequest(dispatch, "a1"), options))
+            .IsEqualTo($$"""{"dispatch_id":"{{dispatch}}","agent_id":"a1"}""");
+        await Assert.That(JsonSerializer.Serialize(new ReportInputLinkRequest(dispatch, "a1", "s1", row), options))
+            .IsEqualTo($$"""{"dispatch_id":"{{dispatch}}","agent_id":"a1","session_id":"s1","row_uuid":"{{row}}"}""");
+        await Assert.That(JsonSerializer.Serialize(new ReportInputUnconfirmedRequest(dispatch, "a1", "attachment_lapsed"), options))
+            .IsEqualTo($$"""{"dispatch_id":"{{dispatch}}","agent_id":"a1","reason":"attachment_lapsed"}""");
+        await Assert.That(JsonSerializer.Deserialize<ConfirmInputHandoverResponse>($$"""{"outcome":"hold","blocking_dispatch_id":"{{dispatch}}"}""", options))
+            .IsEqualTo(new ConfirmInputHandoverResponse("hold", dispatch));
+        await Assert.That(JsonSerializer.Serialize(new DaemonConnect("n", "p", [], 1, [], Capabilities: ["steering/1"]), options))
+            .Contains("\"capabilities\":[\"steering/1\"]");
+    }
+
     /// <summary>Both dispatcher answers for a missing method count, and only for the method that was invoked;
     /// a handler's refusal, another method's absence or an exception that is not a hub answer never does.</summary>
     [Test]

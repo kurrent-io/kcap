@@ -469,6 +469,26 @@ public class RecorderHostTests {
         await Assert.That(attempts[1].EndedIdle).IsFalse();
     }
 
+    /// <summary>The recorder's loop ends quietly on any cancellation, so one nothing asked for would read as a clean end,
+    /// and under a daemon nothing starts the source again.</summary>
+    [Test]
+    public async Task A_cancellation_no_stop_caused_is_retried_as_a_failure() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var thrown = 0;
+        _beforeDrain[source.Key] = () => Interlocked.Increment(ref thrown) == 1 ? throw new OperationCanceledException("not a stop") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the first attempt");
+
+        var first = _ended.Single();
+        await Assert.That(first.SourceEnded).IsFalse();
+        await Assert.That(first.Failure).IsNotNull();
+
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the retry's line", TimeSpan.FromSeconds(1));
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
     [Test]
     public async Task The_owner_hears_a_source_went_idle() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
@@ -1300,6 +1320,30 @@ public class RecorderHostTests {
         await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
 
         await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>An outage excuses a source waiting for the transport to come back, and an abandoned one has nothing to come
+    /// back for: it ends within the threshold however long the server stays out. The clock keeps stepping while the host
+    /// gives the source up, so the bound leaves room for that in small steps, still far short of the threshold an excuse
+    /// would wait out next.</summary>
+    [Test]
+    public async Task An_abandoned_source_stuck_through_an_outage_ends_within_the_threshold() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+
+        var abandoned = host.AbandonAsync(source.Key);
+        var asked     = _time.GetUtcNow();
+        await Eventually(() => abandoned.IsCompleted, "the abandoned source to end", TimeSpan.FromMilliseconds(250));
+
+        await Assert.That(_time.GetUtcNow() - asked).IsLessThanOrEqualTo(RecorderHost.WedgedAfter + TimeSpan.FromSeconds(10));
+        await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
     /// <summary>A shutdown marks a source it can't finish, and this one's person asked for it to be gone.</summary>

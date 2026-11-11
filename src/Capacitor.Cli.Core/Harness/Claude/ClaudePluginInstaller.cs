@@ -25,6 +25,14 @@ public static class ClaudePluginInstaller {
 
     public const string MarkerFileName = ".kcap-plugin-version";
 
+    /// <summary>The steering mod's <c>enabledPlugins</c> id: plugin <c>kcap-steering</c> in the <c>kcap</c> marketplace.</summary>
+    public const string SteeringPluginKey = "kcap-steering@kcap";
+
+    /// <summary>Beside the settings file rather than in a profile's config, so it holds for every profile: once kcap
+    /// has put the steering mod into that file it leaves the mod's entry alone, so one the person disabled or
+    /// uninstalled stays that way.</summary>
+    public const string SteeringMarkerFileName = ".kcap-steering-installed";
+
     /// <summary>
     /// True when the user has previously installed the kcap Claude
     /// plugin via setup or <c>kcap plugin install</c>. Detection is
@@ -312,22 +320,47 @@ public static class ClaudePluginInstaller {
         }
     }
 
-    public static void WriteMarker(string settingsPath) {
+    public static void WriteMarker(string settingsPath) => WriteNamedMarker(settingsPath, MarkerFileName);
+
+    public static void DeleteMarker(string settingsPath) => DeleteNamedMarker(settingsPath, MarkerFileName);
+
+    /// <summary>The steering mod's <c>enabledPlugins</c> flag, or null when the file has none or can't be read.</summary>
+    public static bool? IsSteeringEnabled(string settingsPath) =>
+        ReadSettings(settingsPath)?["enabledPlugins"] is JsonObject enabled
+     && enabled[SteeringPluginKey] is JsonValue v && v.TryGetValue<bool>(out var on)
+            ? on
+            : null;
+
+    /// <summary>Whether kcap's plugin install registered its marketplace here, which is where the steering mod goes.</summary>
+    public static bool HasKcapMarketplace(string settingsPath) =>
+        ReadSettings(settingsPath) is { } root && RegistersKcapMarketplace(root);
+
+    internal static bool RegistersKcapMarketplace(JsonObject root) =>
+        root["extraKnownMarketplaces"] is JsonObject marketplaces && marketplaces["kcap"] is JsonObject;
+
+    public static bool HasInstalledSteering(string settingsPath) =>
+        Path.GetDirectoryName(settingsPath) is { Length: > 0 } dir && File.Exists(Path.Combine(dir, SteeringMarkerFileName));
+
+    /// <summary>Best effort: without it the next <c>steering on</c> writes again, which still leaves a present entry alone.</summary>
+    public static void WriteSteeringMarker(string settingsPath) => WriteNamedMarker(settingsPath, SteeringMarkerFileName);
+
+    public static void DeleteSteeringMarker(string settingsPath) => DeleteNamedMarker(settingsPath, SteeringMarkerFileName);
+
+    static void WriteNamedMarker(string settingsPath, string fileName) {
         var dir = Path.GetDirectoryName(settingsPath);
         if (string.IsNullOrEmpty(dir)) return;
         try {
             Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
+            File.WriteAllText(Path.Combine(dir, fileName), CapacitorVersion.Current());
         } catch {
-            // Best effort. Worst case the next upgrade re-runs the install
-            // unconditionally, which is idempotent.
+            // Best effort: a missing marker only means the next install runs again.
         }
     }
 
-    public static void DeleteMarker(string settingsPath) {
+    static void DeleteNamedMarker(string settingsPath, string fileName) {
         var dir = Path.GetDirectoryName(settingsPath);
         if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
+        var marker = Path.Combine(dir, fileName);
         try { if (File.Exists(marker)) File.Delete(marker); } catch { /* non-fatal */ }
     }
 }

@@ -32,8 +32,8 @@ public sealed partial class WatcherManager(
     // Kept back from a caller's remaining budget for the watcher it may still have to start.
     internal static readonly TimeSpan SpawnReserve = TimeSpan.FromMilliseconds(500);
 
-    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. With no
-    // claim nothing turns on the answer, so that case keeps to HandOffBudget.
+    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. A run
+    // with no claim waits as long: an earlier run let the claims go, and what that one sent may still be unanswered.
     internal static readonly TimeSpan DisableBudget = TimeSpan.FromSeconds(8);
 
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
@@ -241,8 +241,8 @@ public sealed partial class WatcherManager(
             .Select(name => new AskedDaemon(name, Held: false, Fresh: false))
             .ToList());
 
-        // A daemon finishing a stop needs longer than one that holds nothing, and a person waits on the slowest.
-        using var budget = new CancellationTokenSource(claims.Length > 0 || keys is null ? DisableBudget : HandOffBudget, time);
+        // One bound for every daemon: a person waits on the slowest.
+        using var budget = new CancellationTokenSource(DisableBudget, time);
 
         var answers = await Task.WhenAll(asked.Select(async daemon => (
             Daemon: daemon,
@@ -419,18 +419,18 @@ public sealed partial class WatcherManager(
         }
     }
 
-    /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session. A daemon
-    /// holding it as a terminal session posts that end itself if the process exits with no hook in time, so with that claim
-    /// on disk the two race for one record; with none, only a record the daemon already left has a say. A hook that can't
-    /// name its process posts. One that posts follows with <see cref="SessionEndPosted"/>.</summary>
-    public bool ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
-        if (process is null) return true;
+    /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session, and if not,
+    /// why not. A daemon holding it as a terminal session posts that end itself if the process exits with no hook in time,
+    /// so with that claim on disk the two race for one record; with none, only a record the daemon already left has a say.
+    /// A hook that can't name its process posts. One that posts follows with <see cref="SessionEndPosted"/>.</summary>
+    public SessionEndTurn ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
+        if (process is null) return SessionEndTurn.Yours;
 
         var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
 
-        if ((_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key)) && !SessionEndRecord.Exists(paths, sessionId, process)) return true;
+        if ((_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key)) && !SessionEndRecord.Exists(paths, sessionId, process)) return SessionEndTurn.Yours;
 
-        return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow()) is SessionEndTurn.Yours;
+        return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow());
     }
 
     /// <summary>The end this hook claimed has reached the server or the spool, so nobody takes the claim over.</summary>
@@ -815,6 +815,10 @@ public sealed partial class WatcherManager(
             void ReportLoss(RedactionLossReason loss, int _) =>
                 Console.Error.WriteLine($"Inline capture loss at line {lineIndex}: {CaptureLossMarker.ReasonName(loss)}");
 
+            // Read before every post, retries included: a disable can land while this drain waits on the server, a
+            // redaction or a backoff.
+            bool Disabled() => DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config);
+
             // False when the drain has to stop, having printed why.
             async Task<bool> SendAsync() {
                 commits = commits.Collect();
@@ -834,7 +838,12 @@ public sealed partial class WatcherManager(
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
                         var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                         using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time);
+                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
+                        // A refusal the guard kept from being sent again, after a bearer rotation, is the disable's.
+                        if (!resp.IsSuccessStatusCode && Disabled()) {
+                            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
+                            return false;
+                        }
                         if (!resp.IsSuccessStatusCode) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server returned HTTP {(int)resp.StatusCode}");
                             PrintRecoveryHint(sessionId);
@@ -842,6 +851,9 @@ public sealed partial class WatcherManager(
                         }
                         await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: sent {chunk.Lines.Length} line(s)");
                     }
+                } catch (OperationCanceledException) when (Disabled()) {
+                    await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
+                    return false;
                 } catch (HttpRequestException ex) {
                     await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server unreachable after retries — {ex.Message}");
                     PrintRecoveryHint(sessionId);

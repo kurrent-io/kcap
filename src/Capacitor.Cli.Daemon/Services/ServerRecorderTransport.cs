@@ -182,6 +182,8 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
         }
     }
 
+    public Task CarryAsync(string sessionId, Func<Task> post) => Carrying(sessionId, CancellationToken.None, post);
+
     // No token for the call: given one, InvokeAsync completes the moment it fires with the server still working, and a
     // silence has to know when that has stopped. The caller's token ends the caller's wait, and only a call yet to leave.
     // A connection that goes fails whatever it was carrying, so nothing here outlives that.

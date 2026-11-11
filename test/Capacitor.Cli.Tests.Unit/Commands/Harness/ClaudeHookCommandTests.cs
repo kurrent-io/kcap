@@ -2777,6 +2777,19 @@ public class ClaudeHookCommandTests {
         await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
     }
 
+    /// <summary>The hook log is what explains a session with no end, so a run's end held back says what its record said:
+    /// one claimed and being posted, or one posted already or owed by nobody, never that the daemon posted it.</summary>
+    [Test]
+    public async Task A_held_back_session_end_says_what_its_record_said() {
+        var pending = ClaudeHookCommand.SessionEndLeftAlone(Sid, SessionEndTurn.Pending, "not posted");
+        var done    = ClaudeHookCommand.SessionEndLeftAlone(Sid, SessionEndTurn.Done, "not posted");
+
+        await Assert.That(pending).Contains("claimed moments ago");
+        await Assert.That(done).Contains("went on in another process");
+        await Assert.That(pending).DoesNotContain("daemon");
+        await Assert.That(done).DoesNotContain("daemon");
+    }
+
     /// <summary>Only a synchronous hook's context reaches the agent, and nothing else asks for the notices. The
     /// SessionStart flag is what lets a start declare the capability, so it ships in the manifest that has the hook.</summary>
     [Test]

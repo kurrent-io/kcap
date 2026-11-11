@@ -283,6 +283,8 @@ public sealed class TranscriptRecorder(
     /// server's cursor says what is left, and what cannot be sent is spooled as <see cref="FinishAsync"/> does.
     /// Registering gets <see cref="DrainOnceConnectBudget"/>, then throws <see cref="TimeoutException"/>, because a
     /// transport that retries until it connects would otherwise park the drain with nothing spooled or marked.</summary>
+    /// <param name="ct">As for <see cref="FinishAsync"/>, and it cuts the connect too, which then throws: with no cursor
+    /// from the server there is nothing to spool, so the caller marks the source for import.</param>
     public async Task DrainOnceAsync(CancellationToken ct) {
         if (HasLostClaim()) return;
 
@@ -292,8 +294,9 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
-    /// not deliver go to the spool, because the process may exit right after. <paramref name="ct"/> cuts off what
-    /// depends on the server and on a title, a hung send above all, and the spool still gets what is left.</summary>
+    /// not deliver go to the spool, because the process may exit right after.</summary>
+    /// <param name="ct">For a caller out of time, never to end a drain early: it cuts what waits on the server or on a
+    /// title, a hung send above all, and never the spool, which takes what the cut sends left.</param>
     public async Task FinishAsync(CancellationToken ct) {
         // A stop can end the loop before a tick saw the claim go.
         if (HasLostClaim()) {
@@ -1482,7 +1485,7 @@ public sealed class TranscriptRecorder(
                     TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
                     chunk.MoreFollows ? commitsOnly : null);
                 if (result != TranscriptSpool.AppendResult.Appended) {
-                    if (spooled && commitsOnly is not null && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)
+                    if (spooled && commitsOnly is not null && !HasLostClaim() && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)
                         log($"Commits of {sessionId} could not be spooled at shutdown; they are sent again when its watcher resumes");
                     break;
                 }

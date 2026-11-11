@@ -6,7 +6,10 @@ namespace Capacitor.App.Services;
 
 /// A rail group's identity: same Key = same repository wherever it is checked out. The key is
 /// NOT a filesystem path — never hand it to path-formatting helpers.
-public sealed record RepoIdentity(string Key, string Label);
+public sealed record RepoIdentity(string Key, string Label) {
+    /// The one group for a row that names no repository, wherever it runs.
+    public static readonly RepoIdentity NoRepository = new("path:", "No repository");
+}
 
 public sealed class RepoIdentityResolver(Func<string, string?>? readOriginUrl = null) {
     readonly Func<string, string?> _readOriginUrl = readOriginUrl ?? GitRemoteReader.ReadOriginUrl;

@@ -443,6 +443,33 @@ public class WorkspaceViewModelTests {
         });
     }
 
+    /// The daemon's row for an attached agent, which it steers rather than hosts: the stop disconnects steering through
+    /// the daemon's own stop, which takes it without a force, so nothing asks to confirm stranding a flow, and there is
+    /// no terminal to show.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_attached_agents_stop_reads_as_disconnecting_steering() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var ops = new ScriptedLocalControlOps();
+            var vm = new WorkspaceViewModel("mod-1", daemon, NewActions(ops, new RecordingNotifier(), new RecordingOpener()),
+                new FakeTerminalAttachClientFactory().Factory, () => new FakeTerminalSurface(), new FakeTimeProvider(), new RecordingOpener(),
+                new FakePermissionService(), new FakeWorkContextSource(), ops, new NoAttachmentUploader());
+            daemon.Agents.AddOrUpdate(Agent("mod-1", "claude", hasTerminal: false, kind: "attached", sessionId: Session));
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+
+            await Assert.That(vm.StopLabel).IsEqualTo("Disconnect steering");
+            await Assert.That(vm.RepoLabelText).IsEqualTo("Terminal session");
+            await Assert.That(vm.ShowsTerminalTab).IsFalse();
+
+            ops.QueueStop(new StopAgentResult(true, "stopped", null));
+            await vm.StopCommand.Execute();
+            await WaitUntilAsync(() => ops.StopCalls >= 1, what: "the stop");
+            await Assert.That(ops.StopPayloads).IsEquivalentTo([("mod-1", false)], CollectionOrdering.Matching);
+            await vm.TeardownAsync();
+        });
+    }
+
     /// Between the launch being accepted and the daemon publishing the agent, the header reads the
     /// directory's pending row, so the workspace never opens as a blank shell.
     [Test]

@@ -50,7 +50,8 @@ internal sealed record SessionMergeState {
                 (kept ??= new(StringComparer.Ordinal)).Add(row.Key);
                 hasLocal |= row.Origin == AgentOrigin.Local;
             }
-            renewHosted |= rule.Renew;
+            // A session whose steering ends is still running in its terminal: there is no hand-over to bridge.
+            renewHosted |= rule.Renew && !row.IsAttached;
             liveLocal |= rule.Resume;
         }
         var hostedUntil = renewHosted ? now + AgentDirectory.HandoverGrace : HostedUntil;
@@ -74,7 +75,25 @@ internal sealed record SessionMergeState {
     public AgentRow ProjectDaemon(AgentRow row, RepoSessionDto? listing, bool? ownerIsViewer) {
         if (listing is null) return row;
         var kind = row.Origin == AgentOrigin.Local ? SessionMergeKind.HostedLocally : SessionMergeKind.HostedRemotely;
-        return ApplyListing(row, listing, ownerIsViewer, kind);
+        return ApplyListing(WithListedCheckout(row, listing), listing, ownerIsViewer, kind);
+    }
+
+    // Neither lane names an attached agent's worktree; the listing names its session's. The registry can name the
+    // repository, and its checkout, without it, and that group stands. Both paths are on the daemon's machine, so they
+    // compare exactly.
+    static AgentRow WithListedCheckout(AgentRow row, RepoSessionDto listing) {
+        if (!row.IsAttached) return row;
+
+        var grouped = row.RepoGroupKey != RepoIdentity.NoRepository.Key;
+        var (repoPath, worktreePath, repo) = AgentRow.ListedCheckout(listing);
+
+        if (row.RepoPath is not null && grouped)
+            return row.WorktreePath is null && worktreePath is not null && repoPath == row.RepoPath ? row with { WorktreePath = worktreePath } : row;
+
+        return row with {
+            RepoPath = repoPath, WorktreePath = worktreePath,
+            RepoGroupKey = grouped ? row.RepoGroupKey : repo.Key, RepoGroupLabel = grouped ? row.RepoGroupLabel : repo.Label,
+        };
     }
 
     public AgentRow ProjectServer(RepoSessionDto listing, bool? ownerIsViewer, DateTime now) {

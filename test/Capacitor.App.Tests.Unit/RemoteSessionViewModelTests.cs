@@ -2081,6 +2081,122 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    static AgentRow AttachedRow() => AgentRow.FromRemote(new AgentInstanceDto {
+        AgentId = "mod-1", SessionId = "s1", Status = "Running", DaemonName = "work-mac", Vendor = "claude",
+        OwnerUserId = "u1", RegisteredAt = DateTime.UtcNow, Attached = true,
+    });
+
+    /// Stopping an attached agent removes the steering and leaves its session running in the terminal: the header says
+    /// so, and the stop still goes to the server as any remote agent's does. A hosted agent's header is unchanged.
+    [Test]
+    public async Task Stopping_an_attached_agent_reads_as_disconnecting_steering() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var stopped = new List<string>();
+            h.Lane.StopHandler = id => { stopped.Add(id); return Task.FromResult(HubCallOutcome.Ok); };
+            var attached = h.Build(AttachedRow());
+
+            await Assert.That(attached.StopLabel).IsEqualTo("Disconnect steering");
+            await Assert.That(attached.RepoLabelText).IsEqualTo("Terminal session");
+            await Assert.That(attached.ShowsTerminalTab).IsFalse();
+            await attached.StopCommand.Execute();
+            await WaitUntilAsync(async () => (await h.Actions.StopsInFlight.FirstAsync()).Count == 0, what: "the stop settled");
+            await Assert.That(stopped).IsEquivalentTo(["mod-1"]);
+            await attached.TeardownAsync();
+
+            var hosted = h.Build(Harness.Row(vendor: "claude"));
+            await Assert.That(hosted.StopLabel).IsEqualTo("Stop");
+            await Assert.That(hosted.RepoLabelText).Contains("on work-mac");
+            await Assert.That(hosted.ShowsTerminalTab).IsTrue();
+            await hosted.TeardownAsync();
+        });
+    }
+
+    /// The server refuses an answer to an attached session's prompt, which only its terminal can take, so the card says
+    /// where it waits and offers no answer at all. The owner's rights do not change that.
+    [Test]
+    public async Task A_session_waiting_for_approval_shows_that_it_is_waiting_at_the_terminal() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true,
+            };
+            var vm = h.Build(AttachedRow() with { ViewerRights = owner });
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+
+            h.Permissions.Add(PermissionEntries.ServerEntry(sessionId: "s1"));
+            await WaitUntilAsync(() => vm.Chat.Cards.HasPendingCards, what: "the card");
+
+            var card = (PermissionCardViewModel)vm.Chat.PendingCards.Single();
+            await Assert.That(card.WaitingOn).IsEqualTo("Waiting for approval at the terminal");
+            await Assert.That(card.CanAnswer).IsFalse();
+            await Assert.That(card.OffersAnswers).IsFalse();
+            await Assert.That(await card.AllowCommand.CanExecute.FirstAsync()).IsFalse();
+            await Assert.That(await card.DenyCommand.CanExecute.FirstAsync()).IsFalse();
+            await card.DenyCommand.Execute();
+            await Assert.That(h.Permissions.Resolved).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A permission record nothing resolved can outlive its prompt at the terminal, and a message is held until the turn
+    /// ends anyway, so a wait at the terminal shows beside a composer that still sends.
+    [Test]
+    public async Task A_wait_at_the_terminal_leaves_the_composer_open() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true,
+            };
+            var vm = h.Build(AttachedRow() with { ViewerRights = owner });
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await WaitUntilAsync(() => vm.Chat.HasSeed, what: "the seed");
+
+            h.Permissions.Add(PermissionEntries.ServerEntry(sessionId: "s1"));
+            h.Permissions.Add(PermissionEntries.ServerQuestion());
+            await WaitUntilAsync(() => vm.Chat.PendingCards.Count == 2, what: "both cards");
+            vm.Chat.ComposerText = "carry on";
+
+            await Assert.That(vm.Chat.PendingCards.Select(c => c.WaitingOn ?? ""))
+                .IsEquivalentTo(["Waiting for approval at the terminal", "Waiting for an answer at the terminal"]);
+            await Assert.That(vm.Chat.ShowsComposer).IsTrue();
+            await Assert.That(await vm.Chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A question in an attached session, Claude's own or an ACP one, can only be answered at its terminal: the card
+    /// says so and offers no answer, whoever the viewer is.
+    [Test]
+    public async Task A_question_in_an_attached_session_waits_for_an_answer_at_the_terminal() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true,
+            };
+            var vm = h.Build(AttachedRow() with { ViewerRights = owner });
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+
+            h.Permissions.Add(PermissionEntries.ServerQuestion());
+            h.Permissions.Add(PendingPermissionRequest.FromServer(
+                new ServerElicitationRequest("s1", "q2", "Pick", [new() { OptionId = "a", Label = "A" }], false), DateTimeOffset.UtcNow));
+            await WaitUntilAsync(() => vm.Chat.PendingCards.Count == 2, what: "both cards");
+
+            var question = vm.Chat.PendingCards.OfType<QuestionCardViewModel>().Single();
+            var acp = vm.Chat.PendingCards.OfType<AcpQuestionCardViewModel>().Single();
+            foreach (var card in new PendingCardViewModel[] { question, acp }) {
+                await Assert.That(card.WaitingOn).IsEqualTo("Waiting for an answer at the terminal");
+                await Assert.That(card.CanAnswer).IsFalse();
+                await Assert.That(card.OffersAnswers).IsFalse();
+            }
+            await question.SubmitCommand.Execute();
+            await acp.SubmitCommand.Execute();
+            await Assert.That(h.Permissions.Answered).IsEmpty();
+            await Assert.That(h.Permissions.AcpAnswered).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
     /// The held list is read when the workspace opens on its chat, again each time the chat tab is shown, and again
     /// after the lane reconnects, since a push sent while it was down never arrives.
     [Test]

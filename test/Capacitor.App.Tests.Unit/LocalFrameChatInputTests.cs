@@ -49,6 +49,24 @@ public class LocalFrameChatInputTests {
         });
     }
 
+    /// The daemon's own row for a terminal session it steers is listed while the server's isn't, and the daemon holds no
+    /// agent for its SendText: the composer offers no send that could only come back refused.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_attached_session_takes_no_send_through_the_daemon() {
+        await RunOnUiAsync(async () => {
+            var rig = new Rig(); rig.Connected("input/1");
+            rig.Presence.OnNext(new AgentPresence(
+                Agent("a1", "claude", hasTerminal: false, kind: AgentActionService.AttachedKind) with { Status = "Running" }, false));
+
+            await Assert.That(rig.Input.Availability).IsEqualTo(SendAvailability.ReadOnly);
+            await Assert.That(rig.Input.CanAcceptText).IsFalse();
+            await Assert.That(rig.Input.Hint).IsEqualTo(AttachedAgentCopy.NotListed);
+            await Assert.That(await rig.Input.SendAsync("hello", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
+            await Assert.That(rig.Ops.SendTextCalls).IsEqualTo(0);
+        });
+    }
+
     /// An agent with no process says why the composer cannot send, rather than that it is connecting.
     [Test]
     [NotInParallel("AvaloniaSession")]
