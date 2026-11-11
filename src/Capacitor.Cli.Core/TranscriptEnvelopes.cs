@@ -12,6 +12,7 @@ public static class TranscriptEnvelopes {
     public const int ToolResultCap = 4096;
     const string CapMarker = "…";
     public const string CompactedNote = "Context compacted";
+    public const string RetractedNote = "Prompt cancelled before a reply";
 
     public static IReadOnlyList<AcpEventEnvelope> From(CanonicalEvent evt) {
         var ts = evt.RecordTimestamp ?? evt.Timestamp.ToString("O", CultureInfo.InvariantCulture);
@@ -36,6 +37,9 @@ public static class TranscriptEnvelopes {
                 return [new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: m.CallId, ToolResult: Cap(m.Result), TimestampIso: ts)];
             case ContextCompactedEvent:
                 return [new AcpEventEnvelope(Kind: AcpEventKind.SystemNote, Text: CompactedNote, TimestampIso: ts)];
+            // The chat cannot take back a row it has shown, so the cancelled prompt stays and this note follows it.
+            case UserMessageRetractedEvent:
+                return [new AcpEventEnvelope(Kind: AcpEventKind.SystemNote, Text: RetractedNote, TimestampIso: ts)];
             default:
                 return [];
         }

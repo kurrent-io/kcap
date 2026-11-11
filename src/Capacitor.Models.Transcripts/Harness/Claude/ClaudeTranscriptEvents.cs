@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Capacitor.Models.Transcripts.UserMessages;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema;
@@ -15,6 +16,13 @@ public sealed class ClaudeTranscriptContext(string idScope) : TranscriptContext 
     /// The whole usage object of the last assistant record that carried one: Claude Code writes each block of
     /// one response as its own record with the response's usage repeated, and only the first counts.
     internal JsonElement? PreviousUsage { get; set; }
+
+    /// The latest prompt no assistant record has followed yet.
+    internal (Guid Id, string? ParentUuid)? UnansweredPrompt { get; set; }
+
+    /// Prompt id → the cancelled prompt it retracted, so a re-delivered line retracts the same prompt
+    /// again and a re-delivered cancelled prompt is not taken for an unanswered one.
+    internal Dictionary<Guid, Guid>? Retractions { get; set; }
 }
 
 /// Claude Code's project transcript (`~/.claude/projects/&lt;slug&gt;/&lt;session&gt;.jsonl`): one JSON
@@ -43,7 +51,8 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             var ctx  = (ClaudeTranscriptContext)context;
             var type = root.Str("type");
             (string Prompt, string Content)? command = type == "system" && root.Str("subtype") == "local_command" ? LocalCommand(root) : null;
-            if (type is not ("user" or "assistant" or "attachment") && command is null) {
+            var compaction = type == "system" ? CompactionBoundary(root) : null;
+            if (type is not ("user" or "assistant" or "attachment") && command is null && compaction is null) {
                 ctx.PreviousUsage = null;
                 return ProjectionResult.Empty;
             }
@@ -68,16 +77,20 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                     return ProjectionResult.Reject("uuid is not a GUID");
             }
 
-            // Every valid record but an assistant one re-arms the usage memory; a rejected one, above, touches nothing.
+            // Every valid record but an assistant one re-arms the usage memory, and an assistant one answers the
+            // open prompt; a rejected one, above, touches nothing.
             if (type != "assistant") ctx.PreviousUsage = null;
+            else ctx.UnansweredPrompt = null;
 
             var (at, recordTimestamp) = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt);
             var record = new Record(recordId, at, recordTimestamp, root.Str("parentUuid"), root.Bool("isSidechain") == true, ctx.IdScope);
 
             return ProjectionResult.Of(type switch {
-                "user"      => ProjectUser(root, record),
+                "user"      => ProjectUser(root, record, ctx),
                 "assistant" => ProjectAssistant(root, record, ctx),
-                "system"    => ProjectLocalCommand(command!.Value, root, record),
+                "system"    => compaction is { } compacted
+                    ? [new CanonicalEvent(CanonicalEventTypes.ContextCompacted, compacted, record.Id, record.At, record.RecordTimestamp, record.CausedBy)]
+                    : ProjectLocalCommand(command!.Value, root, record),
                 _           => ProjectAttachment(queued!.Value, root, record),
             });
         }
@@ -114,7 +127,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         }
     }
 
-    static IReadOnlyList<CanonicalEvent> ProjectUser(JsonElement root, Record record) {
+    static IReadOnlyList<CanonicalEvent> ProjectUser(JsonElement root, Record record, ClaudeTranscriptContext ctx) {
         if (root.Obj("message") is not { } message) return [];
         var emitter    = new Emitter(record);
         var isMeta     = root.Bool("isMeta") == true;
@@ -123,9 +136,9 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         var origin     = OriginOf(root);
 
         if (message.Str("content") is { } text) {
-            if (!IsDeferredToolsInjection(text))
-                emitter.Add(0, UserMessage(text, record), ClaudeCodeExtension.Flags(record.IsSidechain, isMeta, originKind, isCompactSummary: isCompactSummary, origin: origin));
-            return emitter.Events;
+            if (IsDeferredToolsInjection(text)) return [];
+            emitter.Add(0, UserMessage(text, record), ClaudeCodeExtension.Flags(record.IsSidechain, isMeta, originKind, isCompactSummary: isCompactSummary, origin: origin));
+            return Track(emitter.Events, text, isMeta, record, ctx);
         }
         if (message.Arr("content") is not { } blocks) return [];
 
@@ -154,8 +167,36 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         if (IsDeferredToolsInjection(joined)) return [];
         emitter.Add(0, UserMessage(joined, record), ClaudeCodeExtension.Flags(record.IsSidechain, isMeta, originKind, isCompactSummary: isCompactSummary, origin: origin),
             attachments);
-        return emitter.Events;
+        return Track(emitter.Events, joined, isMeta, record, ctx);
     }
+
+    /// Claude Code records a cancelled prompt only by writing the next prompt as its sibling: the same
+    /// parent, no assistant record between them. That sibling's line retracts the cancelled prompt
+    /// ahead of itself.
+    static IReadOnlyList<CanonicalEvent> Track(IReadOnlyList<CanonicalEvent> prompt, string text, bool isMeta, Record record, ClaudeTranscriptContext ctx) {
+        if (isMeta || UserPromptDisplay.IsHarnessPayload(text, out _)) return prompt;
+
+        var id = record.Id;
+        if (ctx.Retractions?.ContainsValue(id) == true) return prompt;
+
+        Guid? cancelled = ctx.Retractions is { } known && known.TryGetValue(id, out var earlier) ? earlier : null;
+        // A record with no parent says nothing about its place in the conversation, so it is never a sibling.
+        if (cancelled is null && ctx.UnansweredPrompt is { ParentUuid: { } parent } open && open.Id != id && parent == record.CausedBy) {
+            cancelled = open.Id;
+            (ctx.Retractions ??= []).Add(id, open.Id);
+        }
+        ctx.UnansweredPrompt = (id, record.CausedBy);
+
+        if (cancelled is not { } cancelledId) return prompt;
+        var retraction = new CanonicalEvent(CanonicalEventTypes.UserMessageRetracted, new UserMessageRetractedEvent { MessageId = cancelledId },
+            TranscriptIds.ClaudeRetraction(cancelledId), record.At, record.RecordTimestamp);
+        return [retraction, .. prompt];
+    }
+
+    static ContextCompactedEvent? CompactionBoundary(JsonElement root) =>
+        root.Str("subtype") == "compact_boundary" && root.Bool("isSidechain") != true && root.Obj("compactMetadata") is { } meta
+            ? new ContextCompactedEvent { PreTokens = meta.Num("preTokens"), PostTokens = meta.Num("postTokens"), Trigger = meta.Str("trigger") }
+            : null;
 
     // The invocation and output are separate system records. Only commandRun on the result is a receipt.
     static (string Prompt, string Content)? LocalCommand(JsonElement root) {
