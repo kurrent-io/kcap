@@ -711,7 +711,8 @@ sealed class SetupCommand(
                           || args.Contains("--server-url")
                           || args.Any(a => a.StartsWith("--server-url=", StringComparison.Ordinal));
 
-        if (museAssistant && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null) is { } museError) {
+        if (museAssistant
+         && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null, steeringGiven: args.Contains(SetupSteering.Flag)) is { } museError) {
             await Console.Error.WriteLineAsync($"  {museError}");
 
             return SetupExit.Refused;
