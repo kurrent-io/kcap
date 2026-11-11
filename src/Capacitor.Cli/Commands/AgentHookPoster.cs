@@ -11,7 +11,6 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 
 using Capacitor.Cli.Recording.Harness.Copilot;
-using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -314,19 +313,14 @@ internal sealed class AgentHookPoster(
                 // A generically-drained session-end must still trigger the what's-done generator,
                 // mirroring ClaudeHookCommand.ClaudePoster's own session-end replay side effect: the
                 // server's generate_whats_done signal is vendor-agnostic.
-                var ended = new List<string>();
-
                 await LifecycleSpoolDrain.RunAsync(
                     config, new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
                     onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr),
                     (route, body, outcome) => {
-                        if (CopilotPendingEnd.EndedSession(route, body, outcome) is { } copilot) ended.Add(copilot);
+                        if (CopilotPendingEnd.EndedSession(route, body, outcome) is { } copilot) CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), copilot);
                         onLifecycleOutcome?.Invoke(route, body, outcome);
                     });
-
-                foreach (var copilot in ended.Distinct())
-                    await new WorkspaceSpanHook(config, profiles, http, time, stderr).EndAsync(copilot, WorkspaceSpanHook.EndBudget);
 
             }
         } catch {

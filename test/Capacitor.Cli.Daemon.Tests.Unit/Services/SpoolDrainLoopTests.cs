@@ -39,6 +39,18 @@ public class SpoolDrainLoopTests {
         await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, session)).IsFalse();
     }
 
+    /// <summary>The tick pays a span close a hook's drain owed, auth or not: the close only spools its changes.</summary>
+    [Test]
+    public async Task Tick_closes_an_owed_Copilot_span() {
+        const string session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session);
+
+        await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
+
+        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths)).DoesNotContain(session);
+    }
+
     // Credential resolution must run on the loop's own token, not one truncated to the drain
     // budget — a proactive refresh routinely outlives that budget.
     [Test]

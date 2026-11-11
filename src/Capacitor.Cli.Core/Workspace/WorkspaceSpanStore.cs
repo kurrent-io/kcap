@@ -78,6 +78,9 @@ public sealed class WorkspaceSpanStore(
         if (held is not null && !Baselines(sessionDir).Any()) held.RemoveSession();
     }
 
+    /// <summary>Whether anything of the session's spans is left.</summary>
+    public bool Holds(string sessionId) => SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir);
+
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
     /// <returns>Whether no baseline is left: false when the lock was held past its wait, or a baseline
     /// could not be deleted.</returns>

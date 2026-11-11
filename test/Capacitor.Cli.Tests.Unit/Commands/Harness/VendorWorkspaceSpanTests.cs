@@ -5,6 +5,7 @@ using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -102,23 +103,45 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
     }
 
-    /// <summary>A Copilot end that a spool drain delivers, such as a skipped hook's pending end, has no finalizer behind
-    /// it, so the drain closes the span.</summary>
+    /// <summary>The drain ahead of every hook spends nothing on spans: under Copilot's shared shutdown budget, closing
+    /// another chat's span there would starve this hook's own end. It leaves the close owed to a detached process.</summary>
     [Test]
-    public async Task A_drained_Copilot_end_closes_the_span() {
+    public async Task A_drained_Copilot_end_owes_its_span_close_and_does_no_span_work() {
         await CopilotAsync("sessionStart");
         Repo.CreateFile("made.txt", "x");
 
-        var profiles = Resolutions.At(_server.Url!, Config.Root);
-        var http     = new FixedCapacitorHttpClient();
-        var spool    = new HookSpool(Config.Root, _time, _server.Url);
-        spool.Append(Session.Replace("-", ""), "session-end/copilot", new JsonObject { ["session_id"] = Session.Replace("-", ""), ["reason"] = "parent_exited" }.ToJsonString());
+        var canonical = Session.Replace("-", "");
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString());
 
-        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, Session.Replace("-", ""));
+        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, canonical);
 
-        var posts = PostedPaths();
-        await Assert.That(posts).Contains("/hooks/workspace-changes");
-        await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+        await Assert.That(CopilotSpanClose.Pending(WatcherPaths.FromEnvironment(Config.Root))).Contains(canonical);
+    }
+
+    /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
+    [Test]
+    public async Task The_Copilot_finalizer_closes_an_owed_span() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        CopilotSpanClose.Record(paths, canonical);
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("other.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync("another-session", transcript, endBody: null, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
+        await Assert.That(CopilotSpanClose.Pending(paths)).DoesNotContain(canonical);
     }
 
     [Test]

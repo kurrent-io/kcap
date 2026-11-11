@@ -54,6 +54,9 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
     public Task EndAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
         RunAsync(sessionId, budget, drain, left => StoreWithin(budget).EndSessionAsync(sessionId!, left()));
 
+    /// <summary>Whether anything of the session's spans is left after <see cref="EndAsync"/>.</summary>
+    public bool Holds(string sessionId) => Store.Holds(sessionId);
+
     /// <summary>Drops the session's open spans and spooled events unsent, and says whether none are left. A
     /// session end clears the disabled marker only once this succeeds: the marker is what withholds them,
     /// and every later hook and drain retries the discard while it stands.</summary>
