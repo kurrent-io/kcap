@@ -436,7 +436,7 @@ public partial class App : Application {
             if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
              && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-                var warning = await RefreshIntegrationsAfterUpdateAsync(install, setUp: gate is GateResult.Complete);
+                var warning = await RefreshIntegrationsAfterUpdateAsync(install);
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
             }
             if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
@@ -517,10 +517,11 @@ public partial class App : Application {
 
     /// The agents' hooks, MCP servers and skills were installed by the kcap this update replaced, so a launch that
     /// finishes an update has the new bundled CLI install them again. The marker outlives a failed run, which the
-    /// next launch retries; a launch that is not set up has nothing to refresh, and its wizard installs them.
-    async Task<string?> RefreshIntegrationsAfterUpdateAsync(Platform.Windows.VelopackInstall install, bool setUp) {
+    /// next launch retries. Scheduled whatever the sign-in state: an expired token still has integrations to
+    /// refresh, and every refresh step is a no-op for an agent kcap was never installed into.
+    async Task<string?> RefreshIntegrationsAfterUpdateAsync(Platform.Windows.VelopackInstall install) {
         var refresh = new ApplicationIntegrationRefresh(_config, new ProcessRunner(_time));
-        if (_postUpdate is not null && setUp) {
+        if (_postUpdate is not null) {
             try {
                 await Task.Run(() => refresh.Schedule(install.Root), _shutdown.Token);
             } catch (Exception ex) when (ex is not OperationCanceledException) {
