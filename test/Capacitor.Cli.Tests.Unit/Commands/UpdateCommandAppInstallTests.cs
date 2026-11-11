@@ -13,12 +13,8 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// </summary>
 // Bare: the command writes to Console.
 [NotInParallel]
-public class UpdateCommandAppInstallTests : IDisposable {
+public class UpdateCommandAppInstallTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
-
-    ServiceProvider? _sp;
-
-    public void Dispose() => _sp?.Dispose();
 
     [Test]
     public async Task The_windows_app_cli_reports_its_own_version_without_asking_npm() {
@@ -35,11 +31,11 @@ public class UpdateCommandAppInstallTests : IDisposable {
         services.AddSingleton(profiles);
         services.AddSingleton(new CapacitorServer("", Config.Root, profiles));
         services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
-        _sp = services.BuildServiceProvider();
+        using var sp = services.BuildServiceProvider();
 
         var command = new UpdateCommand(
             Config.Root, profiles, new NpmRegistryClient(new HttpClient(npm) { BaseAddress = new Uri("http://registry.test/") }),
-            _sp.GetRequiredService<CapacitorServer>(), _sp.GetRequiredService<ICapacitorHttpClient>(), TimeProvider.System, kind: kind);
+            sp.GetRequiredService<CapacitorServer>(), sp.GetRequiredService<ICapacitorHttpClient>(), TimeProvider.System, kind: kind);
 
         using var output = ConsoleOutput.StartFullCapture();
         var exit = await command.HandleAsync(["--check"]);
