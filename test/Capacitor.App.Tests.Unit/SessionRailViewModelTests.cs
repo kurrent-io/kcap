@@ -950,6 +950,31 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// The ended list loads a page at a time, so a group's ended count is a floor until every page is in.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_group_count_reads_as_a_floor_while_ended_pages_remain() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, _, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                directory.Rows.AddOrUpdate(["e1", "e2", "e3", "e4"].Select(id => Server(id)));
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
+                var group = rail.Groups.Single();
+                await Assert.That(group.CountText).IsEqualTo("4+ sessions");
+                await Assert.That(group.Tooltip).Contains("Counts cover the ended sessions loaded so far");
+
+                rail.State = RailState.Live;
+                rail.State = RailState.Ended;
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("4+ sessions");
+
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(106, 106, 6, false, false));
+                group = rail.Groups.Single();
+                await Assert.That(group.CountText).IsEqualTo("4 sessions");
+                await Assert.That(group.Tooltip).DoesNotContain("Counts cover");
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Live_filter_hides_ended_pagination_and_switching_back_restores_it() {

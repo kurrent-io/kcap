@@ -40,10 +40,10 @@ public partial class SessionSearchView : UserControl {
                 window.DismissSearchCommand.Execute().Subscribe();
                 break;
             case Key.Up:
-                search?.MoveHighlight(-1);
+                MoveHighlight(search, -1);
                 break;
             case Key.Down:
-                search?.MoveHighlight(1);
+                MoveHighlight(search, 1);
                 break;
             case Key.Enter:
                 if (search is not null) _ = search.OpenHighlighted();
@@ -58,6 +58,13 @@ public partial class SessionSearchView : UserControl {
                 return;
         }
         e.Handled = true;
+    }
+
+    // The list builds only the rows on screen, so a highlight moved past them has to be scrolled to.
+    void MoveHighlight(SessionSearchViewModel? search, int delta) {
+        if (search is null) return;
+        search.MoveHighlight(delta);
+        if (search.HighlightIndex >= 0 && search.HighlightIndex < search.Hits.Count) SearchHits.ScrollIntoView(search.HighlightIndex);
     }
 
     void OnSidebarTabClick(object? sender, RoutedEventArgs e) => SelectTab(SearchMode.Sidebar);

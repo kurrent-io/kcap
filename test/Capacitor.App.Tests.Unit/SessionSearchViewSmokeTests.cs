@@ -116,6 +116,38 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(Right(when)).IsLessThanOrEqualTo(row.Bounds.Width);
     });
 
+    /// Only the hits on screen get a row, and the keyboard highlight scrolls the rows it moves onto into view.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_long_hit_list_builds_only_the_visible_rows_and_follows_the_highlight() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix \u0002auth\u0003 {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+
+        var cover = host.Named<SessionSearchView>("SearchCover");
+        var list = host.Named<ItemsControl>("SearchHits");
+        await Assert.That(host.Vm.Search!.Hits.Count).IsEqualTo(200);
+        await Assert.That(cover.GetVisualDescendants().OfType<Button>().Count(b => b.Classes.Contains("searchHit"))).IsLessThan(50);
+
+        for (var i = 0; i < 120; i++) host.Window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        host.Settle();
+
+        await Assert.That(host.Vm.Search.HighlightIndex).IsEqualTo(120);
+        var row = list.ContainerFromIndex(120);
+        await Assert.That(row).IsNotNull();
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        await Assert.That(top).IsGreaterThanOrEqualTo(-0.5);
+        await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
+    });
+
     /// An avatar is read as the person it stands for, in the rail and on a search hit, never as their initials.
     [Test]
     [NotInParallel("AvaloniaSession")]

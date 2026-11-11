@@ -40,12 +40,14 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string Tooltip {
         get {
             var root = IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
+            if (_countIsPartial) root += "\nCounts cover the ended sessions loaded so far";
             return HeaderStatus is { } status ? $"{root}\n\n{status.Tip}" : root;
         }
     }
 
     readonly ObservableAsPropertyHelper<string> _countText;
     public string CountText => _countText.Value;
+    bool _countIsPartial;
 
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
     public ReadOnlyObservableCollection<RailSessionViewModel> Sessions { get; }
@@ -65,7 +67,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             IObservable<bool> localOnAppServer, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest,
             bool isExpanded, Action<bool> setExpanded, IObservable<Unit>? ageTicks,
             Action<string>? openServer, IObservable<RailGrouping> grouping,
-            IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort) {
+            IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
+            IObservable<bool>? endedListPartial = null) {
         Key = group.Key;
         Kind = kind;
         _label = label;
@@ -99,10 +102,17 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
         }).DisposeWith(_disposables);
 
-        _countText = query
-            .Select(rows => CountTextFor(rows.Items))
+        var counts = query
+            .CombineLatest((endedListPartial ?? Observable.Return(false)).DistinctUntilChanged(),
+                (rows, partial) => CountFor(rows.Items, partial))
+            .Replay(1).RefCount();
+        _countText = counts.Select(count => count.Text)
             .ToProperty(this, x => x.CountText, initialValue: "")
             .DisposeWith(_disposables);
+        counts.Select(count => count.Partial).DistinctUntilChanged().Subscribe(partial => {
+            _countIsPartial = partial;
+            this.RaisePropertyChanged(nameof(Tooltip));
+        }).DisposeWith(_disposables);
 
         Sessions = new ReadOnlyObservableCollection<RailSessionViewModel>(_sessionsSource);
         group.Cache.Connect()
@@ -143,16 +153,19 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     }
 
     /// Mixed groups count each kind; a group of one kind reads as it always did. A local row whose
-    /// agent completed is ended, as its row and its workspace header already say.
-    static string CountTextFor(IEnumerable<AgentRow> rows) {
+    /// agent completed is ended, as its row and its workspace header already say. The ended list loads
+    /// a page at a time, so while pages remain an ended count is only a floor and reads "N+".
+    static (string Text, bool Partial) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
         int live = 0, ended = 0;
         foreach (var row in rows) {
             if (row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" }) ended++;
             else live++;
         }
-        if (ended > 0 && live > 0) return $"{live} live · {ended} ended";
+        var partial = endedListPartial && ended > 0;
+        var more = partial ? "+" : "";
+        if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", partial);
         var count = live + ended;
-        return count == 1 ? "1 session" : $"{count} sessions";
+        return (count == 1 && !partial ? "1 session" : $"{count}{more} sessions", partial);
     }
 
     // Key's own prefixes ("repo:", "path:", "daemon:{owner}/{daemon}:{path}") are a group identity,
