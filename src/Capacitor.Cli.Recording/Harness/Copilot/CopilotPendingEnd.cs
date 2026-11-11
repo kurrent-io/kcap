@@ -57,10 +57,35 @@ public static class CopilotPendingEnd {
         }
     }
 
+    // A watcher asked to stop drains and exits within KillWatcher's 5 s force-kill; a minute covers a slow host.
+    static readonly TimeSpan WatcherHold = TimeSpan.FromMinutes(1);
+
     /// <summary>Whether a drain should hold a Copilot end while the session's watcher still runs: it may yet spool the tail
-    /// the end must follow. Once the watcher is gone, the next drain sends it.</summary>
-    public static bool HeldForWatcher(WatcherPaths paths, string route, string body) =>
-        route == Route && SessionOf(body) is { } session && WatcherLiveness.PidAlive(paths, session);
+    /// the end must follow. Only a watcher whose start token proves it is still that incarnation holds it, and only for
+    /// <see cref="WatcherHold"/> after the end; a pid file that cannot be read or verified holds nothing.</summary>
+    public static bool HeldForWatcher(WatcherPaths paths, string route, string body, TimeProvider time) {
+        if (route != Route || ParseOrNull(body) is not JsonObject end || end["session_id"]?.GetValue<string>() is not { } session) return false;
+
+        if (!DateTimeOffset.TryParse(end["ended_at"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var endedAt)
+         || time.GetUtcNow() - endedAt > WatcherHold) return false;
+
+        try {
+            var lines = File.ReadAllLines(paths.PidFile(session));
+
+            return lines.Length > 1 && int.TryParse(lines[0].Trim(), out var pid) && lines[1].Trim() is { Length: > 0 } token
+                && ProcessStartToken.Matches(pid, token) == true;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return false;
+        }
+    }
+
+    static JsonNode? ParseOrNull(string text) {
+        try {
+            return JsonNode.Parse(text);
+        } catch (JsonException) {
+            return null;
+        }
+    }
 
     /// <summary>Drops the session's pending end: a hook for it has run, and its end or its next run is that hook's.</summary>
     public static void Discard(WatcherPaths paths, string sessionId) => TryDelete(FileFor(paths, sessionId));
@@ -86,7 +111,7 @@ public static class CopilotPendingEnd {
         foreach (var session in SessionsWithPending(paths)) {
             try {
                 // The span close it owes is recorded first, so no spooled end goes without one.
-                if (Decide(paths, session, lifecycle, server, time) is { } body && CopilotSpanClose.Record(paths, session, server, body) && lifecycle.Append(session, Route, body)) {
+                if (Decide(paths, session, lifecycle, server, time) is { } body && CopilotSpanClose.Record(paths, session, server, body, time) && lifecycle.Append(session, Route, body)) {
                     Discard(paths, session);
                     spooled++;
                 }
@@ -196,14 +221,6 @@ public static class CopilotPendingEnd {
         try {
             return int.TryParse(File.ReadLines(paths.PidFile(session)).FirstOrDefault()?.Trim(), out var pid) ? pid : null;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return null;
-        }
-    }
-
-    static string? SessionOf(string body) {
-        try {
-            return JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
-        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
             return null;
         }
     }

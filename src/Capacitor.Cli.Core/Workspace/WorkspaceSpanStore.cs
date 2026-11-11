@@ -68,11 +68,13 @@ public sealed class WorkspaceSpanStore(
 
     /// <summary>Closes every span, then removes the session's directory once no baseline is left. A span
     /// whose close failed keeps its baseline for a later hook to retry; spooled events are the spool's.</summary>
-    public async Task EndSessionAsync(string sessionId, TimeSpan budget) {
+    /// <param name="openedBy">Closes only spans opened by then, so the end of one run cannot close the spans of a run that
+    /// started after it.</param>
+    public async Task EndSessionAsync(string sessionId, TimeSpan budget, DateTimeOffset? openedBy = null) {
         if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return;
 
         var started = time.GetTimestamp();
-        await CloseAllCoreAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
+        await CloseAllCoreAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started), openedBy);
 
         using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
         if (held is not null && !Baselines(sessionDir).Any()) held.RemoveSession();
@@ -80,6 +82,10 @@ public sealed class WorkspaceSpanStore(
 
     /// <summary>Whether anything of the session's spans is left.</summary>
     public bool Holds(string sessionId) => SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir);
+
+    /// <summary>Whether a span of the session opened by <paramref name="openedBy"/> is left.</summary>
+    public bool Holds(string sessionId, DateTimeOffset openedBy) =>
+        SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir) && Baselines(sessionDir).Any(path => ReadSpan(path) is not { } span || span.OpenedAt <= openedBy);
 
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
     /// <returns>Whether no baseline is left: false when the lock was held past its wait, or a baseline
@@ -144,9 +150,13 @@ public sealed class WorkspaceSpanStore(
     /// <summary>Snapshots and diffs every open span outside the lock, then commits each under it — only if
     /// its baseline is still the one diffed, so a span a concurrent hook closed meanwhile is never spooled
     /// twice. False when the lock was held past its wait.</summary>
-    async Task<bool> CloseAllCoreAsync(string sessionId, string sessionDir, Func<TimeSpan> left) {
+    async Task<bool> CloseAllCoreAsync(string sessionId, string sessionDir, Func<TimeSpan> left, DateTimeOffset? openedBy = null) {
         var closings = new List<Closing>();
-        foreach (var path in Baselines(sessionDir)) closings.Add(await PrepareAsync(sessionId, path, left));
+        foreach (var path in Baselines(sessionDir)) {
+            if (openedBy is { } cutoff && ReadSpan(path) is { } span && span.OpenedAt > cutoff) continue;
+
+            closings.Add(await PrepareAsync(sessionId, path, left));
+        }
         if (closings.Count == 0) return true;
 
         using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);

@@ -322,7 +322,7 @@ internal sealed class AgentHookPoster(
                         onLifecycleOutcome?.Invoke(route, body, stands ? outcome : DrainOutcome.TransientStop);
                         return stands;
                     },
-                    (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(config), route, body));
+                    (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(config), route, body, time));
 
             }
         } catch {

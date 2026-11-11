@@ -386,7 +386,7 @@ sealed class CopilotHookCommand(
         // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
         // The span close it owes is recorded first, so no spooled end goes without one; with neither, the finalizer
         // carries the end and closes the span itself.
-        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end)
+        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end, clock.Time)
                    && new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
         if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 

@@ -236,6 +236,31 @@ public class CopilotPendingEndTests {
         await Assert.That(Pending).IsFalse();
     }
 
+    /// <summary>A drain holds a Copilot end only behind a watcher it can prove is still the one that was running, and only
+    /// for a bounded time after the end: a reused pid, an unreadable pid file or a wedged watcher must not strand it.</summary>
+    [Test]
+    [Arguments("verified", 0, true)]
+    [Arguments("verified", 5, false)]
+    [Arguments("pid-only", 0, false)]
+    [Arguments("unreadable", 0, false)]
+    [Arguments("none", 0, false)]
+    public async Task A_drain_holds_an_end_only_behind_a_verified_watcher_for_a_bounded_time(string watcher, int minutesSinceEnd, bool held) {
+        using var process = DummyProcess.StartSleep(30);
+        Directory.CreateDirectory(Paths.Directory);
+        var pidFile = Paths.PidFile(Session);
+
+        switch (watcher) {
+            case "verified":   await File.WriteAllTextAsync(pidFile, $"{process.Pid}\n{PidIdentity.Capture(process.Pid)}"); break;
+            case "pid-only":   await File.WriteAllTextAsync(pidFile, $"{process.Pid}"); break;
+            case "unreadable": Directory.CreateDirectory(pidFile); break;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var end = new System.Text.Json.Nodes.JsonObject { ["session_id"] = Session, ["ended_at"] = (now - TimeSpan.FromMinutes(minutesSinceEnd)).ToString("O") }.ToJsonString();
+
+        await Assert.That(CopilotPendingEnd.HeldForWatcher(Paths, CopilotPendingEnd.Route, end, new FakeTimeProvider(now))).IsEqualTo(held);
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);

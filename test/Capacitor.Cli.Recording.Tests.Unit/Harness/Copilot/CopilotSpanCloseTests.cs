@@ -20,7 +20,7 @@ public class CopilotSpanCloseTests {
 
     async Task<List<string>> Close(string server = Server, bool succeeds = true) {
         var asked = new List<string>();
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, server, TimeProvider.System, session => {
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, server, TimeProvider.System, (session, _) => {
             asked.Add(session);
             return Task.FromResult(succeeds);
         });
@@ -56,7 +56,7 @@ public class CopilotSpanCloseTests {
         Owe(Other);
 
         var asked = new List<string>();
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, async session => {
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, async (session, _) => {
             asked.Add(session);
             await Task.Delay(300);
             return true;
@@ -72,7 +72,7 @@ public class CopilotSpanCloseTests {
         Owe(Other);
 
         var asked = new List<string>();
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, session => {
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, (session, _) => {
             asked.Add(session);
             CopilotSpanClose.Discard(Paths, session == Session ? Other : Session);
             return Task.FromResult(true);
@@ -86,7 +86,7 @@ public class CopilotSpanCloseTests {
     public async Task A_marker_replaced_during_its_close_stays() {
         Owe(Session);
 
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, session => {
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, (session, _) => {
             CopilotSpanClose.Record(Paths, session, Server, EndOf(session).Replace("user_exit", "parent_exited"));
             return Task.FromResult(true);
         });
@@ -99,7 +99,7 @@ public class CopilotSpanCloseTests {
         CopilotSpanClose.Record(Paths, Session, Server, End);
         Delivered();
 
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, _ => throw new IOException("locked"));
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, (_, _) => throw new IOException("locked"));
 
         await Assert.That(Owed).IsTrue();
     }

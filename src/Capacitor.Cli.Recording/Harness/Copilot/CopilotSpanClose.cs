@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
@@ -21,8 +22,14 @@ public static class CopilotSpanClose {
 
     static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
 
-    public static bool Record(WatcherPaths paths, string sessionId, string? server, string endBody) =>
-        Write(paths, sessionId, new JsonObject { ["server"] = server, ["end"] = endBody, ["delivered"] = false });
+    /// <summary>Records the close; the run it closes is the one whose spans were opened by now.</summary>
+    public static bool Record(WatcherPaths paths, string sessionId, string? server, string endBody, TimeProvider? time = null) =>
+        Write(paths, sessionId, new JsonObject {
+            ["server"]      = server,
+            ["end"]         = endBody,
+            ["delivered"]   = false,
+            ["recorded_at"] = (time ?? TimeProvider.System).GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
+        });
 
     /// <summary>What the lifecycle drain made of an entry: the owed end's delivery makes its close due, a rejection drops
     /// it. False when a delivery could not be marked, so the drain keeps the end for a retry rather than lose the close.</summary>
@@ -73,11 +80,12 @@ public static class CopilotSpanClose {
             .ToList();
     }
 
-    /// <summary>Runs <paramref name="close"/>, which says whether nothing is left, for every close owed on
+    /// <summary>Runs <paramref name="close"/> with the time by which the run's spans were opened, so it closes none a later run
+    /// opened, and which says whether none of that run's is left, for every close owed on
     /// <paramref name="server"/> whose end was delivered, and returns how many it settled. Starts no close once
     /// <paramref name="budget"/> is spent. A marker a new run replaced or dropped meanwhile is neither closed nor removed.
     /// Never throws.</summary>
-    public static async Task<int> CloseDueAsync(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time, Func<string, Task<bool>> close,
+    public static async Task<int> CloseDueAsync(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time, Func<string, DateTimeOffset, Task<bool>> close,
             TimeSpan? budget = null) {
         var settled = 0;
         var started = time.GetTimestamp();
@@ -97,7 +105,12 @@ public static class CopilotSpanClose {
 
                 var marker = owed.ToJsonString();
 
-                if (!await close(session) || Read(paths, session)?.ToJsonString() != marker) continue;
+                // A marker from before markers named their run closes every span, as all did then.
+                var openedBy = DateTimeOffset.TryParse(owed["recorded_at"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var recorded)
+                    ? recorded
+                    : DateTimeOffset.MaxValue;
+
+                if (!await close(session, openedBy) || Read(paths, session)?.ToJsonString() != marker) continue;
 
                 Discard(paths, session);
                 settled++;

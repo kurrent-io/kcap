@@ -159,7 +159,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles  = Resolutions.At(_server.Url!, Config.Root);
         var http      = new FixedCapacitorHttpClient();
         var spool     = new HookSpool(Config.Root, _time, _server.Url);
-        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString());
+        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit", ["ended_at"] = _time.GetUtcNow().ToString("O") }.ToJsonString());
 
         Directory.CreateDirectory(paths.Directory);
         var watcher = DummyProcess.StartSleep(30);
@@ -175,6 +175,29 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         await poster.DrainSpoolsNowAsync(spool, canonical);
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+    }
+
+    /// <summary>A close owed by an earlier run's end closes only that run's spans: one a new run opened while the close was
+    /// on its way is left open.</summary>
+    [Test]
+    public async Task An_owed_span_close_leaves_a_later_runs_span_open() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end, new FakeTimeProvider(_time.GetUtcNow() - TimeSpan.FromMinutes(1)));
+        CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("other.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync("another-session", transcript, endBody: null, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
     }
 
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
