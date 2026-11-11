@@ -2868,6 +2868,8 @@ DO_NOT_TRACK=1 KCAP_TELEMETRY=1 kcap status   # reports anyway — the explicit 
 
 `kcap config show` reports the effective state and which setting decided it, e.g. `Telemetry: off (source: DO_NOT_TRACK)`, or `Telemetry: off (source: local edition)` on a local machine where nobody has chosen.
 
+**The local edition's release manifest is not usage data.** Setting up a local server (`kcap setup --local`, `kcap local fetch`, `kcap local upgrade` or the desktop app's setup) and opening the desktop app's Search settings download that version's signed manifest from `https://www.kurrent.io/download/local`. The request carries no device id or other identifier, and nothing fetches it when the app starts or on a schedule, so `telemetry`, `KCAP_TELEMETRY` and `DO_NOT_TRACK` leave it alone: it happens only when you set up, upgrade or open Search settings. The desktop app says so under Settings → Usage data.
+
 ### Uninstalling
 
 To remove kcap from this machine, run:
