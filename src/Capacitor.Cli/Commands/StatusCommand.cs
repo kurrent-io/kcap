@@ -313,7 +313,7 @@ public sealed class StatusCommand(
     /// <summary>The CLI a vendor's wiring runs, when it is not on PATH. Such a vendor is found by its app or data too,
     /// so its install command alone would fail.</summary>
     internal static string? MissingCli(IHarness h, bool cliOnPath) =>
-        h.Signals.WiringNeedsCli && !cliOnPath ? h.CliBinary : null;
+        !cliOnPath && h.Signals.NeedsCliToWire ? h.CliBinary : null;
 
     internal static string UnconfiguredLine(IHarness h, string command, bool cliOnPath) =>
         MissingCli(h, cliOnPath) is { } cli
