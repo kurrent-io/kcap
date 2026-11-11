@@ -2670,7 +2670,9 @@ public record AgentRunStarted(
         string  Vendor
     );
 
-public record AgentRunStopped(string? Reason, int? ExitCode);
+/// <summary><see cref="DaemonInstanceId"/> names the daemon process whose run stopped, the same id its
+/// <see cref="DaemonConnect"/> carries, so the server can tell this run's stop from one a predecessor sent late.</summary>
+public record AgentRunStopped(string? Reason, int? ExitCode, string? DaemonInstanceId = null);
 
 public record AgentRunHeartbeat(string? SessionId);
 

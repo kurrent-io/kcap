@@ -103,6 +103,33 @@ public class AgentRunEventQueueTests {
         await Assert.That(credentials.Refused).IsEquivalentTo(new string?[] { "old" });
     }
 
+    /// <summary>A stop names the daemon instance that sent it, so a server can keep a stop its predecessor
+    /// sent late off the resumed run. The field is additive: a server that predates it ignores it.</summary>
+    [Test]
+    public async Task A_stop_carries_the_daemon_instance_that_sent_it() {
+        var bodies = new List<string>();
+        var config = new DaemonConfig {
+            Name = "queue-test", ServerUrl = "http://server.test", Profiles = Resolutions.None(Config.Root), InstanceId = "proc-1"
+        };
+
+        using var queue = new AgentRunEventQueue(
+            config, new FixedCredentialSource(), TimeProvider.System, new CapturingLogger(), new HttpClient(new BodyCapture(bodies)));
+
+        await queue.PostDirectAsync("agent-1", new AgentRunStopped("done", 0), CancellationToken.None);
+
+        await Assert.That(bodies).IsEquivalentTo([
+            """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":"proc-1"}}"""
+        ]);
+    }
+
+    sealed class BodyCapture(List<string> bodies) : HttpMessageHandler {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            bodies.Add(await request.Content!.ReadAsStringAsync(ct));
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     sealed class HeaderCapture(List<string?> sent, Queue<HttpStatusCode>? statuses = null) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             sent.Add(request.Headers.Authorization?.ToString());
