@@ -833,6 +833,20 @@ public sealed class TranscriptRecorder(
             CursorRewriteGuard? cursorGuard             = null,
             Action?             onCursorRewriteDetected = null
         ) {
+        try {
+            return await DrainAndSendAsync(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
+        } finally {
+            SaveSentHashes(state);
+        }
+    }
+
+    async Task<IReadOnlyList<string>> DrainAndSendAsync(
+            WatchState          state,
+            CancellationToken   ct,
+            bool                isFinalDrain,
+            CursorRewriteGuard? cursorGuard,
+            Action?             onCursorRewriteDetected
+        ) {
         var sessionId      = source.SessionId;
         var agentId        = source.AgentId;
         var vendor         = source.Vendor;
@@ -1382,9 +1396,27 @@ public sealed class TranscriptRecorder(
         if (source.AgentId is null) Numbering.Record(source.SessionId, map);
     }
 
-    TranscriptLineMap? NewLineMap() => !RewritesTranscriptInPlace(source.Vendor) ? null
-        : source.AgentId is null && Numbering.Read(source.SessionId) is { } recorded ? recorded
-        : new();
+    TranscriptLineMap? NewLineMap() {
+        if (!RewritesTranscriptInPlace(source.Vendor)) return null;
+        if (source.AgentId is not null) return new();
+
+        var recorded = Numbering.Read(source.SessionId);
+
+        return recorded is null
+            ? new TranscriptLineMap([(0, 0)], [], Numbering.ReadHashes(source.SessionId))
+            : new TranscriptLineMap(recorded.Segments, recorded.Kept, Numbering.ReadHashes(source.SessionId));
+    }
+
+    // The hashes of the lines below the cursor, which the server holds, are what the next watcher compares against.
+    void SaveSentHashes(WatchState state) {
+        if (source.AgentId is not null || state.LineMap is not { } map) return;
+
+        var sent = Math.Min(map.ToFile(state.LinesProcessed), map.Known);
+        if (sent == map.HashesSaved) return;
+
+        Numbering.SaveHashes(source.SessionId, map.Hashes, map.HashesSaved, sent);
+        map.HashesSaved = sent;
+    }
 
     /// <summary>
     /// Reads past <paramref name="sentCursor"/> in a transcript its agent can rewrite, with each line numbered as it

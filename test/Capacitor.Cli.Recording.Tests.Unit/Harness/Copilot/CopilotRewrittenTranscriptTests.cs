@@ -170,6 +170,22 @@ public class CopilotRewrittenTranscriptTests {
             Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).Append((14, Line("a", 9))).ToArray());
     }
 
+    /// <summary>A rewrite while no watcher ran, which grew the file past the cursor again, is still found: the next
+    /// watcher compares the lines below the cursor with what the one before it sent.</summary>
+    [Test]
+    public async Task A_rewrite_while_no_watcher_ran_is_found_by_the_next_one() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, Lines("a", 0, 5) + Lines("b", 5, 7));
+
+        var restarted = new TestRecorders(Config.Root);
+        restarted.Transport.IsConnected = true;
+        await restarted.For(Sid, path, null, "copilot").DrainNewLines(
+            new WatchState { LinesProcessed = state.LinesProcessed, ThresholdReached = true }, CancellationToken.None);
+
+        var resent = restarted.Transport.Batches.SelectMany(b => b.LineNumbers!.Zip(b.Lines, (n, l) => (n, l))).ToArray();
+        await Assert.That(resent).IsEquivalentTo(Enumerable.Range(5, 7).Select(i => (i + 5, Line("b", i))).ToArray());
+    }
+
     /// <summary>A watcher started again on a rewritten transcript numbers its lines the way the one before it did.</summary>
     [Test]
     public async Task A_restarted_watcher_numbers_lines_as_the_one_before_it_did() {

@@ -19,6 +19,17 @@ public class TranscriptRenumberingTests {
         await Assert.That(read.Kept).IsEquivalentTo(new Dictionary<int, int> { [9] = 9 });
     }
 
+    /// <summary>Only the hashes past the ones kept unchanged are written, and a shorter count drops the rest.</summary>
+    [Test]
+    public async Task Saved_hashes_keep_the_unchanged_prefix_and_replace_the_rest() {
+        Store.SaveHashes(Sid, [1, 2, 3], saved: 0, count: 3);
+        Store.SaveHashes(Sid, [1, 9, 7, 4], saved: 1, count: 4);
+        await Assert.That(Store.ReadHashes(Sid)).IsEquivalentTo(new ulong[] { 1, 9, 7, 4 });
+
+        Store.SaveHashes(Sid, [1, 9], saved: 4, count: 2);
+        await Assert.That(Store.ReadHashes(Sid)).IsEquivalentTo(new ulong[] { 1, 9 });
+    }
+
     /// <summary>A record replaces the file rather than rewriting it in place, so an import reading it at the same
     /// moment reads the whole of one version or the other, never an empty or partial one.</summary>
     [Test]

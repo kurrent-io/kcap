@@ -30,6 +30,12 @@ public sealed class TranscriptLineMap {
     /// <summary>How many lines from the top of the file have been read.</summary>
     public int Known => _hashes.Count;
 
+    /// <summary>The hash of each line read, from the top of the file.</summary>
+    public IReadOnlyList<ulong> Hashes => _hashes;
+
+    /// <summary>How many of <see cref="Hashes"/> are kept on disk unchanged since.</summary>
+    public int HashesSaved { get; set; }
+
     /// <summary>Counts a poll; true for the first and every <paramref name="every"/>th after it.</summary>
     public bool PollIsDue(int every) => _polls++ % every == 0;
 
@@ -37,13 +43,17 @@ public sealed class TranscriptLineMap {
 
     /// <summary>A map numbering lines as <paramref name="segments"/> say, with the copies <paramref name="kept"/>
     /// names, and holding no hashes.</summary>
-    public TranscriptLineMap(IEnumerable<(int FileLine, int Shift)> segments, IEnumerable<KeyValuePair<int, int>> kept) {
+    public TranscriptLineMap(
+            IEnumerable<(int FileLine, int Shift)> segments, IEnumerable<KeyValuePair<int, int>> kept, IEnumerable<ulong>? hashes = null) {
         foreach (var segment in segments) {
             if (segment.FileLine > _segments[^1].FileLine) _segments.Add(segment);
             else if (segment.FileLine == 0) _segments[0] = segment;
         }
 
         foreach (var (fileLine, sent) in kept) _kept[fileLine] = sent;
+
+        _hashes.AddRange(hashes ?? []);
+        HashesSaved = _hashes.Count;
     }
 
     /// <summary>File lines a rewrite kept unchanged from lines already sent, each with its original's sent number.</summary>
@@ -81,8 +91,13 @@ public sealed class TranscriptLineMap {
             var at = fileLines[i];
             while (_hashes.Count < at) _hashes.Add(BlankHash);
 
-            if (at < _hashes.Count) _hashes[at] = Hash(lines[i]);
-            else _hashes.Add(Hash(lines[i]));
+            var hash = Hash(lines[i]);
+            if (at >= _hashes.Count) {
+                _hashes.Add(hash);
+            } else if (_hashes[at] != hash) {
+                _hashes[at] = hash;
+                HashesSaved = Math.Min(HashesSaved, at);
+            }
         }
 
         while (_hashes.Count < nextLine) _hashes.Add(BlankHash);
@@ -128,6 +143,7 @@ public sealed class TranscriptLineMap {
         foreach (var line in _kept.Keys.Where(k => k >= fileLine).ToList()) _kept.Remove(line);
 
         if (fileLine < _hashes.Count) _hashes.RemoveRange(fileLine, _hashes.Count - fileLine);
+        HashesSaved = Math.Min(HashesSaved, fileLine);
         _segments.RemoveAll(s => s.FileLine >= fileLine && s.FileLine > 0);
 
         var shift = nextSentLine - fileLine;
