@@ -92,6 +92,8 @@ public class AgentOrchestratorBorrowLaunchTests {
             var ctx = factory.LastContext!;
             await Assert.That(ctx.Work).IsEqualTo(WorkLocation.OwnedWorktree);
             await Assert.That(ctx.Worktree.Path).IsNotEqualTo(cwd);
+            await Assert.That(Path.GetFileName(ctx.Worktree.SnapshotRoot))
+                .IsEqualTo(AgentWorkspaceNames.BorrowedSnapshot(cmd.AgentId));
             await Assert.That(File.ReadAllText(Path.Combine(ctx.Worktree.Path, "README.md")))
                 .IsEqualTo("dirty-one");
             await Assert.That(File.ReadAllText(Path.Combine(ctx.Worktree.Path, "untracked.txt")))

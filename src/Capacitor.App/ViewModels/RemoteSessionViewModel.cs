@@ -155,6 +155,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             if (_sessionEnded == value) return;
             this.RaiseAndSetIfChanged(ref _sessionEnded, value);
             this.RaisePropertyChanged(nameof(AccessNote));
+            RaiseConnectionNotice();
             _sessionEndedChanges.OnNext(value);
         }
     }
@@ -200,6 +201,24 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         }
     }
 
+    bool _hasEstablishedAccess;
+    bool _connectionFailed;
+    readonly LocalServerRecoveryViewModel? _localServer;
+    public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
+    public bool HasConnectionNotice => ConnectionNotice is not null;
+    public SessionConnectionPresentation? ConnectionNotice => OriginChangedToLocal ? null : Access switch {
+        RemoteSessionAccess.NoSession when !SessionEnded => SessionConnectionPresentation.Starting(
+            "Waiting for the agent to register.", ShowsTerminalTab ? ShowTerminalCommand : null),
+        RemoteSessionAccess.Connecting when !_hasEstablishedAccess => SessionConnectionPresentation.Connecting(),
+        RemoteSessionAccess.Connecting or RemoteSessionAccess.Offline when _localServer is { IsLocalServer: true, IsStarting: true } =>
+            SessionConnectionPresentation.LocalServerStarting(),
+        RemoteSessionAccess.Offline when _connectionFailed && _localServer is { IsLocalServer: true, ServerDown: true, StartOffered: true } =>
+            SessionConnectionPresentation.LocalServerStopped(_localServer.StartCommand),
+        RemoteSessionAccess.Offline when _connectionFailed => SessionConnectionPresentation.Failed(RetryConnectionCommand),
+        RemoteSessionAccess.Connecting or RemoteSessionAccess.Offline => SessionConnectionPresentation.Reconnecting(),
+        _ => null,
+    };
+
     RemoteSessionAccess _accessState = RemoteSessionAccess.NoSession;
     public RemoteSessionAccess Access {
         get => _accessState;
@@ -218,7 +237,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// empty, and offers the terminal; whether the terminal may show is the server's answer to its own
     /// subscribe, which it gives before a session too, so its pane shows whenever its tab is selected.
     public bool ShowsPanes =>
-        Access is RemoteSessionAccess.Ready or RemoteSessionAccess.Offline && !OriginChangedToLocal;
+        (Access is RemoteSessionAccess.Ready or RemoteSessionAccess.Offline
+            || Access == RemoteSessionAccess.Connecting && _hasEstablishedAccess) && !OriginChangedToLocal;
+
+    // Loading and transport loss do not revoke context. A refusal still hides server data.
+    public bool ShowsWorkContext => !_workAccessDenied && Access != RemoteSessionAccess.Denied && !OriginChangedToLocal;
+    public bool HasAccessNotice => AccessNote.Length > 0;
 
     public bool ShowsChatPane =>
         (ShowsPanes || Access == RemoteSessionAccess.NoSession && !_hadSession && !OriginChangedToLocal) && IsChatActive && Subagent is null;
@@ -243,7 +267,17 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     // cannot throw.
     readonly BehaviorSubject<bool> _terminalPaneShown = new(false);
 
+    void RaiseConnectionNotice() {
+        this.RaisePropertyChanged(nameof(ConnectionNotice));
+        this.RaisePropertyChanged(nameof(HasConnectionNotice));
+        if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
+        if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice;
+    }
+
     void RaiseTabProjections() {
+        RaiseConnectionNotice();
+        this.RaisePropertyChanged(nameof(ShowsWorkContext));
+        this.RaisePropertyChanged(nameof(HasAccessNotice));
         this.RaisePropertyChanged(nameof(IsChatActive));
         this.RaisePropertyChanged(nameof(IsTerminalActive));
         this.RaisePropertyChanged(nameof(IsArtefactsActive));
@@ -296,11 +330,20 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
-            Func<bool>? inAppPages = null) {
+            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
         _time = time;
+        RetryConnectionCommand = ReactiveCommand.CreateFromTask(async () => {
+            if (retryConnection is not null) await retryConnection();
+            else if (SessionId is { } sessionId) AcquireLease(sessionId);
+        });
+        _disposables.Add(RetryConnectionCommand);
+        _localServer = localServer;
+        if (localServer is not null)
+            localServer.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.StartOffered)
+                .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         _permissions = permissions;
         _readSubagent = readSubagent;
         _row = row;
@@ -377,6 +420,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
             openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
+        this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
+        lane.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
+            _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
+            RaiseConnectionNotice();
+        }).DisposeWith(_disposables);
         Chat.Tasks.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
@@ -494,6 +542,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         ShowArtefactsCommand = ReactiveCommand.Create(ShowArtefacts);
         _disposables.Add(ShowArtefactsCommand);
         _disposables.Add(_lease);
+        RaiseConnectionNotice();
     }
 
     /// <summary>The rights the held list reads under. A remote row outlives sign-outs and profile switches, and its
@@ -575,10 +624,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     void PublishWorkPresence() {
         var sessionId = _workAccessDenied ? null : _row.SessionId;
-        _presence.OnNext(new AgentStatusDto(_row.Id, _row.Kind, _row.Vendor, _row.RepoPath, _row.Status,
+        _presence.OnNext(new AgentStatusDto(_row.Id, _row.Kind, _row.Vendor, _workAccessDenied ? null : _row.RepoPath, _row.Status,
             null, null, null, _row.CreatedAt, _row.Model, _row.RequesterDisplay,
-            Title: _row.Title, WorktreePath: _row.WorktreePath, WorkLocation: _row.WorkLocation,
-            BorrowedFrom: _row.BorrowedFrom, SessionId: sessionId, Branch: _row.Branch, AwaitingInput: _row.AwaitingInput));
+            Title: _row.Title, WorktreePath: _workAccessDenied ? null : _row.WorktreePath,
+            WorkLocation: _workAccessDenied ? null : _row.WorkLocation,
+            BorrowedFrom: _workAccessDenied ? null : _row.BorrowedFrom, SessionId: sessionId,
+            Branch: _workAccessDenied ? null : _row.Branch, AwaitingInput: _row.AwaitingInput));
         if (string.IsNullOrEmpty(sessionId)) PullRequests?.ClearSession();
     }
 
@@ -588,6 +639,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     void AcquireLease(string sessionId) {
+        if (_leasedSession != sessionId) _hasEstablishedAccess = false;
         _leasedSession = sessionId;
         // The lease's first state arrives asynchronously; without this the pane keeps the previous
         // session's verdict until it does.
@@ -596,12 +648,14 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         var states = lease.State.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(s => {
             _accessStates.OnNext(s);
             if (s == SessionAccessState.Denied) {
+                _hasEstablishedAccess = false;
                 _workAccessDenied = true;
                 PublishWorkPresence();
             } else if (s == SessionAccessState.Established && _workAccessDenied) {
                 _workAccessDenied = false;
                 PublishWorkPresence();
             }
+            if (s == SessionAccessState.Established) _hasEstablishedAccess = true;
             Access = s switch {
                 SessionAccessState.Established => RemoteSessionAccess.Ready,
                 SessionAccessState.Denied => RemoteSessionAccess.Denied,

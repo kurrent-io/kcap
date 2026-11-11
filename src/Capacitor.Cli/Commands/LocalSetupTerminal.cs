@@ -164,7 +164,8 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
         if (withBuiltin is not null) choices.Add(withBuiltin);
         choices.Add(keyword);
 
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Search by meaning with:").UseConverter(Markup.Escape).AddChoices(choices));
+        var picked = WizardChoice.Ask(AnsiConsole.Console,
+            new SelectionPrompt<string>().Title("Search by meaning with:").UseConverter(Markup.Escape).AddChoices(choices), c => c);
 
         if (picked == keyword) return new LocalEmbeddingAnswer.Skip();
         if (picked == withBuiltin) return new LocalEmbeddingAnswer.Builtin();
