@@ -16,9 +16,7 @@ internal sealed record ClaudeSteeringMod(IReadOnlyList<(string SettingsPath, str
         List<(string, string?)> targets = [(harnesses.Of<ClaudeHarness>().Paths.UserSettings, null)];
         var defaultDir = AccountLayouts.DefaultDirectory(HarnessId.Claude, home);
 
-        foreach (var account in accounts.TryLoad()?.Accounts ?? []) {
-            if (account.Vendor != HarnessId.Claude) continue;
-
+        foreach (var account in (accounts.TryLoad()?.Accounts ?? []).Where(account => account.Vendor == HarnessId.Claude)) {
             var settings = AccountLayouts.Claude(home, account.Directory).UserSettings;
             if (targets.Any(t => t.Item1 == settings)) continue;
 
