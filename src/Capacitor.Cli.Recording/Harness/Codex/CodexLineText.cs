@@ -9,9 +9,10 @@ namespace Capacitor.Cli.Recording.Harness.Codex;
 public static class CodexLineText {
     /// <summary>
     /// The person's words in a role:"user" message: every <c>input_text</c> block, in order and joined by a
-    /// newline as the transcript projection joins them, each with the context Codex injects ahead of a prompt
+    /// newline as the transcript projection joins them, with the context Codex injects ahead of a prompt
     /// stripped. Null when the message holds only that context. The marker list is <see cref="CodexPrelude"/>'s,
-    /// so a block Codex adds is learnt in one place.
+    /// so a block Codex adds is learnt in one place. A block with no prelude is kept verbatim, so indented code
+    /// in a later block keeps its indentation.
     /// </summary>
     public static string? ExtractCodexUserPrompt(JsonElement payload) {
         if (payload.Arr("content") is not { } content) return null;
@@ -20,13 +21,15 @@ public static class CodexLineText {
 
         foreach (var block in content.EnumerateArray()) {
             if (block.Str("type") != "input_text" || block.Str("text") is not { Length: > 0 } text) continue;
-            if (CodexPrelude.StripLeading(text).Trim() is not { Length: > 0 } words) continue;
+
+            var words = CodexPrelude.StartsWithPrelude(text) ? CodexPrelude.StripLeading(text) : text;
+            if (string.IsNullOrWhiteSpace(words)) continue;
 
             if (prompt is null) prompt = new StringBuilder(words);
             else prompt.Append('\n').Append(words);
         }
 
-        return prompt?.ToString();
+        return prompt?.ToString().Trim();
     }
 
     public static string? ExtractCodexBlockText(JsonElement payload, string blockType) {

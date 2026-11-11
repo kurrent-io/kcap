@@ -48,6 +48,14 @@ public class CodexTranscriptExtractionTests {
     }
 
     [Test]
+    public async Task UserText_keeps_the_indentation_of_a_later_prompt_block() {
+        var line = UserLine(RecommendedPlugins, "Why does this loop?", "    if ready:\n        run()");
+
+        await Assert.That(TranscriptLineText.TryExtractUserText(line, "codex"))
+            .IsEqualTo("Why does this loop?\n    if ready:\n        run()");
+    }
+
+    [Test]
     public async Task UserText_Extracts_InputText_FromResponseItem() {
         const string line = """
             {"type":"response_item","payload":{"type":"message","role":"user",
