@@ -9,7 +9,7 @@ namespace Capacitor.Cli.Recording.Harness.Copilot;
 /// <summary>
 /// An end a stopped Copilot watcher could not yet prove: quitting VS Code terminates its watchers before the runtime has
 /// exited or written <c>session.shutdown</c>, and a session whose sessionEnd hook Copilot skipped has no other owner.
-/// Every spool drain moves a due one into the lifecycle spool, and drops one whose session went on.
+/// Every spool drain moves a due one into the lifecycle spool, and drops one whose session began a new run.
 /// </summary>
 public static class CopilotPendingEnd {
     public const string Route = "session-end/copilot";
@@ -84,7 +84,7 @@ public static class CopilotPendingEnd {
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
         var shutdown   = EndsOnShutdown(transcript);
 
-        if (!shutdown && LengthOf(transcript) > (record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
+        if (!shutdown && NewRunSince(transcript, record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
 
         var runtimeGone = record["runtime_pid"]?.GetValue<int>() is { } pid
                        && (record["runtime_token"]?.GetValue<string>() is not { } token || ProcessStartToken.ForPid(pid) is null || ProcessStartToken.Matches(pid, token) == false);
@@ -94,6 +94,40 @@ public static class CopilotPendingEnd {
         string? Drop() {
             Discard(paths, session);
 
+            return null;
+        }
+    }
+
+    /// <summary>Whether a line written after <paramref name="offset"/> starts a run: Copilot can still append the stopped
+    /// run's final turn before its shutdown line, so growth alone proves nothing.</summary>
+    static bool NewRunSince(string transcript, long offset) {
+        try {
+            if (!File.Exists(transcript)) return false;
+
+            using var stream = new FileStream(transcript, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (offset > stream.Length) return false;
+            stream.Seek(offset, SeekOrigin.Begin);
+
+            using var reader = new StreamReader(stream);
+
+            while (reader.ReadLine() is { } line) {
+                if (TypeOf(line) is "session.start" or "session.resume" or "user.message") return true;
+            }
+
+            return false;
+        } catch (IOException) {
+            return false;
+        }
+    }
+
+    static string? TypeOf(string line) {
+        try {
+            using var doc = JsonDocument.Parse(line);
+
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                ? type.GetString()
+                : null;
+        } catch (JsonException) {
             return null;
         }
     }

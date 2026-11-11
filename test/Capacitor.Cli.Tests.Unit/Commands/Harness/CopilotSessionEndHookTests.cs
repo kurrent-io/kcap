@@ -88,6 +88,33 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(File.Exists(CopilotEndHandoff.MarkerFile(paths, Canonical))).IsFalse();
     }
 
+    /// <summary>A live watcher the hook cannot mark as handed off would still send its own end, so the hook sends none:
+    /// two ends with different reasons and times would record two.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task a_hook_that_cannot_mark_the_handoff_leaves_the_end_to_the_watcher() {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        using var watcher = DummyProcess.StartSleep(30);
+        await File.WriteAllTextAsync(paths.PidFile(Canonical), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
+        WatcherHeartbeat.Touch(paths.StartedFile(Canonical), DateTimeOffset.UtcNow);
+        WatcherHeartbeat.Touch(paths.HeartbeatFile(Canonical), DateTimeOffset.UtcNow);
+        File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            var client  = new FixedCapacitorHttpClient();
+            var starter = FakeProcessStarter.Running(_ => Process.GetCurrentProcess());
+            await Hook(Watchers(starter, client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
+
+            await Assert.That(SpooledEnds()).DoesNotContain("session-end/copilot");
+            await Assert.That(starter.Starts).IsEqualTo(0);
+            await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())).IsEmpty();
+            await Assert.That(watcher.HasExited).IsFalse();
+        } finally {
+            File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     /// <summary>The hook records the watcher whose end it took over, asks it to stop and leaves its going to the
     /// finalizer. One that ignores the request is still running when the hook returns: a hook that waited would have
     /// killed it.</summary>

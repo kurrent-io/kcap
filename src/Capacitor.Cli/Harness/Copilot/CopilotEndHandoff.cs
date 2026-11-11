@@ -27,6 +27,13 @@ public static class CopilotEndHandoff {
         }
     }
 
+    /// <summary>Gives the end back to the watcher, for a hook that could not make its own durable.</summary>
+    public static void Withdraw(WatcherPaths paths, string key) {
+        try {
+            File.Delete(MarkerFile(paths, key));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
     /// <summary>Whether the watcher the pid file names now is the one whose end was handed off.</summary>
     public static bool CoversCurrentWatcher(WatcherPaths paths, string key) {
         try {

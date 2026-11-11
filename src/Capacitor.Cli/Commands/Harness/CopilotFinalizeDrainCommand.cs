@@ -4,6 +4,8 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Runtime.InteropServices;
 
 namespace Capacitor.Cli.Commands.Harness;
@@ -81,7 +83,7 @@ sealed class CopilotFinalizeDrainCommand(
     /// <paramref name="pollBudget"/>), deliver the tail, then end the session. No
     /// process detachment or log redirection, so tests drive it directly.
     /// </summary>
-    internal async Task RunAsync(
+    internal async Task<bool> RunAsync(
             string   sessionId,
             string   transcriptPath,
             string?  endBody,
@@ -127,6 +129,8 @@ sealed class CopilotFinalizeDrainCommand(
 
         // Only after an end the server took: a span must never outlive a lost end.
         if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+
+        return posted;
     }
 
     /// <summary>Delivers the end the hook spooled, or <paramref name="endBody"/> when it could not, and says whether the
@@ -186,12 +190,16 @@ sealed class CopilotFinalizeDrainCommand(
         // A spooled start goes ahead of the end, and the drain keeps that order.
         if (endBody is not null) spool.Append(sessionId, route, endBody);
 
-        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(spool, sessionId);
+        // An empty spool proves nothing: a rejected end leaves it as well.
+        DrainOutcome? ended = null;
 
-        var delivered = !spool.HasBacklog(sessionId);
-        Log($"session end for {sessionId}: {(delivered ? "Posted" : "Spooled")}");
+        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(spool, sessionId, (entryRoute, body, outcome) => {
+            if (HookSpool.IsTerminalRoute(entryRoute) && SessionOf(body) == sessionId) ended = outcome;
+        });
 
-        return delivered;
+        Log($"session end for {sessionId}: {ended?.ToString() ?? "left spooled"}");
+
+        return ended == DrainOutcome.Delivered;
     }
 
     // A post still in flight at the cap goes to the spool as well: the server derives the end's event id from its reason
@@ -212,6 +220,14 @@ sealed class CopilotFinalizeDrainCommand(
         Log($"session end post for {sessionId} unanswered after {cap.TotalSeconds:0}s; spooling it");
 
         return spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped;
+    }
+
+    static string? SessionOf(string body) {
+        try {
+            return JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+            return null;
+        }
     }
 
     /// <summary>

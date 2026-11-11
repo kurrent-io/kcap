@@ -103,13 +103,20 @@ public static class LifecycleSpoolDrain {
     /// <c>generate_whats_done</c> vendor-agnostically, see <c>WatchCommand</c>'s parent-exit path) would
     /// silently drop the what's-done generation. Callers that don't need it (or can't reach the
     /// process-spawning helper — the daemon has its own) may omit it.</para>
+    /// <para><paramref name="onLifecycleOutcome"/> sees what the server made of each lifecycle entry, for a caller that
+    /// must tell a delivered end from one a rejection removed.</para>
     /// </summary>
     public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
                                 TimeProvider time, CancellationToken ct,
-                                Action<string, string>? onWhatsDoneRequested = null)
+                                Action<string, string>? onWhatsDoneRequested = null,
+                                Action<string, string, DrainOutcome>? onLifecycleOutcome = null)
         => RunAsync(config, lifecycle, transcript, currentSessionId,
-            lifecyclePoster: (route, body) => PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested),
+            lifecyclePoster: async (route, body) => {
+                var outcome = await PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested);
+                onLifecycleOutcome?.Invoke(route, body, outcome);
+                return outcome;
+            },
             transcriptPoster: body => PostTranscript(markers, client, baseUrl, body, time, ct),
             budget, time, ct);
 

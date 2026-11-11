@@ -224,7 +224,7 @@ internal sealed class AgentHookPoster(
     /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
     /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
     /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>
+    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Action{string,string,DrainOutcome}?)"/>
     /// directly instead.
     ///
     /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
@@ -255,8 +255,8 @@ internal sealed class AgentHookPoster(
             http.ForHookAsync);
 
     /// <summary>A drain that ignores the throttle, for a caller holding an end it must deliver now. Never throws.</summary>
-    public Task DrainSpoolsNowAsync(HookSpool lifecycle, string sessionId) =>
-        DrainSpoolsUnthrottledAsync(lifecycle, new TranscriptSpool(config, time, Url), sessionId, http.ForHookAsync);
+    public Task DrainSpoolsNowAsync(HookSpool lifecycle, string sessionId, Action<string, string, DrainOutcome>? onLifecycleOutcome = null) =>
+        DrainSpoolsUnthrottledAsync(lifecycle, new TranscriptSpool(config, time, Url), sessionId, http.ForHookAsync, onLifecycleOutcome);
 
     /// <summary>
     /// The drain itself, with the client factory handed in. Separate from
@@ -279,7 +279,7 @@ internal sealed class AgentHookPoster(
 
     async Task DrainSpoolsUnthrottledAsync(
             HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
-            Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
+            Func<CancellationToken, Task<AuthAttempt>> clientFactory, Action<string, string, DrainOutcome>? onLifecycleOutcome = null) {
         // Retention runs even when delivery cannot: the reap lives here, and Program.cs skips this
         // whole call while the URL is unacceptable, so an indefinitely broken config would otherwise
         // never reap anything.
@@ -316,7 +316,7 @@ internal sealed class AgentHookPoster(
                 await LifecycleSpoolDrain.RunAsync(
                     config, new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
-                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
+                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr), onLifecycleOutcome);
 
             }
         } catch {

@@ -227,7 +227,7 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
     }
 
-    Task RunQuickly(string sessionId, string path, string? endBody = EndBody) =>
+    Task<bool> RunQuickly(string sessionId, string path, string? endBody = EndBody) =>
         Finalizer().RunAsync(sessionId, path, endBody, pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(100), watcherStopGrace: TimeSpan.FromMilliseconds(300));
 
     [Test]
@@ -491,6 +491,35 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
 
         var posts = _server.LogEntries.Select(entry => entry.RequestMessage.Path).Where(path => path.StartsWith("/hooks/", StringComparison.Ordinal)).ToList();
         await Assert.That(string.Join(" ", posts)).IsEqualTo("/hooks/transcript /hooks/session-end/copilot");
+    }
+
+    /// <summary>A spooled end the server rejects is gone from the spool without having been taken, so nothing that
+    /// waits on a taken end, such as closing the workspace span, may follow.</summary>
+    [Test]
+    public async Task ReportsNoEnd_WhenTheServerRejectsTheSpooledOne() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-spooled-rejected";
+        StubServer(sessionId);
+        StubSessionEnd(400);
+        var end = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        Spool().Append(sessionId, "session-end/copilot", end);
+
+        var taken = await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: null);
+
+        await Assert.That(SessionEndBodies()).IsEquivalentTo([end]);
+        await Assert.That(taken).IsFalse();
+    }
+
+    [Test]
+    public async Task ReportsTheEnd_WhenTheServerTakesTheSpooledOne() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-spooled-taken";
+        StubServer(sessionId);
+        StubSessionEnd();
+        var end = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        Spool().Append(sessionId, "session-end/copilot", end);
+
+        await Assert.That(await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: null)).IsTrue();
     }
 
     /// <summary>A handed-off watcher a daemon's claim keeps the kill from reaching is still streaming, so its end waits

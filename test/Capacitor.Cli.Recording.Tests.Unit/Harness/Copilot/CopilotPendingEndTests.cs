@@ -52,17 +52,38 @@ public class CopilotPendingEndTests {
         await Assert.That(Spool.HasBacklog(Session)).IsTrue();
     }
 
-    /// <summary>New lines with no shutdown after them are the session going on: its own hooks and watcher own the end.</summary>
+    /// <summary>A new run is the session going on: its own hooks and watcher own the end.</summary>
     [Test]
-    public async Task An_end_is_dropped_when_the_session_goes_on() {
+    [Arguments("""{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""")]
+    [Arguments("""{"type":"session.start","data":{},"id":"evt-s","timestamp":3}""")]
+    [Arguments("""{"type":"user.message","data":{"content":"next"},"id":"evt-u","timestamp":3}""")]
+    public async Task An_end_is_dropped_when_a_new_run_begins(string line) {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
+        await File.AppendAllTextAsync(transcript, line + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+        await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+    }
+
+    /// <summary>Copilot can append the final turn after its watcher was stopped and before it writes the shutdown line:
+    /// that is the run finishing, not a new one.</summary>
+    [Test]
+    public async Task An_end_waits_through_the_final_turn_for_the_shutdown_line() {
         using var runtime = DummyProcess.StartSleep(30);
         var transcript = Transcript(Turn);
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
         await File.AppendAllTextAsync(transcript, Turn + "\n");
 
         await Assert.That(Sweep()).IsEqualTo(0);
-        await Assert.That(Pending).IsFalse();
-        await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+        await Assert.That(Pending).IsTrue();
+
+        await File.AppendAllTextAsync(transcript, Down + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(1);
+        await Assert.That(Spool.HasBacklog(Session)).IsTrue();
     }
 
     [Test]
