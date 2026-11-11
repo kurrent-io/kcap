@@ -710,7 +710,7 @@ static class SessionImporter {
         }
 
         if (loss is not null) {
-            if (failOnError) throw new HttpRequestException($"transcript batch lines {first}-{last} failed: {loss}", cause);
+            if (failOnError) throw new HttpRequestException($"transcript batch lines {first + 1}-{last + 1} failed: {loss}", cause);
 
             progress?.Report(new BatchDropped(sessionId, agentId, first, last, loss));
         }
