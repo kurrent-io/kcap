@@ -16,9 +16,8 @@ public class InstallStepWindowsServiceTests {
 
     TelemetryProbe Probe() => TelemetryProbe.Live("setup", Config.Root);
 
-    LocalInstallController Controller(FakeKcapCli cli, Func<Task>? rememberDeclined = null) =>
-        new(() => cli, LocalSetupScript.NoSetup(Config), () => false, action => action(), Probe().Funnel,
-            rememberWindowsServiceDeclined: rememberDeclined);
+    LocalInstallController Controller(FakeKcapCli cli) =>
+        new(() => cli, LocalSetupScript.NoSetup(Config), () => false, action => action(), Probe().Funnel);
 
     static InstallStepViewModel Step(
             LocalInstallController controller, WindowsServiceOffer? offer, SearchChoiceViewModel? search = null) =>
@@ -50,37 +49,27 @@ public class InstallStepWindowsServiceTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Unticking_the_service_installs_without_it_and_is_remembered_as_declined() {
+    public async Task Unticking_the_service_installs_without_it() {
         var cli = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(0, LocalSetupScript.Committed) };
-        var remembered = 0;
 
         await AvaloniaSession.DispatchAsync(async () => {
-            var install = Step(Controller(cli, () => {
-                remembered++;
-                return Task.CompletedTask;
-            }), WindowsServiceOffer.On);
+            var install = Step(Controller(cli), WindowsServiceOffer.On);
             await install.OnEnterAsync(CancellationToken.None);
             install.RunAsWindowsService = false;
             return await install.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
         });
 
         await Assert.That(cli.SetupLocalWindowsService).IsEquivalentTo([false]);
-        await Assert.That(remembered).IsEqualTo(1);
     }
 
-    /// The decline is remembered, so the app's own service offer does not ask again, and a retry of the same
-    /// install goes ahead without the prompt.
+    /// A retry of the same install goes ahead without the prompt the user declined.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_declined_prompt_is_remembered_and_the_page_says_kcap_runs_while_signed_in() {
-        var remembered = 0;
+    public async Task A_declined_prompt_is_not_retried_and_the_page_says_kcap_runs_while_signed_in() {
         var cli = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(1, Declined, LocalSetupScript.Failed("download_failed")) };
 
         var (note, retryAsks) = await AvaloniaSession.DispatchAsync(async () => {
-            var controller = Controller(cli, () => {
-                remembered++;
-                return Task.CompletedTask;
-            });
+            var controller = Controller(cli);
             var install = Step(controller, WindowsServiceOffer.On);
             await install.OnEnterAsync(CancellationToken.None);
             await install.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
@@ -88,30 +77,26 @@ public class InstallStepWindowsServiceTests {
             return (install.WindowsServiceNoteVisible ? install.WindowsServiceNote : null, controller.WindowsService);
         });
 
-        await Assert.That(remembered).IsEqualTo(1);
         await Assert.That(note).IsEqualTo(InstallStepViewModel.WindowsServiceDeclinedNote);
         await Assert.That(retryAsks).IsFalse();
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_unavailable_service_is_noted_and_not_offered_again() {
-        var remembered = 0;
+    public async Task An_unavailable_service_is_noted_and_not_retried() {
         var cli = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(0, Unavailable, LocalSetupScript.Committed) };
 
-        var note = await AvaloniaSession.DispatchAsync(async () => {
-            var install = Step(Controller(cli, () => {
-                remembered++;
-                return Task.CompletedTask;
-            }), WindowsServiceOffer.On);
+        var (note, retryAsks) = await AvaloniaSession.DispatchAsync(async () => {
+            var controller = Controller(cli);
+            var install = Step(controller, WindowsServiceOffer.On);
             await install.OnEnterAsync(CancellationToken.None);
             await install.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
 
-            return install.WindowsServiceNote;
+            return (install.WindowsServiceNote, controller.WindowsService);
         });
 
-        await Assert.That(remembered).IsEqualTo(1);
         await Assert.That(note).IsEqualTo(InstallStepViewModel.WindowsServiceUnavailableNote);
+        await Assert.That(retryAsks).IsFalse();
     }
 
     /// Keyword search needs no Ollama, so only the other answers wait for the check.
