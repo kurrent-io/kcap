@@ -75,19 +75,23 @@ sealed class CaptureScope {
     }
 
     /// <summary>
-    /// Whether the profile keeps a discovered session out of any import, judged on what discovery already resolved
-    /// so a report costs no further <c>git</c> runs. Paths are judged on the raw cwd alone, as <see cref="Stamp"/>
-    /// judges them: a remap into an ignored folder does not keep a session out. The raw cwd's own repository is not
-    /// detected here, so an <c>excluded_repos</c> entry only that repository matches goes unreported.
+    /// Whether the profile keeps a discovered session out of any import, judged as <see cref="Stamp"/> judges it:
+    /// paths on the raw cwd alone, so a remap into an ignored folder does not keep a session out, and
+    /// <c>excluded_repos</c> on both the resolved repository and <paramref name="rawRepo"/>, the raw cwd's own.
     /// </summary>
     internal static bool ExcludesDiscovered(
-            Profile profile, UserHome home, string? rawCwd, (string Owner, string Name)? repo) {
+            Profile profile, UserHome home, string? rawCwd, (string Owner, string Name)? repo, string? rawRepo = null) {
         var repoKey = repo is { } r ? $"{r.Owner}/{r.Name}" : null;
 
-        return PathExclusion.IsExcluded(rawCwd, profile.ExcludedPaths, home)
-            || PathExclusion.IsOutsideAllowlist(rawCwd, profile.AllowedPaths, home)
+        return ExcludesRecorded(profile, home, rawCwd, rawRepo)
             || RepoScope.IsOutOfScope(repoKey, profile.AllowedRepos, profile.ExcludedRepos);
     }
+
+    /// <summary>The part of <see cref="ExcludesDiscovered"/> judged on the raw cwd alone, which no remap can lift.</summary>
+    internal static bool ExcludesRecorded(Profile profile, UserHome home, string? rawCwd, string? rawRepo) =>
+        PathExclusion.IsExcluded(rawCwd, profile.ExcludedPaths, home)
+     || PathExclusion.IsOutsideAllowlist(rawCwd, profile.AllowedPaths, home)
+     || rawRepo is not null && profile.ExcludedRepos is { Length: > 0 } && RepoScope.Names(profile.ExcludedRepos, rawRepo);
 
     /// <summary>
     /// The statuses that can still reach the server this run: <c>BuildImportChains</c> takes New and

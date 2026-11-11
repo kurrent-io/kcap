@@ -1076,22 +1076,20 @@ class ImportCommand(
             }
         }
 
-        // --- Missing cwd report ---
-        // Surface transcripts whose (possibly remapped) cwd no longer exists on
-        // disk so the user understands why some sessions won't match an org or
-        // repo scope, and can fix it by adding cwd_remap entries.
+        var (ignored, ignoredBeyondRemap) =
+            await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved);
+
+        // Folders that no longer exist explain why a session matches no repository and can be remapped. An allow
+        // list that rejects an unresolved repository may admit it once remapped, so only a session no remap can
+        // bring back into scope is left out of that report.
         ReportWorktreeAttributions(worktreeAttributed.Count, display);
-        ReportMissingCwds(sessionCwds, cwdRemap, display, home);
+        ReportMissingCwds(
+            ignoredBeyondRemap.Count == 0
+                ? sessionCwds
+                : sessionCwds.Where(kv => !ignoredBeyondRemap.Contains(kv.Key)).ToDictionary(StringComparer.Ordinal),
+            cwdRemap, display, home);
 
         if (discoverOnly) {
-            var ignored = profiles.Effective is { } scopedProfile
-                ? discoveriesPerSource.SelectMany(d => d)
-                    .Where(d => CaptureScope.ExcludesDiscovered(
-                        scopedProfile, home, rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd, resolved.GetValueOrDefault(d.SessionId)))
-                    .Select(d => d.SessionId)
-                    .ToHashSet(StringComparer.Ordinal)
-                : [];
-
             discoverySink(new ImportDiscoveryResult(
                 ImportDiscoverySummary.Build(
                     // Each source dates its own sessions: the rule differs per vendor and only the
@@ -3113,6 +3111,57 @@ class ImportCommand(
         if (wasStripped) worktreeAttributed?.Add(sessionId);
 
         return final;
+    }
+
+    /// <summary>
+    /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
+    /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
+    /// session whose recorded folder lies in an excluded repository after a remap or worktree fallback moved it, so
+    /// only that folder's repository is detected.
+    /// </summary>
+    async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap)> CaptureScopeExclusionsAsync(
+            IEnumerable<DiscoveredSession>                            sessions,
+            IReadOnlyDictionary<string, string>                       rawCwds,
+            IReadOnlyDictionary<string, string>                       sessionCwds,
+            IReadOnlyDictionary<string, (string Owner, string Name)?> resolved) {
+        if (profiles.Effective is not { } profile) return (FrozenSet<string>.Empty, FrozenSet<string>.Empty);
+
+        var judged = sessions
+            .Select(d => (d.SessionId, Cwd: rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd
+                ?? (d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded ? SessionImporter.DecodeCwdFromDirName(encoded) : null)))
+            .ToList();
+
+        var rawRepos = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
+
+        if (profile.ExcludedRepos is { Length: > 0 }) {
+            var moved = judged
+                .Where(j => j.Cwd is not null && sessionCwds.TryGetValue(j.SessionId, out var effective)
+                         && !string.Equals(effective, j.Cwd, StringComparison.Ordinal) && Directory.Exists(j.Cwd))
+                .Select(j => j.Cwd!)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            await Parallel.ForEachAsync(moved, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
+                try {
+                    var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
+                    rawRepos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? $"{o}/{n}" : null;
+                } catch {
+                    rawRepos[cwd] = null;
+                }
+            });
+        }
+
+        var all         = new HashSet<string>(StringComparer.Ordinal);
+        var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (sessionId, cwd) in judged) {
+            var rawRepo = cwd is null ? null : rawRepos.GetValueOrDefault(cwd);
+
+            if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
+            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, resolved.GetValueOrDefault(sessionId), rawRepo)) all.Add(sessionId);
+        }
+
+        return (all, beyondRemap);
     }
 
     /// <summary>

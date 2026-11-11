@@ -14,16 +14,32 @@ public class ImportDiscoverCaptureScopeTests {
 
     [TempDir] public required TempDir Tmp { get; init; }
 
-    void WriteClaudeSession(string sessionId, string cwd) =>
-        Home.CreateDir(".claude", "projects", "-discover-" + sessionId[..8]).CreateFile($"{sessionId}.jsonl", [
-            .. Enumerable.Range(0, 5).Select(i => new JsonObject {
-                ["type"]      = "user",
-                ["sessionId"] = sessionId,
-                ["timestamp"] = $"2026-03-15T10:00:0{i}Z",
-                ["cwd"]       = cwd,
-                ["message"]   = new JsonObject { ["content"] = $"step {i}" },
-            }.ToJsonString()),
+    void WriteClaudeSession(string sessionId, string? cwd, string? projectDir = null) =>
+        Home.CreateDir(".claude", "projects", projectDir ?? "-discover-" + sessionId[..8]).CreateFile($"{sessionId}.jsonl", [
+            .. Enumerable.Range(0, 5).Select(i => {
+                var line = new JsonObject {
+                    ["type"]      = "user",
+                    ["sessionId"] = sessionId,
+                    ["timestamp"] = $"2026-03-15T10:00:0{i}Z",
+                    ["message"]   = new JsonObject { ["content"] = $"step {i}" },
+                };
+                if (cwd is not null) line["cwd"] = cwd;
+
+                return line.ToJsonString();
+            }),
         ]);
+
+    async Task<ImportCommand.ImportDiscoveryResult> DiscoverAsync(ProfileContext profiles, TestImportTerminal? terminal = null) {
+        ImportCommand.ImportDiscoveryResult? found = null;
+        var exit = await new ImportCommand(Config.Root, profiles, Home,
+                TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(),
+                time: TimeProvider.System, accounts: TestAccounts.None, console: (terminal ?? new TestImportTerminal()).Console)
+            .HandleImport(filterCwd: null, minLines: 1, discoverOnly: true, onDiscovered: r => found = r);
+
+        await Assert.That(exit).IsEqualTo(0);
+
+        return found!;
+    }
 
     [Test]
     public async Task An_ignored_folder_is_counted_as_left_out_and_not_as_unmatched() {
@@ -67,5 +83,62 @@ public class ImportDiscoverCaptureScopeTests {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(found!.Summary.IgnoredCount).IsEqualTo(0);
         await Assert.That(found.Summary.UnmatchedCount).IsEqualTo(1);
+    }
+
+    /// <summary>A transcript that records no cwd is judged on its project folder's name, the cwd the import falls back to.</summary>
+    [Test]
+    public async Task A_session_without_a_recorded_cwd_is_judged_on_its_project_folder() {
+        WriteClaudeSession("44444444-4444-4444-4444-444444444444", cwd: null, projectDir: "-kcapfallback-secret");
+
+        var found = await DiscoverAsync(Resolutions.Of(new Profile { ExcludedPaths = ["/kcapfallback/secret"] }));
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+    }
+
+    /// <summary>The import excludes a session whose recorded folder is in an excluded repository even when a remap
+    /// moves it elsewhere, so discovery must leave it out too. Without the remap the folder's own repository is
+    /// what resolves, so the remap is what makes this test about the recorded folder.</summary>
+    [Test]
+    public async Task A_remap_out_of_an_excluded_repository_still_leaves_the_session_out() {
+        var recorded = Tmp.CreateDir("old-checkout");
+        var moved    = Tmp.CreateDir("new-place");
+        using var repo = GitRepo.InitIn(recorded);
+        repo.AddRemote("https://github.com/acme/secret.git");
+        WriteClaudeSession("55555555-5555-5555-5555-555555555555", recorded.Path);
+
+        var found = await DiscoverAsync(new ProfileContext(
+            new(null, "default", new Profile { ExcludedRepos = ["acme/secret"] }, null),
+            new ProfileConfig { CwdRemap = [new CwdRemap { From = recorded.Path, To = moved.Path }] }));
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+        await Assert.That(found.Summary.UnmatchedCount).IsEqualTo(0);
+    }
+
+    /// <summary>A remap cannot bring a session under an ignored path back into scope, so its missing folder is not
+    /// named as one to remap. The folder must not exist, or the report has nothing to name either way.</summary>
+    [Test]
+    public async Task A_missing_folder_under_an_ignored_path_is_not_offered_for_a_remap() {
+        var gone = Tmp.PathTo("gone-secret");
+        WriteClaudeSession("66666666-6666-6666-6666-666666666666", gone);
+        var terminal = new TestImportTerminal();
+
+        var found = await DiscoverAsync(Resolutions.Of(new Profile { ExcludedPaths = [gone] }), terminal);
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+        await Assert.That(terminal.Plain.ToString()).DoesNotContain("no longer exist");
+    }
+
+    /// <summary>An allow list rejects a folder that resolves to no repository, which a remap may fix, so that missing
+    /// folder is still named.</summary>
+    [Test]
+    public async Task A_missing_folder_an_allow_list_rejects_is_still_offered_for_a_remap() {
+        var gone = Tmp.PathTo("gone-project");
+        WriteClaudeSession("77777777-7777-7777-7777-777777777777", gone);
+        var terminal = new TestImportTerminal();
+
+        var found = await DiscoverAsync(Resolutions.Of(new Profile { AllowedRepos = ["acme/widgets"] }), terminal);
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+        await Assert.That(terminal.Plain.ToString()).Contains("no longer exist");
     }
 }
