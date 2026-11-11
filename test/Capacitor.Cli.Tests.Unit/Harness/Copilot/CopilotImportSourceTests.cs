@@ -219,30 +219,39 @@ public class CopilotImportSourceTests {
     }
 
     /// <summary>A watcher that saw the transcript rewritten sent its later lines above their file numbers, so the
-    /// server watermark is not a file position: the import resumes at the first file line sent above it, and numbers
-    /// what it sends the way the watcher did, through every segment it numbered.</summary>
+    /// server watermark is not a file position: the import resumes at the first file line sent above it, numbers
+    /// what it sends the way the watcher did through every segment, and leaves out a copy the rewrite kept of a line
+    /// the server holds.</summary>
     [Test]
     // File lines from 2 on sent six above their own: the server's 9 is file line 3.
-    [Arguments("2 6", 9, new[] { 10, 11, 12, 13 })]
+    [Arguments("2 6", "", 9, new[] { 10, 11, 12, 13, 14, 15 })]
     // File lines 4 and 5 sent as 10 and 11, and from 6 on ten above: the server's 10 is file line 4.
-    [Arguments("4 6;6 10", 10, new[] { 11, 16, 17 })]
+    [Arguments("4 6;6 10", "", 10, new[] { 11, 16, 17, 18, 19 })]
     // The server is behind the rewrite: lines before it keep their own numbers.
-    [Arguments("4 6", 1, new[] { 2, 3, 10, 11, 12, 13 })]
-    public async Task an_import_after_a_rewrite_resumes_after_the_file_line_the_server_took(string segments, int serverLine, int[] expected) {
+    [Arguments("4 6", "", 1, new[] { 2, 3, 10, 11, 12, 13, 14, 15 })]
+    // File line 9 is a kept copy of the line sent as 9, which the server holds.
+    [Arguments("5 5", "9 9", 12, new[] { 13 })]
+    [Arguments("5 5", "9 9", 13, new int[0])]
+    // The server lost the original, so it needs the copy.
+    [Arguments("5 5", "9 9", 8, new[] { 10, 11, 12, 13, 14 })]
+    public async Task an_import_after_a_rewrite_resumes_after_the_file_line_the_server_took(
+            string segments, string kept, int serverLine, int[] expected) {
         using var tmp = new TempDir();
         var paths     = Layout(tmp);
         WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a", createdAt: "2026-06-01T10:00:00Z");
-        var prompts = Enumerable.Range(0, 7).Select(i =>
+        var prompts = Enumerable.Range(0, 9).Select(i =>
             $$$"""{"type":"user.message","data":{"content":"p{{{i}}}"},"id":"{{{i}}}","timestamp":"2026-06-10T20:23:50Z","parentId":null}""" + "\n");
-        await File.AppendAllTextAsync(Path.Combine(paths.SessionStateDir, Sid1, "events.jsonl"), string.Concat(prompts));
+        await File.AppendAllTextAsync(Path.Join(paths.SessionStateDir, Sid1, "events.jsonl"), string.Concat(prompts));
 
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
               .RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""{"last_line_number":{{serverLine}}}"""));
         server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
         using var client = new HttpClient();
-        var recorded = segments.Split(';').Select(p => p.Split(' ')).Select(p => (int.Parse(p[0], CultureInfo.InvariantCulture), int.Parse(p[1], CultureInfo.InvariantCulture)));
-        new TranscriptRenumbering(Config.Root, server.Url!).Record(Sid1.Replace("-", ""), [(0, 0), ..recorded]);
+        static (int, int)[] Pairs(string text) => text.Length == 0 ? [] : text.Split(';').Select(p => p.Split(' '))
+            .Select(p => (int.Parse(p[0], CultureInfo.InvariantCulture), int.Parse(p[1], CultureInfo.InvariantCulture))).ToArray();
+        new TranscriptRenumbering(Config.Root, server.Url!).Record(Sid1.Replace("-", ""),
+            new TranscriptLineMap([(0, 0), ..Pairs(segments)], Pairs(kept).Select(k => KeyValuePair.Create(k.Item1, k.Item2))));
 
         var source     = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);

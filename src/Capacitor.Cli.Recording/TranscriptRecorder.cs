@@ -896,7 +896,7 @@ public sealed class TranscriptRecorder(
                     lineOffsets: state.LineOffsets);
             }
 
-            var lineMap = state.LineMap ??= RewritesTranscriptInPlace(vendor) ? new() : null;
+            var lineMap = state.LineMap ??= NewLineMap();
             var read    = lineMap is null
                 ? await ReadFrom(state.LinesProcessed)
                 : await ReadRewritableAsync(state.LinesProcessed, lineMap, state.LineOffsets, ReadFrom,
@@ -1375,6 +1375,17 @@ public sealed class TranscriptRecorder(
     // appended to the shorter file.
     static bool RewritesTranscriptInPlace(string vendor) => vendor == "copilot";
 
+    // Kept for `kcap import` and for the next watcher of this transcript, which number lines through it.
+    TranscriptRenumbering Numbering => new(context.Server.Config, context.Server.Url);
+
+    void RecordNumbering(TranscriptLineMap map) {
+        if (source.AgentId is null) Numbering.Record(source.SessionId, map);
+    }
+
+    TranscriptLineMap? NewLineMap() => !RewritesTranscriptInPlace(source.Vendor) ? null
+        : source.AgentId is null && Numbering.Read(source.SessionId) is { } recorded ? recorded
+        : new();
+
     /// <summary>
     /// Reads past <paramref name="sentCursor"/> in a transcript its agent can rewrite, with each line numbered as it
     /// is sent. The line before the cursor is read again to check it is unchanged, and with
@@ -1423,7 +1434,7 @@ public sealed class TranscriptRecorder(
             if (rewrittenAt is { } changed) {
                 context.Log($"Transcript was rewritten from line {changed}; numbering the lines after it from {sentCursor}");
                 map.Rewritten(changed, sentCursor, cursor);
-                if (source.AgentId is null) new TranscriptRenumbering(context.Server.Config, context.Server.Url).Record(source.SessionId, map.Segments);
+                RecordNumbering(map);
                 offsets?.Reset();
                 wholePrefix = false;
                 continue;
@@ -1433,9 +1444,9 @@ public sealed class TranscriptRecorder(
 
             var lines   = new List<string>(read.Lines.Count);
             var numbers = new List<int>(read.Lines.Count);
-            var kept    = map.KeptCopies(read.Lines, read.LineNumbers, cursor);
+            if (map.Match(read.Lines, read.LineNumbers, cursor)) RecordNumbering(map);
             for (var i = 0; i < read.Lines.Count; i++) {
-                if (read.LineNumbers[i] < cursor || kept[i]) continue;
+                if (read.LineNumbers[i] < cursor || map.HeldBack(read.LineNumbers[i], sentCursor)) continue;
                 lines.Add(read.Lines[i]);
                 numbers.Add(map.ToSent(read.LineNumbers[i]));
             }

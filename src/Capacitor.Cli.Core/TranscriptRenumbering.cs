@@ -14,14 +14,16 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
     public TranscriptRenumbering(ConfigRoot config, string? server)
         : this(SpoolPartition.Server(config.Path(DirectoryName), server)) { }
 
-    public void Record(string sessionId, IReadOnlyList<(int FileLine, int Shift)> segments) {
+    public void Record(string sessionId, TranscriptLineMap map) {
         if (PathFor(sessionId) is not { } path) return;
 
         // Replaced, never rewritten in place, so an import reading it meanwhile reads one whole version.
         var temp = $"{path}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
         try {
             Directory.CreateDirectory(partition.DirectoryPath);
-            File.WriteAllText(temp, string.Concat(segments.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.FileLine} {s.Shift}\n"))));
+            var segments = map.Segments.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.FileLine} {s.Shift}\n"));
+            var kept     = map.Kept.Select(k => string.Create(CultureInfo.InvariantCulture, $"k {k.Key} {k.Value}\n"));
+            File.WriteAllText(temp, string.Concat(segments.Concat(kept)));
             File.Move(temp, path, overwrite: true);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // Best effort, as the summary says.
@@ -29,25 +31,28 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
         }
     }
 
-    /// <summary>The segments in file order, or null when there are none or they cannot be read whole.</summary>
-    public IReadOnlyList<(int FileLine, int Shift)>? Read(string sessionId) {
+    /// <summary>The numbering recorded, or null when there is none or it cannot be read whole.</summary>
+    public TranscriptLineMap? Read(string sessionId) {
         if (PathFor(sessionId) is not { } path) return null;
 
         try {
             var segments = new List<(int, int)>();
+            var kept     = new List<KeyValuePair<int, int>>();
 
             foreach (var line in File.ReadAllLines(path)) {
                 var parts = line.Split(' ');
-                if (parts.Length != 2
-                 || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var fileLine)
-                 || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var shift)) {
+                var isKept = parts is ["k", _, _];
+                if (parts.Length != (isKept ? 3 : 2)
+                 || !int.TryParse(parts[^2], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var first)
+                 || !int.TryParse(parts[^1], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var second)) {
                     return null;
                 }
 
-                segments.Add((fileLine, shift));
+                if (isKept) kept.Add(new(first, second));
+                else segments.Add((first, second));
             }
 
-            return segments.Count > 0 ? segments : null;
+            return segments.Count > 0 ? new TranscriptLineMap(segments, kept) : null;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
         }
@@ -55,6 +60,6 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
 
     string? PathFor(string sessionId) =>
         sessionId.Length is > 0 and <= 128 && sessionId.All(char.IsAsciiLetterOrDigit)
-            ? Path.Combine(partition.DirectoryPath, sessionId)
+            ? Path.Join(partition.DirectoryPath, sessionId)
             : null;
 }

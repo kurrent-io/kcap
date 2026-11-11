@@ -10,10 +10,13 @@ public class TranscriptRenumberingTests {
     TranscriptRenumbering Store => new(Config.Root, "https://kcap.example");
 
     [Test]
-    public async Task Every_segment_is_read_back_in_file_order() {
-        Store.Record(Sid, [(0, 0), (4, 6), (6, 10)]);
+    public async Task Every_segment_and_kept_copy_is_read_back() {
+        Store.Record(Sid, new TranscriptLineMap([(0, 0), (4, 6), (6, 10)], [KeyValuePair.Create(9, 9)]));
 
-        await Assert.That(Store.Read(Sid)).IsEquivalentTo(new[] { (0, 0), (4, 6), (6, 10) });
+        var read = Store.Read(Sid)!;
+
+        await Assert.That(read.Segments).IsEquivalentTo(new[] { (0, 0), (4, 6), (6, 10) });
+        await Assert.That(read.Kept).IsEquivalentTo(new Dictionary<int, int> { [9] = 9 });
     }
 
     /// <summary>A record replaces the file rather than rewriting it in place, so an import reading it at the same
@@ -21,11 +24,11 @@ public class TranscriptRenumberingTests {
     [Test]
     [ExcludeOn(OS.Windows)]
     public async Task A_record_replaces_the_file_a_reader_already_holds() {
-        Store.Record(Sid, [(0, 0), (4, 6)]);
+        Store.Record(Sid, new TranscriptLineMap([(0, 0), (4, 6)], []));
         var path = Directory.EnumerateFiles(Config.Root.Path(TranscriptRenumbering.DirectoryName), Sid, SearchOption.AllDirectories).Single();
 
         await using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        Store.Record(Sid, [(0, 0), (4, 6), (6, 10)]);
+        Store.Record(Sid, new TranscriptLineMap([(0, 0), (4, 6), (6, 10)], []));
         using var reader = new StreamReader(held);
 
         await Assert.That(await reader.ReadToEndAsync()).IsEqualTo("0 0\n4 6\n");

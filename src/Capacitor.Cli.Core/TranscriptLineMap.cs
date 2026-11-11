@@ -16,14 +16,16 @@ public sealed class TranscriptLineMap {
 
     int _polls;
 
-    // How many copies of each line a rewrite renumbered had already been sent, so one it kept is not sent twice.
-    // Only lines from where it started to the end of what had been sent can be such a copy.
-    Dictionary<ulong, int> _sentBeforeRewrite = [];
-    int                    _sentBeforeRewriteStart;
-    int                    _sentBeforeRewriteEnd;
+    // The lines a rewrite renumbered that had already been sent, each with the number it went out under, waiting for
+    // the read that finds what the rewrite kept of them. Only lines below the end of what had been sent can be a copy.
+    List<(ulong Hash, int Sent)> _candidates = [];
+    int                          _candidatesEnd;
 
     // From each segment's first file line on, a line is sent under its file number plus the segment's shift.
     readonly List<(int FileLine, int Shift)> _segments = [(0, 0)];
+
+    // File lines a rewrite kept unchanged from lines already sent, each with the number its original went out under.
+    readonly Dictionary<int, int> _kept = [];
 
     /// <summary>How many lines from the top of the file have been read.</summary>
     public int Known => _hashes.Count;
@@ -33,13 +35,25 @@ public sealed class TranscriptLineMap {
 
     public TranscriptLineMap() { }
 
-    /// <summary>A map numbering lines as <paramref name="segments"/> say, and holding no hashes.</summary>
-    public TranscriptLineMap(IEnumerable<(int FileLine, int Shift)> segments) {
+    /// <summary>A map numbering lines as <paramref name="segments"/> say, with the copies <paramref name="kept"/>
+    /// names, and holding no hashes.</summary>
+    public TranscriptLineMap(IEnumerable<(int FileLine, int Shift)> segments, IEnumerable<KeyValuePair<int, int>> kept) {
         foreach (var segment in segments) {
             if (segment.FileLine > _segments[^1].FileLine) _segments.Add(segment);
             else if (segment.FileLine == 0) _segments[0] = segment;
         }
+
+        foreach (var (fileLine, sent) in kept) _kept[fileLine] = sent;
     }
+
+    /// <summary>File lines a rewrite kept unchanged from lines already sent, each with its original's sent number.</summary>
+    public IReadOnlyDictionary<int, int> Kept => _kept;
+
+    /// <summary>
+    /// Whether <paramref name="fileLine"/> is a copy a rewrite kept of a line the server holds: one sent below
+    /// <paramref name="sentCursor"/>. A server that lost the original needs the copy.
+    /// </summary>
+    public bool HeldBack(int fileLine, int sentCursor) => _kept.TryGetValue(fileLine, out var sent) && sent < sentCursor;
 
     /// <summary>From each segment's file line on, a line is sent under its file number plus the segment's shift.</summary>
     public IReadOnlyList<(int FileLine, int Shift)> Segments => _segments;
@@ -99,24 +113,19 @@ public sealed class TranscriptLineMap {
     /// <summary>
     /// Forgets what was read from <paramref name="fileLine"/> on, which a rewrite changed, and numbers the file's lines
     /// from there on from <paramref name="nextSentLine"/>. The lines from there up to <paramref name="fileCursor"/> had
-    /// been sent.
+    /// been sent, and a copy of one the rewrite kept is found by <see cref="Match"/>.
     /// </summary>
     public void Rewritten(int fileLine, int nextSentLine, int fileCursor) {
-        // An earlier rewrite the cursor has not got past yet still has sent lines no read has accounted for: they
-        // carry over, less the copies the lines read since have taken.
-        var carried = _sentBeforeRewrite.Count > 0 && fileCursor < _sentBeforeRewriteEnd
-            ? new Dictionary<ulong, int>(_sentBeforeRewrite)
-            : [];
-        if (carried.Count > 0) {
-            for (var i = _sentBeforeRewriteStart; i < Math.Min(fileCursor, _hashes.Count); i++) Take(carried, _hashes[i]);
+        // An earlier rewrite the cursor has not got past yet still has lines waiting for their copy: they carry over.
+        var carried = _candidates.Count > 0 && fileCursor < _candidatesEnd ? _candidates : [];
+
+        _candidatesEnd = carried.Count > 0 ? Math.Max(_candidatesEnd, fileCursor) : fileCursor;
+        _candidates    = [..carried];
+        for (var i = fileLine; i < Math.Min(fileCursor, _hashes.Count); i++) {
+            if (_hashes[i] != BlankHash) _candidates.Add((_hashes[i], _kept.TryGetValue(i, out var sent) ? sent : ToSent(i)));
         }
 
-        _sentBeforeRewriteEnd   = carried.Count > 0 ? _sentBeforeRewriteEnd : fileCursor;
-        _sentBeforeRewriteStart = fileLine;
-        _sentBeforeRewrite      = carried;
-        for (var i = fileLine; i < Math.Min(fileCursor, _hashes.Count); i++) {
-            if (_hashes[i] != BlankHash) _sentBeforeRewrite[_hashes[i]] = _sentBeforeRewrite.GetValueOrDefault(_hashes[i]) + 1;
-        }
+        foreach (var line in _kept.Keys.Where(k => k >= fileLine).ToList()) _kept.Remove(line);
 
         if (fileLine < _hashes.Count) _hashes.RemoveRange(fileLine, _hashes.Count - fileLine);
         _segments.RemoveAll(s => s.FileLine >= fileLine && s.FileLine > 0);
@@ -126,31 +135,32 @@ public sealed class TranscriptLineMap {
     }
 
     /// <summary>
-    /// Which of <paramref name="lines"/>, read from <paramref name="fileCursor"/> on, are copies the last rewrite kept
-    /// of lines already sent. Each sent line accounts for one copy, and the copies the lines below the cursor took are
-    /// counted again on every call rather than used up, so a read whose send fails is judged the same way again.
+    /// Finds which of <paramref name="lines"/>, read from <paramref name="fileCursor"/> on, are copies a rewrite kept of
+    /// lines already sent, each sent line accounting for one copy. A line is judged once, so a read whose send fails is
+    /// judged the same way again. True when it found one.
     /// </summary>
-    public bool[] KeptCopies(IReadOnlyList<string> lines, IReadOnlyList<int> fileLines, int fileCursor) {
-        var kept = new bool[lines.Count];
-        if (_sentBeforeRewrite.Count == 0 || fileCursor >= _sentBeforeRewriteEnd) return kept;
+    public bool Match(IReadOnlyList<string> lines, IReadOnlyList<int> fileLines, int fileCursor) {
+        var found = false;
 
-        var copies = new Dictionary<ulong, int>(_sentBeforeRewrite);
-        for (var i = _sentBeforeRewriteStart; i < Math.Min(fileCursor, _hashes.Count); i++) Take(copies, _hashes[i]);
+        for (var i = 0; i < lines.Count && _candidates.Count > 0; i++) {
+            var at = fileLines[i];
+            if (at < fileCursor || _kept.ContainsKey(at)) continue;
 
-        for (var i = 0; i < lines.Count; i++) {
-            if (fileLines[i] >= fileCursor && fileLines[i] < _sentBeforeRewriteEnd) kept[i] = Take(copies, Hash(lines[i]));
+            if (at >= _candidatesEnd) {
+                _candidates.Clear();
+                break;
+            }
+
+            var hash  = Hash(lines[i]);
+            var match = _candidates.FindIndex(c => c.Hash == hash);
+            if (match < 0) continue;
+
+            _kept[at] = _candidates[match].Sent;
+            _candidates.RemoveAt(match);
+            found = true;
         }
 
-        return kept;
-    }
-
-    static bool Take(Dictionary<ulong, int> copies, ulong hash) {
-        if (!copies.TryGetValue(hash, out var left)) return false;
-
-        if (left == 1) copies.Remove(hash);
-        else copies[hash] = left - 1;
-
-        return true;
+        return found;
     }
 
     (int FileLine, int Shift) SegmentAt(int fileLine) {

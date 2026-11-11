@@ -232,17 +232,23 @@ internal sealed class CopilotImportSource : IImportSource {
 
             // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
             // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
-            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId) is { } segments
-                ? new TranscriptLineMap(segments)
-                : null;
+            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
 
             if (serverLastLine is { } srv) {
-                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)) {
+                var resume = numbering?.ToFile(srv + 1) ?? srv + 1;
+
+                // A copy the rewrite kept of a line the server holds is never sent, so it does not keep a session partial.
+                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)
+                 || (numbering is not null && resume <= lastImportable
+                  && Enumerable.Range(resume, lastImportable - resume + 1).All(line => numbering.HeldBack(line, srv + 1)))) {
                     status = ImportCommand.ClassificationStatus.AlreadyLoaded;
                 } else {
                     status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = numbering?.ToFile(srv + 1) ?? srv + 1;
-                    if (numbering is not null) sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = numbering };
+                    resumeFromLn = resume;
+                    if (numbering is not null) {
+                        Func<int, int?> sentAs = line => numbering.HeldBack(line, srv + 1) ? null : numbering.ToSent(line);
+                        sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = sentAs };
+                    }
                 }
             }
 
@@ -314,7 +320,8 @@ internal sealed class CopilotImportSource : IImportSource {
                 vendor:     Vendor,
                 progress:   ctx.Progress,
                 lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
-                    && numbering is TranscriptLineMap map ? map.ToSent : null);
+                    ? numbering as Func<int, int?>
+                    : null);
         } catch {
             return ImportOutcome.Failed;
         }

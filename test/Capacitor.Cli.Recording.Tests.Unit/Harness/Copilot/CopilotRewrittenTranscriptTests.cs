@@ -48,7 +48,7 @@ public class CopilotRewrittenTranscriptTests {
         await Assert.That(SentLines.Skip(10).ToArray())
             .IsEquivalentTo(new[] { (10, Line("b", 0)), (11, Line("b", 1)), (12, Line("b", 2)) });
         await Assert.That(state.LinesProcessed).IsEqualTo(13);
-        await Assert.That(new TranscriptRenumbering(Config.Root, "http://127.0.0.1:1").Read(Sid)).IsEquivalentTo(new[] { (0, 0), (4, 6) });
+        await Assert.That(new TranscriptRenumbering(Config.Root, "http://127.0.0.1:1").Read(Sid)!.Segments).IsEquivalentTo(new[] { (0, 0), (4, 6) });
     }
 
     [Test]
@@ -154,6 +154,38 @@ public class CopilotRewrittenTranscriptTests {
 
     // Line 9, just before the cursor, is left as it was.
     static string EditedBeforeTheLastLine => Lines("a", 0, 5) + Lines("b", 5, 4) + Line("a", 9) + "\n";
+
+    /// <summary>A server that lost lines from below the original of a kept copy needs the copy sent.</summary>
+    [Test]
+    public async Task A_reconnect_rewind_below_a_kept_copy_s_original_sends_the_copy() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, EditedBeforeTheLastLine);
+        var recorder = Recorders.For(Sid, path, null, "copilot");
+        await recorder.DrainNewLines(state, CancellationToken.None, isFinalDrain: true);
+
+        await recorder.ApplyReconnectRewindAsync(state, 9, null, CancellationToken.None);
+        await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(14).ToArray()).IsEquivalentTo(
+            Enumerable.Range(5, 4).Select(i => (i + 5, Line("b", i))).Append((14, Line("a", 9))).ToArray());
+    }
+
+    /// <summary>A watcher started again on a rewritten transcript numbers its lines the way the one before it did.</summary>
+    [Test]
+    public async Task A_restarted_watcher_numbers_lines_as_the_one_before_it_did() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, Lines("a", 0, 4) + Lines("b", 0, 3));
+        await Drain(path, state);
+        await File.AppendAllTextAsync(path, Lines("b", 3, 1));
+
+        var restarted = new TestRecorders(Config.Root);
+        restarted.Transport.IsConnected = true;
+        await restarted.For(Sid, path, null, "copilot").DrainNewLines(
+            new WatchState { LinesProcessed = state.LinesProcessed, ThresholdReached = true }, CancellationToken.None);
+
+        var resent = restarted.Transport.Batches.SelectMany(b => b.LineNumbers!.Zip(b.Lines, (n, l) => (n, l))).ToArray();
+        await Assert.That(resent).IsEquivalentTo(new[] { (13, Line("b", 3)) });
+    }
 
     [Test]
     public async Task The_final_drain_catches_a_rewrite_that_kept_the_line_before_the_cursor() {

@@ -79,8 +79,8 @@ public class TranscriptLineMapTests {
         map.Rewritten(4, 10, 10);
         map.Rewritten(3, 10, 4);
 
-        var kept = map.KeptCopies(sent[3..], Enumerable.Range(3, 7).ToArray(), 3);
+        map.Match(sent[3..], Enumerable.Range(3, 7).ToArray(), 3);
 
-        await Assert.That(kept).IsEquivalentTo(Enumerable.Repeat(true, 7).ToArray());
+        await Assert.That(Enumerable.Range(3, 7).All(line => map.HeldBack(line, 10))).IsTrue();
     }
 }
