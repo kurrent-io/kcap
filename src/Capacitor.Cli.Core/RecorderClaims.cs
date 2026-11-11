@@ -27,19 +27,28 @@ public sealed class RecorderClaims(string directory, TimeProvider time, string? 
     /// <summary>How long a claim outlives its last beat, longer than a normal daemon restart takes.</summary>
     public static readonly TimeSpan Grace = TimeSpan.FromSeconds(60);
 
-    /// <summary>Who holds <paramref name="key"/>. One stat, so a hook can afford it on every session, and it never
-    /// throws. Only the file's age counts, so a corrupt claim is still a claim and goes stale like any other: reading
-    /// it as none would start a second recorder beside a live daemon.</summary>
-    public RecorderClaimState Read(string key) {
-        try {
-            var claim = new FileInfo(ClaimFile(key));
-            if (!claim.Exists) return RecorderClaimState.None;
+    static readonly DateTime NotThere = DateTime.FromFileTimeUtc(0);
 
-            // Either way round: a clock set back must not keep a dead daemon's claim fresh until it catches up.
-            return (time.GetUtcNow() - claim.LastWriteTimeUtc).Duration() > Grace ? RecorderClaimState.DaemonStale : RecorderClaimState.DaemonFresh;
-        } catch {
+    /// <summary>Who holds <paramref name="key"/>. One stat, so a hook can afford it on every session, and it never
+    /// throws. Only the file's age counts, so a corrupt claim is still a claim and goes stale like any other, and a claim
+    /// whose stat fails is fresh: reading either as none would start a second recorder beside a live daemon.</summary>
+    public RecorderClaimState Read(string key) {
+        DateTime written;
+
+        try {
+            // A file that isn't there reads as the file-time epoch, and any other failed stat throws.
+            written = File.GetLastWriteTimeUtc(ClaimFile(key));
+        } catch (ArgumentException) {
+            // No file can be at such a path.
             return RecorderClaimState.None;
+        } catch {
+            return RecorderClaimState.DaemonFresh;
         }
+
+        if (written == NotThere) return RecorderClaimState.None;
+
+        // Either way round: a clock set back must not keep a dead daemon's claim fresh until it catches up.
+        return (time.GetUtcNow() - written).Duration() > Grace ? RecorderClaimState.DaemonStale : RecorderClaimState.DaemonFresh;
     }
 
     /// <summary>Takes <paramref name="key"/> for a daemon: a source nobody claims, a stale claim, or the daemon's own

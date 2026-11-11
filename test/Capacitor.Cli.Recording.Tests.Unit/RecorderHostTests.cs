@@ -469,6 +469,26 @@ public class RecorderHostTests {
         await Assert.That(attempts[1].EndedIdle).IsFalse();
     }
 
+    /// <summary>The recorder's loop ends quietly on any cancellation, so one nothing asked for would read as a clean end,
+    /// and under a daemon nothing starts the source again.</summary>
+    [Test]
+    public async Task A_cancellation_no_stop_caused_is_retried_as_a_failure() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var thrown = 0;
+        _beforeDrain[source.Key] = () => Interlocked.Increment(ref thrown) == 1 ? throw new OperationCanceledException("not a stop") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the first attempt");
+
+        var first = _ended.Single();
+        await Assert.That(first.SourceEnded).IsFalse();
+        await Assert.That(first.Failure).IsNotNull();
+
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the retry's line", TimeSpan.FromSeconds(1));
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
     [Test]
     public async Task The_owner_hears_a_source_went_idle() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
@@ -1300,6 +1320,30 @@ public class RecorderHostTests {
         await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
 
         await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>An outage excuses a source waiting for the transport to come back, and an abandoned one has nothing to come
+    /// back for: it ends within the threshold however long the server stays out. The clock keeps stepping while the host
+    /// gives the source up, so the bound leaves room for that in small steps, still far short of the threshold an excuse
+    /// would wait out next.</summary>
+    [Test]
+    public async Task An_abandoned_source_stuck_through_an_outage_ends_within_the_threshold() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+
+        var abandoned = host.AbandonAsync(source.Key);
+        var asked     = _time.GetUtcNow();
+        await Eventually(() => abandoned.IsCompleted, "the abandoned source to end", TimeSpan.FromMilliseconds(250));
+
+        await Assert.That(_time.GetUtcNow() - asked).IsLessThanOrEqualTo(RecorderHost.WedgedAfter + TimeSpan.FromSeconds(10));
+        await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
     /// <summary>A shutdown marks a source it can't finish, and this one's person asked for it to be gone.</summary>
@@ -2381,17 +2425,34 @@ public class RecorderHostTests {
     [Test]
     public async Task A_read_that_fails_below_the_threshold_marks_the_source_for_import() {
         var source = Source(Tmp.CreateFile("t.jsonl", "{\"type\":\"system\"}\n"));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeDrain[source.Key] = () => {
+            entered.TrySetResult();
+
+            return release.Task;
+        };
         var host   = NewHost();
 
-        host.TryAdd(source);
-        await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
-        await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
+        try {
+            host.TryAdd(source);
+            await entered.Task.WithinDeadlineAsync("the recorder reaching its first drain");
+            await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
-        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
-        var finish = host.FinishAsync(source.Key, CancellationToken.None);
-        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+            using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
+            release.SetResult();
+            await Eventually(() => AfterDrains(source.Key) == 1, "the first failed drain");
+            await Assert.That(_log.Count(line => line.StartsWith($"{source.Key}: Error reading file:", StringComparison.Ordinal))).IsEqualTo(1);
 
-        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+            var finish = host.FinishAsync(source.Key, CancellationToken.None);
+            await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+            await finish;
+
+            await Assert.That(_log.Count(line => line.StartsWith($"{source.Key}: Error reading file:", StringComparison.Ordinal))).IsEqualTo(2);
+            await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+        } finally {
+            release.TrySetResult();
+        }
     }
 
     /// <summary>A file pending delete on Windows refuses a read this way, and a refusal says no more about what is left

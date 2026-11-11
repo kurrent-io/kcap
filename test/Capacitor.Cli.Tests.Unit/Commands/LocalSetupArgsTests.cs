@@ -49,6 +49,7 @@ internal sealed class LocalSetupArgsTests {
     [Arguments("--plugin-scope", "user")]
     [Arguments("--default-visibility", "private")]
     [Arguments("--use-provider-api-key", "true")]
+    [Arguments("--steering", "on")]
     public async Task A_pass_through_flag_value_is_not_a_positional_name(string flag, string value) {
         var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", flag, value, "--single-user"], kcapUrlEnv: null);
 

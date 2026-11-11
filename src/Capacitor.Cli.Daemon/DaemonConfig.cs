@@ -582,8 +582,9 @@ public class DaemonConfig {
     /// </summary>
     public bool AcpReconnectEnabled { get; set; } = true;
 
-    /// <summary>Whether this daemon records its hosted Claude sessions itself rather than leave them to a watcher, read
-    /// from <c>KCAP_DAEMON_RECORDING</c>. Off by default: a session then records exactly as it would without it.</summary>
+    /// <summary>Whether this daemon records Claude sessions itself rather than leave them to a watcher, read from
+    /// <c>KCAP_DAEMON_RECORDING</c>: its hosted sessions, and the terminal sessions their hooks hand over, which ride the
+    /// same flag. Off by default: a session then records exactly as it would without it.</summary>
     public bool RecordHostedClaude { get; set; }
 
     /// <summary>

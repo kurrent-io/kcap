@@ -903,9 +903,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Null outside DaemonRunner: limit hits seen on screen are not recorded.
             AccountReadingSink?                               readings = null,
             // Null outside DaemonRunner: hosted sessions stay on their watchers.
-            DaemonRecorder?                                   recorder = null
+            DaemonRecorder?                                   recorder = null,
+            // Null outside DaemonRunner: no terminal session is steered.
+            ModAttachments?                                   attachments = null
         ) {
         _recorder        = recorder;
+        _attachments     = attachments;
+        if (attachments is not null) attachments.Hosts = Hosts;
         AccountsSnapshot = accounts is null ? static () => null : () => accounts.Current;
         _readings        = readings;
         _admission = admissionFence ?? new AdmissionFence(
@@ -1115,6 +1119,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     bool IsKnownStopTarget(string agentId) =>
         !string.IsNullOrEmpty(agentId)
      && (_agents.ContainsKey(agentId)
+      || _attachments?.Holds(agentId) == true
       || (_pidRecords?.Exists(agentId) ?? false)
       || _resumeCandidates.ContainsKey(agentId)
       || (StoreFor(agentId) is { } ledger && File.Exists(ledger.EntryPath(agentId))));
@@ -1621,11 +1626,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ResumingAgents: recovery.Claims);
     }
 
+    /// <summary>Attachments are reported too, so a reconnect does not reap one before its mod returns.</summary>
     string[] LiveAgentIds() => [
         .. _agents
             .Where(kvp => (kvp.Value.Status is "Starting" or "Running") && !kvp.Value.IsServerSilent)
-            .Select(kvp => kvp.Key)
+            .Select(kvp => kvp.Key),
+        .. _attachments?.Live.Select(a => a.AgentId) ?? []
     ];
+
+    /// <summary>Whether a hosted agent here runs the session, under any id it goes by, or is the process: a hosted Claude
+    /// can ask before its session is known here.</summary>
+    bool Hosts(string canonicalSessionId, int pid) =>
+        _agents.Values.Any(a => pid > 0 && a.Runtime.Pid == pid || SessionIdsOf(a).Any(id => SessionIds.Canonical(id) == canonicalSessionId));
 
     /// <summary>Under the ledger lock a resume publishes and its candidate settles under.</summary>
     internal RecoverySnapshot TakeRecoverySnapshot() {
@@ -1902,6 +1914,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     readonly AccountReadingSink? _readings;
     readonly DaemonRecorder? _recorder;
+
+    /// <summary>Terminal sessions steered through the kcap-steering mod. Never in <see cref="_agents"/>: the daemon
+    /// started none of them, so nothing that launches, resumes, counts, reaps or tears down hosted agents applies.</summary>
+    readonly ModAttachments? _attachments;
 
     /// <summary>
     /// Re-sends the registration on the current connection so the server's copy of a connect
@@ -2334,6 +2350,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 AccountId:        p.Account?.AccountId,
                 AccountLabel:     CurrentAccountLabel(p.Account?.AccountId, p.Account?.Label)));
         }
+
+        foreach (var attached in _attachments?.Live ?? [])
+            live.Add(new LiveAgentInfo(attached.AgentId, nameof(LaunchKind.Default), attached.AttachedAt));
 
         return live;
     }
@@ -4752,6 +4771,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// concurrency-safe via the per-agent single-flight teardown latch, and routing them through the lane
     /// would let a parked consent prompt delay reviewer reaping — the exact inversion of its purpose.</summary>
     internal async Task HandleStopAgent(string agentId) {
+        if (_attachments?.Stop(agentId) == true) return;
+
         if (!_agents.TryGetValue(agentId, out var agent)) {
             // An agent a restart left resuming or interrupted has only its ledger entry; a private one is
             // never the server's to stop. One whose resume published since the miss is stopped as live.
@@ -5149,6 +5170,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return;
             }
         }
+
+        // Held for the mod and returned at once: this runs on the daemon's one sequential server dispatch.
+        if (_attachments?.TakeInput(cmd) == true) return;
 
         try {
             switch (TryHoldForResume(cmd)) {
@@ -6387,6 +6411,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
             }
         }
+
+        if (_attachments is { } attachments) await attachments.ReRegisterAsync();
+
         // NOTE: the settlement lost-ack re-delivery is deliberately NOT here — this hook runs inside the
         // registration bracket BEFORE readiness is restored, so CommandAckAsync would drop every ack. It
         // is wired to OnRegisteredHook instead, which runs post-MarkRegistered (IsReady == true).

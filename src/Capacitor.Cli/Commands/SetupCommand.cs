@@ -20,6 +20,7 @@ using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Core.Instructions;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Setup.Intelligence;
@@ -581,6 +582,8 @@ sealed class SetupCommand(
     /// <summary>Whether the edition choice offers the local edition, which runs on Apple silicon Macs and x64 Windows.</summary>
     internal bool LocalEditionAvailable { get; init; } = LocalPlatform.Current().SupportsLocalEdition;
 
+    internal bool SteeringOffered { get; init; } = SteeringIpc.Offered;
+
     /// <summary>The whole run's JSON report, set only while a <c>--json --no-prompt</c> run is in progress.</summary>
     SetupJsonReport? _json;
 
@@ -720,7 +723,7 @@ sealed class SetupCommand(
             return SetupExit.Refused;
         }
 
-        if (AnswerValueError(args) is { } answerError) {
+        if ((AnswerValueError(args) ?? SetupSteering.ArgumentError(args, SteeringOffered)) is { } answerError) {
             await Console.Error.WriteLineAsync($"  {answerError}");
 
             return SetupExit.Refused;
@@ -1406,6 +1409,19 @@ sealed class SetupCommand(
             AnsiConsole.MarkupLine("  Running the agent daemon as a background service, so this machine stays reachable…");
             daemonService = await EnsureDaemonServiceAsync(
                 serverUrl, saved, previousDaemonName, browserAnswers.FlowId, browserAnswers.FlowStillLive);
+        }
+
+        // After the service and step 4's plugin install: the switch is flipped through the running daemon, and the
+        // steering plugin goes only where kcap's plugin is.
+        if (!museAssistant) {
+            var canAskSteering = !noPrompt && browserAgents is null && AnsiConsole.Profile.Capabilities.Interactive;
+            var steeringMod    = ClaudeSteeringMod.For(harnesses, home, accounts);
+
+            await SetupSteering.RunAsync(
+                args, SteeringOffered, SetupSteering.Eligible(daemonService, steeringMod),
+                canAskSteering ? suggested => AnsiConsole.Prompt(new ConfirmationPrompt($"  {SetupSteering.Question}") { DefaultValue = suggested }) : null,
+                DaemonStore.FromEnvironment(), daemonName, time, steeringMod,
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"));
         }
 
         _json?.Completed(name: daemonName, outcome: daemonService?.Outcome ?? "skipped");

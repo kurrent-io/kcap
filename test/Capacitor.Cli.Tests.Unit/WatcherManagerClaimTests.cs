@@ -1,9 +1,11 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -35,8 +37,8 @@ public class WatcherManagerClaimTests : IDisposable {
 
     WatcherManager FromAgent => field ??= Manager(Resolutions.At(_server.Url!, Config.Root), new HostedAgent("agent-1", false, DaemonBridge.None));
 
-    WatcherManager Manager(ProfileContext profiles, HostedAgent? hosted = null) => new(
-        Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon, hosted ?? HostedAgent.Terminal) {
+    WatcherManager Manager(ProfileContext profiles, HostedAgent? hosted = null, ICapacitorHttpClient? http = null) => new(
+        Config.Root, profiles, http ?? new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon, hosted ?? HostedAgent.Terminal) {
         DrainCommits = new CommitObservation.Uncovered(),
     };
 
@@ -127,7 +129,7 @@ public class WatcherManagerClaimTests : IDisposable {
     [Test]
     public async Task A_posted_end_is_marked_so_nobody_takes_it_over() {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
 
         Watchers.SessionEndPosted(Key, Claude);
         _time.Advance(SessionEndRecord.TakeOver * 2);
@@ -141,9 +143,9 @@ public class WatcherManagerClaimTests : IDisposable {
     public async Task A_session_end_beside_a_terminal_daemon_claim_is_claimed_once() {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude with { Pid = 4343 })).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Pending);
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude with { Pid = 4343 })).IsEqualTo(SessionEndTurn.Yours);
     }
 
     /// <summary>A daemon posts no end for a hosted session, and nothing would read a record for one no daemon holds.</summary>
@@ -153,7 +155,7 @@ public class WatcherManagerClaimTests : IDisposable {
     public async Task A_session_end_with_no_terminal_daemon_claim_leaves_no_record(bool hosted) {
         if (hosted) Claims.TryTake(Key, "daemon-b", isHosted: true);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
         await Assert.That(SessionEndRecord.Exists(Paths, Key, Claude)).IsFalse();
     }
 
@@ -163,7 +165,16 @@ public class WatcherManagerClaimTests : IDisposable {
         SessionEndRecord.TryClaim(Paths, Key, Claude, _time.GetUtcNow());
         SessionEndRecord.MarkPosted(Paths, Key, Claude, _time.GetUtcNow());
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A run the session went on from owes no end, and the hook says that rather than that someone posted one.</summary>
+    [Test]
+    public async Task A_session_end_for_a_run_the_session_went_on_from_is_done() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+        SessionEndRecord.Settle(Paths, Key, Claude, _time.GetUtcNow());
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Done);
     }
 
     [Test]
@@ -171,7 +182,7 @@ public class WatcherManagerClaimTests : IDisposable {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
         SessionEndRecord.TryClaim(Paths, Key, Claude, DateTimeOffset.UtcNow);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, process: null)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, process: null)).IsEqualTo(SessionEndTurn.Yours);
     }
 
     static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
@@ -186,6 +197,18 @@ public class WatcherManagerClaimTests : IDisposable {
         await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null, from: Claude);
 
         await Assert.That(_daemon.Froms.Single()).IsEqualTo(Claude);
+    }
+
+    /// <summary>A daemon that predates terminal hand-off reads the frame's whole text as the key, and only it can hold a
+    /// hosted claim without holding terminal ones, so a hosted source's finish says nothing more.</summary>
+    [Test]
+    public async Task A_hosted_claims_finish_text_is_the_bare_key() {
+        StubServer();
+        Claims.TryTake(Key, "daemon-b", isHosted: true);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null, from: Claude);
+
+        await Assert.That(RecordingIpc.FinishText(Key, _daemon.Froms.Single())).IsEqualTo(Key);
     }
 
     /// <summary>The daemon died inside the grace and nothing listens for it. A session ending now has no later hook to
@@ -711,6 +734,158 @@ public class WatcherManagerClaimTests : IDisposable {
         await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
 
         await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>A disable can land while a drain past its first check waits on the server: from then on the drain sends
+    /// nothing, the chunks it has yet to post included, since the daemon's claim has gone and the command deletes the
+    /// session behind it.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_disable_landing_mid_drain_stops_what_is_left_of_it(bool afterFirstChunk) {
+        var transcript = Config.CreateFile("t.jsonl", string.Concat(Enumerable.Repeat($"{Line}\n", TranscriptBatchBuffer.MaxLines + 1)));
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                if (!afterFirstChunk) DisabledSessions.Mark(Key, Config.Root);
+
+                return Answer("""{"last_line_number": -1}""");
+            }));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                DisabledSessions.Mark(Key, Config.Root);
+
+                return Answer("{}");
+            }));
+
+        await Watchers.InlineDrainAsync(Key, transcript, agentId: null);
+
+        await Assert.That(Posts).IsEqualTo(afterFirstChunk ? 1 : 0);
+
+        static WireMock.ResponseMessage Answer(string body) => new() {
+            StatusCode = 200,
+            BodyData   = new WireMock.Util.BodyData { DetectedBodyType = WireMock.Types.BodyType.String, BodyAsString = body },
+        };
+    }
+
+    /// <summary>The client chain the container builds, against the stub server. Only the credential source stands in, and
+    /// the transport under the chain when one is given.</summary>
+    ServiceProvider Container(ProfileContext profiles, ICredentialSource credentials, HttpMessageHandler? transport = null) {
+        var services = new ServiceCollection();
+        services.AddSingleton(Config.Root);
+        services.AddSingleton(profiles);
+        services.AddSingleton(new CapacitorServer(_server.Url!, Config.Root, profiles));
+        services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
+        services.AddSingleton(credentials);
+        if (transport is not null) services.AddHttpClient(CapacitorClients.Default).ConfigurePrimaryHttpMessageHandler(() => transport);
+
+        return services.BuildServiceProvider();
+    }
+
+    void StubLastLine() =>
+        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number": -1}"""));
+
+    int PostsTo(string path) => _server.LogEntries.Count(e => e.RequestMessage.Path == path);
+
+    /// <summary>A chunk whose post failed is posted again after a backoff, and a disable can land inside it: the attempt
+    /// after it sends nothing.</summary>
+    [Test]
+    public async Task A_disable_landing_in_a_retry_backoff_stops_the_next_attempt() {
+        StubServer();
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        using var transport = new FirstTranscriptPostDrops();
+        await using var container = Container(profiles, new NoCredential(), transport);
+        using var deadline  = new CancellationTokenSource(BoundedWait.Deadline);
+        var       drain     = Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        // The backoff runs on the fake clock, so the next attempt waits for this.
+        while (transport.Attempts == 0 && !drain.IsCompleted) await Task.Delay(20, deadline.Token);
+        DisabledSessions.Mark(Key, Config.Root);
+
+        while (!drain.IsCompleted) {
+            _time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(20, deadline.Token);
+        }
+        await drain;
+
+        await Assert.That(transport.Attempts).IsEqualTo(1);
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>The background client's own handler answers a 401 by rotating the bearer and sending the same content
+    /// again, inside one attempt of the drain's retry loop. A disable landing during that rotation stops the resend.</summary>
+    [Test]
+    public async Task A_disable_landing_while_a_refused_bearer_rotates_stops_the_resend() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        StubLastLine();
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer refused"))
+            .RespondWith(Response.Create().WithStatusCode(401));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer rotated"))
+            .RespondWith(Response.Create().WithStatusCode(200));
+        await using var container = Container(profiles, new RotatingCredentials(() => DisabledSessions.Mark(Key, Config.Root)));
+
+        await Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript").Select(e => e.RequestMessage.Headers!["Authorization"].Single()))
+            .IsEquivalentTo(["Bearer refused"]);
+    }
+
+    /// <summary>The background client follows a 307 itself, sending the POST again to the hop within one attempt. A disable
+    /// landing while the server answers the first send leaves the hop unsent.</summary>
+    [Test]
+    public async Task A_disable_landing_before_a_redirected_post_leaves_the_hop_unsent() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        StubLastLine();
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                DisabledSessions.Mark(Key, Config.Root);
+
+                var moved = new WireMock.ResponseMessage { StatusCode = 307 };
+                moved.AddHeader("Location", $"{_server.Url}/hooks/transcript-moved");
+
+                return moved;
+            }));
+        _server.Given(Request.Create().WithPath("/hooks/transcript-moved").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        await using var container = Container(profiles, new NoCredential());
+
+        await Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(PostsTo("/hooks/transcript")).IsEqualTo(1);
+        await Assert.That(PostsTo("/hooks/transcript-moved")).IsEqualTo(0);
+    }
+
+    /// <summary>A server that takes no sign-in.</summary>
+    sealed class NoCredential : ICredentialSource {
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) => Task.FromResult(new CredentialState(null, AuthStatus.NoAuthRequired));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) => ResolveAsync(ct);
+    }
+
+    /// <summary>A bearer the server refuses, rotated to one it takes; <paramref name="rotating"/> runs during the rotation.</summary>
+    sealed class RotatingCredentials(Action rotating) : ICredentialSource {
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) => Task.FromResult(new CredentialState("refused", AuthStatus.Ok));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) {
+            rotating();
+
+            return Task.FromResult(new CredentialState("rotated", AuthStatus.Ok));
+        }
+    }
+
+    /// <summary>Drops the first transcript post at the transport, as a reset connection does, and sends the rest.</summary>
+    sealed class FirstTranscriptPostDrops() : DelegatingHandler(new SocketsHttpHandler()) {
+        int _attempts;
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            if (request.RequestUri?.AbsolutePath != "/hooks/transcript") return base.SendAsync(request, ct);
+
+            return Interlocked.Increment(ref _attempts) == 1
+                ? Task.FromException<HttpResponseMessage>(new HttpRequestException("Connection reset by peer"))
+                : base.SendAsync(request, ct);
+        }
     }
 
     sealed class FakeDaemon : IDaemonRecordingClient {

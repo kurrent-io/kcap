@@ -208,6 +208,34 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(replay[^1].AsObject().ContainsKey("more_follows")).IsFalse();
     }
 
+    /// <summary>An append that fails can return after the host has given the recorder up, and the commits it would spool on
+    /// their own are then whichever recorder's has the source next. Here the host gives it up during that append.</summary>
+    [Test]
+    public async Task A_recorder_given_up_on_during_a_failed_append_spools_no_commits_after_it() {
+        using var tmp = new TempDir();
+        var lines      = Enumerable.Range(0, TranscriptBatchBuffer.MaxLines).Select(n => $"{{\"line\":{n}}}").Append("{\"pad\":\"" + new string('x', 8192) + "\"}");
+        var transcript = tmp.CreateFile("transcript.jsonl", string.Join('\n', lines) + "\n");
+        var commits    = new SessionCommits(tmp.PathTo("commits.jsonl"));
+        commits.Append(new ObservedCommit { Sha = "aaa", Message = "Fix watcher" });
+        var spool      = new TranscriptSpool(tmp.PathTo("spool"), capBytes: 4096, time: TimeProvider.System);
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, transcript, "claude", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
+            new RecorderContext(
+                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                TimeProvider.System, _ => { }, () => { })) {
+            Abandoned = () => spool.NeedsImport(Sid),
+        };
+
+        await recorder.SpoolUndeliveredTranscriptTailAsync(spool, 0, new CommitObservation.Covered(commits), CancellationToken.None);
+
+        var replay = new List<System.Text.Json.Nodes.JsonNode>();
+        await spool.DrainAsync(Sid, body => { replay.Add(System.Text.Json.Nodes.JsonNode.Parse(body)!); return Task.FromResult(DrainOutcome.Delivered); },
+            () => false, CancellationToken.None);
+
+        await Assert.That(replay.Count).IsEqualTo(1);
+        await Assert.That(replay[0]["lines"]!.AsArray().Count).IsEqualTo(TranscriptBatchBuffer.MaxLines);
+    }
+
     /// <summary>Cap exhaustion at shutdown must never silently drop the tail — it marks needs-import
     /// (surfaced by the global drain as a `kcap import` recovery hint) instead.</summary>
     [Test]

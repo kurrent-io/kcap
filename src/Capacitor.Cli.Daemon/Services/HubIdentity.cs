@@ -25,6 +25,9 @@ sealed record HubIdentity(string Account, string? Server, string Provider) {
             _                                                    => false,
         };
 
+    /// <summary>Whether a hub that negotiated as <paramref name="was"/> came back as another identity, or as none.</summary>
+    public static bool Moved(HubIdentity? was, HubIdentity? now) => was is not null && (now is null || Differs(now, was));
+
     // A pre-upgrade token names no issuing server until a refresh stamps one, so a server missing on
     // either side matches.
     static bool Differs(HubIdentity a, HubIdentity b) =>

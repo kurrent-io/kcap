@@ -157,6 +157,12 @@ public sealed class FakeRecorderTransport : ISilenceableRecorderTransport {
         return SilenceAnswer;
     }
 
+    public Task CarryAsync(string sessionId, Func<Task> post) {
+        RefuseSilenced(sessionId);
+
+        return post();
+    }
+
     /// <summary>Awaits each handler in turn, as the hub transport does, so one that throws starves the rest.</summary>
     public async Task RaiseStopRequestedAsync(string key, string reason) {
         foreach (var handler in StopRequested?.GetInvocationList() ?? []) await ((Func<string, string, Task>)handler)(key, reason);

@@ -66,8 +66,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public ReactiveCommand<Unit, Unit> ShowChatCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
 
-    /// Null for a harness with no PTY; the server registry carries no terminal flag, so the
-    /// vendor's family decides, exactly as it does for a local dto without one.
+    /// Null for a harness with no PTY and for an attached agent; the server registry carries no terminal
+    /// flag, so the vendor's family decides, exactly as it does for a local dto without one.
     public RemoteTerminalViewModel? Terminal { get; }
     public bool ShowsTerminalTab => Terminal is not null;
     public PullRequestContextViewModel? PullRequests { get; }
@@ -164,6 +164,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// agent's liveness, and there is nothing to stop, attach to or message.
     public bool IsSessionOnly => _row.Origin == AgentOrigin.Server;
     public bool ShowsStop => !IsSessionOnly;
+    /// Stopping an attached agent removes the steering and leaves its session running in the terminal.
+    public string StopLabel => _row.IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop";
 
     string? _stopRefusal;
     /// Why the viewer may not stop this agent, when their rights are the reason.
@@ -396,10 +398,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _accessStates.Where(s => s == SessionAccessState.Established)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => Artefacts.Refresh()).DisposeWith(_disposables);
-        var viewer = _rows.Select(r => AgentViewerAccess.From(r.ViewerRights)).DistinctUntilChanged();
+        var viewer = _rows.Select(r => AgentViewerAccess.From(r.ViewerRights) with { AtTerminal = r.IsAttached }).DistinctUntilChanged();
+        // An attached agent has no terminal here: its session runs in its owner's.
+        var hasTerminal = !row.IsAttached && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor);
         ChatInput input = row.Origin == AgentOrigin.Server
             ? new ReadOnlyChatInput()
-            : new ServerChatInput(row.Id, lane, _accessStates, _session, HostedHarnessCatalog.ShowsTerminal(null, row.Vendor),
+            : new ServerChatInput(row.Id, lane, _accessStates, _session, hasTerminal,
                 WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
@@ -437,7 +441,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
         Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
             .Subscribe(_ => WorkContext.AgentInputAvailabilityChanged()).DisposeWith(_disposables);
-        Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor)
+        Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && hasTerminal
             ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory,
                 _rows.Select(r => r.TerminalInput), viewer)
             : null;
@@ -580,6 +584,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _rows.OnNext(row);
         RepoLabelText = row.Origin == AgentOrigin.Server
             ? row.OwnerName is { Length: > 0 } owner ? $"{row.RepoGroupLabel} · {owner}" : row.RepoGroupLabel
+            : row.IsAttached ? AttachedAgentCopy.TerminalSession
             : $"{row.RepoGroupLabel} · on {row.MachineBadge}";
         if (row.Origin == AgentOrigin.Server) {
             // The lease follows the session: acquired whatever its status, never released on an end,

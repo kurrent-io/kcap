@@ -49,7 +49,7 @@
                             Classes="kcapGhost kcapIcon" ToolTip.Tip="Open in web" AutomationProperties.Name="Open in web">
                         <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                     </Button>
-                    <Button x:Name="StopButton" Content="Stop" Command="{Binding StopCommand}" Classes="kcapDanger"
+                    <Button x:Name="StopButton" Content="{Binding StopLabel}" Command="{Binding StopCommand}" Classes="kcapDanger"
                             IsVisible="{Binding ShowsStop}" Padding="10,5" FontSize="13.5" />
                     <Button x:Name="ContextShowButton" Classes="kcapGhost kcapIcon" IsVisible="False"
                             ToolTip.Tip="Show details" AutomationProperties.Name="Show details">

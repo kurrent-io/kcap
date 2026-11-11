@@ -716,6 +716,26 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<RepoStoreWatcher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RepoStoreWatcher>());
 
+        builder.Services.AddSingleton(sp => {
+            var log = sp.GetRequiredService<ILogger<Harness.Claude.ModAttachments>>();
+            var consent = sp.GetRequiredService<LaunchConsentStore>();
+
+            return new Harness.Claude.ModAttachments(
+                sp.GetRequiredService<ServerConnection>(),
+                new Harness.Claude.ModAttachmentStore(config.Store.SteeringAttachmentsPath(config.Name), log),
+                () => consent.SteeringOn, time, log, sp.GetRequiredService<DaemonStatusNotifier>());
+        });
+
+        // Ahead of the control server, so it stops after the last SteeringSet can reach it.
+        builder.Services.AddSingleton(sp => new SteeringEndpoint(
+            config.Store.SteeringSocketPath(config.Name),
+            new SteeringRoutes(sp.GetRequiredService<Harness.Claude.ModAttachments>()).Table(),
+            time, sp.GetRequiredService<ILogger<SteeringEndpoint>>()));
+        builder.Services.AddSingleton(sp => new SteeringSwitch(
+            sp.GetRequiredService<LaunchConsentStore>(), sp.GetRequiredService<SteeringEndpoint>(),
+            attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>(), time: time));
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
+
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
         // agents from the user's own terminal (AI local-attach Phase 1).
         builder.Services.AddSingleton<LocalControlServer>();

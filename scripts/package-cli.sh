@@ -38,10 +38,13 @@ if [[ "$rid" == osx-* ]]; then
   echo "$digest" > archive/bin/daemon.sha256
   sha256_of "$cli" > archive/bin/kcap.sha256
 fi
-# Claude Code reads a payload as new only when the plugin version moves.
 bash "$here/bundle-app-plugin.sh" archive "$version"
-plugin=archive/kcap/.claude-plugin/plugin.json
-grep -qF "\"version\": \"${version%%+*}\"" "$plugin" || { echo "::error::could not stamp the plugin version into $plugin"; exit 1; }
+# shellcheck source=lib/plugin-manifests.sh
+source "$here/lib/plugin-manifests.sh"
+for manifest in "${plugin_manifests[@]}"; do
+  plugin="archive/kcap/$manifest"
+  grep -qF "\"version\": \"${version%%+*}\"" "$plugin" || { echo "::error::could not stamp the plugin version into $plugin"; exit 1; }
+done
 cp LICENSE.md archive/
 
 # Bare names: the archive's entries are bin/..., kcap/... and LICENSE.md, which installers expect.

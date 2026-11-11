@@ -86,6 +86,11 @@ public sealed class RecorderHousekeeping(
     /// <summary>The end a Muse SessionEnd hook handed over, for the host to post after the final drain.</summary>
     public MuseSessionEndRequest? HandedMuseEnd => _museEndRequest;
 
+    /// <summary>Runs each post this makes about its session, for a host that counts them with the session's calls over
+    /// its transport, as <see cref="ISilenceableRecorderTransport.CarryAsync"/> does: a refused post throws, and a post
+    /// that throws there may have reached the server. Null runs them as they are.</summary>
+    public Func<Func<Task>, Task>? Carry { get; init; }
+
     public async Task PrepareAsync(WatchState state, CancellationToken ct) {
         var (sessionId, agentId, transcriptPath, vendor, cwd) = source;
 
@@ -592,7 +597,7 @@ public sealed class RecorderHousekeeping(
         return new HarnessTitleRead(reading, startedAt);
     }
 
-    Task PostHarnessTitleAsync(IHarnessTitleStore store, string sessionId, WatchState state, CancellationToken ct, Action beat,
+    internal Task PostHarnessTitleAsync(IHarnessTitleStore store, string sessionId, WatchState state, CancellationToken ct, Action beat,
             TimeSpan? budget = null) =>
         PostHarnessTitleAsync(store, state,
             async (owed, budget, token) => {
@@ -605,9 +610,31 @@ public sealed class RecorderHousekeeping(
                 var remaining = budget - time.GetElapsedTime(started);
                 if (remaining <= TimeSpan.Zero) return HarnessTitleOutcome.Failed;
 
-                return await HarnessTitleClient.PostOrFallBackAsync(client, time, Url, sessionId, owed, token, remaining);
+                // A failed post may have reached the server before it failed.
+                return await CarriedAsync(
+                    () => HarnessTitleClient.PostOrFallBackAsync(client, time, Url, sessionId, owed, token, remaining), outcome => outcome is HarnessTitleOutcome.Failed);
             },
             budget ?? SecondaryProbeBudget, time, beat, _log, ct);
+
+    /// <param name="unanswered">Whether a result leaves it unknown if the server had the post, which <see cref="Carry"/>
+    /// hears as a post that threw.</param>
+    async Task<T> CarriedAsync<T>(Func<Task<T>> post, Func<T, bool>? unanswered = null) {
+        if (Carry is not { } carry) return await post();
+
+        var result  = default(T)!;
+        var unknown = new IOException("The server's answer to this post is unknown.");
+
+        try {
+            await carry(async () => {
+                result = await post();
+                if (unanswered?.Invoke(result) == true) throw unknown;
+            });
+        } catch (IOException ex) when (ReferenceEquals(ex, unknown)) {
+            // The result stands: only the count needed to hear of it.
+        }
+
+        return result;
+    }
 
     async Task<bool?> ProbeHarnessTitlesAsync(CancellationToken ct, Action beat) {
         beat();
@@ -629,7 +656,7 @@ public sealed class RecorderHousekeeping(
         }
     }
 
-    async Task<bool> PostLinkedPullRequestAsync(string sessionId, RepositoryPayload pr, string source, CancellationToken ct) {
+    internal async Task<bool> PostLinkedPullRequestAsync(string sessionId, RepositoryPayload pr, string source, CancellationToken ct) {
         try {
             using var client  = await http.ForBackgroundAsync(ct);
             var       payload = new JsonObject {
@@ -643,8 +670,8 @@ public sealed class RecorderHousekeeping(
             };
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             // The server dedupes by (owner, repo, number), so retrying a throttled or 5xx status is safe.
-            using var resp    = await client.PostWithRetryAsync(
-                $"{Url}/api/sessions/{Uri.EscapeDataString(sessionId)}/pull-requests", content, time, ct: ct, retryStatuses: true);
+            using var resp    = await CarriedAsync(() => client.PostWithRetryAsync(
+                $"{Url}/api/sessions/{Uri.EscapeDataString(sessionId)}/pull-requests", content, time, ct: ct, retryStatuses: true));
 
             if (resp.IsSuccessStatusCode) _log($"Linked {pr.Owner}/{pr.RepoName}#{pr.PrNumber} {source}");
             else _log($"Linking {pr.Owner}/{pr.RepoName}#{pr.PrNumber} failed: HTTP {(int)resp.StatusCode}");

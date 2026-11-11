@@ -1,6 +1,9 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Harness.Muse;
+using Capacitor.Cli.Core.Harness.Titles;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
@@ -33,10 +36,76 @@ public class RecorderHousekeepingTests {
     // In segments, as the scan builds the path it starts the child with: a literal "/" stays one on Windows.
     string CreateChildLog() => Tmp.CreateFile(Path.Combine("muse", "subagent", Child, "session.jsonl"), "");
 
-    RecorderHousekeeping MuseHousekeeping(string transcript, string serverUrl = "http://127.0.0.1:1", string vendor = "muse", Action<string>? log = null, Action? beat = null) => new(
+    RecorderHousekeeping MuseHousekeeping(
+        string transcript, string serverUrl = "http://127.0.0.1:1", string vendor = "muse", Action<string>? log = null, Action? beat = null,
+        Func<Func<Task>, Task>? carry = null) => new(
         new RecordingSource(Session, null, transcript, vendor, null), skipTitle: false, parentPid: null, _host,
         Config.Root, Resolutions.At(serverUrl, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(),
-        new GitProviderRouter(), TimeProvider.System, new AccountStore(Config.PathTo("accounts")), Home, log ?? (_ => { }), beat ?? (() => { }));
+        new GitProviderRouter(), TimeProvider.System, new AccountStore(Config.PathTo("accounts")), Home, log ?? (_ => { }), beat ?? (() => { })) {
+        Carry = carry,
+    };
+
+    static readonly RepositoryPayload Pr = new() { Host = "github.com", Owner = "acme", RepoName = "widgets", PrNumber = 7, PrUrl = "https://github.com/acme/widgets/pull/7" };
+
+    sealed class FixedTitleStore(StoreTitle title) : IHarnessTitleStore {
+        public bool RecordsChangeTime => false;
+
+        public StoreTitle? Read() => title;
+    }
+
+    static WireMockServer Answering(string path, int status) {
+        var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(status));
+
+        return server;
+    }
+
+    /// <summary>A daemon counts a session's posts with its hub calls, and refuses them once the session is disabled.</summary>
+    [Test]
+    public async Task A_refused_carry_sends_no_pull_request_link() {
+        using var server       = Answering($"/api/sessions/{Session}/pull-requests", 200);
+        var       housekeeping = MuseHousekeeping(CreateParentLog(), server.Url!, vendor: "claude", carry: _ => throw new InvalidOperationException("silenced"));
+
+        await Assert.That(await housekeeping.PostLinkedPullRequestAsync(Session, Pr, "created in the session", CancellationToken.None)).IsFalse();
+        await Assert.That(server.LogEntries).IsEmpty();
+    }
+
+    /// <summary>The count waits on the post itself, so the post runs inside it.</summary>
+    [Test]
+    public async Task A_pull_request_link_is_sent_inside_the_carry() {
+        using var server       = Answering($"/api/sessions/{Session}/pull-requests", 200);
+        var       sentInside   = -1;
+        var       housekeeping = MuseHousekeeping(CreateParentLog(), server.Url!, vendor: "claude", carry: async post => {
+            await post();
+            sentInside = server.LogEntries.Count;
+        });
+
+        await Assert.That(await housekeeping.PostLinkedPullRequestAsync(Session, Pr, "created in the session", CancellationToken.None)).IsTrue();
+        await Assert.That(sentInside).IsEqualTo(1);
+    }
+
+    /// <summary>A title post that failed may have reached the server first, so the count hears of it as one that threw.</summary>
+    [Test]
+    public async Task A_failed_title_post_reads_as_unanswered_to_the_carry() {
+        using var server       = Answering("/hooks/harness-title", 500);
+        Exception? heard       = null;
+        var       housekeeping = MuseHousekeeping(CreateParentLog(), server.Url!, vendor: "claude", carry: async post => {
+            try {
+                await post();
+            } catch (Exception ex) {
+                heard = ex;
+
+                throw;
+            }
+        });
+        var state = new WatchState { TitleTracker = new HarnessTitleTracker(recordsChangeTime: false) };
+
+        await housekeeping.PostHarnessTitleAsync(new FixedTitleStore(new StoreTitle("A name", HarnessTitleKind.Rename, null)), Session, state, CancellationToken.None, () => { });
+
+        await Assert.That(server.LogEntries.Count).IsEqualTo(1);
+        await Assert.That(heard).IsNotNull();
+        await Assert.That(state.HarnessTitleSeen).IsFalse();
+    }
 
     static async Task ScanAsync(RecorderHousekeeping housekeeping, string transcript, int times) {
         for (var i = 0; i < times; i++) await housekeeping.AfterDrainAsync(new WatchState(), transcript, [], CancellationToken.None);
