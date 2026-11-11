@@ -119,6 +119,18 @@ public class ClaudeServerDeltaTests {
         await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
     }
 
+    /// <summary>The answer was seen once, so a later copy of the prompt it answered cannot reopen it for a
+    /// sibling to cancel.</summary>
+    [Test]
+    public async Task A_redelivered_answered_prompt_is_never_retracted() {
+        var ctx = Ctx();
+        E(Prompt(Cancelled, Parent), ctx);
+        E(Answer(Cancelled), ctx);
+        await Assert.That(E(Prompt(Cancelled, Parent), ctx)).Count().IsEqualTo(1);
+
+        await Assert.That(E(Prompt(Resubmit, Parent), ctx)).Count().IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_child_of_the_unanswered_prompt_retracts_nothing() {
         var ctx = Ctx();

@@ -23,6 +23,9 @@ public sealed class ClaudeTranscriptContext(string idScope) : TranscriptContext 
     /// Prompt id → the cancelled prompt it retracted, so a re-delivered line retracts the same prompt
     /// again and a re-delivered cancelled prompt is not taken for an unanswered one.
     internal Dictionary<Guid, Guid>? Retractions { get; set; }
+
+    /// Every prompt an assistant record has followed, so a re-delivered one is not taken for unanswered.
+    internal HashSet<Guid>? Answered { get; set; }
 }
 
 /// Claude Code's project transcript (`~/.claude/projects/&lt;slug&gt;/&lt;session&gt;.jsonl`): one JSON
@@ -79,8 +82,12 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
 
             // Every valid record but an assistant one re-arms the usage memory, and an assistant one answers the
             // open prompt; a rejected one, above, touches nothing.
-            if (type != "assistant") ctx.PreviousUsage = null;
-            else ctx.UnansweredPrompt = null;
+            if (type != "assistant") {
+                ctx.PreviousUsage = null;
+            } else if (ctx.UnansweredPrompt is { } answered) {
+                (ctx.Answered ??= []).Add(answered.Id);
+                ctx.UnansweredPrompt = null;
+            }
 
             var (at, recordTimestamp) = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt);
             var record = new Record(recordId, at, recordTimestamp, root.Str("parentUuid"), root.Bool("isSidechain") == true, ctx.IdScope);
@@ -180,12 +187,13 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         if (ctx.Retractions?.ContainsValue(id) == true) return prompt;
 
         Guid? cancelled = ctx.Retractions is { } known && known.TryGetValue(id, out var earlier) ? earlier : null;
+        var answered = ctx.Answered?.Contains(id) == true;
         // A record with no parent says nothing about its place in the conversation, so it is never a sibling.
-        if (cancelled is null && ctx.UnansweredPrompt is { ParentUuid: { } parent } open && open.Id != id && parent == record.CausedBy) {
+        if (cancelled is null && !answered && ctx.UnansweredPrompt is { ParentUuid: { } parent } open && open.Id != id && parent == record.CausedBy) {
             cancelled = open.Id;
             (ctx.Retractions ??= []).Add(id, open.Id);
         }
-        ctx.UnansweredPrompt = (id, record.CausedBy);
+        if (!answered) ctx.UnansweredPrompt = (id, record.CausedBy);
 
         if (cancelled is not { } cancelledId) return prompt;
         var retraction = new CanonicalEvent(CanonicalEventTypes.UserMessageRetracted, new UserMessageRetractedEvent { MessageId = cancelledId },
