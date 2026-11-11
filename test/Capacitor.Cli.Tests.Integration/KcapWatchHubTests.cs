@@ -99,14 +99,14 @@ public class KcapWatchHubTests {
 
     [Test]
     public async Task A_watcher_connects_once_the_hub_comes_up() {
-        using var port = new ReservedPort();
+        await using var hub = await WatcherHubHost.StartAsync(down: true);
         var transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
 
-        await using var watcher = await StartWatcherAsync($"http://127.0.0.1:{port.Port}", NewSession(), transcript);
+        await using var watcher = await StartWatcherAsync(hub.Url, NewSession(), transcript);
 
         await watcher.WaitForLogAsync("SignalR connect failed", "the first failed connect");
 
-        await using var hub = await WatcherHubHost.StartAsync(port);
+        hub.ComeUp();
         await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 2, "the lines, once the hub is up");
 
         await Assert.That(Numbers(hub.ReceivedLineNumbers)).IsEqualTo("0,1");
@@ -117,10 +117,10 @@ public class KcapWatchHubTests {
 
     [Test]
     public async Task A_stop_before_connect_exits_early() {
-        using var port = new ReservedPort();
+        await using var hub = await WatcherHubHost.StartAsync(down: true);
         var transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
 
-        await using var watcher = await StartWatcherAsync($"http://127.0.0.1:{port.Port}", NewSession(), transcript);
+        await using var watcher = await StartWatcherAsync(hub.Url, NewSession(), transcript);
 
         await watcher.WaitForLogAsync("SignalR connect failed", "the first failed connect");
         watcher.SignalTerm();
