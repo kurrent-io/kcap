@@ -9,6 +9,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// <summary>
 /// Exercise model selection over a real fake-agent connection without the full runtime so the
 /// selector's RPC, cancellation, and rejection contracts are independently observable.
+/// <see cref="AcpHostedAgentRuntimeModelSelectionTests"/> covers runtime integration.
 /// </summary>
 public class ConfigOptionModelSelectorTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
