@@ -547,12 +547,11 @@ public sealed class ConPtyProcess : IPtyProcess {
         var started = _time.GetTimestamp();
         var limit   = timeout ?? TimeSpan.FromSeconds(5);
 
-        while (!HasExited && _time.GetElapsedTime(started) < limit) {
-            CheckExited();
+        CheckExited();
 
-            if (!HasExited) {
-                await Task.Delay(ExitConfirmGap, _time);
-            }
+        while (!HasExited && _time.GetElapsedTime(started) < limit) {
+            await Task.Delay(ExitConfirmGap, _time);
+            CheckExited();
         }
     }
 
