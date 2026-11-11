@@ -6,7 +6,8 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// An agent still unlinked well after spawn has its process checked: one that has exited ends its run
-/// though its output never did, and one still alive keeps running.
+/// though its output never did, once its output has had a moment to end by itself, and one still alive
+/// keeps running.
 public class AgentLivenessCheckTests {
     [Test]
     [Arguments(true)]
@@ -24,6 +25,10 @@ public class AgentLivenessCheckTests {
             time.Advance(TimeSpan.FromSeconds(61));
 
             if (exited) {
+                await Task.Delay(200);
+                await Assert.That(agent.ReadCts.IsCancellationRequested).IsFalse();
+
+                time.Advance(AgentOrchestrator.ExitedOutputGrace);
                 await reading.WaitAsync(WaitHarness.Bounded);
                 await Assert.That(agent.Status).IsNotEqualTo("Running");
             } else {

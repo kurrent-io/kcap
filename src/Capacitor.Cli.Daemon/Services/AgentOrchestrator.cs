@@ -6414,6 +6414,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>When an unlinked launch stops being ordinary slowness and starts being worth saying
     /// out loud. A healthy codex links in about five seconds, so a minute is far past normal.</summary>
     static readonly TimeSpan SessionIdSlowWarnAfter = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan ExitedOutputGrace = TimeSpan.FromSeconds(2);
 
     static readonly TimeSpan SessionIdPollInterval = TimeSpan.FromSeconds(2);
 
@@ -6551,6 +6552,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         await agent.Runtime.WaitForExitAsync(TimeSpan.Zero).ConfigureAwait(false);
         if (!agent.Runtime.HasExited) return;
+
+        // The output may still end by itself, with the agent's last words in it; ct fires when it does.
+        try {
+            await Task.Delay(ExitedOutputGrace, _time, ct).ConfigureAwait(false);
+        } catch (OperationCanceledException) {
+            return;
+        }
 
         LogExitFoundByLivenessCheck(agent.Id, agent.Runtime.ExitCode);
         try { await agent.ReadCts.CancelAsync().ConfigureAwait(false); } catch (ObjectDisposedException) { /* already torn down */ }
