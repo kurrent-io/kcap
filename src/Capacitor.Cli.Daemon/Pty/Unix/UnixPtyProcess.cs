@@ -28,7 +28,7 @@ public sealed class UnixPtyProcess : IPtyProcess {
                 CheckExited();
 
                 return HasExited;
-            }, _cts.Token);
+            }, time, _cts.Token);
     }
 
     /// <summary>Executable resolution is PRE-FORK, in the parent (spec §4.2(a), pinned): resolves
