@@ -262,6 +262,11 @@ dotnet publish src/Capacitor.Cli/Capacitor.Cli.csproj -c Release 2>&1 | grep -E 
 
 Applies to every file type: source, tests, config and build files, YAML, shell scripts.
 
+Run `bash scripts/check-comment-rules.sh` before pushing. CI rejects new high-confidence
+violations and any growth of `scripts/comment-rules-baseline.json`. When removing a baselined
+comment, run the checker with `--write-baseline` to prune its entry. See `CONTRIBUTING.md`
+for coverage and the checks that still need human review.
+
 ## Commit messages
 
 Subject: `one clause (#123)`, imperative, **at most 80 characters including the trailing reference**. No second clause, and no parenthetical other than that reference.

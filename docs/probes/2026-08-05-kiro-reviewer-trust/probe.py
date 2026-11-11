@@ -2,9 +2,8 @@
 """Kiro unattended-reviewer probe: does SCOPED trust let the reviewer report, and does an
 isolated KIRO_HOME actually suppress the operator's global MCP servers on this build?
 
-Two questions, both open in the AI-1410 spec, both measured here against the ACP path (the spec's
-own standing trap: the earlier trust measurements were taken on `chat --no-interactive`, which
-denies for a DIFFERENT reason and does not transfer).
+The ACP path must be measured independently of `chat --no-interactive`:
+trust failures in that mode have a different cause.
 
   Q1  Does `--trust-tools=fs_read,thinking,@kcap-flow-result/submit_review_result` cover the
       injected result tool, so a Fail-policy reviewer can deliver its result without a human?

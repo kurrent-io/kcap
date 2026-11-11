@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""AI-1325 C0 re-probe: ACP reconnect/resume identity facts, per vendor.
+"""ACP reconnect/resume identity facts, per vendor.
 
 Measures, against each installed ACP vendor CLI:
   1. loadSession advertisement (initialize).
-  2. messageId presence on LIVE session/update chunks (the AI-1325 revisit trigger).
+  2. messageId presence on LIVE session/update chunks.
   3. session/load replay: update kinds, chunk granularity, messageId presence,
      live-vs-replay messageId stability, identical-turn (occurrence) identity,
      tool-call replay + toolCallId stability.

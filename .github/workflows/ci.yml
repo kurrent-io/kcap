@@ -127,12 +127,21 @@ jobs:
           if-no-files-found: ignore
 
   lint-linear-ids:
+    # Keep the check name stable for branch-protection rules.
     name: No Linear issue IDs in C# source
     runs-on: ubuntu-latest
+    env:
+      BASELINE_REF: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || '' }}
     steps:
       - uses: actions/checkout@v7
-      - name: Check for Linear issue ID tokens in src/**/*.cs and test/**/*.cs
-        run: bash scripts/check-linear-ids.sh
+      - name: Check comment rules and Linear issue IDs
+        run: |
+          args=()
+          if [ -n "$BASELINE_REF" ] && [ "$BASELINE_REF" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin "$BASELINE_REF"
+            args+=(--baseline-ref "$BASELINE_REF")
+          fi
+          bash scripts/check-comment-rules.sh "${args[@]}"
 
   # One version for the daemon, the CLI, the app and the package, so the app's CLI floor assertion
   # and Velopack's SemVer check see the same value.
