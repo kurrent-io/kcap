@@ -19,6 +19,10 @@ internal sealed class SteeringSwitch(
     ) : IHostedService, IDisposable {
     internal static readonly TimeSpan RebindInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long switching off waits for the requests the socket was serving. Under the CLI's 10 s wait for the
+    /// answer: a request stuck on the server, as an attach is for its 15 s registration budget, would outlast it.</summary>
+    internal static readonly TimeSpan UnbindBound = TimeSpan.FromSeconds(5);
+
     readonly SemaphoreSlim _lane = new(1, 1);
     readonly bool _offered = offered ?? SteeringIpc.Offered;
     ITimer? _rebind;
@@ -106,7 +110,13 @@ internal sealed class SteeringSwitch(
                 // Ahead of the socket, which waits for requests already in: a handover answered meanwhile then finds its
                 // attachment gone, and is reported back rather than given to a mod.
                 attachments?.EndAll();
-                await endpoint.UnbindAsync();
+
+                try {
+                    await endpoint.UnbindAsync().WaitAsync(UnbindBound, time ?? TimeProvider.System, CancellationToken.None);
+                } catch (TimeoutException) {
+                    // The socket is closed and its file gone already; what it was serving finishes on its own.
+                }
+
                 _served = false;
             }
 

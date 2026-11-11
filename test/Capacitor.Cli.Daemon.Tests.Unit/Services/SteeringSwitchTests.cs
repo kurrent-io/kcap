@@ -302,6 +302,46 @@ public class SteeringSwitchTests {
         await Assert.That(Rejected()).IsTrue();
     }
 
+    /// <summary>A request stuck on the server outlasts the CLI's wait for the answer, so switching off answers within its
+    /// bound and leaves that request to finish on its own: the switch is off and the socket gone by then.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task Switching_off_answers_within_its_bound_while_a_request_is_stuck_on_the_server() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        const string session = "0f8fad5b-d9cb-469f-a165-70867728950e", key = "4242:start";
+        var time     = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var consent  = Consent();
+        consent.TrySetSteering(true, out _);
+        var gate     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server   = new CaptureServerConnection { HandoverGate = gate };
+        await using var attachments = new ModAttachments(
+            server, new ModAttachmentStore(Daemons.Store.SteeringAttachmentsPath(Name), NullLogger.Instance), () => consent.SteeringOn,
+            TimeProvider.System, NullLogger.Instance, offered: true);
+        await using var endpoint = new SteeringEndpoint(
+            Daemons.Store.SteeringSocketPath(Name), new SteeringRoutes(attachments).Table(), TimeProvider.System, NullLogger.Instance);
+        using var steering = new SteeringSwitch(consent, endpoint, offered: true, attachments, time);
+        await steering.StartAsync(cts.Token);
+
+        var agentId = (await attachments.AttachAsync(session, key, null, cts.Token)).AgentId!;
+        attachments.TakeInput(new SendInputCommand(agentId, "hello", null, Guid.NewGuid()));
+        var poll = PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"{{key}}"}""", cts.Token);
+        await server.HandoverEntered.Task.WaitAsync(cts.Token);
+
+        var off = AskAsync(steering, SteeringIpc.Off);
+        while (!off.IsCompleted && !cts.IsCancellationRequested) {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(10, CancellationToken.None);
+        }
+
+        await Assert.That(off.IsCompleted).IsTrue();
+        await Assert.That(poll.IsCompleted).IsFalse();
+        await Assert.That(consent.SteeringOn).IsFalse();
+        await Assert.That(File.Exists(Daemons.Store.SteeringSocketPath(Name))).IsFalse();
+
+        gate.SetResult();
+        await Assert.That(await poll.WaitAsync(cts.Token)).DoesNotContain("hello");
+    }
+
     async Task<string> PostAsync(string route, string body, CancellationToken ct) {
         using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         await socket.ConnectAsync(new UnixDomainSocketEndPoint(Daemons.Store.SteeringSocketPath(Name)), ct);
