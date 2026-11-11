@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
@@ -20,6 +21,7 @@ public partial class SessionSearchView : UserControl {
     public SessionSearchView() {
         InitializeComponent();
         SearchQueryBox.AddHandler(KeyDownEvent, OnQueryKeyDown, RoutingStrategies.Tunnel);
+        SearchHits.AddHandler(PointerWheelChangedEvent, OnHitsWheel, RoutingStrategies.Bubble, handledEventsToo: true);
         this.GetObservable(IsVisibleProperty).Subscribe(visible => {
             if (visible) Dispatcher.UIThread.Post(() => SearchQueryBox.Focus(), DispatcherPriority.Loaded);
         });
@@ -101,7 +103,21 @@ public partial class SessionSearchView : UserControl {
         var at = e.GetPosition(SearchHits);
         if (at == _pointerAt) return;
         _pointerAt = at;
-        if (sender is not Button { DataContext: SearchHitViewModel hit } || Search is not { } search) return;
+        if (sender is Button { DataContext: SearchHitViewModel hit }) Highlight(hit);
+    }
+
+    // A wheel scroll moves rows under a still pointer without a PointerMoved, which would leave the highlight off
+    // screen for Enter while the row under the pointer looks hovered; once the scroll lands, that row takes it.
+    void OnHitsWheel(object? sender, PointerWheelEventArgs e) {
+        var at = e.GetPosition(SearchHits);
+        Dispatcher.UIThread.Post(() => {
+            if ((SearchHits.InputHitTest(at) as Visual)?.FindAncestorOfType<Button>(includeSelf: true) is { DataContext: SearchHitViewModel hit })
+                Highlight(hit);
+        }, DispatcherPriority.Loaded);
+    }
+
+    void Highlight(SearchHitViewModel hit) {
+        if (Search is not { } search) return;
         var index = search.Hits.IndexOf(hit);
         if (index >= 0 && index != search.HighlightIndex) search.MoveHighlight(index - search.HighlightIndex);
     }

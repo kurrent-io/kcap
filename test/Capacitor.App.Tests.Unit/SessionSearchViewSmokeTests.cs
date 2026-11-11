@@ -179,6 +179,37 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
     });
 
+    /// A wheel scroll under a still pointer raises no PointerMoved, yet the highlight must not stay behind off screen
+    /// for Enter: the row the pointer rests on once the scroll lands takes it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wheel_scroll_moves_the_highlight_to_the_row_under_the_pointer() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix auth {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+
+        var list = host.Named<ItemsControl>("SearchHits");
+        var center = list.TranslatePoint(new Point(list.Bounds.Width / 2, list.Bounds.Height / 2), host.Window)!.Value;
+        host.Window.MouseWheel(center, new Vector(0, -20));
+        host.Settle();
+
+        var index = host.Vm.Search!.HighlightIndex;
+        await Assert.That(index).IsGreaterThan(0);
+        var row = list.ContainerFromIndex(index);
+        await Assert.That(row).IsNotNull();
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        await Assert.That(top).IsGreaterThanOrEqualTo(-0.5);
+        await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
+    });
+
     /// An avatar is read as the person it stands for, in the rail and on a search hit, never as their initials.
     [Test]
     [NotInParallel("AvaloniaSession")]
