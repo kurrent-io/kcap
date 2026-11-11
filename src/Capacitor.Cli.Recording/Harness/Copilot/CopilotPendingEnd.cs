@@ -90,12 +90,15 @@ public static class CopilotPendingEnd {
 
         if (!shutdown && NewRunSince(transcript, record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
 
-        var runtimeGone = record["runtime_pid"]?.GetValue<int>() is { } pid
-                       && (record["runtime_token"]?.GetValue<string>() is not { } token || ProcessStartToken.ForPid(pid) is null || ProcessStartToken.Matches(pid, token) == false);
+        // An unreadable token proves nothing either way: only an exited pid or two tokens that differ show the runtime gone.
+        var pid         = record["runtime_pid"]?.GetValue<int>();
+        var token       = record["runtime_token"]?.GetValue<string>();
+        var runtimeGone = pid is { } runtime && WatcherLiveness.IsGone(runtime, token ?? "");
 
-        var quietWithNoRuntime = record["runtime_pid"] is null && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
+        // Without the runtime's identity, a live pid may be another process, so a transcript gone quiet stands in.
+        var quietUnidentified = (pid is null || token is null) && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
 
-        return shutdown || runtimeGone || quietWithNoRuntime ? record["body"]?.GetValue<string>() ?? Drop() : null;
+        return shutdown || runtimeGone || quietUnidentified ? record["body"]?.GetValue<string>() ?? Drop() : null;
 
         string? Drop() {
             Discard(paths, session);

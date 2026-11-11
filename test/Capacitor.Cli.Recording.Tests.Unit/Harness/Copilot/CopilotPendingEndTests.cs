@@ -134,6 +134,26 @@ public class CopilotPendingEndTests {
         await Assert.That(Pending).IsTrue();
     }
 
+    /// <summary>A start token that could not be read says nothing about the runtime: a live one keeps the end held until
+    /// the quiet period, the same as no pid at all.</summary>
+    [Test]
+    public async Task An_end_whose_runtime_token_was_unreadable_waits_for_a_live_runtime() {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
+
+        var record = Path.Combine(Paths.Directory, Session + ".copilot-pending-end.json");
+        var node   = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(record))!;
+        node["runtime_token"] = null;
+        await File.WriteAllTextAsync(record, node.ToJsonString());
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
+
+        var later = new FakeTimeProvider(DateTimeOffset.UtcNow + CopilotPendingEnd.QuietPeriod + TimeSpan.FromMinutes(1));
+        await Assert.That(CopilotPendingEnd.SpoolDue(Paths, Spool, Server, later)).IsEqualTo(1);
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);
