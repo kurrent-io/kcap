@@ -1166,20 +1166,20 @@ sealed class SetupCommand(
                 : [serverUrl]);
 
         var stepInstallers = new CodingAgentsStep.Installers(
-            InstallClaudePlugin:    (settings, plugin) => InstallPlugin(settings, plugin, legacyProjectScope ? null : Path.GetDirectoryName(settings)),
-            InstallCodexHooks:      PluginCommand.InstallCodexHooks,
-            InstallCursorHooks:     PluginCommand.InstallCursorHooks,
-            InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
+            InstallClaudePlugin:    (settings, plugin) => ClaudePluginWriter.Install(settings, legacyProjectScope ? null : Path.GetDirectoryName(settings), plugin),
+            InstallCodexHooks:      CodexHooksWriter.Install,
+            InstallCursorHooks:     path => Edited(PluginCommand.InstallCursorHooks(path)),
+            InstallCopilotHooks:    path => PluginCommand.WriteCopilotHooks(path),
             CopilotHooksNeedPath:   () => PluginCommand.CopilotHooksNeedPath(),
-            InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
+            InstallGeminiHooks:     path => Edited(PluginCommand.InstallGeminiHooks(path)),
             CapacitorOnPath:        () => binaries.Finds("kcap"),
             InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,
             CleanLegacyCodexSkills: legacyDir => AgentsSkillsInstaller.CleanLegacyCodexSkills(legacyDir).RemovedAny,
             // Read when it runs: a reported run swaps stderr for the writer its failure line comes from.
-            InstallKiroHooks:       agentPath => PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error),
-            InstallPiExtension:     PiExtensionInstaller.Install,
-            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Install,
-            InstallAntigravityHooks:  PluginCommand.InstallAntigravityHooks,
+            InstallKiroHooks:       agentPath => Edited(PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error)),
+            InstallPiExtension:     PiExtensionInstaller.Apply,
+            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Apply,
+            InstallAntigravityHooks:  path => Edited(PluginCommand.InstallAntigravityHooks(path)),
             EnableCodexNetworkAccess: () => CodexConfigToml.EnableNetworkAccess(codexAllowDomains, codex.ConfigToml),
             RegisterCodexMcp:         () => CodexConfigToml.RegisterKcapMcpServers(codex.ConfigToml),
             // every non-Claude JSON harness registers the ForCursor subset — the full set,
@@ -1208,13 +1208,17 @@ sealed class SetupCommand(
             InstallAntigravityInstructions: () => AgentInstructionsWriter.Write(
                 agy.InstructionsMd, KcapAgentInstructions.Body),
             // Pi has no JSON MCP config — the "MCP" is a second extension file (kcap-mcp.ts).
-            InstallPiMcp:             PiMcpExtensionInstaller.Install,
+            InstallPiMcp:             PiMcpExtensionInstaller.Apply,
             InstallPiInstructions:    () => AgentInstructionsWriter.Write(
                 pi.AgentsMd, KcapAgentInstructions.Body),
             // Vibe's hooks.toml and MCP config.toml are TOML (not the JSON writer / Codex map).
-            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) != TomlConfigFile.Outcome.Failed,
+            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) switch {
+                TomlConfigFile.Outcome.Unchanged => SettingsEdit.Unchanged,
+                TomlConfigFile.Outcome.Updated   => SettingsEdit.Changed,
+                _                                => SettingsEdit.Failed,
+            },
             RegisterVibeMcp:          () => MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml),
-            InstallGrokHooks:         GrokHooksInstaller.Install,
+            InstallGrokHooks:         path => Edited(GrokHooksInstaller.Install(path)),
             // Muse's hooks and MCP servers share one JSON settings.json; an unparseable file is a failure, not a success.
             InstallMuseHooks:         p => InstallMuseHooks(p, home, muse, WriteLine),
             RegisterMuseMcp:          () => MuseSettingsJson.RegisterKcapMcpServers(muse.SettingsJson, home),
@@ -3425,16 +3429,19 @@ sealed class SetupCommand(
     /// True only once every event carries kcap's hook. The roots are written whenever any kcap hook is in
     /// the file, complete or not: a hook Muse runs finds its session log only through them.
     /// </summary>
-    internal static bool InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
-        var installed = MuseHooksInstaller.Install(settingsPath) is SettingsEdit.Changed or SettingsEdit.Unchanged
-                     && MuseHooksInstaller.HasAllHooks(settingsPath);
+    internal static SettingsEdit InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
+        var edit = MuseHooksInstaller.Install(settingsPath);
+        if (!MuseHooksInstaller.HasAllHooks(settingsPath)) edit = SettingsEdit.Failed;
 
         if (MuseHooksInstaller.IsWired(settingsPath) && !MuseHookRoots.Persist(home, muse))
             writeLine($"  [yellow]⚠[/] Could not write {Markup.Escape(MuseHookRoots.PathFor(home))} — "
                     + "Muse hooks may look for sessions outside this shell's XDG roots.");
 
-        return installed;
+        return edit;
     }
+
+    /// <summary>For an installer that cannot tell a current file from one it rewrote.</summary>
+    static SettingsEdit Edited(bool installed) => installed ? SettingsEdit.Changed : SettingsEdit.Failed;
 
     /// <summary>
     /// Codex runs only hooks it trusts. When kcap could not have Codex trust them, the line names the routes that

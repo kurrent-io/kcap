@@ -2589,6 +2589,45 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("Could not register OpenCode MCP"));
     }
 
+    // ── A re-run over wiring that is already current ───────────────────────────
+
+    static readonly string[] HookFiles = [
+        "/fake/.claude/settings.json", "/fake/.codex/hooks.json", "/fake/.copilot/hooks/kcap.json",
+        "/fake/.pi/agent/extensions/kcap.ts", "/fake/.pi/agent/extensions/kcap-mcp.ts", "/fake/.config/opencode/plugins/kcap.ts",
+    ];
+
+    static Task<Result> RunOverCurrentWiring(Installers installers, Sink sink) => RunAsync(
+        new Options(SkipClaude: false, SkipCodex: false, SkipCursor: true, SkipCopilot: false, NoPrompt: true, SkipCodexNetworkAccess: true),
+        new DetectedAgents(Claude: true, Codex: true, Cursor: false, Copilot: true, Pi: true, OpenCode: true),
+        TestPaths(), installers, prompt: _ => true, writeLine: sink.Write);
+
+    /// <summary>Setup run again over current wiring says so per harness and lists none of those files as changed,
+    /// while each harness still counts as installed.</summary>
+    [Test]
+    public async Task Current_wiring_is_reported_as_already_installed_and_not_as_changed() {
+        var sink   = new Sink();
+        var result = await RunOverCurrentWiring(new InstallerCalls { AlreadyCurrent = true }.AsInstallers(), sink);
+
+        foreach (var what in new[] { "Claude Code plugin", "Codex hooks", "Copilot hooks", "Pi extension", "Pi MCP extension", "OpenCode plugin" }) {
+            await Assert.That(sink.Lines).Contains(l => l.Contains($"{what} already installed — no change needed"));
+            await Assert.That(sink.Lines).DoesNotContain(l => l.Contains($"{what} installed"));
+        }
+        await Assert.That(InstalledPaths(result, TestPaths()).Intersect(HookFiles).ToList()).IsEmpty();
+        await Assert.That(result.ClaudeInstalled && result.CodexHooksInstalled && result.CopilotHooksInstalled).IsTrue();
+        await Assert.That(result.PiExtensionInstalled && result.PiMcpInstalled && result.OpenCodeExtensionInstalled).IsTrue();
+    }
+
+    [Test]
+    public async Task Only_the_files_a_re_run_rewrote_are_listed_as_changed() {
+        var sink       = new Sink();
+        var installers = new InstallerCalls { AlreadyCurrent = true }.AsInstallers() with { InstallCodexHooks = _ => SettingsEdit.Changed };
+
+        var result = await RunOverCurrentWiring(installers, sink);
+
+        await Assert.That(InstalledPaths(result, TestPaths()).Intersect(HookFiles).ToList()).IsEquivalentTo(["/fake/.codex/hooks.json"]);
+        await Assert.That(sink.Lines).Contains(l => l.Contains("Codex hooks installed"));
+    }
+
     // ── InstallAgents gate (single unified consent decision) ───────────────────
 
     [Test]
@@ -2813,6 +2852,11 @@ public class CodingAgentsStepTests {
     }
 
     sealed class InstallerCalls {
+        /// <summary>Every install that succeeds finds its file already current.</summary>
+        public bool AlreadyCurrent { get; set; }
+
+        SettingsEdit Edit(bool ok) => !ok ? SettingsEdit.Failed : AlreadyCurrent ? SettingsEdit.Unchanged : SettingsEdit.Changed;
+
         public bool                                 ClaudeCalled  { get; private set; }
         public (string Settings, string PluginDir)? ClaudeArgs    { get; private set; }
         public bool                                 ClaudeReturns { get; set; } = true;
@@ -2916,31 +2960,31 @@ public class CodingAgentsStepTests {
                 ClaudeCalled = true;
                 ClaudeArgs   = (s, p);
 
-                return ClaudeReturns;
+                return Edit(ClaudeReturns);
             },
             InstallCodexHooks: h => {
                 CodexHooksCalled = true;
                 CodexHooksArg    = h;
 
-                return CodexHooksReturns;
+                return Edit(CodexHooksReturns);
             },
             InstallCursorHooks: h => {
                 CursorHooksCalled = true;
                 CursorHooksArg    = h;
 
-                return CursorHooksReturns;
+                return Edit(CursorHooksReturns);
             },
             InstallCopilotHooks: h => {
                 CopilotHooksCalled = true;
                 CopilotHooksArg    = h;
 
-                return CopilotHooksReturns;
+                return Edit(CopilotHooksReturns);
             },
             InstallGeminiHooks: h => {
                 GeminiHooksCalled = true;
                 GeminiHooksArg    = h;
 
-                return GeminiHooksReturns;
+                return Edit(GeminiHooksReturns);
             },
             CapacitorOnPath: () => {
                 CapacitorOnPathCalled = true;
@@ -2950,25 +2994,25 @@ public class CodingAgentsStepTests {
                 KiroHooksCalled = true;
                 KiroHooksArg    = h;
 
-                return KiroHooksReturns;
+                return Edit(KiroHooksReturns);
             },
             InstallPiExtension: p => {
                 PiExtensionCalled = true;
                 PiExtensionArg    = p;
 
-                return PiExtensionReturns;
+                return Edit(PiExtensionReturns);
             },
             InstallOpenCodeExtension: p => {
                 OpenCodeExtensionCalled = true;
                 OpenCodeExtensionArg    = p;
 
-                return OpenCodeExtensionReturns;
+                return Edit(OpenCodeExtensionReturns);
             },
             InstallAntigravityHooks: h => {
                 AntigravityHooksCalled = true;
                 AntigravityHooksArg    = h;
 
-                return AntigravityHooksReturns;
+                return Edit(AntigravityHooksReturns);
             },
             InstallAgentSkills: (s, d) => {
                 AgentSkillsCalled = true;
@@ -3053,7 +3097,7 @@ public class CodingAgentsStepTests {
                 InstallPiMcpCalled = true;
                 InstallPiMcpArg    = p;
 
-                return InstallPiMcpReturns;
+                return Edit(InstallPiMcpReturns);
             },
             InstallPiInstructions: () => {
                 InstallPiInstructionsCalled = true;

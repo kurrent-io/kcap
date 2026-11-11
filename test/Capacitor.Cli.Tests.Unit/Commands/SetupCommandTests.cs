@@ -2609,7 +2609,7 @@ public class SetupCommandTests {
         Home.CreateFile(".config/kcap", "a file where kcap's config directory belongs");
         var lines = new List<string>();
 
-        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, lines.Add)).IsTrue();
+        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, lines.Add)).IsEqualTo(SettingsEdit.Changed);
 
         await Assert.That(lines).HasSingleItem();
         await Assert.That(lines[0]).Contains("Could not write");
@@ -2621,7 +2621,7 @@ public class SetupCommandTests {
         var settings = Home.CreateFile(".config/muse/settings.json",
             """{"schema_version":1,"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"kcap hook --muse --no-update-check","timeout":5}]}],"Stop":"nope"}}""");
 
-        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, _ => { })).IsFalse();
+        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, _ => { })).IsEqualTo(SettingsEdit.Failed);
 
         await Assert.That(MuseHookRoots.Read(Home).DataHome).IsEqualTo(Home.PathTo("data"));
     }
