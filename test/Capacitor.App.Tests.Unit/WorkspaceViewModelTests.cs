@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Reactive.Threading.Tasks;
 using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -38,6 +39,29 @@ public class WorkspaceViewModelTests {
             webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages);
 
     const string Session = "0123456789abcdef0123456789abcdef";
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_start_failure_arriving_after_workspace_teardown_does_not_throw() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var result = new TaskCompletionSource<StartDaemonResult>();
+            daemon.StartBehavior = _ => result.Task;
+            var vm = Build(daemon, WorkspaceFixtures.NewActions(), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
+            var errors = new List<Exception>();
+            using var exceptions = vm.StartDaemonCommand.ThrownExceptions.Subscribe(errors.Add);
+            var start = vm.StartDaemonCommand.Execute().ToTask();
+            try {
+                await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
+                await vm.TeardownAsync();
+            } finally {
+                result.TrySetResult(new StartDaemonResult(false, "start failed"));
+            }
+            await start;
+            await Assert.That(errors).IsEmpty();
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+        });
+    }
 
     /// The tab exists only while the session has a document, like Pull request with its changes.
     [Test]

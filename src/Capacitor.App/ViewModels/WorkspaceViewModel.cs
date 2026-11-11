@@ -247,15 +247,28 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         RetryConnectionCommand = ReactiveCommand.CreateFromTask(daemon.RestartLoopAsync);
         _disposables.Add(RetryConnectionCommand);
         var startFailure = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
-        _disposables.Add(startFailure);
+        var startFailureGate = new object();
+        var startFailureDisposed = false;
+        void PublishStartFailure(string? failure) {
+            lock (startFailureGate) {
+                if (!startFailureDisposed) startFailure.OnNext(failure);
+            }
+        }
+        // Unsubscribing cannot recall an in-flight daemon callback or start completion.
+        _disposables.Add(Disposable.Create(() => {
+            lock (startFailureGate) {
+                startFailureDisposed = true;
+                startFailure.Dispose();
+            }
+        }));
         StartDaemonCommand = ReactiveCommand.CreateFromTask(async ct => {
-            startFailure.OnNext(null);
+            PublishStartFailure(null);
             var result = await daemon.StartDaemonAsync(ct);
-            if (!result.Ok) startFailure.OnNext(result.Message ?? "The daemon didn’t start.");
+            if (!result.Ok) PublishStartFailure(result.Message ?? "The daemon didn’t start.");
         });
         _disposables.Add(StartDaemonCommand);
         daemon.Status.Where(s => s.State == AttachState.Connected)
-            .Subscribe(_ => startFailure.OnNext(null)).DisposeWith(_disposables);
+            .Subscribe(_ => PublishStartFailure(null)).DisposeWith(_disposables);
         daemon.Status.CombineLatest(StartDaemonCommand.IsExecuting, RetryConnectionCommand.IsExecuting, startFailure)
             .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(t => {
                 var (status, starting, retrying, failure) = t;
