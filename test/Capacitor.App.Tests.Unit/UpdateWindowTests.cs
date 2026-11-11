@@ -73,7 +73,7 @@ public class UpdateWindowTests {
             Render(window);
 
             await Assert.That(vm.Heading).IsEqualTo("kcap is ready");
-            await Assert.That(names).IsEquivalentTo(["kcap is ready"]);
+            await Assert.That(names).IsEquivalentTo(new string?[] { "kcap is ready" });
             await Assert.That(peer.GetName()).IsEqualTo("kcap is ready");
         } finally { window.Close(); }
     });
