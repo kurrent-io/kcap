@@ -148,7 +148,7 @@ public class CopilotPendingEndTests {
         var transcript = Transcript(Turn);
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
 
-        var record = Path.Combine(Paths.Directory, Session + ".copilot-pending-end.json");
+        var record = Path.Join(Paths.Directory, Session + ".copilot-pending-end.json");
         var node   = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(record))!;
         node["runtime_token"] = null;
         await File.WriteAllTextAsync(record, node.ToJsonString());
@@ -318,7 +318,7 @@ public class CopilotPendingEndTests {
     [Test]
     public async Task A_torn_record_is_dropped() {
         Directory.CreateDirectory(Paths.Directory);
-        await File.WriteAllTextAsync(Path.Combine(Paths.Directory, Session + ".copilot-pending-end.json"), """{"server":"https://kcap""");
+        await File.WriteAllTextAsync(Path.Join(Paths.Directory, Session + ".copilot-pending-end.json"), """{"server":"https://kcap""");
 
         await Assert.That(Sweep()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
@@ -350,12 +350,12 @@ public class CopilotPendingEndTests {
     }
 
     static string? RunIdOnDisk(WatcherPaths paths) {
-        var file = Path.Combine(paths.Directory, Session + ".copilot-pending-end.json");
+        var file = Path.Join(paths.Directory, Session + ".copilot-pending-end.json");
         return File.Exists(file) ? System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))?["run_id"]?.GetValue<string>() : null;
     }
 
     static System.Text.Json.Nodes.JsonObject Snapshot(WatcherPaths paths) =>
-        (System.Text.Json.Nodes.JsonObject) System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(paths.Directory, Session + ".copilot-pending-end.json")))!;
+        (System.Text.Json.Nodes.JsonObject) System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Join(paths.Directory, Session + ".copilot-pending-end.json")))!;
 
     /// <summary>A sweep that read run A's record holds the session's lock until it is done with it, so a new run's hook and
     /// watcher writing run B's meanwhile land after the sweep's own write of A, never under it. The test holds the lock and

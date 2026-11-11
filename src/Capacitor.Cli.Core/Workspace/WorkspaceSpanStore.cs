@@ -42,7 +42,7 @@ public sealed class WorkspaceSpanStore(
         var repo = await snapshotter.ResolveAsync(dir, Left());
         if (repo is null) return false;
 
-        var path   = Path.Combine(sessionDir, $"{repo.Key}.json");
+        var path   = Path.Join(sessionDir, $"{repo.Key}.json");
         var reuses = mode != WorkspaceOpen.Run;
         if (reuses && File.Exists(path)) return true;
 
@@ -86,8 +86,16 @@ public sealed class WorkspaceSpanStore(
     public bool Holds(string sessionId) => SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir);
 
     /// <summary>Whether a span of <paramref name="run"/> is left.</summary>
-    public bool Holds(string sessionId, WorkspaceRunCutoff run) =>
-        SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir) && Baselines(sessionDir).Any(path => ReadSpan(path) is not { } span || run.Covers(span));
+    public bool Holds(string sessionId, WorkspaceRunCutoff run) {
+        if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return false;
+
+        // A directory that cannot be listed may still hold the run's spans, so the close owed for them is kept.
+        try {
+            return Directory.EnumerateFiles(sessionDir, "*.json").Any(path => ReadSpan(path) is not { } span || run.Covers(span));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return true;
+        }
+    }
 
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
     /// <returns>Whether no baseline is left: false when the lock was held past its wait, or a baseline
@@ -154,11 +162,8 @@ public sealed class WorkspaceSpanStore(
     /// twice. False when the lock was held past its wait.</summary>
     async Task<bool> CloseAllCoreAsync(string sessionId, string sessionDir, Func<TimeSpan> left, WorkspaceRunCutoff? run = null) {
         var closings = new List<Closing>();
-        foreach (var path in Baselines(sessionDir)) {
-            if (run is not null && ReadSpan(path) is { } span && !run.Covers(span)) continue;
-
+        foreach (var path in Baselines(sessionDir).Where(path => run is null || ReadSpan(path) is not { } span || run.Covers(span)))
             closings.Add(await PrepareAsync(sessionId, path, left));
-        }
         if (closings.Count == 0) return true;
 
         using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);

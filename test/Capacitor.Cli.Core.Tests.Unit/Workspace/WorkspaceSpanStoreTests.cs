@@ -157,7 +157,7 @@ public class WorkspaceSpanStoreTests {
         await rig.OpenAsync();
         rig.Write("survives.txt", "x");
         var span = JsonSerializer.Deserialize(File.ReadAllText(rig.Baselines().Single()), WorkspaceJsonContext.Default.WorkspaceSpan)!;
-        var sessionSpool = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        var sessionSpool = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
         Directory.CreateDirectory(sessionSpool);
         File.WriteAllText(Path.Combine(sessionSpool, $"{span.SpanId:N}.json.{Guid.NewGuid():N}.tmp"), "{\"torn");
 
@@ -213,7 +213,7 @@ public class WorkspaceSpanStoreTests {
         rig.Write("unsent.txt", "x");
         // A file where the session's spool directory belongs makes every spool write fail.
         Directory.CreateDirectory(rig.Spool.DirectoryPath);
-        var blocker = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        var blocker = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
         File.WriteAllText(blocker, "");
 
         await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget);
@@ -239,7 +239,7 @@ public class WorkspaceSpanStoreTests {
         rig.Time.Advance(TimeSpan.FromMinutes(1));
 
         Directory.CreateDirectory(rig.Spool.DirectoryPath);
-        var blocker = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        var blocker = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
         File.WriteAllText(blocker, "");
         await rig.OpenAsync(mode: mode);
         File.Delete(blocker);
@@ -266,6 +266,26 @@ public class WorkspaceSpanStoreTests {
         await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff("run-a", rig.Time.GetUtcNow()));
 
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "made.txt")).IsEqualTo(closed);
+    }
+
+    /// <summary>A session directory that cannot be listed may still hold the run's spans, so the close owed for them stays.</summary>
+    [Test]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task A_session_dir_that_cannot_be_listed_still_holds_the_run() {
+        Skip.When(OperatingSystem.IsWindows(), "a mode bit is what makes the directory unlistable");
+        using var rig = new WorkspaceRig();
+        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, new WorkspaceRun("run-a"));
+        var run = new WorkspaceRunCutoff("run-a", rig.Time.GetUtcNow());
+        await Assert.That(rig.Store.Holds(WorkspaceRig.Session, run)).IsTrue();
+
+        var mode = File.GetUnixFileMode(rig.SessionSpanDir);
+        File.SetUnixFileMode(rig.SessionSpanDir, UnixFileMode.None);
+
+        try {
+            await Assert.That(rig.Store.Holds(WorkspaceRig.Session, run)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(rig.SessionSpanDir, mode);
+        }
     }
 
     /// <summary>A Stop whose snapshot is slow must not hold the lock an <c>EnterWorktree</c> open of the same

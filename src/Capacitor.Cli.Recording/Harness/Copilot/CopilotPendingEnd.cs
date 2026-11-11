@@ -22,7 +22,7 @@ public static class CopilotPendingEnd {
     // session waiting on a person is woken by a new run, which drops the record, so ten quiet minutes stand for an exit.
     public static readonly TimeSpan QuietPeriod = TimeSpan.FromMinutes(10);
 
-    static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
+    static string FileFor(WatcherPaths paths, string sessionId) => Path.Join(paths.Directory, sessionId + Suffix);
 
     /// <summary>Holds <paramref name="endBody"/> until the runtime is gone or the transcript ends on its shutdown line.
     /// <paramref name="runId"/> is the run the transcript named when the stop arrived: a later run supersedes this end.
@@ -198,13 +198,10 @@ public static class CopilotPendingEnd {
     }
 
     /// <summary>Which write a record is: its time and nonce, which a sweep's own notes leave alone; a torn record's text.</summary>
-    static string IdentityOf(string text) {
-        try {
-            if (JsonNode.Parse(text) is JsonObject record && record["nonce"]?.GetValue<string>() is { } nonce) return $"{record["written_at"]?.GetValue<string>()}|{nonce}";
-        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
-
-        return text;
-    }
+    static string IdentityOf(string text) =>
+        ParseOrNull(text) is JsonObject record && record["nonce"] is JsonValue nonce && nonce.TryGetValue<string>(out var id)
+            ? $"{record["written_at"]}|{id}"
+            : text;
 
     enum Change { None, Save, Drop, Promote }
 

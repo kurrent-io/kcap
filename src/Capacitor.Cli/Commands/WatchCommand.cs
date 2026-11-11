@@ -662,6 +662,12 @@ class WatchCommand(
     internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, WorkspaceRunCutoff run) {
         await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
 
+        // Recording may have been turned off during the stop wait or the drain, and the end carries the session's paths.
+        if (DisabledSessions.IsDisabledByPerson(sessionId, config)) {
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
+            return;
+        }
+
         if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
             CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
     }
@@ -781,7 +787,8 @@ class WatchCommand(
             }
         }
 
-        var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+        // A run cutoff's time is when that run stopped, which is when its session ended.
+        var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, run?.OpenedBy ?? time.GetUtcNow(), HostedAgent.FromEnvironment());
         var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
         // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:

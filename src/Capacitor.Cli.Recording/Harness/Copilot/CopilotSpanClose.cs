@@ -21,7 +21,7 @@ public static class CopilotSpanClose {
     // Far past any spool retry or resume that could still deliver the end it follows.
     static readonly TimeSpan UndeliveredFor = TimeSpan.FromHours(24);
 
-    static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
+    static string FileFor(WatcherPaths paths, string sessionId) => Path.Join(paths.Directory, sessionId + Suffix);
 
     /// <summary>Records the close of the run its transcript names <paramref name="runId"/> or, where that could not be read,
     /// of the run whose spans were opened by now.</summary>

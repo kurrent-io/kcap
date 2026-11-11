@@ -18,7 +18,7 @@ sealed class CopilotPendingEndLock : IDisposable {
 
     CopilotPendingEndLock(FileStream stream) => _stream = stream;
 
-    public static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + ".copilot-pending-end.lock");
+    public static string FileFor(WatcherPaths paths, string sessionId) => Path.Join(paths.Directory, sessionId + ".copilot-pending-end.lock");
 
     /// <summary>Null when another holder kept it for all of <paramref name="wait"/>, or it could not be opened.</summary>
     public static CopilotPendingEndLock? TryAcquire(WatcherPaths paths, string sessionId, TimeSpan? wait = null) {
