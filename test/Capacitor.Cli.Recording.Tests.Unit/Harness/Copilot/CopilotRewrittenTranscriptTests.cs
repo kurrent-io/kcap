@@ -155,6 +155,20 @@ public class CopilotRewrittenTranscriptTests {
     // Line 9, just before the cursor, is left as it was.
     static string EditedBeforeTheLastLine => Lines("a", 0, 5) + Lines("b", 5, 4) + Line("a", 9) + "\n";
 
+    /// <summary>A line changed at or past the server's cursor is not a rewrite of anything it holds, only content it
+    /// has not got yet, so it goes out under its own number.</summary>
+    [Test]
+    public async Task A_line_changed_above_a_rewound_server_cursor_keeps_its_own_number() {
+        var (path, state) = await Sent(10);
+        await File.WriteAllTextAsync(path, Lines("a", 0, 2) + Lines("b", 2, 1) + Lines("a", 3, 7));
+
+        await Recorders.For(Sid, path, null, "copilot").ApplyReconnectRewindAsync(state, 0, null, CancellationToken.None);
+        await Drain(path, state);
+
+        await Assert.That(SentLines.Skip(10).ToArray()).IsEquivalentTo(
+            Enumerable.Range(0, 10).Select(i => (i, Line(i == 2 ? "b" : "a", i))).ToArray());
+    }
+
     /// <summary>A server that lost lines from below the original of a kept copy needs the copy sent.</summary>
     [Test]
     public async Task A_reconnect_rewind_below_a_kept_copy_s_original_sends_the_copy() {

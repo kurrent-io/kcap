@@ -1458,9 +1458,11 @@ public sealed class TranscriptRecorder(
                 }
             } else {
                 // Lines below the cursor whose hashes were never saved are taken as the file has them; the ones that
-                // were are compared first, or a rewrite of them would be taken in as what was sent.
-                var at = map.Known > 0 ? await map.FirstChangedLineAsync(TranscriptPath, map.Known, ct) : 0;
-                if (at < map.Known) {
+                // were are compared first, or a rewrite of them would be taken in as what was sent. A change at or past
+                // the cursor is only content the server has not got, which the read below takes in.
+                var compared = Math.Min(map.Known, cursor);
+                var at       = compared > 0 ? await map.FirstChangedLineAsync(TranscriptPath, compared, ct) : 0;
+                if (at < compared) {
                     rewrittenAt = at;
                 } else {
                     map.Observe(read.Lines, read.LineNumbers, Math.Min(read.NextPosition, cursor));
