@@ -1243,7 +1243,7 @@ sealed class DaemonServiceCommands(
              + $"  Repair it with: kcap daemon service install --replace --verify --name {id}";
     }
 
-    async Task<int> StatusJson() {
+    internal async Task<int> StatusJson() {
         await StaleTxnMarker.SettleAsync(store, manager, id, time);
         var query           = manager.Query(id);
         var installBinary   = UnitIdentity.ResolveDaemonBinary();
@@ -1254,11 +1254,10 @@ sealed class DaemonServiceCommands(
         var markedAt        = txnMarker ? ServiceTxnMarker.WrittenAt(store, id) : null;
         var (unitProfile, unitServerUrl, unitExpectedServer, unitConsentSeed) = UnitEnvEvidence(query.UnitPresent);
 
-        string? supervisor = null;
+        var supervisor = ServiceManagerFactory.SupervisorWord(manager);
         bool? upgrade = null, installable = null, adopted = null, runsServer = null;
         if (OperatingSystem.IsWindows()) {
-            supervisor  = ServiceManagerFactory.SupervisorWord(manager);
-            upgrade     = manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
+            upgrade     =manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
             installable = manager is WindowsScheduledTaskServiceManager && WindowsServiceBinaries.Bundled() is not null;
             if (manager is WindowsServiceManager windows) {
                 adopted    = query.UnitPresent ? windows.Supervision().Daemon?.Adopted : null;
