@@ -131,7 +131,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:SearchHitViewModel">
                                 <Button Classes="kcapGhost searchHit" Classes.highlighted="{Binding IsHighlighted}"
-                                        Click="OnHitClick" PointerEntered="OnHitPointerEntered"
+                                        Click="OnHitClick" PointerMoved="OnHitPointerMoved"
                                         AutomationProperties.Name="{Binding TitleText}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                         <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->

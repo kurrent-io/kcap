@@ -15,6 +15,7 @@ namespace Capacitor.App.Views;
 /// takes the page's keys before the window's navigation sees them.
 public partial class SessionSearchView : UserControl {
     readonly SerialDisposable _focusRequests = new();
+    Point? _pointerAt;
 
     public SessionSearchView() {
         InitializeComponent();
@@ -23,9 +24,11 @@ public partial class SessionSearchView : UserControl {
             if (visible) Dispatcher.UIThread.Post(() => SearchQueryBox.Focus(), DispatcherPriority.Loaded);
         });
         DataContextChanged += (_, _) => _focusRequests.Disposable = Window?.SearchFocusRequests.Subscribe(_ => FocusAndSelect());
-        // New results keep the old scroll offset, which can leave the highlighted first hit off screen for Enter to open.
+        // New results, or an unavailable hit's removal, move the highlight to the first hit but keep the old scroll
+        // offset, which can leave that hit off screen for Enter to open.
         SearchHits.ItemsView.CollectionChanged += (_, e) => {
-            if (e.Action == NotifyCollectionChangedAction.Reset) Dispatcher.UIThread.Post(ScrollToHighlight, DispatcherPriority.Loaded);
+            if (e.Action is NotifyCollectionChangedAction.Reset or NotifyCollectionChangedAction.Remove)
+                Dispatcher.UIThread.Post(ScrollToHighlight, DispatcherPriority.Loaded);
         };
     }
 
@@ -92,10 +95,15 @@ public partial class SessionSearchView : UserControl {
         if (sender is Button { DataContext: SearchHitViewModel hit } && Search is { } search) _ = search.OpenAsync(hit);
     }
 
-    void OnHitPointerEntered(object? sender, PointerEventArgs e) {
+    // Rows scrolled under a resting pointer raise pointer events too; only a pointer that moved over the list may
+    // take the highlight from the keyboard.
+    void OnHitPointerMoved(object? sender, PointerEventArgs e) {
+        var at = e.GetPosition(SearchHits);
+        if (at == _pointerAt) return;
+        _pointerAt = at;
         if (sender is not Button { DataContext: SearchHitViewModel hit } || Search is not { } search) return;
         var index = search.Hits.IndexOf(hit);
-        if (index >= 0) search.MoveHighlight(index - search.HighlightIndex);
+        if (index >= 0 && index != search.HighlightIndex) search.MoveHighlight(index - search.HighlightIndex);
     }
 
     // Only the strip above the page's panel stands in for the title bar.
