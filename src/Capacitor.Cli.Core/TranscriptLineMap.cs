@@ -31,8 +31,18 @@ public sealed class TranscriptLineMap {
     /// <summary>Counts a poll; true for the first and every <paramref name="every"/>th after it.</summary>
     public bool PollIsDue(int every) => _polls++ % every == 0;
 
-    /// <summary>The file line the latest renumbering starts at, and the shift every line from it on is sent under.</summary>
-    public (int FileLine, int Shift) LastRenumbering => _segments[^1];
+    public TranscriptLineMap() { }
+
+    /// <summary>A map numbering lines as <paramref name="segments"/> say, and holding no hashes.</summary>
+    public TranscriptLineMap(IEnumerable<(int FileLine, int Shift)> segments) {
+        foreach (var segment in segments) {
+            if (segment.FileLine > _segments[^1].FileLine) _segments.Add(segment);
+            else if (segment.FileLine == 0) _segments[0] = segment;
+        }
+    }
+
+    /// <summary>From each segment's file line on, a line is sent under its file number plus the segment's shift.</summary>
+    public IReadOnlyList<(int FileLine, int Shift)> Segments => _segments;
 
     public int ToSent(int fileLine) => fileLine + SegmentAt(fileLine).Shift;
 

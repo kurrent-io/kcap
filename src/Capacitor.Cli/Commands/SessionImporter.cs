@@ -593,6 +593,7 @@ static class SessionImporter {
             IProgress<ImportProgress>? progress          = null,
             HarnessId                  vendor            = HarnessId.Claude,
             int                        lineNumberOffset  = 0,
+            Func<int, int>?            lineNumberFor     = null,
             bool                       failOnError       = false,
             Func<bool>?                abortDelivery     = null,
             StrongBox<int>?            completeLines     = null,
@@ -619,7 +620,7 @@ static class SessionImporter {
             if (!string.IsNullOrWhiteSpace(line)) {
                 var captured   = TranscriptCapture.EncodeRecorded(line);
                 var bytes      = TranscriptBatchBuffer.SizeOf(captured.Line);
-                var lineNumber = checked(lineIndex + lineNumberOffset);
+                var lineNumber = lineNumberFor?.Invoke(lineIndex) ?? checked(lineIndex + lineNumberOffset);
 
                 if (captured.Loss is { } loss) progress?.Report(new CaptureLineLost(sessionId, agentId, lineNumber, loss));
                 if (!batch.Fits(bytes)) await FlushAsync();

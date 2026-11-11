@@ -32,7 +32,7 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
-    const string LineNumberOffsetKey = "LineNumberOffset";
+    const string NumberingKey = "Numbering";
 
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
@@ -232,21 +232,17 @@ internal sealed class CopilotImportSource : IImportSource {
 
             // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
             // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
-            // A watermark below the rewrite is a server missing lines the watcher sent: those go by file position.
-            var renumbered = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
-            int SentAs(int fileLine) => renumbered is { } r && fileLine >= r.FileLine ? fileLine + r.Shift : fileLine;
+            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId) is { } segments
+                ? new TranscriptLineMap(segments)
+                : null;
 
             if (serverLastLine is { } srv) {
-                if (srv >= SentAs(lastImportable)) {
+                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)) {
                     status = ImportCommand.ClassificationStatus.AlreadyLoaded;
                 } else {
                     status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
-
-                    if (renumbered is { } r && srv + 1 >= r.FileLine) {
-                        resumeFromLn = Math.Max(r.FileLine, srv + 1 - r.Shift);
-                        sourceMeta   = new Dictionary<string, object?>(s.SourceMeta) { [LineNumberOffsetKey] = r.Shift };
-                    }
+                    resumeFromLn = numbering?.ToFile(srv + 1) ?? srv + 1;
+                    if (numbering is not null) sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = numbering };
                 }
             }
 
@@ -317,7 +313,8 @@ internal sealed class CopilotImportSource : IImportSource {
                 time:       _time,
                 vendor:     Vendor,
                 progress:   ctx.Progress,
-                lineNumberOffset: startLine > 0 && classification.SourceMeta.TryGetValue(LineNumberOffsetKey, out var offset) && offset is int shift ? shift : 0);
+                lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
+                    && numbering is TranscriptLineMap map ? map.ToSent : null);
         } catch {
             return ImportOutcome.Failed;
         }

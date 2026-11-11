@@ -48,7 +48,7 @@ public class CopilotRewrittenTranscriptTests {
         await Assert.That(SentLines.Skip(10).ToArray())
             .IsEquivalentTo(new[] { (10, Line("b", 0)), (11, Line("b", 1)), (12, Line("b", 2)) });
         await Assert.That(state.LinesProcessed).IsEqualTo(13);
-        await Assert.That(new TranscriptRenumbering(Config.Root, "http://127.0.0.1:1").Read(Sid)).IsEqualTo((4, 6));
+        await Assert.That(new TranscriptRenumbering(Config.Root, "http://127.0.0.1:1").Read(Sid)).IsEquivalentTo(new[] { (0, 0), (4, 6) });
     }
 
     [Test]
