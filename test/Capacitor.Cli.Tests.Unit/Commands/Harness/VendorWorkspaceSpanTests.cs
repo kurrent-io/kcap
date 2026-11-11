@@ -10,6 +10,7 @@ using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
+using TUnit.Core.Enums;
 using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
@@ -123,6 +124,30 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
         await Assert.That(CopilotSpanClose.IsDelivered(WatcherPaths.FromEnvironment(Config.Root), canonical)).IsTrue();
+    }
+
+    /// <summary>A delivery the drain could not mark would lose the span close, so the end stays spooled for a retry,
+    /// which the server takes as the same end.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task A_Copilot_end_stays_spooled_when_its_delivery_cannot_be_marked() {
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end);
+        spool.Append(canonical, "session-end/copilot", end);
+        File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, canonical);
+
+            await Assert.That(spool.HasBacklog(canonical)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>

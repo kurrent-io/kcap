@@ -20,7 +20,7 @@ public class CopilotSpanCloseTests {
 
     async Task<List<string>> Close(string server = Server, bool succeeds = true) {
         var asked = new List<string>();
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, server, session => {
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, server, TimeProvider.System, session => {
             asked.Add(session);
             return Task.FromResult(succeeds);
         });
@@ -45,7 +45,7 @@ public class CopilotSpanCloseTests {
         CopilotSpanClose.Record(Paths, Session, Server, End);
         Delivered();
 
-        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, _ => throw new IOException("locked"));
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, _ => throw new IOException("locked"));
 
         await Assert.That(Owed).IsTrue();
     }
@@ -69,14 +69,30 @@ public class CopilotSpanCloseTests {
         await Assert.That(Owed).IsTrue();
     }
 
-    /// <summary>An end gone from the spool undelivered was superseded by a resumed run, or never spooled: closing then
-    /// would close the resumed run's span.</summary>
+    /// <summary>An owed close recorded a moment before its end reaches the spool looks like one whose end left it, so
+    /// absence alone never drops a close: a resumed run's start does, and so does age.</summary>
     [Test]
-    public async Task An_end_that_left_the_spool_undelivered_drops_its_close() {
+    public async Task An_undelivered_close_is_kept_until_it_is_a_day_old() {
         CopilotSpanClose.Record(Paths, Session, Server, End);
 
         await Assert.That(await Close()).IsEmpty();
+        await Assert.That(Owed).IsTrue();
+
+        File.SetLastWriteTimeUtc(Path.Combine(Paths.Directory, Session + ".span-close-pending"), DateTime.UtcNow - TimeSpan.FromHours(25));
+
+        await Assert.That(await Close()).IsEmpty();
         await Assert.That(Owed).IsFalse();
+    }
+
+    /// <summary>A marker a killed write left unreadable is dropped rather than skipped for good.</summary>
+    [Test]
+    public async Task An_unreadable_marker_is_dropped() {
+        Directory.CreateDirectory(Paths.Directory);
+        var marker = Path.Combine(Paths.Directory, Session + ".span-close-pending");
+        await File.WriteAllTextAsync(marker, """{"server":"https://kcap.exa""");
+
+        await Assert.That(CopilotSpanClose.Pending(Paths, Server)).IsEmpty();
+        await Assert.That(File.Exists(marker)).IsFalse();
     }
 
     [Test]
