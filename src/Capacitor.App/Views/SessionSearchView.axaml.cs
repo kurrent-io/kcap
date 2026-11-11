@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Reactive.Disposables;
 using Avalonia;
 using Avalonia.Controls;
@@ -22,6 +23,10 @@ public partial class SessionSearchView : UserControl {
             if (visible) Dispatcher.UIThread.Post(() => SearchQueryBox.Focus(), DispatcherPriority.Loaded);
         });
         DataContextChanged += (_, _) => _focusRequests.Disposable = Window?.SearchFocusRequests.Subscribe(_ => FocusAndSelect());
+        // New results keep the old scroll offset, which can leave the highlighted first hit off screen for Enter to open.
+        SearchHits.ItemsView.CollectionChanged += (_, e) => {
+            if (e.Action == NotifyCollectionChangedAction.Reset) Dispatcher.UIThread.Post(ScrollToHighlight, DispatcherPriority.Loaded);
+        };
     }
 
     MainWindowViewModel? Window => DataContext as MainWindowViewModel;
@@ -64,7 +69,12 @@ public partial class SessionSearchView : UserControl {
     void MoveHighlight(SessionSearchViewModel? search, int delta) {
         if (search is null) return;
         search.MoveHighlight(delta);
-        if (search.HighlightIndex >= 0 && search.HighlightIndex < search.Hits.Count) SearchHits.ScrollIntoView(search.HighlightIndex);
+        ScrollToHighlight();
+    }
+
+    void ScrollToHighlight() {
+        if (Search is { } search && search.HighlightIndex >= 0 && search.HighlightIndex < search.Hits.Count)
+            SearchHits.ScrollIntoView(search.HighlightIndex);
     }
 
     void OnSidebarTabClick(object? sender, RoutedEventArgs e) => SelectTab(SearchMode.Sidebar);

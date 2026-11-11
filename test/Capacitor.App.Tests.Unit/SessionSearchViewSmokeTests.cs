@@ -148,6 +148,37 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
     });
 
+    /// New results reset the highlight to the first hit, and the list scrolls back so the hit Enter opens is on screen.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task New_results_after_a_deep_scroll_bring_the_first_hit_back_into_view() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix auth {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+        for (var i = 0; i < 120; i++) host.Window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        host.Settle();
+
+        host.Window.KeyTextInput("s");
+        host.SettleSearch();
+        host.Settle();
+
+        var list = host.Named<ItemsControl>("SearchHits");
+        await Assert.That(host.Vm.Search!.HighlightIndex).IsEqualTo(0);
+        var row = list.ContainerFromIndex(0);
+        await Assert.That(row).IsNotNull();
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        await Assert.That(top).IsGreaterThanOrEqualTo(-0.5);
+        await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
+    });
+
     /// An avatar is read as the person it stands for, in the rail and on a search hit, never as their initials.
     [Test]
     [NotInParallel("AvaloniaSession")]
