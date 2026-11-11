@@ -10,10 +10,8 @@ public static class CopilotStopRequestEnd {
 
     static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
 
-    /// <summary>The reason to post, or null when the stop is not the session's end, or a hook took the end over.</summary>
-    public static async Task<string?> DecideAsync(bool handedOff, Func<bool> runtimeGone, Func<bool> endsOnShutdown, TimeProvider time, TimeSpan wait) {
-        if (handedOff) return null;
-
+    /// <summary>The reason to post, or null while nothing shows the session over.</summary>
+    public static async Task<string?> DecideAsync(Func<bool> runtimeGone, Func<bool> endsOnShutdown, TimeProvider time, TimeSpan wait) {
         var deadline = time.GetUtcNow() + wait;
 
         while (true) {

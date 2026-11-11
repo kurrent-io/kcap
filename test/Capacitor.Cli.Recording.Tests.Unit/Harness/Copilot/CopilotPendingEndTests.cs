@@ -86,6 +86,27 @@ public class CopilotPendingEndTests {
         await Assert.That(Spool.HasBacklog(Session)).IsTrue();
     }
 
+    /// <summary>Every owner may send its end, and the server keeps the first one for a session. The hook's, stamped at
+    /// the quit, is already spooled when a stopped watcher's end becomes due, so it goes first.</summary>
+    [Test]
+    public async Task A_stopped_watchers_end_follows_the_hooks_into_the_server() {
+        const string hookEnd = """{"session_id":"0f1e2d3c4b5a69788796a5b4c3d2e1f0","reason":"user_exit"}""";
+        Spool.Append(Session, CopilotPendingEnd.Route, hookEnd);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, Transcript(Down), TimeProvider.System);
+        await Assert.That(Sweep()).IsEqualTo(1);
+
+        var sent = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Spool, new TranscriptSpool(Config.Root, TimeProvider.System, Server), Session,
+            (_, body) => {
+                sent.Add(body);
+                return Task.FromResult(DrainOutcome.Delivered);
+            },
+            _ => Task.FromResult(DrainOutcome.Delivered), TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
+
+        await Assert.That(sent).IsNotEmpty();
+        await Assert.That(sent[0]).IsEqualTo(hookEnd);
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);

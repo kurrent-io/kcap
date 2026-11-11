@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
 using System.Text.Json;
@@ -94,6 +93,9 @@ sealed class CopilotFinalizeDrainCommand(
             TimeSpan? postCap    = null,
             Action?   endDurable = null
         ) {
+        // The watcher the hook asked to stop, read before anything awaits: one found later follows a resumed run.
+        var askedToStop = WatcherIncarnation(sessionId);
+
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
 
@@ -123,7 +125,7 @@ sealed class CopilotFinalizeDrainCommand(
         if (!await TimeBudget.RunCappedAsync(() => watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot"), drainCap ?? DefaultDrainCap, time))
             Log($"tail drain cap elapsed for {sessionId}; recoverable via: kcap import --copilot --session {sessionId}");
 
-        var posted = await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace, postCap ?? DefaultPostCap);
+        var posted = await EndSessionAsync(sessionId, endBody, askedToStop, pollInterval, watcherStopGrace, postCap ?? DefaultPostCap);
 
         endDurable?.Invoke();
 
@@ -135,39 +137,30 @@ sealed class CopilotFinalizeDrainCommand(
 
     /// <summary>Delivers the end the hook spooled, or <paramref name="endBody"/> when it could not, and says whether the
     /// server has the session's end. An end it cannot deliver yet stays spooled for the next drain.</summary>
-    async Task<bool> EndSessionAsync(string sessionId, string? endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace, TimeSpan postCap) {
+    async Task<bool> EndSessionAsync(string sessionId, string? endBody, string? askedToStop, TimeSpan pollInterval, TimeSpan watcherStopGrace, TimeSpan postCap) {
         const string route = "session-end/copilot";
 
         var spool = new HookSpool(config, time, profiles.Resolution.ServerUrl);
 
         if (endBody is null && !spool.HasBacklog(sessionId)) return false;
 
-        // The hook asks the watcher to stop when it starts this process, and a watcher stopped that way sends no end, so it
-        // gets time to go. Past that, the watcher the hook handed off is stopped outright; any other is a resumed run this
-        // end would close, or one the hook died before handing off, which sends its own end.
+        // The watcher the hook asked to stop gets time to go, then is stopped outright, so the end cannot overtake lines it
+        // has yet to send. A watcher that started since follows a resumed run, whose start supersedes a spooled end.
         var deadline = time.GetUtcNow() + watcherStopGrace;
-        var paths    = WatcherPaths.FromEnvironment(config);
 
         while (watchers.IsWatcherAlive(sessionId)) {
             if (time.GetUtcNow() >= deadline) {
-                if (!CopilotEndHandoff.CoversCurrentWatcher(paths, sessionId)) {
-                    Log($"session end not sent for {sessionId}: a watcher is running");
-
-                    return false;
+                if (askedToStop is not null && WatcherIncarnation(sessionId) == askedToStop) {
+                    Log($"the watcher of {sessionId} is still running; stopping it");
+                    await watchers.KillWatcher(sessionId);
                 }
 
-                Log($"the watcher {sessionId}'s hook handed off is still running; stopping it");
-                await watchers.KillWatcher(sessionId);
+                if (!watchers.IsWatcherAlive(sessionId)) break;
 
-                // Still streaming: an end now could overtake lines it has yet to send.
-                if (watchers.IsWatcherAlive(sessionId)) {
-                    if (endBody is not null) spool.Append(sessionId, route, endBody);
-                    Log($"session end for {sessionId} left spooled: its watcher could not be stopped");
+                if (endBody is not null) spool.Append(sessionId, route, endBody);
+                Log($"session end for {sessionId} left spooled: a watcher is running");
 
-                    return false;
-                }
-
-                break;
+                return false;
             }
 
             await Task.Delay(pollInterval, time);
@@ -220,6 +213,14 @@ sealed class CopilotFinalizeDrainCommand(
         Log($"session end post for {sessionId} unanswered after {cap.TotalSeconds:0}s; spooling it");
 
         return spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped;
+    }
+
+    string? WatcherIncarnation(string sessionId) {
+        try {
+            return File.ReadAllText(WatcherPaths.FromEnvironment(config).PidFile(sessionId)).Trim();
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
+        }
     }
 
     static string? SessionOf(string body) {

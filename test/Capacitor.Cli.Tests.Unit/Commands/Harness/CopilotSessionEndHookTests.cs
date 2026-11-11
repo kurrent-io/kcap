@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -35,7 +34,6 @@ public class CopilotSessionEndHookTests : IDisposable {
 
     HookSpool Spool() => new(Config.Root, TimeProvider.System, _server.Url);
 
-    static string Canonical => Session.Replace("-", "");
 
     string SpooledEnds() =>
         Directory.Exists(Spool().DirectoryPath) ? string.Concat(Directory.GetFiles(Spool().DirectoryPath).Select(File.ReadAllText)) : "";
@@ -73,51 +71,20 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(posted).Contains("user_exit");
     }
 
-    /// <summary>The watcher keeps its own end until the hook's is durable: a hook Copilot aborts after failing to spool
-    /// would otherwise leave the session with no end at all.</summary>
+    /// <summary>An end the spool cannot hold travels with the finalizer instead, so one owner always has it.</summary>
     [Test]
-    public async Task a_hook_that_cannot_spool_its_end_leaves_the_watcher_its_own() {
-        var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Directory.CreateDirectory(paths.Directory);
-        await File.WriteAllTextAsync(paths.PidFile(Canonical), "999999\nan-absent-watcher");
+    public async Task a_hook_that_cannot_spool_its_end_hands_it_to_the_finalizer() {
         await File.WriteAllTextAsync(Config.PathTo("spool"), "not a directory");
 
-        var client = new FixedCapacitorHttpClient();
-        await Hook(Watchers(FakeProcessStarter.Running(_ => Process.GetCurrentProcess()), client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
+        var client  = new FixedCapacitorHttpClient();
+        var starter = FakeProcessStarter.Running(_ => Process.GetCurrentProcess());
+        await Hook(Watchers(starter, client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
 
-        await Assert.That(File.Exists(CopilotEndHandoff.MarkerFile(paths, Canonical))).IsFalse();
+        await Assert.That(starter.Seen!.ArgumentList.Last()).Contains("user_exit");
     }
 
-    /// <summary>A live watcher the hook cannot mark as handed off would still send its own end, so the hook sends none:
-    /// two ends with different reasons and times would record two.</summary>
-    [Test, RunOn(OS.Linux | OS.MacOs)]
-    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
-    public async Task a_hook_that_cannot_mark_the_handoff_leaves_the_end_to_the_watcher() {
-        var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Directory.CreateDirectory(paths.Directory);
-        using var watcher = DummyProcess.StartSleep(30);
-        await File.WriteAllTextAsync(paths.PidFile(Canonical), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
-        WatcherHeartbeat.Touch(paths.StartedFile(Canonical), DateTimeOffset.UtcNow);
-        WatcherHeartbeat.Touch(paths.HeartbeatFile(Canonical), DateTimeOffset.UtcNow);
-        File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-
-        try {
-            var client  = new FixedCapacitorHttpClient();
-            var starter = FakeProcessStarter.Running(_ => Process.GetCurrentProcess());
-            await Hook(Watchers(starter, client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
-
-            await Assert.That(SpooledEnds()).DoesNotContain("session-end/copilot");
-            await Assert.That(starter.Starts).IsEqualTo(0);
-            await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())).IsEmpty();
-            await Assert.That(watcher.HasExited).IsFalse();
-        } finally {
-            File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-    }
-
-    /// <summary>The hook records the watcher whose end it took over, asks it to stop and leaves its going to the
-    /// finalizer. One that ignores the request is still running when the hook returns: a hook that waited would have
-    /// killed it.</summary>
+    /// <summary>The hook asks the watcher to stop and leaves its going to the finalizer. One that ignores the request is
+    /// still running when the hook returns: a hook that waited would have killed it.</summary>
     [Test, RunOn(OS.Linux | OS.MacOs)]
     public async Task the_hook_asks_the_watcher_to_stop_without_waiting_for_it() {
         var paths  = WatcherPaths.FromEnvironment(Config.Root);
@@ -135,7 +102,6 @@ public class CopilotSessionEndHookTests : IDisposable {
 
             await Assert.That(watcher.HasExited).IsFalse();
             await Assert.That(await WaitForFile(marker)).IsTrue();
-            await Assert.That(CopilotEndHandoff.CoversCurrentWatcher(paths, Session.Replace("-", ""))).IsTrue();
         } finally {
             watcher.Kill();
         }

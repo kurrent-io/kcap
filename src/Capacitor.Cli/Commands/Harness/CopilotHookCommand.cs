@@ -381,26 +381,9 @@ sealed class CopilotHookCommand(
 
         var end = forwarded.ToJsonString();
 
-        // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap
-        // process's spool drain delivers it. A running watcher would send an end of its own, with another reason and
-        // time, so the hook takes the end only once that watcher is marked as handing it over.
-        var paths       = WatcherPaths.FromEnvironment(config);
-        var watcherRuns = watchers.IsWatcherAlive(sessionId);
-
-        if (watcherRuns && !CopilotEndHandoff.Record(paths, sessionId)) {
-            await Console.Error.WriteLineAsync($"[kcap] copilot session-end for {sessionId} left to its watcher: the handoff could not be recorded");
-
-            return 0;
-        }
-
+        // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap process's
+        // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
         var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
-
-        if (watcherRuns && !spooled) {
-            CopilotEndHandoff.Withdraw(paths, sessionId);
-            await Console.Error.WriteLineAsync($"[kcap] copilot session-end for {sessionId} left to its watcher: the end could not be spooled");
-
-            return 0;
-        }
 
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
         // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started

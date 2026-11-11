@@ -537,29 +537,22 @@ class WatchCommand(
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
             copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
 
-        // A sessionEnd hook that ran took the end over. Quitting VS Code terminates the watchers it started, and a
-        // session whose hook Copilot skipped has nothing else to send its end.
+        // Quitting VS Code terminates the watchers it started, and a session whose sessionEnd hook Copilot skipped has
+        // nothing else to send its end. Any other owner's end may arrive too: the server keeps a session's first.
         var copilotSession = vendor == "copilot" && agentId is null;
-        var endHandedOff   = copilotSession && CopilotEndHandoff.Covers(_paths, sessionId, Environment.ProcessId, ProcessStartToken.ForCurrent());
-
-        if (endHandedOff && endReason is not null) {
-            Log(time, $"Not posting a {endReason} session-end: the sessionEnd hook took it over");
-            endReason = null;
-        }
 
         if (endReason is null && copilotSession && Volatile.Read(ref stopRequested) == 1
          && !DisabledSessions.IsDisabledByPerson(sessionId, config)) {
             endReason = await CopilotStopRequestEnd.DecideAsync(
-                endHandedOff,
                 () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
                 () => CopilotFinalizeDrainCommand.LastLineIsShutdown(transcriptPath),
                 time, CopilotStopRequestEnd.Wait);
 
             if (endReason is not null) {
                 Log(time, $"Stopped with the Copilot session over; ending it ({endReason})");
-            } else if (!endHandedOff) {
-                // Nothing proves the session over yet, and nothing else will send its end: a later spool drain does,
-                // once the runtime has gone or the transcript ends on its shutdown line.
+            } else {
+                // Nothing proves the session over yet: a later spool drain sends this end once the runtime has gone or
+                // the transcript ends on its shutdown line.
                 var held = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
                 if (CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, transcriptPath, time))
                     Log(time, "Stopped before the Copilot session was over; its end is held for a later spool drain");
@@ -583,7 +576,6 @@ class WatchCommand(
         // so an end written after this look finds none and gets a watcher of its own.
         watchers.RemoveOwnPidFile(
             agentId is null ? sessionId : $"{sessionId}-{agentId}", Environment.ProcessId);
-        if (copilotSession) CopilotEndHandoff.Retire(_paths, sessionId, Environment.ProcessId);
         recorder.RetireAckCursor();
 
         var museEndRequest = housekeeping.HandedMuseEnd;
@@ -607,6 +599,9 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
+                    // The server keeps a session's first end, and a sessionEnd hook's spooled one carries the quit time.
+                    if (copilotSession) await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
+
                     await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
