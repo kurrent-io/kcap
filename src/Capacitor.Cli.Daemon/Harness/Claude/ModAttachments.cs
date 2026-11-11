@@ -514,15 +514,18 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     /// <summary>The mod saw a dispatch land as a row. Kept until the server takes it, and reported under the agent the
     /// dispatch was sent to. A beat only for the attachment <paramref name="processKey"/> holds.</summary>
-    public void Link(string agentId, string? processKey, Guid dispatchId, string sessionId, Guid rowUuid) =>
+    /// <returns>Whether the report was saved: one that wasn't is gone with a restart before the server takes it, so the mod
+    /// has to keep its own.</returns>
+    public bool Link(string agentId, string? processKey, Guid dispatchId, string sessionId, Guid rowUuid) =>
         Report(agentId, processKey, dispatchId, sentTo => new ModInputReport(ModInputReport.Link, dispatchId, sentTo, sessionId, rowUuid));
 
     /// <summary>The mod knows a dispatch will not land, or cannot tell whether it did.</summary>
-    public void Undelivered(string agentId, string? processKey, Guid dispatchId, bool rejected, string reason) =>
+    /// <returns>Whether the report was saved, as for <see cref="Link"/>.</returns>
+    public bool Undelivered(string agentId, string? processKey, Guid dispatchId, bool rejected, string reason) =>
         Report(agentId, processKey, dispatchId,
             sentTo => new ModInputReport(rejected ? ModInputReport.Rejected : ModInputReport.Unconfirmed, dispatchId, sentTo, Reason: reason));
 
-    void Report(string agentId, string? processKey, Guid dispatchId, Func<string, ModInputReport> build) {
+    bool Report(string agentId, string? processKey, Guid dispatchId, Func<string, ModInputReport> build) {
         ModInputReport report;
 
         lock (_gate) {
@@ -533,8 +536,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
 
         _reports.Enqueue(report);
-        Save();
+        var saved = TrySave();
         _ = _reports.FlushAsync();
+
+        return saved;
     }
 
     internal Task FlushReportsAsync() => _reports.FlushAsync();
@@ -689,8 +694,8 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     // A link is followed only from a live agent or one a process carried on from.
     void PruneCarriedFrom() {
-        foreach (var agentId in _carriedFrom.Keys.ToList())
-            if (!_live.ContainsKey(agentId) && !_replaced.ContainsKey(agentId)) _carriedFrom.Remove(agentId);
+        foreach (var agentId in _carriedFrom.Keys.Where(agentId => !_live.ContainsKey(agentId) && !_replaced.ContainsKey(agentId)).ToList())
+            _carriedFrom.Remove(agentId);
     }
 
     /// <summary>An unregistration the server did not get, because it was away or the call failed, is sent by a later
@@ -900,7 +905,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
     }
 
-    void Save() {
+    void Save() => TrySave();
+
+    bool TrySave() {
         lock (_saveGate) {
             ModAttachmentFile file;
 
@@ -914,7 +921,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                     new Dictionary<string, string>(_carriedFrom, StringComparer.Ordinal),
                     [.. _reportedOrder.Select(id => id.ToString("D"))]);
 
-            _store.TrySave(file);
+            return _store.TrySave(file);
         }
     }
 

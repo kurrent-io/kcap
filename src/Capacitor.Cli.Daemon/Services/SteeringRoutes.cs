@@ -8,12 +8,15 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <summary>
 /// The steering socket's routes, which the kcap-steering mod is the only client of. A body that is not what a route
 /// takes is answered 400 <c>invalid_request</c>; every other answer is 200, except <c>/next</c> with nothing to hand
-/// over, which is 204.
+/// over, which is 204, and a report the daemon could not save, which is 503 <c>not_saved</c>: the mod keeps a report
+/// through any 5xx and sends it again.
 /// </summary>
 internal sealed class SteeringRoutes(ModAttachments attachments) {
     static readonly byte[] Done = "{}"u8.ToArray();
 
     static readonly SteeringHttpResponse Invalid = SteeringHttpResponse.Error(400, "invalid_request");
+
+    static readonly SteeringHttpResponse NotSaved = SteeringHttpResponse.Error(503, "not_saved");
 
     /// <summary>A process key is <c>pid:start time</c> as the mod builds it: printable, and short.</summary>
     const int MaxProcessKey = 256;
@@ -64,9 +67,7 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
          || body.ProcessKey is { } process && !IsProcessKey(process))
             return Task.FromResult(Invalid);
 
-        attachments.Link(agentId, body.ProcessKey, dispatchId, session, rowUuid);
-
-        return Task.FromResult(new SteeringHttpResponse(200, Done));
+        return Task.FromResult(attachments.Link(agentId, body.ProcessKey, dispatchId, session, rowUuid) ? new SteeringHttpResponse(200, Done) : NotSaved);
     }
 
     Task<SteeringHttpResponse> UndeliveredAsync(SteeringHttpRequest request, CancellationToken ct) {
@@ -76,9 +77,8 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
          || body.ProcessKey is { } process && !IsProcessKey(process))
             return Task.FromResult(Invalid);
 
-        attachments.Undelivered(agentId, body.ProcessKey, dispatchId, rejected: body.Outcome == "rejected", reason);
-
-        return Task.FromResult(new SteeringHttpResponse(200, Done));
+        return Task.FromResult(
+            attachments.Undelivered(agentId, body.ProcessKey, dispatchId, rejected: body.Outcome == "rejected", reason) ? new SteeringHttpResponse(200, Done) : NotSaved);
     }
 
     async Task<SteeringHttpResponse> DetachAsync(SteeringHttpRequest request, CancellationToken ct) {

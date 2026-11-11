@@ -231,6 +231,28 @@ public class SteeringEndpointTests {
         await Assert.That(server.AgentUnregisteredCalls).IsEquivalentTo([agentId]);
     }
 
+    /// <summary>A report the daemon could not save is gone with a restart before the server takes it, so the mod is told
+    /// to keep its own: it holds a report through any 5xx and sends it again.</summary>
+    [Test]
+    public async Task A_report_the_daemon_could_not_save_is_answered_so_the_mod_keeps_it() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        await using var endpoint = Endpoint(routes: new SteeringRoutes(attachments).Table());
+        endpoint.TryBind(out _);
+        var agentId = ModAttachments.AgentIdFor(SessionIds.Canonical(ModSession)!);
+        await Assert.That((await PostAsync("/attach", $$"""{"sessionId":"{{ModSession}}","processKey":"4242:start"}""", cts.Token)).Item1).IsEqualTo("200");
+
+        var state = Daemons.Store.SteeringAttachmentsPath(Name);
+        File.Delete(state);
+        Directory.CreateDirectory(state);
+
+        await Assert.That(await PostAsync("/link", $$"""{"agentId":"{{agentId}}","dispatchId":"{{Guid.NewGuid()}}","sessionId":"{{ModSession}}","rowUuid":"{{Guid.NewGuid()}}","processKey":"4242:start"}""", cts.Token))
+            .IsEqualTo(("503", """{"error":"not_saved"}"""));
+        await Assert.That((await PostAsync("/undelivered", $$"""{"agentId":"{{agentId}}","dispatchId":"{{Guid.NewGuid()}}","outcome":"rejected","reason":"stopped","processKey":"4242:start"}""", cts.Token)).Item1)
+            .IsEqualTo("503");
+    }
+
     [Test]
     [Arguments("/attach", "not json")]
     [Arguments("/attach", "null")]
