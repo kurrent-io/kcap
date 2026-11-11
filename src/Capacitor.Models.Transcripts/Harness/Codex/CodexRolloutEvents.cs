@@ -101,8 +101,12 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
         if (text.Length == 0) return ProjectionResult.Empty;
 
         switch (payload.Str("role")) {
-            case "user":
-                return ProjectionResult.Of([rec.Event(new UserMessageReceived { Content = text, Timestamp = rec.Ts })]);
+            case "user": {
+                var evt = new UserMessageReceived { Content = text, Timestamp = rec.Ts };
+                if (TurnFacts(payload) is { } facts)
+                    evt.Extensions[CodexExtension.Slug] = CodexExtension.Pack(facts, CodexJsonContext.Default.CodexUserMessageExtension);
+                return ProjectionResult.Of([rec.Event(evt)]);
+            }
             case "assistant": {
                 var evt = new AssistantTextGenerated { Content = text, Timestamp = rec.Ts };
                 if (payload.Str("phase") is { } phase)
@@ -112,6 +116,16 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
             default:
                 return ProjectionResult.Empty;
         }
+    }
+
+    // The server keeps the same two facts, read off the same block, in its event metadata.
+    static CodexUserMessageExtension? TurnFacts(JsonElement payload) {
+        if (payload.Obj("internal_chat_message_metadata_passthrough") is not { } pass) return null;
+        var turnId = pass.Str("turn_id") is { Length: > 0 } id ? id : null;
+        var kinds  = pass.Arr("content_item_kinds") is { } array
+            ? array.EnumerateArray().Where(k => k.IsString).Select(k => k.GetString()!).ToList()
+            : null;
+        return turnId is null && kinds is null ? null : new CodexUserMessageExtension { TurnId = turnId, ContentItemKinds = kinds };
     }
 
     static string MessageText(JsonElement blocks) {
@@ -279,7 +293,7 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
         if (ctx.Cluster.Count == 0 || ctx.ClusterFinalized) return ProjectionResult.Empty;
         if (payload.Obj("info") is not { } info || info.Obj("last_token_usage") is not { } last) return ProjectionResult.Empty;
 
-        var usage = Usage(last, info.Num("model_context_window"), ctx.Model);
+        var (usage, cacheWrite) = Usage(last, info.Num("model_context_window"), ctx.Model);
 
         var canonical = ctx.Cluster.FindIndex(m => m.EventType != CanonicalEventTypes.AssistantThinkingGenerated);
         if (canonical < 0) canonical = 0;
@@ -292,23 +306,27 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
 
         ctx.ClusterFinalized = true;
         var anchor = ctx.Cluster[0].EventId;
-        var applied = new UsageApplied(usage, anchor, targets);
+        var applied = new UsageApplied(usage, anchor, cacheWrite, targets);
         return ProjectionResult.Of([
             new CanonicalEvent(CanonicalEventTypes.UsageApplied, applied, TranscriptIds.Sibling(anchor, "usage-backfill"), rec.At, rec.Raw),
         ]);
     }
 
-    // Codex counts cached input inside input; every reader adds the two, so input is stored net.
-    // A block with none of the four counts yields an empty usage, which stamps nothing.
-    static TokenUsage Usage(JsonElement last, long? window, string? model) {
-        var gross     = last.Num("input_tokens");
-        var cached    = last.Num("cached_input_tokens");
-        var output    = last.Num("output_tokens");
-        var reasoning = last.Num("reasoning_output_tokens");
-        if (gross is null && cached is null && output is null && reasoning is null) return new TokenUsage();
+    // Codex counts cached reads and cache writes inside input; every reader adds the three, so input
+    // is stored net. A block with no count at all yields an empty usage, which stamps nothing, and one
+    // with no additive count gets no total rather than a reported zero.
+    static (TokenUsage Usage, long? CacheWrite) Usage(JsonElement last, long? window, string? model) {
+        var gross      = last.Num("input_tokens");
+        var cached     = last.Num("cached_input_tokens");
+        var cacheWrite = last.Num("cache_write_input_tokens") is > 0 and { } write ? write : (long?)null;
+        var output     = last.Num("output_tokens");
+        var reasoning  = last.Num("reasoning_output_tokens");
+        var additive   = gross is not null || cached is not null || output is not null || cacheWrite is not null;
+        if (!additive && reasoning is null) return (new TokenUsage(), null);
 
-        long? net = gross is { } g ? Math.Max(0, g - (cached ?? 0)) : null;
-        var usage = new TokenUsage { TotalTokens = (net ?? 0) + (output ?? 0) + (cached ?? 0) };
+        long? net = gross is { } g ? Math.Max(0, g - (cached ?? 0) - (cacheWrite ?? 0)) : null;
+        var usage = new TokenUsage();
+        if (additive) usage.TotalTokens                  = (net ?? 0) + (output ?? 0) + (cached ?? 0) + (cacheWrite ?? 0);
         if (net is { } n) usage.InputTokens              = n;
         if (output is { } o) usage.OutputTokens          = o;
         if (cached is { } c) usage.CachedInputTokens     = c;
@@ -318,7 +336,7 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
             usage.AdditionalCounts = new Struct();
             usage.AdditionalCounts.Fields["model_context_window"] = Value.ForNumber(w);
         }
-        return usage;
+        return (usage, cacheWrite);
     }
 
     // Telemetry for a result returned earlier in this batch is an amendment to it; otherwise it

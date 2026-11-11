@@ -91,6 +91,7 @@
             "model": "gpt-5-codex"
           },
           "anchor": "68b41328-9d25-94d8-0b71-5b49365193a9",
+          "cacheCreation": null,
           "targets": [
             {
               "eventId": "68b41328-9d25-94d8-0b71-5b49365193a9",

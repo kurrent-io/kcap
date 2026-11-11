@@ -233,4 +233,22 @@ public class CodexChatRulesTests {
         var row = P(UserItem("<system-reminder><command>pwd</command></system-reminder>\n<user_shell_command>\n<command>\nls\n</command>\n</user_shell_command>")).Single();
         await Assert.That(row.Text).IsEqualTo("! ls");
     }
+
+    /// The shared fixture's lines, rollout lines as Codex writes them: a line shows as the person's exactly when
+    /// the fixture says it is, by its content item kinds when it has them, and then whole, a leading tag included.
+    [Test]
+    public async Task Codex_user_lines_show_as_the_persons_exactly_when_the_fixture_says() {
+        var chat = TranscriptChat.For("codex")!;
+        foreach (var line in File.ReadLines(Path.Combine(AppContext.BaseDirectory, "fixtures", "codex", "codex-user-lines.jsonl"))) {
+            using var doc = System.Text.Json.JsonDocument.Parse(line);
+            var human = doc.RootElement.GetProperty("expect_human").GetBoolean();
+            var text  = doc.RootElement.GetProperty("payload").GetProperty("content")[0].GetProperty("text").GetString()!;
+
+            var result = chat.ProjectWithInputs(line, 1, Received, chat.CreateContext("a1", null));
+            var rows   = result.Envelopes.Where(e => e.Kind == AcpEventKind.UserMessage).ToList();
+
+            await Assert.That(rows.Count).IsEqualTo(human ? 1 : 0).Because(line);
+            if (human) await Assert.That(rows[0].Text).IsEqualTo(text).Because(line);
+        }
+    }
 }
