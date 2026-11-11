@@ -16,10 +16,14 @@ public class ChildReapersTests {
         await Assert.That(ChildReapers.Decide(pid, (nint)handler)).IsEqualTo(mayReap);
 
     /// The read happens as the daemon's code loads, ahead of the runtime's own SIGCHLD handler, so a host started
-    /// with the default disposition reads as one only the daemon reaps in.
+    /// with the default disposition reads as one only the daemon reaps in, unless it is pid 1. Only a host whose
+    /// disposition is still the default can say what it started with: an ignored one, or a handler installed since,
+    /// hides that from this test as it does from the daemon.
     [Test]
     public async Task The_disposition_is_read_before_the_runtime_replaces_it() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        if (UnixPtyInterop.SigChldHandler() != 0) return;
+
         await Assert.That(ChildReapers.RuntimeMayReap).IsEqualTo(Environment.ProcessId == 1);
     }
 }
