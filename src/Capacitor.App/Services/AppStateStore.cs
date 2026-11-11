@@ -54,7 +54,9 @@ public sealed record AppState(
     // A setup attempt is unverified until its command and recording check both succeed.
     IReadOnlyList<string>? UnverifiedHarnessSetups = null,
     // Server URL -> the next-work target keys the launcher's band last showed, so a row can say it is new.
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null);
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null,
+    // Set once CloseToTrayHint has said that closing the main window keeps kcap running.
+    bool CloseToTrayExplained = false);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

@@ -13,9 +13,12 @@ namespace Capacitor.App.Services;
 /// not keep clamping the PTY for other viewers. Falls back to releaseWorkspace.
 /// </param>
 /// <param name="restoreWorkspace">Reopens what the last hide parked, before the window reappears.</param>
+/// <param name="onHidden">Runs after a user's close hid the window instead of closing it.</param>
+/// <param name="onShown">Runs after the window is shown.</param>
 public sealed class MainWindowCoordinator(
         Func<MainWindow> windowFactory, Action<MainWindow>? releaseWorkspace = null,
-        Action<MainWindow>? parkWorkspace = null, Action<MainWindow>? restoreWorkspace = null) {
+        Action<MainWindow>? parkWorkspace = null, Action<MainWindow>? restoreWorkspace = null,
+        Action? onHidden = null, Action? onShown = null) {
     MainWindow? _window;
     WindowRestore _placement = new();
 
@@ -49,6 +52,7 @@ public sealed class MainWindowCoordinator(
         _placement.BeforeShow(window);
         window.Show();
         window.Activate();
+        onShown?.Invoke();
     }
 
     /// Builds the window without showing it, for a launch that has something to finish first.
@@ -76,6 +80,7 @@ public sealed class MainWindowCoordinator(
         if (_window is not null) {
             (parkWorkspace ?? releaseWorkspace)?.Invoke(_window);
             _placement.Hide(_window);
+            onHidden?.Invoke();
         }
         return true;
     }

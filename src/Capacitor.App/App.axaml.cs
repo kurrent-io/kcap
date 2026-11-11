@@ -217,6 +217,7 @@ public partial class App : Application {
     NotificationSettingsService? _notificationSettings;
     IDesktopNotificationSink? _notificationSink;
     IDesktopNotificationAccess? _notificationAccess;
+    CloseToTrayHint? _closeToTrayHint;
     IDisposable? _notificationAccessPrompt;
     IDisposable? _notificationBadgeSubscription;
     DesktopWindowLifecycle? _windowLifecycle;
@@ -1373,6 +1374,13 @@ public partial class App : Application {
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
                 : null;
 
+        // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
+        _closeToTrayHint = OperatingSystem.IsWindows()
+            ? new CloseToTrayHint(_appState,
+                async () => _notificationSink is not null
+                    && await (_notificationAccess?.GetAsync() ?? Task.FromResult(DesktopNotificationAccess.Unknown)) != DesktopNotificationAccess.Denied,
+                notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
+            : null;
         _coordinator = new MainWindowCoordinator(
             () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1413,7 +1421,9 @@ public partial class App : Application {
                 openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
-            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
+            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
+            onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
+            onShown: () => _closeToTrayHint?.OnShown());
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
         // close-protected (BeginShutdownPass's rule 1 is the general defense; this is the
@@ -1534,7 +1544,10 @@ public partial class App : Application {
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings,
             finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
-            openLaunchApprovals: launchApprovals.Show);
+            openLaunchApprovals: launchApprovals.Show,
+            toolTipHint: _closeToTrayHint is { } hint
+                ? Observable.FromEvent<string?>(h => hint.TrayHintChanged += h, h => hint.TrayHintChanged -= h).StartWith(hint.TrayHint)
+                : null);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }
