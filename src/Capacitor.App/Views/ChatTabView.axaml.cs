@@ -370,6 +370,21 @@ public partial class ChatTabView : UserControl {
         ArmToggleRestore();
     }
 
+    void OnToolRowGotFocus(object? sender, FocusChangedEventArgs e) {
+        if (e.NavigationMethod is not (NavigationMethod.Tab or NavigationMethod.Directional)
+            || sender is not Button { DataContext: ToolCallItem { IsExpanded: true } } button
+            || !ReferenceEquals(e.Source, button)) return;
+        EnsureChatScroll();
+        if (_scroll is null || button.TranslatePoint(default, _scroll) is not { } point
+            || point.Y >= 0 && point.Y + button.Bounds.Height <= _scroll.Viewport.Height) return;
+        // Chat disables automatic focus scrolling; returning from output must still expose
+        // the row's collapse action without changing pointer-driven reading positions.
+        _followTail = false;
+        CancelSmoothScroll();
+        DropToggleAnchor();
+        button.BringIntoView();
+    }
+
     void CaptureToggleAnchor(object? source) {
         EnsureChatScroll();
         if (_scroll is null || ToolSummaryOf(source) is not { } summary) return;

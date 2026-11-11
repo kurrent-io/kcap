@@ -1282,10 +1282,10 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Texts(home).Select(t => t.Text ?? "")).IsEquivalentTo(["home", "Default", "/u/.claude"], CollectionOrdering.Matching);
             await Assert.That(Texts(work).Select(t => t.Text ?? "")).IsEquivalentTo(["work", "/u/.claude-work", "Needs repair"], CollectionOrdering.Matching);
 
-            var pill = (Border)Texts(home).Single(t => t.Text == "Default").Parent!;
+            var pill = home.GetVisualDescendants().OfType<StatusBadge>().Single(b => b.Text == "Default");
             await Assert.That(pill.Background).IsSameReferenceAs(view.FindResource("KcapSurfaceRaisedBrush"));
             await Assert.That(pill.BorderBrush).IsSameReferenceAs(view.FindResource("KcapBorderBrush"));
-            await Assert.That(((TextBlock)pill.Child!).Foreground).IsSameReferenceAs(view.FindResource("KcapMutedBrush"));
+            await Assert.That(Texts(pill).Single().Foreground).IsSameReferenceAs(view.FindResource("KcapMutedBrush"));
             await Assert.That(Texts(work).Single(t => t.Text == "Needs repair").Foreground).IsSameReferenceAs(view.FindResource("KcapWarningBrush"));
 
             static bool Checked(Button row) => row.GetVisualDescendants().OfType<AppIcon>()

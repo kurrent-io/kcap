@@ -20,7 +20,8 @@ public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, Sin
             onWaiting: () => Console.Error.WriteLine("Every display is asleep; the app starts once one wakes."))
             .GetAwaiter().GetResult();
 
-    public override IDesktopNotificationSink CreateNotificationSink(Action<Action> dispatch) => new MacOsDesktopNotificationSink();
+    public override IDesktopNotificationSink CreateNotificationSink(Action<Action> dispatch) =>
+        new MacOsDesktopNotificationSink(new MacNotificationCenter(), dispatch);
 
     /// `open -n` starts a second instance of the bundle.
     public override async Task<bool> StartSecondCopyAsync(IClassicDesktopStyleApplicationLifetime desktop, TimeProvider time, CancellationToken ct) {

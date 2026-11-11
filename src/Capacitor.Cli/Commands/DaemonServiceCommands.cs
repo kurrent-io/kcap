@@ -731,7 +731,7 @@ sealed class DaemonServiceCommands(
     /// <summary>What the unit does for the daemon. kcap-service starts a user's daemon only once they sign in, as the
     /// Scheduled Task does.</summary>
     internal static string Supervision(IServiceManager manager) => manager switch {
-        WindowsServiceManager              => "kcap-service restarts it if it stops, and starts it when you sign in.",
+        WindowsServiceManager              => "kcap-service runs from boot, starts your daemon when you sign in, and restarts it if it stops.",
         WindowsScheduledTaskServiceManager => "The Scheduled Task restarts it if it fails, and starts it when you sign in.",
         _                                  => "Auto-restarts on crash/SIGKILL; starts at login.",
     };

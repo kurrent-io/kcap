@@ -156,6 +156,7 @@ public class HomeViewModelBaseRefTests {
             await vm.ChooseBaseRefAsync("main");
             vm.Goal = "go";
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(launch.Last).IsNull();
@@ -179,6 +180,7 @@ public class HomeViewModelBaseRefTests {
             await vm.ChooseBaseRefAsync("feature/x");
             vm.Goal = "go";
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
 
             await Assert.That(await vm.ListRecentBaseRefsAsync()).IsEquivalentTo(new[] { "feature/x" });
@@ -203,6 +205,7 @@ public class HomeViewModelBaseRefTests {
             await vm.ChooseBaseRefAsync("gone");
             vm.Goal = "go";
 
+            vm.Goal = "go";
             await vm.StartCommand.Execute();
             failures.OnNext(new LaunchFailure(AgentId,
                 "git fetch origin gone:refs/kcap/fetched/agent-1 failed: fatal: couldn't find remote ref gone"));

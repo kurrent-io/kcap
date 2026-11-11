@@ -22,6 +22,7 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     readonly List<(string SessionId, string? AgentId)>      _connects    = [];
     readonly List<(bool Acked, TranscriptBatch Batch)>      _received    = [];
     readonly List<(string SessionId, string? AgentId)>      _drains      = [];
+    readonly List<string>                                   _registrations = [];
 
     WebApplication _app = null!;
 
@@ -31,6 +32,10 @@ public sealed class WatcherHubHost : IAsyncDisposable {
 
     /// <summary>The position <c>WatcherConnect</c> answers with, from the 1-based count of connects so far.</summary>
     public Func<int, int> ResumeFrom { get; set; } = _ => 0;
+
+    /// <summary>Awaited inside <c>WatcherConnect</c>, after the connect is recorded, so a test can hold the server's
+    /// answer while the client gives up. Given the 1-based count of connects so far; null holds nothing.</summary>
+    public Func<int, Task?>? ConnectHold { get; set; }
 
     public IReadOnlyList<(string SessionId, string? AgentId)> Connects => Snapshot(_connects);
 
@@ -46,6 +51,13 @@ public sealed class WatcherHubHost : IAsyncDisposable {
 
     public IReadOnlyList<(string SessionId, string? AgentId)> Drains => Snapshot(_drains);
 
+    /// <summary>What <c>WatcherConnect</c> answered and <c>WatcherDetach</c> asked, in the order the server did them.</summary>
+    public IReadOnlyList<string> Registrations {
+        get {
+            lock (_gate) return [.. _registrations];
+        }
+    }
+
     /// <summary>Every line number received, through either send method, in arrival order.</summary>
     public IReadOnlyList<int> ReceivedLineNumbers {
         get {
@@ -55,13 +67,15 @@ public sealed class WatcherHubHost : IAsyncDisposable {
 
     /// <param name="port">Zero takes any free port; a number from <see cref="ReservePort"/> brings a hub up where a
     /// watcher is already looking.</param>
-    public static async Task<WatcherHubHost> StartAsync(int port = 0) {
+    /// <param name="parallelInvocations">How many calls of one connection the hub runs at once. Above one, a detach can
+    /// pass a connect still running, as it can on the real server.</param>
+    public static async Task<WatcherHubHost> StartAsync(int port = 0, int parallelInvocations = 1) {
         var host    = new WatcherHubHost();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(host);
-        builder.Services.AddSignalR().AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
+        builder.Services.AddSignalR(o => o.MaximumParallelInvocationsPerClient = parallelInvocations).AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
         host._app = builder.Build();
         host._app.MapHub<WatcherHub>("/hubs/sessions");
@@ -106,12 +120,24 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     }
 
     sealed class WatcherHub(WatcherHubHost host) : Hub {
-        public int WatcherConnect(string sessionId, string? agentId) {
+        public async Task<int> WatcherConnect(string sessionId, string? agentId) {
+            int resumeFrom, count;
+
             lock (host._gate) {
                 host._connects.Add((sessionId, agentId));
-
-                return host.ResumeFrom(host._connects.Count);
+                count      = host._connects.Count;
+                resumeFrom = host.ResumeFrom(count);
             }
+
+            if (host.ConnectHold?.Invoke(count) is { } hold) await hold;
+
+            lock (host._gate) host._registrations.Add($"registered {count}");
+
+            return resumeFrom;
+        }
+
+        public void WatcherDetach(string sessionId, string? agentId) {
+            lock (host._gate) host._registrations.Add("detached");
         }
 
         public void SendTranscriptBatch2(TranscriptBatch batch) {

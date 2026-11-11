@@ -48,6 +48,8 @@ internal static class AgentOrchestratorHarness {
             TimeProvider?                                       timeProvider           = null,
             DaemonConfig?                                       sharedConfig           = null,
             AccountReadingSink?                                 readings               = null,
+            // Given the config this harness finished building, whose directories it owns.
+            Func<DaemonConfig, DaemonRecorder>?                 recorder               = null,
             // Where the orchestrator's harness registry finds vendor CLIs; nothing by default.
             BinaryProbe?                                        harnessBinaries        = null
         ) {
@@ -123,6 +125,7 @@ internal static class AgentOrchestratorHarness {
             deferProcessorPublication,
             time,
             readings,
+            recorder?.Invoke(config),
             harnessBinaries ?? TestBinaries.None
         );
     }
@@ -157,6 +160,7 @@ internal static class AgentOrchestratorHarness {
                 bool                                                    deferProcessorPublication,
                 TimeProvider                                            time,
                 AccountReadingSink?                                     readings,
+                DaemonRecorder?                                         recorder,
                 BinaryProbe                                             harnessBinaries
             ) : base(
             config,
@@ -181,7 +185,8 @@ internal static class AgentOrchestratorHarness {
             // The scratch config root and a fresh checkout carry no approval documents, so every test
             // that writes none still gets an empty snapshot and no upload.
             policySnapshots: new PolicySnapshotProvider(configRoot.Root),
-            readings: readings
+            readings: readings,
+            recorder: recorder
         ) {
             _tmp    = tmp;
             _config = configRoot;

@@ -17,18 +17,24 @@ namespace Capacitor.Cli.Recording;
 /// Sends one transcript to the server as it grows. Everything it mutates is its own, because many
 /// recorders can share a process, and it leaves the process itself alone: no console, signals, pid
 /// file or exit code. <see cref="RunAsync"/> tails until stopped, and <see cref="FinishAsync"/> then
-/// makes the final drain.
+/// makes the final drain. Given <paramref name="claims"/>, it records only while its source's claim exists;
+/// beating that claim is its host's job.
 /// </summary>
 public sealed class TranscriptRecorder(
-        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context) : IDisposable {
-    readonly CursorMarkers  _markers       = new(context.Server.Config, time);
+        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context,
+        RecorderClaims? claims = null) : IDisposable {
+    readonly CursorMarkers  _markers       = new(context.Server.Config, time) { FailureLog = context.Log };
     readonly WatchAckCursor _ackCursor     = new(context.Server.Config);
-    readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url);
+    readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url) { FailureLog = context.Log };
     readonly Lock           _ackCursorGate = new();
     int _ackCursorWritten = -1;
 
     readonly OnceLog _parseErrors  = new(context.Log);
     readonly OnceLog _kiroWarnings = new(context.Log);
+
+    // Each loop over lines ticks it: a large backlog can take longer than a host's threshold before its first send, and a
+    // source restarted for that resumes from the same cursor and takes as long again.
+    readonly ThrottledBeat _progress = new(context.Beat, time);
 
     // The rewrite guard's checkpoint and pending range persist from poll to poll. Only Cursor has one.
     readonly CursorRewriteGuard? _cursorGuard = source.Vendor == "cursor" ? new(context.Server.Config, source.SessionId, time, context.Log) : null;
@@ -39,8 +45,10 @@ public sealed class TranscriptRecorder(
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
+    readonly CancellationTokenSource _givenUp  = new();
 
     long _shutdownRequestedAt;
+    Exception? _registrationLost;
     int  _stopRequested;
     bool _subscribed;
 
@@ -75,14 +83,23 @@ public sealed class TranscriptRecorder(
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }
 
+    /// <summary>Whether the host has given this source up for good. It reads as a lost claim, because the claim file can
+    /// outlive that decision: a delete that failed leaves it in place.</summary>
+    internal Func<bool>? Abandoned { get; init; }
+
+    /// <summary>Told of a connect this recorder gave up on, on any path. It can still reach the server after the recorder
+    /// has gone, and its task completes when nothing is left to land.</summary>
+    internal Action<Task>? ConnectAbandoned { get; init; }
+
     /// <summary>The server has registered this recorder, so what it holds is the server's to resume.</summary>
     public bool Connected { get; private set; }
 
     public WatchState State { get; } = new() { LastActivityAt = time.GetUtcNow() };
 
-    /// <summary>Cancelled the moment the recorder stops, by any cause and before its loop notices, which can be
-    /// long after: it may be in a call that takes no token. A host stops what it runs beside the recorder from
-    /// this, so nothing of the host's outlives the stop and changes how the session ended.</summary>
+    /// <summary>Set the moment the recorder stops, by any cause and before its loop notices, which can be long after:
+    /// it may be in a call that takes no token. A host stops what it runs beside the recorder from this. A callback can
+    /// run a moment after the token reads cancelled, because a server stop cancels off the transport's thread, so
+    /// whatever decides how the session ended reads the token rather than rely on a callback having run.</summary>
     public CancellationToken Stopping => _stop.Token;
 
     /// <summary>Where the transcript is now: Claude can move it mid-session.</summary>
@@ -91,8 +108,21 @@ public sealed class TranscriptRecorder(
     /// <summary>The transcript went idle and the recorder ended its source.</summary>
     public bool EndedIdle { get; private set; }
 
+    /// <summary>Whether a re-registration that failed fails the run. A host retries a run, and that registers the source
+    /// again; a source left unregistered has no stop path until the next reconnect, which on a connection shared by
+    /// every source can be days away. A watcher has no retry around it, so it carries on to that reconnect.</summary>
+    internal bool FailsOnLostRegistration { get; init; }
+
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
+
+    /// <summary>The claim this recorder ran under has gone. A hook took the source, and whatever recorder it started
+    /// resumes from the server's cursor, so nothing more goes out from here, a final drain included.</summary>
+    public bool LostClaim { get; private set; }
+
+    /// <summary>The final drain left lines it neither sent nor spooled. They are still in the transcript, and a held
+    /// line ends the drain with no failure to say so.</summary>
+    public bool LeftLines { get; private set; }
 
     internal HeldLineRedaction HeldLine { get; } =
         new(new HeldLineStore(context.Server.Config, source.SessionId, source.AgentId), time, context.RedactionClock, context.Log);
@@ -104,8 +134,25 @@ public sealed class TranscriptRecorder(
         _stop.Cancel();
     }
 
+    /// <summary>Stops this recorder for a host that no longer waits on it, off the caller's thread: what it is in may never
+    /// return. <see cref="Abandoned"/> is what refuses it the rest.</summary>
+    internal void Supersede() {
+        Unsubscribe();
+        _givenUp.CancelOffThread();
+        _stop.CancelOffThread();
+        _titleCts.CancelOffThread();
+    }
+
     public void Dispose() {
         Unsubscribe();
+
+        // A reconnect still waiting on a connect has nothing else to end that wait, and a raiser waits for its handler.
+        try {
+            _stop.Cancel();
+        } catch (Exception ex) when (ex is ObjectDisposedException or AggregateException) {
+            // Disposed twice, or a callback failed: either way nothing here depends on it.
+        }
+
         _stop.Dispose();
 
         // A title still being generated belongs to this attempt, and a retry makes its own.
@@ -116,6 +163,7 @@ public sealed class TranscriptRecorder(
         }
 
         _titleCts.Dispose();
+        _givenUp.Dispose();
         _cursorRewindGate?.Dispose();
     }
 
@@ -134,6 +182,9 @@ public sealed class TranscriptRecorder(
         // when the request arrived has already spent some of it.
         using var shutdownStamp = stop.Register(() => Interlocked.CompareExchange(ref _shutdownRequestedAt, time.GetTimestamp(), 0));
 
+        // Registering replaces whichever connection holds the source, and that may be the watcher that took it.
+        if (HasLostClaim()) return;
+
         Subscribe();
 
         var idleTimeout = IdleEnd.ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
@@ -145,6 +196,11 @@ public sealed class TranscriptRecorder(
                 // Every iteration, disconnected and idle ones included, so a stale heartbeat means the loop is
                 // wedged, not merely quiet.
                 context.Beat();
+
+                if (HasLostClaim()) break;
+
+                if (Volatile.Read(ref _registrationLost) is { } lost && !stop.IsCancellationRequested)
+                    throw new IOException($"Re-registering failed: {lost.Message}", lost);
 
                 // No point re-reading the file or attempting sends that will fail; the transport reconnects.
                 if (!transport.IsConnected) {
@@ -228,14 +284,24 @@ public sealed class TranscriptRecorder(
     /// Registering gets <see cref="DrainOnceConnectBudget"/>, then throws <see cref="TimeoutException"/>, because a
     /// transport that retries until it connects would otherwise park the drain with nothing spooled or marked.</summary>
     public async Task DrainOnceAsync(CancellationToken ct) {
+        if (HasLostClaim()) return;
+
         Subscribe();
         await ConnectAndSeedAsync(ct, DrainOnceConnectBudget);
         await FinishAsync(ct);
     }
 
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
-    /// not deliver go to the spool, because the process may exit right after.</summary>
+    /// not deliver go to the spool, because the process may exit right after. <paramref name="ct"/> cuts off what
+    /// depends on the server and on a title, a hung send above all, and the spool still gets what is left.</summary>
     public async Task FinishAsync(CancellationToken ct) {
+        // A stop can end the loop before a tick saw the claim go.
+        if (HasLostClaim()) {
+            Unsubscribe();
+
+            return;
+        }
+
         var agentId = source.AgentId;
         var vendor  = source.Vendor;
         var log     = context.Log;
@@ -274,26 +340,47 @@ public sealed class TranscriptRecorder(
 
             // Give the writer up to 2s to finish its last record. That is best-effort: the drain below re-decides
             // completeness on the exact bytes it consumes, so a line that resumed growing is still held.
-            await TranscriptReader.WaitForFinalLineCompletionAsync(TranscriptPath, time);
+            var lastLineComplete = await TranscriptReader.WaitForFinalLineCompletionAsync(TranscriptPath, time, ct: ct);
             FollowMovedTranscript();
 
-            var finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
+            IReadOnlyList<string> finalDrained = [];
 
-            if (State.FinalDrainHeldIncompleteLine) {
+            try {
+                finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                // Cut off behind a reconnect's rewind. The spool below takes the lines.
+            }
+
+            // Whatever comes next outlives this recorder: a spooled tail replays, and a mark asks for an import.
+            if (HasLostClaim()) {
+                Unsubscribe();
+
+                return;
+            }
+
+            // A drain cut off before its read can't say, and the tail spool below leaves such a line out.
+            if (State.FinalDrainHeldIncompleteLine || (ct.IsCancellationRequested && !lastLineComplete)) {
                 // Keyed on the session even for a subagent: the spool and `kcap import` work at session level.
                 log("Final transcript line still incomplete at consume time; held back and flagging needs-import");
-                _spool.MarkNeedsImport(source.SessionId, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
+                LeftLines = true;
+                MarkForImport(_spool, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
             }
 
             // The cursor only moves past lines the server confirmed, and a failed send can leave the connection
             // up, so this runs whatever the connection state: a cheap no-op when nothing is undelivered. It is the
             // last chance to act before the process exits, and spooling keeps the tail for a later drain to replay.
             FollowMovedTranscript();
-            await SpoolUndeliveredTranscriptTailAsync(
-                _spool, State.LinesProcessed, State.Commits, ct,
+            var spooled = await SpoolUndeliveredTranscriptTailAsync(
+                _spool, State.LinesProcessed, State.Commits, CancellationToken.None,
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets);
 
-            await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
+            LeftLines |= spooled is not (null or TranscriptSpool.AppendResult.Appended);
+
+            try {
+                await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                log("Final housekeeping cut off");
+            }
         }
 
         // The generated title goes out over this connection, so it is waited for before the close.
@@ -305,18 +392,33 @@ public sealed class TranscriptRecorder(
                 var titleBudget = ShutdownTitleBudget(connected, Volatile.Read(ref _stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
                 log($"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
 
-                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, context.Beat);
+                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, context.Beat, ct);
                 if (!settled) await _titleCts.CancelAsync();
+            }
+
+            // The hand-off below starts a process that posts the title by itself.
+            if (HasLostClaim()) {
+                Unsubscribe();
+
+                return;
             }
 
             // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
             // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
-            if (!State.TitleGenerated && (Volatile.Read(ref _stopRequested) == 1 || !connected || !transport.IsConnected)) {
+            if (!State.TitleGenerated && (Volatile.Read(ref _stopRequested) == 1 || ct.IsCancellationRequested || !connected || !transport.IsConnected)) {
                 log($"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
                 context.Housekeeping.HandOffTitle(TranscriptPath);
             } else if (!settled) {
                 log("Generated title not ready before shutdown; abandoning it");
             }
+        }
+
+        // A drain given up on can wake past the checks above, and a session below the threshold never reaches them. Its
+        // drain complete would release a stop the server holds for whichever recorder has the source now.
+        if (HasLostClaim()) {
+            Unsubscribe();
+
+            return;
         }
 
         // A fresh token: the run's is already cancelled, and the server has to hear this to release a stop
@@ -344,7 +446,7 @@ public sealed class TranscriptRecorder(
     /// count whenever it moves, rewinds included. Reconnect and drain both publish, so the count is read and
     /// written under one lock: a count read earlier can never land after a newer one.</summary>
     internal void PublishAckedLines(WatchState state) {
-        if (source.AgentId is not null || source.Vendor != "codex") return;
+        if (source.AgentId is not null || source.Vendor != "codex" || Abandoned?.Invoke() == true) return;
 
         lock (_ackCursorGate) {
             var count = state.LinesProcessed;
@@ -369,6 +471,9 @@ public sealed class TranscriptRecorder(
         State.StartedAt = time.GetUtcNow();
 
         await context.Housekeeping.PrepareAsync(State, stop);
+
+        // Preparation runs git and gh, so the connect gets a host's whole threshold to itself.
+        context.Beat();
 
         log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
 
@@ -402,21 +507,26 @@ public sealed class TranscriptRecorder(
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
-            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log);
+            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log, _progress.Tick);
         }
     }
 
-    async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget) {
-        if (budget is not { } limit) return await transport.ConnectAsync(source, stop);
+    // A transport's task outlives a stop, so a stop has to end the wait here or nothing does. Being given up ends it too: a
+    // single drain waits on the host's drain token, which that leaves alone, and a registration made after it has nothing
+    // left to detach it.
+    async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget = null) {
+        if (Abandoned?.Invoke() == true && HasLostClaim()) throw new OperationCanceledException($"{source.Key} was given up on before its connect");
 
-        using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop, _givenUp.Token);
 
         var connect = transport.ConnectAsync(source, abandon.Token);
 
         try {
-            return await connect.WaitAsync(limit, time, stop);
-        } catch (TimeoutException) {
-            // The abandoned connect may still fault later; observing it keeps that from surfacing as an unobserved exception.
+            return await (budget is { } limit ? connect.WaitAsync(limit, time, abandon.Token) : connect.WaitAsync(abandon.Token));
+        } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && !connect.IsCompleted) {
+            ConnectAbandoned?.Invoke(connect);
+
+            // It may still fault later; observing it keeps that from surfacing as an unobserved exception.
             _ = connect.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             await abandon.CancelAsync();
 
@@ -425,6 +535,22 @@ public sealed class TranscriptRecorder(
     }
 
     void CancelRun() => _stop.Cancel();
+
+    // The marker is read only under claims: a watcher holds none, and kcap disable stops one by signal, final drain and all.
+    // Under a daemon it is what an older kcap leaves, with no frame sent and the claim still in place.
+    bool HasLostClaim() {
+        if (LostClaim) return true;
+
+        if (Abandoned?.Invoke() != true
+         && (claims is null || (claims.Keeps(source.Key) && !DisabledSessions.IsDisabledByPerson(source.SessionId, context.Server.Config))))
+            return false;
+
+        LostClaim = true;
+        context.Log($"{source.Key} is no longer this recorder's; stopping with no final drain");
+        _stop.Cancel();
+
+        return true;
+    }
 
     void Subscribe() {
         if (_subscribed) return;
@@ -450,19 +576,19 @@ public sealed class TranscriptRecorder(
 
         TryLog($"Received StopWatcher signal: {reason}");
 
-        try {
-            RequestStop();
-        } catch (ObjectDisposedException) {
-            // Already finished.
-        }
+        // Off the raiser's thread, which every other source's stop waits behind.
+        Interlocked.Exchange(ref _stopRequested, 1);
+        _stop.CancelOffThread();
 
         return Task.CompletedTask;
     }
 
     async Task OnReconnectedAsync() {
         try {
+            if (HasLostClaim()) return;
+
             var stop           = _stop.Token;
-            var serverPosition = await transport.ConnectAsync(source, stop);
+            var serverPosition = await ConnectAsync(stop);
 
             if (serverPosition < State.LinesProcessed) {
                 TryLog($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");
@@ -480,6 +606,8 @@ public sealed class TranscriptRecorder(
             // Already finished.
         } catch (Exception ex) {
             TryLog($"Re-register after reconnect failed: {ex.Message}");
+
+            if (FailsOnLostRegistration) Volatile.Write(ref _registrationLost, ex);
         }
     }
 
@@ -513,6 +641,9 @@ public sealed class TranscriptRecorder(
     }
 
     Task<IReadOnlyList<string>> DrainNewLinesGatedAsync(bool isFinalDrain, CancellationToken ct) {
+        // A recorder woken from housekeeping its host gave up on would otherwise read, title and capture for nobody.
+        if (Abandoned?.Invoke() == true && HasLostClaim()) return Task.FromResult<IReadOnlyList<string>>([]);
+
         context.Housekeeping.RefreshTranscript(TranscriptPath);
 
         return GatedDrainNewLinesAsync(_cursorRewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
@@ -577,16 +708,18 @@ public sealed class TranscriptRecorder(
 
     /// <summary>Waits up to <paramref name="budget"/> for <paramref name="pending"/>, calling <paramref name="beat"/>
     /// before each heartbeat slice of the wait. False when it is still running at the end, for the caller to abandon.</summary>
-    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat) {
+    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat, CancellationToken ct = default) {
         if (pending is null || pending.IsCompleted) return true;
 
         foreach (var slice in HeartbeatSlices(budget, HeartbeatSlice)) {
             beat();
 
             try {
-                await pending.WaitAsync(slice, time);
+                await pending.WaitAsync(slice, time, ct);
             } catch (TimeoutException) when (!pending.IsCompleted) {
                 continue;
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                return pending.IsCompleted;
             } catch {
                 // the generation's own failure: it is over, which is all shutdown waits for
             }
@@ -628,11 +761,14 @@ public sealed class TranscriptRecorder(
         state.RepositoryFromEvidence = true;
     }
 
-    // No-op when state.EvidenceScanner is null (every non-Claude or already-in-repo session) or already done.
-    internal static async Task ApplyEvidenceScanAsync(WatchState state, string vendor, IReadOnlyList<string> newLines, bool isFinalDrain) {
+    // No-op when state.EvidenceScanner is null (every non-Claude or already-in-repo session) or already done. A line can
+    // probe a repository root, which takes seconds.
+    internal static async Task ApplyEvidenceScanAsync(WatchState state, string vendor, IReadOnlyList<string> newLines, bool isFinalDrain, Action? progress = null) {
         if (state.EvidenceScanner is not { Done: false } scanner) return;
 
         foreach (var line in newLines) {
+            progress?.Invoke();
+
             if (await scanner.OnLineAsync(vendor, line) is { } repo) {
                 ApplyEvidenceRepo(state, repo);
 
@@ -693,6 +829,8 @@ public sealed class TranscriptRecorder(
 
     async Task SendInitialTitleAsync(string sessionId, string title) {
         try {
+            if (HasLostClaim()) return;
+
             await transport.SendTitleAsync(sessionId, title, CancellationToken.None);
             context.Log($"Initial title sent: {title}");
         } catch (Exception ex) {
@@ -702,15 +840,26 @@ public sealed class TranscriptRecorder(
 
     async Task PostTitleAsync(WatchState state, ClaudeCliResult title) {
         try {
-            await transport.UpdateTitleAsync(
-                source.SessionId, title.Result, title.Model, title.InputTokens, title.OutputTokens, title.CacheReadTokens, title.CacheWriteTokens, CancellationToken.None);
-            context.Log($"LLM title generated: {title.Result}");
-            state.TitleGenerated = true;
+            // A generation can finish long after its recorder was given up on.
+            if (!HasLostClaim()) {
+                await transport.UpdateTitleAsync(
+                    source.SessionId, title.Result, title.Model, title.InputTokens, title.OutputTokens, title.CacheReadTokens, title.CacheWriteTokens, CancellationToken.None);
+                context.Log($"LLM title generated: {title.Result}");
+                state.TitleGenerated = true;
+            }
         } catch (Exception ex) {
             context.Log($"LLM title send failed: {ex.Message}");
         }
 
         state.TitleInFlight = false;
+    }
+
+    IEnumerable<string> Progressing(IEnumerable<string> lines) {
+        foreach (var line in lines) {
+            _progress.Tick();
+
+            yield return line;
+        }
     }
 
     void StampLines(IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers) {
@@ -841,7 +990,7 @@ public sealed class TranscriptRecorder(
             // Cut the read itself at a held line: the raw-line consumers below must see what follows
             // it once, on the poll that delivers it.
             var captured = HeldLine.Capture(drainRead.Lines, drainRead.LineNumbers,
-                (reason, count) => log($"Capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
+                (reason, count) => log($"Capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"), _progress.Tick);
             if (captured.Consumed < drainRead.Lines.Count) {
                 drainRead = drainRead with {
                     Lines        = drainRead.Lines.GetRange(0, captured.Consumed),
@@ -872,7 +1021,7 @@ public sealed class TranscriptRecorder(
             // Before the USAGE lines go on, which aren't transcript steps. The created_at anchors USAGE recency,
             // and the pending count suppresses idle-end while a long command runs.
             if (vendor == "antigravity") {
-                foreach (var l in newLines) {
+                foreach (var l in Progressing(newLines)) {
                     AntigravityLiveUsage.UpdateAntigravityPendingToolCalls(state, l);
                     if (AntigravityLiveUsage.TryGetAntigravityCreatedAt(l) is { } ca) state.LastAntigravityCreatedAt = ca;
                 }
@@ -901,13 +1050,13 @@ public sealed class TranscriptRecorder(
             // Raw lines: an oversized function_call_output redacts to a placeholder with no call_id, which would
             // strand the call and pin toolInFlight true for good. Never gated on title phase or threshold.
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
                 }
             }
 
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, transcriptPath, state.CopilotHostMissing)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
                 }
             }
@@ -920,7 +1069,7 @@ public sealed class TranscriptRecorder(
 
             // Capture-loss markers have no tool IDs; local completion tracking needs raw lines.
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateClaudePendingToolCalls(state.PendingClaudeToolCalls, line);
                 }
             }
@@ -930,19 +1079,19 @@ public sealed class TranscriptRecorder(
             // oversized Write redacts to a placeholder with no path. Only paths are read.
             if (state.SecondaryRoots is { } secondaryRoots) {
                 var knownRoots = secondaryRoots.Roots.Count;
-                foreach (var line in drainRead.Lines) secondaryRoots.OnLine(vendor, line);
+                foreach (var line in Progressing(drainRead.Lines)) secondaryRoots.OnLine(vendor, line);
                 if (secondaryRoots.Roots.Count > knownRoots) log($"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
             }
 
             if (vendor == "claude") {
-                foreach (var line in drainRead.Lines) ObserveCreatedPullRequest(state, line);
+                foreach (var line in Progressing(drainRead.Lines)) ObserveCreatedPullRequest(state, line);
             }
 
             // A Codex collab child folds its own turn state, so it can post its stop once done and idle. Raw lines
             // again, in the other direction: a redacted response_item reads as no activity, so a re-engaged child
             // would be reported stopped while working.
             if (vendor == "codex" && agentId is not null) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     state.CodexSubagentTurn.Observe(line);
                 }
             }
@@ -958,6 +1107,8 @@ public sealed class TranscriptRecorder(
                         using var       scanReader = new StreamReader(scanStream);
 
                         while (await scanReader.ReadLineAsync(ct) is { } scanLine) {
+                            _progress.Tick();
+
                             if (string.IsNullOrWhiteSpace(scanLine)) {
                                 continue;
                             }
@@ -983,7 +1134,7 @@ public sealed class TranscriptRecorder(
 
                 // Also check new lines (normal path)
                 if (state.FirstUserText is null && newLines.Count > 0) {
-                    foreach (var userText in newLines.Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
+                    foreach (var userText in Progressing(newLines).Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
                         TranscriptLineText.SetFirstUserText(state, userText, log);
 
                         if (state.FirstUserText is not null) {
@@ -1006,7 +1157,7 @@ public sealed class TranscriptRecorder(
 
             // Count events and capture assistant context for LLM title generation
             if (state is { TitleGenerated: false } && agentId is null && newLines.Count > 0) {
-                foreach (var line in newLines) {
+                foreach (var line in Progressing(newLines)) {
                     if (TranscriptLineText.IsEvent(line, vendor)) {
                         state.EventCount++;
                     }
@@ -1077,7 +1228,7 @@ public sealed class TranscriptRecorder(
                 newLines = KiroLiveUsage.EnrichKiroContextUsage(newLines, transcriptPath, _kiroWarnings);
             }
 
-            await ApplyEvidenceScanAsync(state, vendor, newLines, isFinalDrain);
+            await ApplyEvidenceScanAsync(state, vendor, newLines, isFinalDrain, _progress.Tick);
 
             // Only include repository info when it has changed since last send
             var repoToSend = RepoPayloadChanged(state.Repository, state.LastSentRepository)
@@ -1157,16 +1308,31 @@ public sealed class TranscriptRecorder(
                     ObservedCommits = state.Commits.Pending,
                 };
 
-                var sent = await TranscriptBatchBuffer.SendAsync(
-                    batch,
-                    async chunk => {
-                        var ack = await transport.SendBatchAsync(chunk, ct);
+                ChunkedSend? sent;
 
-                        return vendor == "cursor" ? ack : null;
-                    },
-                    // A barrier can appear between chunks, after the initial admission check.
-                    () => vendor != "cursor"
-                     || !(_markers.IsQuarantined(sessionId) || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)));
+                try {
+                    sent = await TranscriptBatchBuffer.SendAsync(
+                        batch,
+                        async chunk => {
+                            var ack = await transport.SendBatchAsync(chunk, ct);
+
+                            return vendor == "cursor" ? ack : null;
+                        },
+                        () => {
+                            // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
+                            context.Beat();
+
+                            // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
+                            if (HasLostClaim()) return false;
+
+                            // A barrier can appear between chunks, after the initial admission check.
+                            return vendor != "cursor"
+                                || !(_markers.IsQuarantined(sessionId) || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound));
+                        });
+                } finally {
+                    // A send can use its whole budget, failed or not, and what follows the drain has budgets of its own.
+                    context.Beat();
+                }
 
                 if (sent is not { } outcome) return newLines;
 
@@ -1236,7 +1402,7 @@ public sealed class TranscriptRecorder(
             }
 
             return newLines;
-        } catch (IOException ex) {
+        } catch (Exception ex) when (ex is IOException || (isFinalDrain && ex is UnauthorizedAccessException)) {
             log($"Error reading file: {ex.Message}");
         } catch (OperationCanceledException) {
             // Expected during shutdown
@@ -1276,10 +1442,12 @@ public sealed class TranscriptRecorder(
                 transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             tail = await TranscriptReader.ReadNewCompleteLinesAsync(
                 stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
-        } catch (IOException ex) {
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // Nothing is left that could say what the final drain missed, and a mark is the only way those lines survive.
             log($"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
+            MarkForImport(transcriptSpool, $"shutdown tail: transcript could not be read: {ex.Message}");
 
-            return null;
+            return TranscriptSpool.AppendResult.MarkedNeedsImport;
         }
 
         commits = commits.Collect();
@@ -1291,6 +1459,10 @@ public sealed class TranscriptRecorder(
             HeldLine.Redacted,
             (reason, count) => log($"Shutdown capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
         var unredacted = redacted.Consumed < tail.Lines.Count ? tail.LineNumbers[redacted.Consumed] : (int?)null;
+
+        // Redaction can run for seconds, and a spooled tail goes out on the next drain pass.
+        if (HasLostClaim()) return null;
+
         var batch = new TranscriptBatch {
             SessionId = sessionId, AgentId = agentId, Vendor = vendor,
             Lines = [..redacted.Lines], LineNumbers = [..tail.LineNumbers.Take(redacted.Consumed)], ObservedCommits = commits.Pending
@@ -1303,6 +1475,9 @@ public sealed class TranscriptRecorder(
             var commitsOnly = commits.Pending is { Length: > 0 } pending ? TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, [], [], pending) : null;
             var spooled     = false;
             foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                // An append can stall on the disk, and the rest is no longer this recorder's to spool once that wakes.
+                if (spooled && HasLostClaim()) return null;
+
                 result = transcriptSpool.Append(sessionId,
                     TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
                     chunk.MoreFollows ? commitsOnly : null);
@@ -1317,7 +1492,7 @@ public sealed class TranscriptRecorder(
 
         if (result == TranscriptSpool.AppendResult.Appended && unredacted is { } line) {
             log($"Line {line} of {sessionId} still cannot be redacted in time; spooled the {batch.Lines.Length} line(s) before it");
-            transcriptSpool.MarkNeedsImport(sessionId, $"shutdown tail: redaction of line {line} timed out");
+            MarkForImport(transcriptSpool, $"shutdown tail: redaction of line {line} timed out");
             HeldLine.ReleaseBelow(line + 1);
             if (redacted.Consumed > 0) stamper.Acknowledged(line - 1);
 
@@ -1340,6 +1515,12 @@ public sealed class TranscriptRecorder(
         }
 
         return result;
+    }
+
+    void MarkForImport(TranscriptSpool spool, string reason) {
+        if (HasLostClaim()) return;
+
+        if (!spool.MarkNeedsImport(source.SessionId, reason)) context.Log($"Could not mark {source.Key} for import: the marker was not written");
     }
 
     /// <summary>

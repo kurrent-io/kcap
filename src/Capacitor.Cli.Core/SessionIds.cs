@@ -13,6 +13,11 @@ public static class SessionIds {
         return Guid.TryParse(trimmed, out var g) ? g.ToString("N") : trimmed;
     }
 
+    /// The id as a user pastes it back into `--session` or the vendor's own resume: a 32-hex id is a GUID its
+    /// vendor wrote dashed. For printing only — the canonical form is what reaches the server and the disk.
+    public static string Display(string id) =>
+        id.Length == 32 && Guid.TryParseExact(id, "N", out var g) ? g.ToString("D") : id;
+
     /// Whether the session id a server reported names the session sent as <paramref name="sent"/>. A server
     /// with ACP id encoding on files a hyphenated opaque id under a token of it, and reports that token.
     public static bool SameSession(string? reported, string? sent) =>

@@ -164,9 +164,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     /// A foreign MCP call: the usual detail keys first, then whatever string it was given.
-    string FirstOrAny(string? inputJson, ToolCategory category) {
-        var known = ToolDetail.From(inputJson, _root, category);
-        return known.Length > 0 ? known : ToolDetail.FirstString(inputJson);
+    (string Text, bool IsPath) FirstOrAny(string? inputJson, ToolCategory category) {
+        var known = ToolDetail.ForRow(inputJson, _root, category);
+        return known.Text.Length > 0 ? known : (ToolDetail.FirstString(inputJson), false);
     }
 
     Action? CardOpener(ToolCard card) {
@@ -231,9 +231,28 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
     }
 
+    SessionConnectionPresentation? _workspaceNotice;
+    public SessionConnectionPresentation? WorkspaceNotice {
+        get => _workspaceNotice;
+        set {
+            this.RaiseAndSetIfChanged(ref _workspaceNotice, value);
+            RaisePhaseNote();
+            this.RaisePropertyChanged(nameof(ComposerHint));
+        }
+    }
+    public bool HasWorkspaceNotice => WorkspaceNotice is not null;
+    public bool HasMessages => _items.Count > 0;
+    public bool ShowsConnectionBanner => HasWorkspaceNotice && HasMessages;
+    public bool ShowsEmptyState => EmptyState is not null;
+    public SessionConnectionPresentation? EmptyState => HasMessages ? null : WorkspaceNotice ??
+        (PhaseNote.Length == 0 ? null : new SessionConnectionPresentation(PhaseNote,
+            ShowsTerminalOffer ? "The agent may be waiting for input in Terminal." : "",
+            Phase is ChatTabPhase.Waiting or ChatTabPhase.Reading && !_launchPromptUnconfirmed,
+            "Open Terminal", ShowsTerminalOffer ? ShowTerminalCommand : null));
+
     /// A working agent's chat is never empty for long, so an empty one is still waiting, read or not,
     /// until the session ends.
-    public string PhaseNote => _items.Count > 0 ? "" : Phase switch {
+    public string PhaseNote => HasWorkspaceNotice || _items.Count > 0 ? "" : Phase switch {
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended && _launchPromptUnconfirmed => LaunchPromptUnconfirmedNote,
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended => "Waiting for chat…",
         ChatTabPhase.Missing     => _missingNote ?? "The transcript file is missing",
@@ -259,6 +278,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
         this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+        this.RaisePropertyChanged(nameof(HasWorkspaceNotice));
+        this.RaisePropertyChanged(nameof(HasMessages));
+        this.RaisePropertyChanged(nameof(ShowsConnectionBanner));
+        this.RaisePropertyChanged(nameof(EmptyState));
+        this.RaisePropertyChanged(nameof(ShowsEmptyState));
     }
 
     /// The chips staged for the next prompt. A send clears the ones it carried, never the tray.
@@ -375,7 +399,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     readonly ObservableAsPropertyHelper<string> _composerHint;
-    public string ComposerHint => _composerHint.Value;
+    public string ComposerHint => HasWorkspaceNotice && _input.Availability != SendAvailability.Ready ? "" : _composerHint.Value;
 
     UsageLimitNoticeDto? _usageLimit;
     TerminalDialogDto? _terminalDialog;
@@ -410,6 +434,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
             this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
+            this.RaisePropertyChanged(nameof(EmptyState));
+            this.RaisePropertyChanged(nameof(ShowsEmptyState));
         }
     }
 
@@ -1006,8 +1032,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.WhenAnyValue(x => x.HasTerminalMenu),
             _queuedSendBusy,
             this.WhenAnyValue(x => x.HasSeed),
-            (text, can, readOnly, menu, busy, _) => can && !readOnly && !menu && !busy && !string.IsNullOrWhiteSpace(text)
-                && CanSendBeforeSeed);
+            Tray.WhenAnyValue(t => t.HasAttachments),
+            (text, can, readOnly, menu, busy, _, files) => can && !readOnly && !menu && !busy
+                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed);
         // The composer keeps whatever the user typed while the channel was deciding: only the
         // snapshot that was actually sent is cleared, and only once the channel commits it. The
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
@@ -1874,13 +1901,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         var isToolSearch = entry is null && KcapToolCatalogue.IsToolSearch(name);
                         var category = entry?.Category ?? ToolSummary.Categorize(name, e.ToolInputJson);
                         var foreignLabel = entry is null && !isToolSearch ? KcapToolCatalogue.ForeignLabel(name) : null;
-                        var detail = entry is not null ? ToolDetail.ForKey(e.ToolInputJson, entry.DetailKey)
-                            : isToolSearch ? TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80)
+                        var (detail, detailIsPath) = entry is not null ? ToolDetail.ForKeyInRow(e.ToolInputJson, entry.DetailKey, _root)
+                            : isToolSearch ? (TextElision.End(KcapToolCatalogue.FormatToolSearchQuery(ToolDetail.RawForKey(e.ToolInputJson, "query")), 80), false)
                             : foreignLabel is not null ? FirstOrAny(e.ToolInputJson, category)
-                            : ToolDetail.From(e.ToolInputJson, _root, category);
+                            : ToolDetail.ForRow(e.ToolInputJson, _root, category);
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
-                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip) { SessionOver = _ended };
+                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip, detailIsPath) { SessionOver = _ended };
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);

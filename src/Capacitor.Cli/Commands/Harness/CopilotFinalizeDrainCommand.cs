@@ -116,6 +116,13 @@ sealed class CopilotFinalizeDrainCommand(
             await Task.Delay(pollInterval, time);
         }
 
+        // After the wait: the end would bring back the stream a person's disable deleted.
+        if (DisabledSessions.IsDisabledByPerson(sessionId, config)) {
+            Log($"session end not sent for {sessionId}: it was disabled");
+
+            return;
+        }
+
         const string route = "session-end/copilot";
 
         var spool = new HookSpool(config, time, profiles.Resolution.ServerUrl);

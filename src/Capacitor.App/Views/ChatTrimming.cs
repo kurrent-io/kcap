@@ -2,9 +2,9 @@ using Avalonia.Media;
 
 namespace Capacitor.App.Views;
 
-/// Overflow trimming for the one-line command and path rows in Chat. The prefix holds the program
-/// and its first token; everything dropped comes out of the middle, so the target at the end of
-/// the line — the file, the pattern, the argument the row is about — stays on screen.
+/// Commands keep the program prefix and target tail. Paths give the available width to the
+/// trailing folders and filename, which identify the target even in a narrow row.
 public static class ChatTrimming {
     public static TextTrimming MiddleEllipsis { get; } = new TextLeadingPrefixTrimming("…", 24);
+    public static TextTrimming PathEllipsis { get; } = TextTrimming.LeadingCharacterEllipsis;
 }

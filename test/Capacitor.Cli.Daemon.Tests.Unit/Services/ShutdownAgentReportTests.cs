@@ -46,6 +46,28 @@ public class ShutdownAgentReportTests {
         await Assert.That(server.ShutdownReports.All(r => !r.TokenAlreadyCancelled)).IsTrue();
     }
 
+    /// <summary>Plain <c>kcap daemon stop</c>. The end would bring back what the person's disable deleted, and the rest of
+    /// the report goes out, since it names the agent and carries nothing of the session.</summary>
+    [Test]
+    public async Task A_disabled_sessions_shutdown_report_ends_no_session() {
+        const string disabled = "0123456789abcdef0123456789abcdef";
+        ConfigRoot? root = null;
+        var server = new CaptureServerConnection();
+        var orch   = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: config => root = config.ConfigRoot);
+        orch.ShutdownIntent = ShutdownIntent.EndAgents;
+
+        orch.SeedAgentForTest("marked", status: "Running").SessionId  = disabled;
+        orch.SeedAgentForTest("control", status: "Running").SessionId = "fedcba9876543210fedcba9876543210";
+        DisabledSessions.Mark(disabled, root!);
+        await Assert.That(server.IsDisabledByPerson(disabled)).IsTrue();
+
+        await orch.DisposeAsync();
+
+        await Assert.That(server.ShutdownSessionEnds).IsEquivalentTo(new[] { "control" });
+        await Assert.That(server.ShutdownReports.Select(report => report.AgentId)).Contains("marked");
+    }
+
     /// <summary>An agent whose own finalizer already ran has reported its real ending; a second stop
     /// event over the top of it would be less true, and its unregister races that finalizer's.</summary>
     [Test]

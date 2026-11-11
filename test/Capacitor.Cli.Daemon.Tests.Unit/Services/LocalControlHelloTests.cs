@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
@@ -23,6 +24,8 @@ public class LocalControlHelloTests {
     [TempHome] public required TempHome Home { get; init; }
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
+    [TempDir] public required TempDir Tmp { get; init; }
 
     sealed class NoopHostLifetime : IHostApplicationLifetime {
         public CancellationToken ApplicationStarted  => CancellationToken.None;
@@ -49,7 +52,7 @@ public class LocalControlHelloTests {
 
     sealed record Harness(TempDaemonStore Daemons, LocalControlServer Server, AgentOrchestrator Orchestrator, ServerConnection Connection, DaemonConfig Config, string SockPath);
 
-    async Task<Harness> StartAsync(string daemonName, CancellationToken ct) {
+    async Task<Harness> StartAsync(string daemonName, CancellationToken ct, bool recording = false) {
         var daemons     = new TempDaemonStore();
         var stateRoot   = daemons.Store.StateDirectory(daemonName);
         var store       = new LaunchConsentStore(stateRoot, NullLogger.Instance, TimeProvider.System);
@@ -62,6 +65,7 @@ public class LocalControlHelloTests {
             ServerUrl    = "http://127.0.0.1:1",
             Store        = daemons.Store,
             WorktreeRoot = daemons.PathTo("worktrees"),
+            ConfigRoot   = Config.Root,
         };
         var consentIpc  = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
 
@@ -77,7 +81,8 @@ public class LocalControlHelloTests {
             tokens,
             permissionBridge, new Dictionary<string, IHostedAgentLauncher>(),
             new Dictionary<string, IHostedAgentRuntimeFactory>(), new NoopHostLifetime(),
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System);
+            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System,
+            recorder: recording ? Recording(config) : null);
 
         var permissionIpc = new PermissionIpc(new PermissionPromptBroker(), NullLogger<PermissionIpc>.Instance);
         var notifier = new DaemonStatusNotifier();
@@ -105,17 +110,47 @@ public class LocalControlHelloTests {
     /// Wraps a test body with the harness lifecycle, mirroring LaunchConsentIpcTests's RunAsync. The harness owns
     /// its own daemons directory, so nothing here is shared between tests; each [Test] still
     /// carries its own Windows guard, which must be visible on the test method itself.
-    async Task RunAsync(string daemonName, Func<Harness, CancellationToken, Task> body) {
+    async Task RunAsync(string daemonName, Func<Harness, CancellationToken, Task> body, bool recording = false) {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         Harness? h = null;
         try {
-            h = await StartAsync(daemonName, cts.Token);
+            h = await StartAsync(daemonName, cts.Token, recording);
             await Assert.That(File.Exists(h.SockPath)).IsTrue();
             await body(h, cts.Token);
         } finally {
             if (h is not null) await StopAsync(h);
         }
+    }
+
+    FakeRecorderTransport Transport { get; } = new() { IsConnected = true };
+
+    DaemonRecorder? Recorder { get; set; }
+
+    DaemonRecorder Recording(DaemonConfig config) {
+        config.RecordHostedClaude = true;
+        config.ConfigRoot         = Config.Root;
+        config.Profiles           = Resolutions.None(Config.Root);
+
+        var probe = new RecordingProbe();
+        probe.Report(true);
+
+        return Recorder = new DaemonRecorder(
+            config, new CapacitorServer(config.ServerUrl, Config.Root, config.Profiles), probe, () => Transport,
+            (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
+    }
+
+    static async Task<LocalFrame?> AskAsync(string sockPath, LocalFrame request, CancellationToken ct) {
+        await using var s = await ConnectAsync(sockPath, ct);
+        await FrameCodec.WriteAsync(s, request, ct);
+
+        return await FrameCodec.ReadAsync(s, ct);
+    }
+
+    static async Task<List<string>?> CapabilitiesAsync(string sockPath, CancellationToken ct) {
+        var reply = await AskAsync(sockPath, new LocalFrame(FrameType.Hello), ct);
+
+        return JsonSerializer.Deserialize(reply!.Text, HelloIpcJsonContext.Default.HelloReplyDto)!.Capabilities;
     }
 
     static async Task<NetworkStream> ConnectAsync(string sockPath, CancellationToken ct) {
@@ -149,6 +184,87 @@ public class LocalControlHelloTests {
             await Assert.That(dto.DaemonVersion).IsNotEmpty();
             await Assert.That(dto.DaemonName).IsEqualTo(h.Config.Name);
             await Assert.That(dto.Capabilities).IsEquivalentTo(LocalControlCapabilities.Current);
+        });
+    }
+
+    /// <summary>A hook leaves a hosted session to a daemon that says this, so it can't be said behind a handler that
+    /// isn't there.</summary>
+    [Test]
+    public async Task A_recording_daemon_says_so_and_answers_its_frames() {
+        await RunAsync("hello-rec", async (h, ct) => {
+            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.Capability);
+
+            var json = JsonSerializer.Serialize(
+                new RecordSourceDto("nobody", "session-1", null, "/t.jsonl", "claude", null, false), RecordingIpcJsonContext.Default.RecordSourceDto);
+            var record = await AskAsync(h.SockPath, LocalFrame.RecordSource(json), ct);
+            var finish = await AskAsync(h.SockPath, LocalFrame.FinishSource("session-1"), ct);
+
+            await Assert.That((record!.Type, record.Text)).IsEqualTo((FrameType.RecordSourceAck, RecordingIpc.Refused));
+            await Assert.That((finish!.Type, finish.Text)).IsEqualTo((FrameType.FinishSourceAck, RecordingIpc.NotHeld));
+        }, recording: true);
+    }
+
+    /// <summary>A terminal hook sends its frame only to a daemon saying this, through the same routing switch, so the
+    /// frame must reach its handler: one that didn't would drop the connection and every terminal session would read as
+    /// unanswered.</summary>
+    [Test]
+    public async Task A_recording_daemon_says_it_takes_terminal_sessions_and_answers_their_frame() {
+        await RunAsync("hello-term", async (h, ct) => {
+            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.TerminalCapability);
+
+            var json = JsonSerializer.Serialize(
+                new RecordTerminalSourceDto("session-1", null, "/t.jsonl", "claude", null, false, "nobody", "https://elsewhere.example", "/c", "/c/w", "/h", 4242, "test:claude"),
+                RecordingIpcJsonContext.Default.RecordTerminalSourceDto);
+            var record = await AskAsync(h.SockPath, LocalFrame.RecordTerminalSource(json), ct);
+
+            await Assert.That((record!.Type, record.Text)).IsEqualTo((FrameType.RecordSourceAck, RecordingIpc.Refused));
+        }, recording: true);
+    }
+
+    /// <summary>Beside the routing switch or not at all: a capability with no handler would be a stop that never lands.</summary>
+    [Test]
+    public async Task Every_daemon_answers_a_disable() {
+        await RunAsync("hello-dis", async (h, ct) => {
+            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.DisableCapability);
+
+            var disable = await AskAsync(h.SockPath, LocalFrame.DisableSession("session-1"), ct);
+            var answer  = JsonSerializer.Deserialize(disable!.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto);
+
+            await Assert.That(disable.Type).IsEqualTo(FrameType.DisableSessionAck);
+            await Assert.That(answer).IsEqualTo(new DisableSessionAckDto(RecordingIpc.NotHeld, false, h.Config.ServerUrl));
+        });
+    }
+
+    /// <summary>The two halves of <c>kcap disable</c> joined at the wire: the call the command makes, over the real socket,
+    /// to a daemon recording the session. The rest of the command is in an executable this project can't reference.</summary>
+    [Test]
+    public async Task A_disable_over_the_socket_stops_what_the_daemon_records() {
+        const string session = "0123456789abcdef0123456789abcdef";
+
+        await RunAsync("hello-join", async (h, ct) => {
+            var transcript = Tmp.CreateFile("t.jsonl", """{"type":"user","message":{"content":"Summarise the README"}}""" + "\n");
+            var source     = new RecordedSource("agent-1", session, null, transcript, "claude", null, false);
+            await Recorder!.TryRecordAsync(source, ct);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            var answer = await RecordingIpc.DisableAsync(h.Daemons.Store, "hello-join", session, ct);
+
+            await Assert.That(answer).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, AgentLive: false, Server: h.Config.ServerUrl));
+            await Assert.That(Recorder.ActiveKeys).IsEmpty();
+
+            // The silence would refuse a final drain, so seeing no drain proves nothing. No attempt being refused does.
+            await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+            await Assert.That(Transport.Refused).IsEqualTo(0);
+        }, recording: true);
+    }
+
+    [Test]
+    public async Task A_daemon_with_recording_off_does_not_say_so() {
+        await RunAsync("hello-off", async (h, ct) => {
+            var capabilities = await CapabilitiesAsync(h.SockPath, ct);
+
+            await Assert.That(capabilities).DoesNotContain(RecordingIpc.Capability);
+            await Assert.That(capabilities).DoesNotContain(RecordingIpc.TerminalCapability);
         });
     }
 

@@ -22,6 +22,14 @@ namespace Capacitor.App.Views;
 /// The launcher pane: DataContext is supplied externally (a plainly-constructed HomeViewModel);
 /// this view never builds its own ViewModel.
 public partial class LauncherPaneView : UserControl {
+    public static readonly StyledProperty<HistoryImportBannerViewModel?> HistoryImportProperty =
+        AvaloniaProperty.Register<LauncherPaneView, HistoryImportBannerViewModel?>(nameof(HistoryImport));
+
+    public HistoryImportBannerViewModel? HistoryImport {
+        get => GetValue(HistoryImportProperty);
+        set => SetValue(HistoryImportProperty, value);
+    }
+
     AttachmentDropPaste? _attachments;
     Flyout? _openMenu;
     IDisposable? _nudgeEnd;
@@ -40,6 +48,8 @@ public partial class LauncherPaneView : UserControl {
 
     public void FocusComposer() => GoalInput.Focus();
 
+    void OnHistoryImportDismissClick(object? sender, RoutedEventArgs e) => FocusComposer();
+
     /// New session pressed while this pane is already showing: focus the goal and ring the card
     /// briefly, so the press does not read as a dead button.
     public void Nudge() {
@@ -56,10 +66,24 @@ public partial class LauncherPaneView : UserControl {
 
     internal bool IsNudgingForTesting => GoalNudgeRing.Classes.Contains("on");
 
+    IDisposable? _historyLease;
+    bool _historyAttached;
+
+    void BindHistoryNotice() {
+        _historyLease?.Dispose();
+        _historyLease = _historyAttached ? (DataContext as HomeViewModel)?.AttachHistoryImport(HistoryImport) : null;
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property == HistoryImportProperty) BindHistoryNotice();
+    }
+
     IDisposable? _fills;
 
     protected override void OnDataContextChanged(EventArgs e) {
         base.OnDataContextChanged(e);
+        BindHistoryNotice();
         _fills?.Dispose();
         _fills = (DataContext as HomeViewModel)?.ComposerFills.Subscribe(_ => Dispatcher.UIThread.Post(Nudge));
     }
@@ -77,6 +101,8 @@ public partial class LauncherPaneView : UserControl {
     /// re-attaches the same view, and a behaviour disposed on the way out has to come back with it.
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
+        _historyAttached = true;
+        BindHistoryNotice();
         _attachments ??= AttachmentDropPaste.Attach(
             GoalCard, GoalInput, AttachButton,
             () => (DataContext as HomeViewModel)?.Attachments, TimeProvider.System);
@@ -85,6 +111,9 @@ public partial class LauncherPaneView : UserControl {
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         _attachments?.Dispose();
         _attachments = null;
+        _historyAttached = false;
+        _historyLease?.Dispose();
+        _historyLease = null;
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -147,16 +176,10 @@ public partial class LauncherPaneView : UserControl {
 
         // Pill sits on the title row only (not vertically centered on title+path), so every
         // repo's badge lines up with "No repository"'s badge. No harness available, no badge.
-        var pill = new Border {
-            Background = this.Brush("KcapMutedBrush"), CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(8, 3), Margin = new Thickness(12, 0, 0, 0),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        var pill = new StatusBadge {
+            Text = HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor),
+            Margin = new Thickness(12, 0, 0, 0),
             IsVisible = HomeViewModel.IsAvailable(vm.Harnesses, option.Vendor),
-            Child = new TextBlock {
-                Text = HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor),
-                FontSize = 11, FontWeight = FontWeight.SemiBold,
-                Foreground = this.Brush("KcapOnPrimaryBrush"),
-            },
         };
 
         var grid = new Grid {
@@ -475,10 +498,7 @@ public partial class LauncherPaneView : UserControl {
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         });
         if (isDefault) {
-            var tag = new TextBlock {
-                Text = "default", FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
-                Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            };
+            var tag = new StatusBadge { Text = "Default", Margin = new Thickness(8, 0, 0, 0) };
             Grid.SetColumn(tag, 1);
             grid.Children.Add(tag);
         }

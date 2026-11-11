@@ -48,9 +48,8 @@
                                         <TextBlock Text="{Binding FileName}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="{Binding KindLabel}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                                            <Border IsVisible="{Binding HasStateChip}" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="999" Padding="7,1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding StateChip}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource KcapWarningBrush}" />
-                                            </Border>
+                                            <views:StatusBadge Classes="attention" Icon="TriangleAlert" Text="{Binding StateChip}"
+                                                               IsVisible="{Binding HasStateChip}" />
                                         </StackPanel>
                                     </StackPanel>
                                 </Button>

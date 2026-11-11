@@ -521,9 +521,24 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public List<(string AgentId, int? ExitCode)> ShutdownReportExitCodes { get; } = [];
 
-    public override async Task ReportAgentEndedForShutdownAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) {
-        lock (ShutdownReports) ShutdownReports.Add((agentId, status, reason, ct.IsCancellationRequested));
+    public List<string> UpdatedTitles { get; } = [];
+
+    internal override Task<bool> UpdateTitleAsync(string sessionId, string title, CancellationToken ct) {
+        lock (UpdatedTitles) UpdatedTitles.Add(title);
+
+        return Task.FromResult(true);
+    }
+
+    /// <summary>The agents whose shutdown report carried the session end.</summary>
+    public List<string> ShutdownSessionEnds { get; } = [];
+
+    protected override async Task SendShutdownReportAsync(
+            string agentId, string? sessionId, string status, string reason, int? exitCode, bool endSession, CancellationToken ct) {
+        lock (ShutdownReports) {
+            ShutdownReports.Add((agentId, status, reason, ct.IsCancellationRequested));
+            if (endSession) ShutdownSessionEnds.Add(agentId);
+        }
+
         lock (ShutdownReportExitCodes) ShutdownReportExitCodes.Add((agentId, exitCode));
 
         if (ShutdownReportHangs) await Task.Delay(Timeout.Infinite, ct);
@@ -615,7 +630,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return ParkOutcome;
     }
 
-    public override async Task<EndAgentSessionResult> EndAgentSessionAsync(string agentId, string reason) {
+    protected override async Task<EndAgentSessionResult> SendEndAgentSessionAsync(string agentId, string reason) {
         EndSessionReasons.Add(reason);
         lock (AcpCallOrder) AcpCallOrder.Add($"endSession:{agentId}");
 

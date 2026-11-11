@@ -110,6 +110,12 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
             if (nonBlank == 0) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript")); continue; }
             if (nonBlank < ctx.MinLines) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank)); continue; }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Classify(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             int? serverLastLine;
             try { serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct); }
             catch (SessionDeletedException) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank)); continue; }

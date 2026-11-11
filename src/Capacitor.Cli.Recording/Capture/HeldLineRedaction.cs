@@ -27,8 +27,9 @@ public sealed class HeldLineRedaction(HeldLineStore store, TimeProvider time, Ti
         }
     }
 
+    /// <param name="progress">Called after each line, for a caller that has to show it is getting through them.</param>
     public CapturedLines Capture(
-            IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers, Action<RedactionLossReason, int> reportLoss) {
+            IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers, Action<RedactionLossReason, int> reportLoss, Action? progress = null) {
         Load();
         var lines  = new List<string>(rawLines.Count);
         var losses = new int[TranscriptCapture.ReasonCount];
@@ -38,6 +39,7 @@ public sealed class HeldLineRedaction(HeldLineStore store, TimeProvider time, Ti
             if (Redact(rawLines[consumed], lineNumbers[consumed]) is not { } outcome) break;
             if (outcome.Loss is { } reason) losses[(int)reason]++;
             lines.Add(TranscriptCapture.Mark(outcome).Line);
+            progress?.Invoke();
         }
 
         for (var i = 0; i < losses.Length; i++) {

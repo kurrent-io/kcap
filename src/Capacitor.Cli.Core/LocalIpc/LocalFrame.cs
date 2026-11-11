@@ -36,6 +36,13 @@ public sealed record LocalFrame(FrameType Type) {
     public static LocalFrame AgentResumeAck(string status) => new(FrameType.AgentResumeAck)    { Text = status };
     public static LocalFrame AgentSession(string agentId) => new(FrameType.AgentSession)       { Text = agentId };
     public static LocalFrame AgentSessionReply(string? sessionId) => new(FrameType.AgentSessionReply) { Text = sessionId ?? "" };
+    public static LocalFrame RecordSource(string json) => new(FrameType.RecordSource)          { Text = json };
+    public static LocalFrame RecordTerminalSource(string json) => new(FrameType.RecordTerminalSource) { Text = json };
+    public static LocalFrame RecordSourceAck(string status) => new(FrameType.RecordSourceAck)  { Text = status };
+    public static LocalFrame FinishSource(string key) => new(FrameType.FinishSource)           { Text = key };
+    public static LocalFrame FinishSourceAck(string status) => new(FrameType.FinishSourceAck)  { Text = status };
+    public static LocalFrame DisableSession(string sessionId) => new(FrameType.DisableSession) { Text = sessionId };
+    public static LocalFrame DisableSessionAck(string status) => new(FrameType.DisableSessionAck) { Text = status };
     public static LocalFrame Stop(string agentId)      => new(FrameType.Stop)       { Text = agentId };
     public static LocalFrame StopAck(string payload)    => new(FrameType.StopAck)    { Text = payload };
     public static LocalFrame StopV2(bool force, string agentId) => FrameCodec.StopV2(force, agentId);

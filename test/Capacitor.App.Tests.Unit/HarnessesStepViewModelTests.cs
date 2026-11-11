@@ -652,6 +652,25 @@ public class HarnessesStepViewModelTests {
         await Assert.That(saved).IsEqualTo("project");
     }
 
+    /// A profile nobody set a visibility on reads as org_public, which the local edition never offers, so leaving the
+    /// step stores private.
+    [Test]
+    [Arguments(WizardNavigation.Next)]
+    [Arguments(WizardNavigation.Skip)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Local_agents_store_private_over_a_visibility_nobody_chose(WizardNavigation direction) {
+        ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() { ["default"] = new Profile() } });
+        var saved = await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, new Dictionary<HarnessId, DetectedAgent>(), local: true);
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+            await h.Vm.CanLeaveAsync(direction, CancellationToken.None);
+
+            return ConfigMutator.LoadPure(ConfigPath).Profiles["default"].DefaultVisibility;
+        });
+
+        await Assert.That(saved).IsEqualTo("private");
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Local_harnesses_notes_name_no_terminal_command() {

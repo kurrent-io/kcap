@@ -47,6 +47,22 @@ public class MuseHandedEndSweepTests {
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
     }
 
+    /// <summary>The end would bring back a deleted stream, so it goes unsent, and nothing keeps asking for it.</summary>
+    [Test]
+    public async Task A_disabled_sessions_request_is_dropped_unsent() {
+        var config = new TempConfigRoot();
+        using (config) {
+            var spool = new HookSpool(config.Root, TimeProvider.System, Server);
+            DisabledSessions.Mark(Session, config.Root);
+            Hand(Named, TimeSpan.FromMinutes(10));
+
+            await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
+
+            await Assert.That(spool.HasBacklog(Session)).IsFalse();
+            await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
+        }
+    }
+
     /// <summary>A request is spooled only into the spool of the server it was handed over for: one for another server is
     /// left for that server's drain, and one written before requests recorded a server is taken by any drain.</summary>
     [Test]

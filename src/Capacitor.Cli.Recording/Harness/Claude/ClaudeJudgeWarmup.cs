@@ -1,16 +1,16 @@
-namespace Capacitor.Cli.Harness.Claude;
+namespace Capacitor.Cli.Recording.Harness.Claude;
 
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Policy;
 
 /// <summary>
-/// Reads a judged session's transcript backlog from the watcher, off every hook's path, so the
+/// Reads a judged session's transcript backlog from the recorder's host, off every hook's path, so the
 /// first consultation of a long resumed session does not spend its budget on the scan.
 /// </summary>
-internal static class ClaudeJudgeWarmup {
-    /// <summary>The session-start hook freezes the snapshot after it spawns the watcher, so the
-    /// watcher looks for it a few times before deciding the session is not judged.</summary>
+public static class ClaudeJudgeWarmup {
+    /// <summary>The session-start hook freezes the snapshot after it asks for a recorder, so this looks for it a few
+    /// times before deciding the session is not judged.</summary>
     internal static readonly TimeSpan[] SnapshotWaits = [
         TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8),
     ];

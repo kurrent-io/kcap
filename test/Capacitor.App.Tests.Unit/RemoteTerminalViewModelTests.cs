@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Reactive.Threading.Tasks;
 using System.Text;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -24,15 +25,16 @@ public class RemoteTerminalViewModelTests {
         public readonly List<FakeTerminalSurface> Surfaces = [];
         public readonly FakeTimeProvider Time = new();
         public readonly RemoteTerminalViewModel Vm;
+        public readonly BehaviorSubject<bool> Typing;
 
         /// <param name="subscribe">The server's answers, in place before the pane's first showing asks.</param>
         public Harness(bool visible = true, Func<string, Task<HubCallOutcome>>? subscribe = null, bool measured = true,
-                IObservable<AgentViewerAccess>? viewer = null) {
+                IObservable<AgentViewerAccess>? viewer = null, bool typing = false) {
             if (subscribe is not null) Lane.TerminalSubscribeHandler = subscribe;
             Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             Visible = new BehaviorSubject<bool>(visible);
             Vm = new RemoteTerminalViewModel("a1", Lane, Access, Ended, Visible, Time, () => { var s = new FakeTerminalSurface(); Surfaces.Add(s); return s; },
-                viewer);
+                Typing = new BehaviorSubject<bool>(typing), viewer);
             if (measured) Vm.SetViewport(80, 24);
         }
 
@@ -74,6 +76,88 @@ public class RemoteTerminalViewModelTests {
             surface.RaiseInput("x"u8.ToArray());
             await h.Vm.SendKeyCommand.Execute(SpecialKeys.CtrlC);
             await Assert.That(h.Lane.SpecialKeys).IsEquivalentTo(new[] { ("a1", SpecialKeys.Escape), ("a1", SpecialKeys.CtrlC) });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// <summary>Typed input reaches the terminal as typed, the emulator's own query replies stripped from it, while a
+    /// wheel report stays the bounded key it always was.</summary>
+    [Test]
+    public async Task Where_the_server_takes_typing_keystrokes_go_out_as_typed() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(typing: true);
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            var surface = h.Surfaces.Single();
+
+            surface.RaiseInput("l"u8.ToArray());
+            await WaitUntilAsync(() => h.Lane.TerminalInputs.Count == 1, what: "the first keystroke");
+            surface.RaiseInput("s\x1b[12;1R\r"u8.ToArray());
+            surface.RaiseInput("\x1b[12;1R"u8.ToArray());
+            surface.RaiseInput("\x1b[<64;10;5M"u8.ToArray());
+            await WaitUntilAsync(() => h.Lane.SpecialKeys.Count == 1, what: "the wheel");
+
+            await Assert.That(h.Lane.TerminalInputs.Select(i => Encoding.UTF8.GetString(i.Data))).IsEquivalentTo(new[] { "l", "s\r" });
+            await Assert.That(h.Lane.SpecialKeys.Single().Key).StartsWith("Wheel:");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// <summary>The hub runs a client's calls concurrently, so a key waits for the typing before it, and what is typed
+    /// while a send is in flight goes out as one.</summary>
+    [Test]
+    public async Task Typing_and_keys_go_out_one_at_a_time_in_the_order_produced() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(typing: true);
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            var surface = h.Surfaces.Single();
+            var gate = new TaskCompletionSource<HubCallOutcome>();
+            h.Lane.TerminalInputHandler = _ => gate.Task;
+
+            surface.RaiseInput("a"u8.ToArray());
+            await WaitUntilAsync(() => h.Lane.TerminalInputs.Count == 1, what: "the first send");
+            surface.RaiseInput("b"u8.ToArray());
+            surface.RaiseInput("c"u8.ToArray());
+            var enter = h.Vm.SendKeyCommand.Execute(SpecialKeys.Enter).ToTask();
+            await Assert.That(h.Lane.SpecialKeys).IsEmpty();
+
+            h.Lane.TerminalInputHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            gate.SetResult(HubCallOutcome.Ok);
+            await enter;
+
+            await Assert.That(h.Lane.Calls.Where(c => c.StartsWith("input:", StringComparison.Ordinal) || c.StartsWith("key:", StringComparison.Ordinal)))
+                .IsEquivalentTo(new[] { $"input:a1:{Harness.B64("a")}", $"input:a1:{Harness.B64("bc")}", "key:a1:Enter" });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    public async Task A_paste_over_the_server_limit_goes_in_pieces_cut_between_characters() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(typing: true);
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            var paste = Encoding.UTF8.GetBytes("a" + new string('é', 2500));
+
+            h.Surfaces.Single().RaiseInput(paste);
+            await WaitUntilAsync(() => h.Lane.TerminalInputs.Sum(i => i.Data.Length) == paste.Length, what: "the paste");
+
+            await Assert.That(h.Lane.TerminalInputs.Count).IsEqualTo(2);
+            await Assert.That(h.Lane.TerminalInputs.All(i => i.Data.Length <= 4096)).IsTrue();
+            await Assert.That(string.Concat(h.Lane.TerminalInputs.Select(i => Encoding.UTF8.GetString(i.Data))))
+                .IsEqualTo(Encoding.UTF8.GetString(paste));
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    public async Task A_viewer_who_may_not_press_keys_types_nothing() {
+        await RunOnUiAsync(async () => {
+            var viewer = new BehaviorSubject<AgentViewerAccess>(AgentViewerAccess.Unrestricted with { Reaches = false });
+            var h = new Harness(viewer: viewer, typing: true);
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live");
+
+            h.Surfaces.Single().RaiseInput("x"u8.ToArray());
+
+            await Assert.That(h.Lane.TerminalInputs).IsEmpty();
             await h.Vm.TeardownAsync();
         });
     }

@@ -54,7 +54,7 @@
                                         <CheckBox x:Name="SourceImportCheck" Classes="onboardingCheck" IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                   AutomationProperties.Name="{Binding AutomationName}" />
                                         <TextBlock Classes="onboardingLabel" FontSize="13" Text="{Binding Label}" VerticalAlignment="Center" />
-                                        <TextBlock Classes="onboardingSignal" Text="{Binding SignalLine}" VerticalAlignment="Center" />
+                                        <TextBlock Classes="kcapStatusWord" Text="{Binding SignalLine}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -78,9 +78,7 @@
                 <StackPanel IsVisible="{Binding DetailsVisible}">
                     <Border Classes="onboardingRowRule" Padding="0,0,0,8">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Classes="onboardingMicro" VerticalAlignment="Bottom">
-                                <Run Text="FOUND ON " /><Run Text="{Binding MachineName}" Foreground="{StaticResource OnboardingTextBrush}" />
-                            </TextBlock>
+                            <TextBlock Classes="onboardingMicro" VerticalAlignment="Bottom" Text="{Binding FoundOnHeader}" />
                             <TextBlock Grid.Column="1" Classes="onboardingMicro" Text="ONLY ME" IsVisible="{Binding CloudLevels}" />
                         </Grid>
                     </Border>
@@ -96,7 +94,7 @@
                                                       AutomationProperties.Name="{Binding Owner, StringFormat='Import every repository from {0}'}" />
                                             <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                                 <TextBlock x:Name="OwnerText" Classes="onboardingLabel" FontSize="13" Text="{Binding Owner}" />
-                                                <TextBlock Classes="onboardingSignal" Text="{Binding SignalLine}" />
+                                                <TextBlock Classes="kcapStatusWord" Text="{Binding SignalLine}" />
                                             </StackPanel>
                                             <CheckBox Grid.Column="2" x:Name="OwnerOnlyMeCheck" Classes="onboardingCheck"
                                                       IsChecked="{Binding OnlyMe, Mode=TwoWay}" IsEnabled="{Binding OnlyMeEnabled}"
@@ -112,7 +110,7 @@
                                                         <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                                             <TextBlock x:Name="RepoText" Classes="onboardingLabel" FontSize="13" Text="{Binding Name}"
                                                                        TextWrapping="Wrap" />
-                                                            <TextBlock Classes="onboardingSignal" Text="{Binding SignalLine}" />
+                                                            <TextBlock Classes="kcapStatusWord" Text="{Binding SignalLine}" />
                                                         </StackPanel>
                                                         <CheckBox Grid.Column="2" x:Name="RepoOnlyMeCheck" Classes="onboardingCheck"
                                                                   IsChecked="{Binding OnlyMe, Mode=TwoWay}" IsEnabled="{Binding Included}"
@@ -146,7 +144,7 @@
                                             <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                                 <TextBlock x:Name="FolderText" Classes="onboardingLabel" FontSize="13" Text="{Binding Path}"
                                                            FontFamily="{StaticResource OnboardingMonoFont}" TextWrapping="Wrap" />
-                                                <TextBlock Classes="onboardingSignal" Text="{Binding SignalLine}" />
+                                                <TextBlock Classes="kcapStatusWord" Text="{Binding SignalLine}" />
                                             </StackPanel>
                                             <CheckBox Grid.Column="2" x:Name="FolderOnlyMeCheck" Classes="onboardingCheck"
                                                       IsChecked="{Binding OnlyMe, Mode=TwoWay}" IsEnabled="{Binding Included}"
@@ -180,7 +178,7 @@
                                              AutomationProperties.Name="{Binding Label}">
                                     <StackPanel Spacing="2">
                                         <TextBlock Classes="onboardingLabel" FontSize="12.5" Text="{Binding Label}" />
-                                        <TextBlock Classes="onboardingSignal" Text="{Binding CountLabel}"
+                                        <TextBlock Classes="kcapStatusWord" Text="{Binding CountLabel}"
                                                    IsVisible="{Binding CountLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     </StackPanel>
                                 </RadioButton>
@@ -208,9 +206,9 @@
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
                         <CheckBox x:Name="SummariseOutcomesCheckBox" Classes="onboardingCheck" VerticalAlignment="Top" Margin="0,1,0,0"
                                   IsChecked="{Binding SummariseOutcomes, Mode=TwoWay}" IsEnabled="{Binding SummariseEditable}"
-                                  AutomationProperties.Name="Also summarise what each session achieved" />
+                                  AutomationProperties.Name="Also summarize what each session achieved" />
                         <StackPanel Grid.Column="1" Spacing="3">
-                            <TextBlock Classes="onboardingLabel" FontSize="13" Text="Also summarise what each session achieved" />
+                            <TextBlock Classes="onboardingLabel" FontSize="13" Text="Also summarize what each session achieved" />
                             <TextBlock x:Name="ImportPaceText" Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}"
                                        TextWrapping="Wrap" Text="{Binding PaceLine}"
                                        IsVisible="{Binding PaceLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
