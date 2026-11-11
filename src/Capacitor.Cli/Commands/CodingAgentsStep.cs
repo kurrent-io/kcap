@@ -382,9 +382,15 @@ internal static class CodingAgentsStep {
 
     static string AlreadyInstalledLine(string what) => $"  [dim]· {what} already installed — no change needed[/]";
 
-    internal const string KiroCliMissingLine =
-        "kiro-cli is not on PATH, so kcap cannot make its agent your default: Kiro CLI sessions are not recorded. "
-      + "MCP servers and skills are still installed.";
+    /// <summary>Names only what the skip flags leave to install, so the line never promises a skipped part.</summary>
+    internal static string KiroCliMissingLine(bool skipMcp, bool skipSkills) =>
+        "kiro-cli is not on PATH, so kcap cannot make its agent your default: Kiro CLI sessions are not recorded."
+      + (skipMcp, skipSkills) switch {
+            (false, false) => " MCP servers and skills are still installed.",
+            (false, true)  => " MCP servers are still installed.",
+            (true, false)  => " Skills are still installed.",
+            _              => "",
+        };
 
     static bool HandleKiroHooks(
             Options            options,
@@ -438,7 +444,7 @@ internal static class CodingAgentsStep {
 
         // An agent already cloned needs no kiro-cli to refresh.
         if (!detected.KiroCli && !File.Exists(paths.KiroHooksPath)) {
-            writeLine($"  [dim]· {Markup.Escape(KiroCliMissingLine)}[/]");
+            writeLine($"  [dim]· {Markup.Escape(KiroCliMissingLine(options.SkipKiroMcp, options.SkipKiroSkills))}[/]");
 
             return false;
         }

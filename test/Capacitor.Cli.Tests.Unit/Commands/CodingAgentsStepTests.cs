@@ -1971,6 +1971,22 @@ public class CodingAgentsStepTests {
         await Assert.That(result.KiroMcpRegistered).IsTrue();
     }
 
+    /// <summary>The missing-kiro-cli line names only what setup will still install, never a part a flag skips.</summary>
+    [Test]
+    public async Task Kiro_without_kiro_cli_under_skip_kiro_mcp_does_not_promise_mcp() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiroMcp: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false);
+
+        await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        var line = sink.Lines.Single(l => l.Contains("kiro-cli is not on PATH"));
+        await Assert.That(line).Contains("Skills are still installed.");
+        await Assert.That(line).DoesNotContain("MCP");
+        await Assert.That(calls.RegisterKiroMcpCalled).IsFalse();
+    }
+
     [Test]
     public async Task Kiro_without_kiro_cli_still_refreshes_an_agent_already_cloned() {
         using var tmp   = new TempDir();

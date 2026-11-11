@@ -2088,7 +2088,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         var hooksCurrent = refreshOnly && File.Exists(agentPath) && KiroHooksInstaller.ReadMarker(agentPath) == CapacitorVersion.Current();
         if (!hooksCurrent && !File.Exists(agentPath) && env.Harnesses.ResolveExecutable(HarnessId.Kiro) is null) {
             hooksFailed = true;
-            await env.Stderr.WriteLineAsync($"Warning: {CodingAgentsStep.KiroCliMissingLine}");
+            await env.Stderr.WriteLineAsync(
+                $"Warning: {CodingAgentsStep.KiroCliMissingLine(args.Contains("--skip-kiro-mcp"), skipSkills)}");
         } else if (!hooksCurrent) {
             if (InstallKiroHooks(agentPath, env.Harnesses, env.Stderr)) {
                 var clonedFrom = KiroHooksInstaller.ReadPreviousDefault(agentPath) ?? "your default agent";

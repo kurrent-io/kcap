@@ -155,6 +155,23 @@ public class PluginCommandKiroTests {
         await Assert.That(await File.ReadAllTextAsync(env.Harnesses.Of<KiroHarness>().Paths.SettingsMcpJson)).Contains("kcap-");
     }
 
+    /// <summary>Under <c>--skip-kiro-skills</c> the missing-kiro-cli warning names only the MCP servers it still registers.</summary>
+    [Test]
+    public async Task install_kiro_without_kiro_cli_under_skip_kiro_skills_does_not_promise_skills() {
+        using var home   = new TempHome();
+        using var bin    = new TempDir();
+        using var stderr = new StringWriter();
+        var binaries = TestBinaries.Searching(bin, "kcap");
+        var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
+
+        await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory))
+            .HandleAsync(["plugin", "install", "--kiro", "--skip-kiro-skills"]);
+
+        var warning = stderr.ToString().Split(Environment.NewLine).Single(l => l.Contains("kiro-cli is not on PATH"));
+        await Assert.That(warning).Contains("MCP servers are still installed.");
+        await Assert.That(warning).DoesNotContain("skills");
+    }
+
     // Deterministic native-binary path: registration writes the resolved binary as the command
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.
