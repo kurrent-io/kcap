@@ -28,6 +28,7 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
     readonly ConcurrentQueue<string> _log = new();
     readonly ConcurrentDictionary<string, int> _beats = new();
+    readonly ConcurrentDictionary<string, DateTimeOffset> _beatAt = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
     readonly ConcurrentDictionary<string, bool> _logThrows = new();
     readonly ConcurrentDictionary<string, bool> _beatThrows = new();
@@ -82,6 +83,7 @@ public class RecorderHostTests {
                 if (_beatThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the beat is broken");
 
                 _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
+                _beatAt[source.Key] = _time.GetUtcNow();
             });
         },
         _time, open, claims, attemptEnded ?? _ended.Enqueue, keepsClaimOffline) { Watchdog = watched ? RecorderHost.WedgedAfter : Timeout.InfiniteTimeSpan };
@@ -105,6 +107,18 @@ public class RecorderHostTests {
             await Task.Delay(5);
         }
     }
+
+    /// <summary>Waits for <paramref name="condition"/>, moving the clock a second at a time but never more than half the
+    /// watchdog's threshold past <paramref name="key"/>'s last beat: a clock that outruns a slow runner's loop starves the
+    /// watchdog of beats the source does make. A source that stops beating stops the clock, and the wait times out.</summary>
+    async Task EventuallyPacedBy(string key, Func<bool> condition, string what) =>
+        await Eventually(() => {
+            if (condition()) return true;
+
+            if (_beatAt.TryGetValue(key, out var beat) && _time.GetUtcNow() - beat < RecorderHost.WedgedAfter / 2) _time.Advance(TimeSpan.FromSeconds(1));
+
+            return condition();
+        }, what);
 
     /// <summary>Spends a shutdown's wait for its sends and not a moment of its bound: stepping the clock past this would
     /// reach the bound however quickly a cut drain spools, and a test of the spool would be reading the bound's mark.</summary>
@@ -794,16 +808,16 @@ public class RecorderHostTests {
 
         stalled.Exhausted = true;
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Held}\n{Later}\n");
-        await Eventually(() => _log.Any(line => line.Contains("Holding line 1 back", StringComparison.Ordinal)), "the hold", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => _log.Any(line => line.Contains("Holding line 1 back", StringComparison.Ordinal)), "the hold");
         var held = _time.GetUtcNow();
-        await Eventually(() => _time.GetUtcNow() - held > RecorderHost.WedgedAfter * 2, "the hold to outlast the threshold twice", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => _time.GetUtcNow() - held > RecorderHost.WedgedAfter * 2, "the hold to outlast the threshold twice");
 
         await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
         await Assert.That(GivenUp(source.Key)).IsFalse();
         await Assert.That(_transport.Connects).IsEqualTo(1);
 
         stalled.Exhausted = false;
-        await Eventually(() => LinesSent(source.SessionId) == 3, "the held line", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => LinesSent(source.SessionId) == 3, "the held line");
         await Assert.That(GivenUp(source.Key)).IsFalse();
     }
 
