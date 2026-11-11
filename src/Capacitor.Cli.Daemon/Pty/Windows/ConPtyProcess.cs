@@ -482,25 +482,32 @@ public sealed class ConPtyProcess : IPtyProcess {
         var closed = new PtyExitWatch(static () => true, _time);
         closed.Check();
 
-        while (!closed.DrainOver) {
-            if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero)) yield break;
+        try {
+            while (!closed.DrainOver) {
+                if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero)) yield break;
 
-            if (finalAvail == 0) {
-                if (closing.IsCompleted) yield break;
+                if (finalAvail == 0) {
+                    if (closing.IsCompleted) yield break;
 
-                try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
+                    try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
 
-                continue;
+                    continue;
+                }
+
+                if (!ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) || finalRead == 0) yield break;
+
+                var finalData = new byte[finalRead];
+                Array.Copy(buf, finalData, (int)finalRead);
+
+                closed.Handing();
+                yield return finalData;
+                closed.Reading();
             }
-
-            if (!ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) || finalRead == 0) yield break;
-
-            var finalData = new byte[finalRead];
-            Array.Copy(buf, finalData, (int)finalRead);
-
-            closed.Handing();
-            yield return finalData;
-            closed.Reading();
+        } finally {
+            // A close still waiting on unread output returns only once the pipe is gone, and disposal may be far off.
+            if (!closing.IsCompleted) {
+                try { _outputStream.Dispose(); } catch { }
+            }
         }
     }
 
