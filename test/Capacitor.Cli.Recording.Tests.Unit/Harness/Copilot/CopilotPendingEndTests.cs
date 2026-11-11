@@ -25,6 +25,11 @@ public class CopilotPendingEndTests {
 
     bool Pending => CopilotPendingEnd.SessionsWithPending(Paths).Contains(Session);
 
+    /// <summary>A sweep now and one past the 30 s a run mismatch must hold on an unchanged transcript.</summary>
+    int SweepUntilSettled() => Sweep() + SweepLater();
+
+    int SweepLater() => CopilotPendingEnd.SpoolDue(Paths, Spool, Server, new FakeTimeProvider(DateTimeOffset.UtcNow + TimeSpan.FromSeconds(31)));
+
     [Test]
     public async Task An_end_is_spooled_once_its_runtime_has_exited() {
         var runtime    = DummyProcess.StartSleep(30);
@@ -65,7 +70,7 @@ public class CopilotPendingEndTests {
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
         await File.AppendAllTextAsync(transcript, line + "\n");
 
-        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(SweepUntilSettled()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
         await Assert.That(Spool.HasBacklog(Session)).IsFalse();
     }
@@ -180,7 +185,7 @@ public class CopilotPendingEndTests {
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
         await File.AppendAllTextAsync(transcript, """{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""" + "\n" + Down + "\n");
 
-        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(SweepUntilSettled()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
     }
 
@@ -195,7 +200,7 @@ public class CopilotPendingEndTests {
         var transcript = Transcript(StartA + "\n" + Turn + "\n" + ResumeB);
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
 
-        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(SweepUntilSettled()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
     }
 
@@ -208,7 +213,7 @@ public class CopilotPendingEndTests {
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
         await File.WriteAllTextAsync(transcript, StartA + "\n" + ResumeB + "\n");
 
-        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(SweepUntilSettled()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
     }
 
@@ -220,9 +225,55 @@ public class CopilotPendingEndTests {
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
         await File.WriteAllTextAsync(transcript, Turn + "\n" + Down + "\n");
 
-        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(SweepUntilSettled()).IsEqualTo(0);
         await Assert.That(Pending).IsFalse();
         await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+    }
+
+    /// <summary>A read can catch VS Code's in-place rewrite with the file empty. The run reappearing once the rewrite
+    /// completes clears the mismatch, and the end goes when the run shuts down.</summary>
+    [Test]
+    public async Task An_end_survives_a_read_that_caught_a_rewrite_half_done() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+        await File.WriteAllTextAsync(transcript, "");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
+
+        await File.WriteAllTextAsync(transcript, StartA + "\n" + Down + "\n");
+
+        await Assert.That(SweepLater()).IsEqualTo(1);
+    }
+
+    /// <summary>The run must stay gone on an unchanged file across two passes 30 s apart; one pass alone proves nothing.</summary>
+    [Test]
+    public async Task A_run_found_gone_is_dropped_only_once_the_absence_holds() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+        await File.WriteAllTextAsync(transcript, Turn + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
+
+        await Assert.That(SweepLater()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>A known run waits while its transcript cannot be read: a gone runtime alone does not promote an end that
+    /// may belong to a run the transcript would show superseded.</summary>
+    [Test]
+    public async Task An_unreadable_transcript_keeps_a_known_runs_end_waiting() {
+        var runtime    = DummyProcess.StartSleep(30);
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, runId: "run-a");
+        runtime.Kill();
+        runtime.WaitForExit(TimeSpan.FromSeconds(5));
+        runtime.Dispose();
+        File.Delete(transcript);
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
     }
 
     /// <summary>The same run, still the latest, keeps its end through a rewrite and sends it once it shuts down.</summary>

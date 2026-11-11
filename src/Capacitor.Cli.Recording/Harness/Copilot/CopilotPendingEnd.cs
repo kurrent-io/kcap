@@ -40,7 +40,11 @@ public static class CopilotPendingEnd {
             ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
         };
 
-        // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none.
+        return Save(paths, sessionId, record);
+    }
+
+    // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none.
+    static bool Save(WatcherPaths paths, string sessionId, JsonObject record) {
         var target = FileFor(paths, sessionId);
         var temp   = $"{target}.{Guid.NewGuid():N}.tmp";
 
@@ -124,10 +128,14 @@ public static class CopilotPendingEnd {
         return spooled;
     }
 
-    /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
     /// <summary>A pending end that is due, with the run its transcript was on when the watcher stopped.</summary>
     readonly record struct Due(string Body, string? RunId);
 
+    // VS Code rewrites the transcript in place, so one read can catch it empty or half written. A run found gone or
+    // superseded counts only once the file has stayed exactly so across passes this far apart.
+    static readonly TimeSpan MismatchSettles = TimeSpan.FromSeconds(30);
+
+    /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
     static Due? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
         JsonObject? record;
 
@@ -153,17 +161,27 @@ public static class CopilotPendingEnd {
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
 
         // A later run owns the session's end, even one that has since shut down too. A rewrite that took this run's own line
-        // away leaves nothing to tell, and a premature end cannot be undone where a sweep's late one can.
+        // away leaves nothing to tell, and a premature end cannot be undone where a sweep's late one can. A known run waits
+        // while the transcript cannot be read at all, for as long as the record is kept.
         var runId = record["run_id"]?.GetValue<string>();
+        var runs  = CopilotRunBoundary.Read(transcript);
 
-        if (CopilotRunBoundary.Read(transcript) is { } runs) {
-            if (runId is not null && !runs.Ids.Contains(runId)) {
-                Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: its run is gone from the rewritten transcript");
+        if (runs is null && runId is not null) return null;
+
+        if (runs is not null) {
+            var mismatch = runId is not null && !runs.Ids.Contains(runId) ? "its run is gone from the rewritten transcript"
+                         : runs.LatestId != runId                       ? "a later run began"
+                         :                                                null;
+
+            if (mismatch is null) {
+                if (record.Remove("mismatch")) Save(paths, session, record);
+            } else if (Settled(paths, session, record, transcript, time)) {
+                Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: {mismatch}");
 
                 return Drop();
+            } else {
+                return null;
             }
-
-            if (runs.LatestId != runId) return Drop();
         }
 
         // A watcher started since this one stopped records the session and sends its end.
@@ -190,6 +208,23 @@ public static class CopilotPendingEnd {
 
             return null;
         }
+    }
+
+    /// <summary>Whether the transcript has stayed exactly as a mismatch first found it for <see cref="MismatchSettles"/>;
+    /// otherwise records how it looks now, so a later pass can tell.</summary>
+    static bool Settled(WatcherPaths paths, string session, JsonObject record, string transcript, TimeProvider time) {
+        var info  = new FileInfo(transcript);
+        var shape = $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
+
+        if (record["mismatch"] is JsonObject seen && seen["shape"]?.GetValue<string>() == shape
+         && DateTimeOffset.TryParse(seen["since"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var since)) {
+            return time.GetUtcNow() - since >= MismatchSettles;
+        }
+
+        record["mismatch"] = new JsonObject { ["since"] = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture), ["shape"] = shape };
+        Save(paths, session, record);
+
+        return false;
     }
 
     static bool EndsOnShutdown(string transcript) {
