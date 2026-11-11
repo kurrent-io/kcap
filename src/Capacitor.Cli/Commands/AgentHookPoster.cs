@@ -10,6 +10,8 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 
+using Capacitor.Cli.Recording.Harness.Copilot;
+
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
@@ -252,6 +254,10 @@ internal sealed class AgentHookPoster(
         => DrainSpoolsCoreAsync(lifecycle, transcript, sessionId,
             http.ForHookAsync);
 
+    /// <summary>A drain that ignores the throttle, for a caller holding an end it must deliver now. Never throws.</summary>
+    public Task DrainSpoolsNowAsync(HookSpool lifecycle, string sessionId) =>
+        DrainSpoolsUnthrottledAsync(lifecycle, new TranscriptSpool(config, time, Url), sessionId, http.ForHookAsync);
+
     /// <summary>
     /// The drain itself, with the client factory handed in. Separate from
     /// <see cref="DrainSpoolsAsync"/> so the unusable-URL guard can be proven to run BEFORE a client
@@ -282,6 +288,7 @@ internal sealed class AgentHookPoster(
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
         MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
+        CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, time);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.

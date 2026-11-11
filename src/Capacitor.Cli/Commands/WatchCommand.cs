@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Harness.Copilot;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -554,7 +555,15 @@ class WatchCommand(
                 () => CopilotFinalizeDrainCommand.LastLineIsShutdown(transcriptPath),
                 time, CopilotStopRequestEnd.Wait);
 
-            if (endReason is not null) Log(time, $"Stopped with the Copilot session over; ending it ({endReason})");
+            if (endReason is not null) {
+                Log(time, $"Stopped with the Copilot session over; ending it ({endReason})");
+            } else if (!endHandedOff) {
+                // Nothing proves the session over yet, and nothing else will send its end: a later spool drain does,
+                // once the runtime has gone or the transcript ends on its shutdown line.
+                var held = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+                if (CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, transcriptPath, time))
+                    Log(time, "Stopped before the Copilot session was over; its end is held for a later spool drain");
+            }
         }
 
         // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the

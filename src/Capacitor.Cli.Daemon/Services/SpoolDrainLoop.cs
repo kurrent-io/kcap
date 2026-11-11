@@ -5,6 +5,8 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
 using Microsoft.Extensions.Logging;
 
+using Capacitor.Cli.Recording.Harness.Copilot;
+
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
@@ -75,6 +77,7 @@ internal sealed class SpoolDrainLoop {
             _lifecycle.DeleteExpired();
             _transcript.DeleteExpired();
             MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
+            CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time);
 
             // Resolved on the loop's own token, not the drain budget: a proactive refresh can take
             // the cross-process lock and a WorkOS round trip well past Budget, and cutting that off

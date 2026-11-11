@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -217,6 +218,9 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
+        // A hook for the session proves it is still running, or brings its own end.
+        CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+
         return eventName switch {
             "sessionStart" => await HandleSessionStart(node, dashedSessionId, sessionId, cwd, activeProfile, spool, clock.Budget(Ceiling)),
             "sessionEnd"   => await HandleSessionEnd(node, dashedSessionId, sessionId, cwd),
@@ -377,15 +381,17 @@ sealed class CopilotHookCommand(
 
         var end = forwarded.ToJsonString();
 
-        // From here the end is this hook's, so the watcher it stops sends none of its own.
-        CopilotEndHandoff.Record(WatcherPaths.FromEnvironment(config), sessionId);
+        // Copilot can abort this hook at any point, so its end is durable before anything else: any later kcap
+        // process's spool drain delivers it. Only then is the watcher's own end given up.
+        var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
+        if (spooled) CopilotEndHandoff.Record(WatcherPaths.FromEnvironment(config), sessionId);
 
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
         // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started
-        // finalizer carries the end and the hook returns at once; the finalizer waits for the watcher to go.
+        // finalizer delivers the end after the tail and the hook returns at once.
         // VS Code's Local harness writes no shutdown line, so nothing would end that wait.
         if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)
-         && watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end)) {
+         && watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, spooled ? null : end)) {
             watchers.RequestWatcherStop(sessionId);
 
             return 0;

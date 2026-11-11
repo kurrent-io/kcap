@@ -33,10 +33,18 @@ public class CopilotSessionEndHookTests : IDisposable {
     static StringReader EndPayload() =>
         new(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit", ["timestamp"] = 1793846402847 }.ToJsonString());
 
+    HookSpool Spool() => new(Config.Root, TimeProvider.System, _server.Url);
+
+    static string Canonical => Session.Replace("-", "");
+
+    string SpooledEnds() =>
+        Directory.Exists(Spool().DirectoryPath) ? string.Concat(Directory.GetFiles(Spool().DirectoryPath).Select(File.ReadAllText)) : "";
+
     /// <summary>Copilot runs every deferred sessionEnd hook under one shared shutdown budget, so a hook that spends it on
-    /// network work leaves the next sessions' hooks aborted or skipped. Once the finalizer runs, the hook sends nothing.</summary>
+    /// network work leaves the next sessions' hooks aborted or skipped. Its end goes to the spool first, where any later
+    /// kcap process delivers it if the finalizer does not, and the hook sends nothing.</summary>
     [Test]
-    public async Task a_started_finalizer_carries_the_end_and_the_hook_sends_nothing() {
+    public async Task a_started_finalizer_finds_the_end_already_spooled_and_the_hook_sends_nothing() {
         _server.Given(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200));
 
@@ -47,24 +55,37 @@ public class CopilotSessionEndHookTests : IDisposable {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_server.LogEntries).IsEmpty();
-
-        var handed = JsonNode.Parse(starter.Seen!.ArgumentList.Last())!;
-        await Assert.That(handed["reason"]?.GetValue<string>()).IsEqualTo("user_exit");
-        await Assert.That(handed["ended_at"]?.GetValue<string>()).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(1793846402847).ToString("O"));
+        await Assert.That(SpooledEnds()).Contains("session-end/copilot");
+        await Assert.That(SpooledEnds()).Contains("user_exit");
+        await Assert.That(starter.Seen!.ArgumentList.Count).IsEqualTo(3);
     }
 
     [Test]
-    public async Task a_finalizer_that_cannot_start_leaves_the_hook_to_post_the_body_it_would_have_carried() {
+    public async Task a_finalizer_that_cannot_start_leaves_the_hook_to_post_the_end_itself() {
         _server.Given(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        var client  = new FixedCapacitorHttpClient();
-        var starter = FakeProcessStarter.Refusing();
+        var client = new FixedCapacitorHttpClient();
 
-        await Hook(Watchers(starter, client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
+        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
 
         var posted = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost()).Single().RequestMessage.Body;
-        await Assert.That(starter.Seen!.ArgumentList.Last()).IsEqualTo(posted);
+        await Assert.That(posted).Contains("user_exit");
+    }
+
+    /// <summary>The watcher keeps its own end until the hook's is durable: a hook Copilot aborts after failing to spool
+    /// would otherwise leave the session with no end at all.</summary>
+    [Test]
+    public async Task a_hook_that_cannot_spool_its_end_leaves_the_watcher_its_own() {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        await File.WriteAllTextAsync(paths.PidFile(Canonical), "999999\nan-absent-watcher");
+        await File.WriteAllTextAsync(Config.PathTo("spool"), "not a directory");
+
+        var client = new FixedCapacitorHttpClient();
+        await Hook(Watchers(FakeProcessStarter.Running(_ => Process.GetCurrentProcess()), client), client).Handle(EndPayload(), ["--event", "sessionEnd"]);
+
+        await Assert.That(File.Exists(CopilotEndHandoff.MarkerFile(paths, Canonical))).IsFalse();
     }
 
     /// <summary>The hook records the watcher whose end it took over, asks it to stop and leaves its going to the

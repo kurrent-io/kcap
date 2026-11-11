@@ -657,10 +657,10 @@ public sealed partial class WatcherManager(
 
     /// <summary>
     /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that delivers the transcript
-    /// tail Copilot writes after its sessionEnd hook, then <paramref name="endBody"/>. Being detached it
+    /// tail Copilot writes after its sessionEnd hook, then the session's spooled end and <paramref name="endBody"/>. Being detached it
     /// survives Copilot killing the hook. False when it did not start.
     /// </summary>
-    public bool SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
+    public bool SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string? endBody) {
         // A detached child that would poll for up to 45s and then exit 2 on an unusable URL, leaving
         // no marker any assertion could observe. Refuse to launch it at all.
         if (!HookHttp.IsPostable(Url)) {
@@ -686,7 +686,7 @@ public sealed partial class WatcherManager(
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
-            psi.ArgumentList.Add(endBody);
+            if (endBody is not null) psi.ArgumentList.Add(endBody);
 
             // Don't let this detached child inherit the agent's pipe descriptors —
             // same pipe-leak hazard as the spawns above. The child writes its own output to a

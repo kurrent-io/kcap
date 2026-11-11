@@ -121,7 +121,7 @@ sealed class CopilotFinalizeDrainCommand(
         if (!await TimeBudget.RunCappedAsync(() => watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot"), drainCap ?? DefaultDrainCap, time))
             Log($"tail drain cap elapsed for {sessionId}; recoverable via: kcap import --copilot --session {sessionId}");
 
-        var posted = endBody is not null && await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace, postCap ?? DefaultPostCap);
+        var posted = await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace, postCap ?? DefaultPostCap);
 
         endDurable?.Invoke();
 
@@ -129,8 +129,15 @@ sealed class CopilotFinalizeDrainCommand(
         if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
     }
 
-    /// <summary>Delivers the end, posted or spooled, and says whether the server took it.</summary>
-    async Task<bool> EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace, TimeSpan postCap) {
+    /// <summary>Delivers the end the hook spooled, or <paramref name="endBody"/> when it could not, and says whether the
+    /// server has the session's end. An end it cannot deliver yet stays spooled for the next drain.</summary>
+    async Task<bool> EndSessionAsync(string sessionId, string? endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace, TimeSpan postCap) {
+        const string route = "session-end/copilot";
+
+        var spool = new HookSpool(config, time, profiles.Resolution.ServerUrl);
+
+        if (endBody is null && !spool.HasBacklog(sessionId)) return false;
+
         // The hook asks the watcher to stop when it starts this process, and a watcher stopped that way sends no end, so it
         // gets time to go. Past that, the watcher the hook handed off is stopped outright; any other is a resumed run this
         // end would close, or one the hook died before handing off, which sends its own end.
@@ -148,6 +155,14 @@ sealed class CopilotFinalizeDrainCommand(
                 Log($"the watcher {sessionId}'s hook handed off is still running; stopping it");
                 await watchers.KillWatcher(sessionId);
 
+                // Still streaming: an end now could overtake lines it has yet to send.
+                if (watchers.IsWatcherAlive(sessionId)) {
+                    if (endBody is not null) spool.Append(sessionId, route, endBody);
+                    Log($"session end for {sessionId} left spooled: its watcher could not be stopped");
+
+                    return false;
+                }
+
                 break;
             }
 
@@ -161,18 +176,22 @@ sealed class CopilotFinalizeDrainCommand(
             return false;
         }
 
-        const string route = "session-end/copilot";
+        if (endBody is not null && !spool.HasBacklog(sessionId)) {
+            var outcome = await PostWithinAsync(spool, sessionId, route, endBody, postCap);
+            Log($"session end for {sessionId}: {outcome}");
 
-        var spool = new HookSpool(config, time, profiles.Resolution.ServerUrl);
+            return outcome == HookPostOutcome.Posted;
+        }
 
-        // A spooled start must reach the server before its end does.
-        var outcome = spool.HasBacklog(sessionId)
-            ? spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped
-            : await PostWithinAsync(spool, sessionId, route, endBody, postCap);
+        // A spooled start goes ahead of the end, and the drain keeps that order.
+        if (endBody is not null) spool.Append(sessionId, route, endBody);
 
-        Log($"session end for {sessionId}: {outcome}");
+        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(spool, sessionId);
 
-        return outcome == HookPostOutcome.Posted;
+        var delivered = !spool.HasBacklog(sessionId);
+        Log($"session end for {sessionId}: {(delivered ? "Posted" : "Spooled")}");
+
+        return delivered;
     }
 
     // A post still in flight at the cap goes to the spool as well: the server derives the end's event id from its reason
