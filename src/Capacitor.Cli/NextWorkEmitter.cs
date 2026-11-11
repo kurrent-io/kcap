@@ -78,10 +78,12 @@ static partial class NextWorkEmitter {
         "with declare_loose_end " +
         "(one call per item, never \"none\"), call get_next_work and tell the user, in a few lines, what to " +
         "consider working on next and why. Never present after a step inside work that is still open, or " +
-        "right after declaring loose ends you will continue yourself in this session. If get_next_work says this session's " +
-        "attached work is still open, do not present unless the user asked for next work or said they are " +
-        "done with or parking that work. So: a lookup answered or a PR merged as asked, present; draft PRs " +
-        "you were asked to fix up, wait until they merge or the user parks them, however many requests that takes.";
+        "right after declaring loose ends you will continue yourself in this session. While this session's work " +
+        "is open, \"what's next?\" means its next step: answer from its plan, parts or PR, not get_next_work. " +
+        "If get_next_work says the attached work is still open, do not present unless the user asked " +
+        "for work outside it or said they are " +
+        "done with or parking that work. So: a lookup answered or a PR merged, present; " +
+        "a draft PR still being fixed up, wait until it merges or the user parks it.";
 
     /// <summary>What a start gets when the ack carries no list: the guidance otherwise rides only on the
     /// list, so a feed that missed its budget would cost the session the instruction as well.</summary>
