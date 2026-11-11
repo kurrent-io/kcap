@@ -22,7 +22,7 @@ public static class LocalServerConditions {
 
         return LocalStateFiles.ReadRegistry(root) switch {
             StateRead<InstallRegistry>.Unreadable => LocalServerCondition.Unreadable,
-            StateRead<InstallRegistry>.Present { Value.Active: not null } when !Directory.Exists(Path.Combine(root.Directory, "bin"))
+            StateRead<InstallRegistry>.Present { Value.Active: not null } when !CurrentLinkPresent(root)
                 => LocalServerCondition.Uninstalled,
             StateRead<InstallRegistry>.Present { Value.Active: not null } => File.Exists(ServerBinary(root))
                 ? LocalServerCondition.Installed
@@ -30,6 +30,14 @@ public static class LocalServerConditions {
             StateRead<InstallRegistry>.Present { Value.Retired.Count: > 0 } => LocalServerCondition.Purged,
             _ => LocalServerCondition.NotInstalled,
         };
+    }
+
+    /// <summary>An uninstall removes <c>bin/current</c> before the version it names, so a server that is still exiting
+    /// and holds that version's files leaves an uninstalled root with a <c>bin/</c>. A dangling link still counts as
+    /// present: its files are missing, not uninstalled.</summary>
+    static bool CurrentLinkPresent(LocalRoot root) {
+        var current = Path.Combine(root.Directory, "bin", "current");
+        return Directory.Exists(current) || File.Exists(current) || new FileInfo(current).LinkTarget is not null;
     }
 
     static HttpClient Probe => field ??= new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false, UseCookies = false });

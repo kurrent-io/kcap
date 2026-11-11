@@ -210,7 +210,8 @@ sealed class LocalCommand(
             LocalUninstallOutcome.Purged      => $"Purged the local installation in {root}.",
             LocalUninstallOutcome.Uninstalled => $"Uninstalled the local server. Its data in {root} is kept; kcap setup --local brings it back.",
             LocalUninstallOutcome.Unloaded    => $"Removed the local server's service; the server is still stopping, so {Path.Combine(root, "bin")} and "
-                                               + $"{Path.Combine(root, "run")} are left. Its data in {root} is kept; kcap setup --local brings it back.",
+                                               + $"{Path.Combine(root, "run")} are left; kcap local uninstall removes them once it has exited. "
+                                               + $"Its data in {root} is kept; kcap setup --local brings it back.",
             _                                 => $"There is no local installation in {root}.",
         });
 

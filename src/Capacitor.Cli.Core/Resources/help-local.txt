@@ -57,7 +57,8 @@ Subcommands:
                             `kcap setup --local` brings it back on the same URL.
       --purge               Also delete its data, logs, downloaded models, pending recordings and
                             caches, and clear every profile pointing at it. Its URL is retired: nothing is sent to it again,
-                            and a new installation gets a new port.
+                            and a new installation in any root gets a new port (recorded in
+                            ~/.config/kcap/local-retired.json).
       --force               Uninstall even while a daemon is running agents; they end with it.
       --yes, -y             Do not ask for confirmation.
       --quick               Windows only. Give the server about 8 seconds to stop, then remove its
@@ -69,8 +70,9 @@ Subcommands:
 status exits 0 only when the server is running and ready. start, stop, restart, upgrade and uninstall wait for
 any other kcap changing the installation, and first finish or undo a setup, upgrade or purge that was interrupted.
 
-upgrade exits 0 when it upgraded, 1 when it failed before the switch, 2 when it failed after the switch, 3
-when there was nothing to do, and 4 when no bundle is published for this version yet. fetch exits 0 when the
+upgrade exits 0 when it upgraded or the stack already runs this version or a newer one, 1 when it failed
+before the switch, 2 when it failed after the switch, 3 when nothing is installed, and 4 when no bundle is
+published for this version yet. fetch exits 0 when the
 bundle is in the cache, 1 when it failed, 3 when the installation already runs this version, and 4 when no
 bundle is published for it yet. intelligence exits 0 when the server took the answer, 1 when it could not be
 asked, and 2 when the arguments or the server refused it, storing nothing.

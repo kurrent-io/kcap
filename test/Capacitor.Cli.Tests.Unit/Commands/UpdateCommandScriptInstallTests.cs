@@ -20,7 +20,7 @@ public class UpdateCommandScriptInstallTests : IDisposable {
 
     public void Dispose() => _sp?.Dispose();
 
-    UpdateCommand Command(ScriptReleaseFixture f, List<string> refreshed, Func<string, int>? refreshExit = null, int upgradeExit = LocalUpgradeCommand.NothingToDo) {
+    UpdateCommand Command(ScriptReleaseFixture f, List<string> refreshed, Func<string, int>? refreshExit = null, int upgradeExit = LocalUpgradeCommand.NotInstalled) {
         var profiles = Resolutions.Of(new Profile(), "script-update", null);
         var services = new ServiceCollection();
         services.AddSingleton(Config.Root);

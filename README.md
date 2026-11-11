@@ -415,7 +415,7 @@ kcap local uninstall --purge    # also delete its data and retire its URL
 
 `--quick` (Windows only) is for an app uninstaller with a deadline: it gives the server about 8 seconds to stop, then removes its service whether or not it has finished (under `kcap-service`, the service finishes stopping it in the background), and leaves `bin/` and `run/` in place while the server still holds them. It cannot be combined with `--purge`.
 
-`--purge` goes on to retire the installation, then delete its `data/` and `logs/`, the pending recordings and the caches for it in the config directory, and clear the server URL of every profile there that points at it. A retired URL is never sent to again: a watcher still running, or a profile under another `KCAP_CONFIG_DIR`, is refused with an error naming the removed installation, and a later `kcap setup --local` creates a new installation on a new port. A purge that is interrupted is finished by the next `kcap local` command or `kcap setup --local`. `--yes` skips the confirmation.
+`--purge` goes on to retire the installation, then delete its `data/` and `logs/`, the pending recordings and the caches for it in the config directory, and clear the server URL of every profile there that points at it. A retired URL is never sent to again: a watcher still running, or a profile under another `KCAP_CONFIG_DIR`, is refused with an error naming the removed installation, and a later `kcap setup --local` creates a new installation on a new port, in this root or any other: the retired port is also recorded in `~/.config/kcap/local-retired.json` (`%USERPROFILE%\.config\kcap\local-retired.json` on Windows), anchored at your home whatever `KCAP_LOCAL_ROOT` or `KCAP_CONFIG_DIR` say, and setup stops with that path named if it cannot read it. A purge that is interrupted is finished by the next `kcap local` command or `kcap setup --local`. `--yes` skips the confirmation.
 
 #### Unattended setup
 
@@ -600,10 +600,10 @@ A run that changes nothing ends with `{"v":1,"event":"nothing_to_do","version":"
 
 | Exit | Meaning |
 | -- | -- |
-| 0 | Upgraded: the stack runs this `kcap`'s version |
+| 0 | Upgraded, or nothing to do: the stack runs this `kcap`'s version or a newer one |
 | 1 | Failed before the switch: the old version is selected, and running again if it was |
 | 2 | Failed after the switch: the new version is selected and stopped, or its switch is finished by the next command |
-| 3 | Nothing to do: already at this version, newer than it, or not installed |
+| 3 | Not installed: there is no installation to upgrade |
 | 4 | No bundle is published for this version yet (`bundle_not_published`); nothing changed |
 
 ### Approval policy
@@ -1500,7 +1500,7 @@ That guarantee covers the unit and the directory holding it. It does **not** ext
 
 > Verified against `oauth-personal` (Gemini Code Assist) with a project. The `gemini-api-key`, `vertex-ai` and `gateway` auth methods are not verified; their variables are carried so they *can* work, which is not the same as knowing they do.
 
-Because the service auto-restarts, stop a service-managed daemon with `kcap daemon service stop` (or `uninstall`) rather than `kcap daemon stop` — a raw stop would be relaunched immediately, so `kcap daemon stop` refuses it, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. The desktop app starts a stopped daemon service when it opens, not while it is open. `kcap daemon status` and `kcap daemon doctor` both report installed services.
+Because the service auto-restarts, a raw stop of a service-managed daemon would be relaunched immediately. So `kcap daemon stop` stops a daemon under launchd, systemd --user or a Windows Scheduled Task through that manager, as `kcap daemon service stop` does, and says so; it starts again at sign-in or with `kcap daemon service start`. Under `kcap-service` it refuses, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. The desktop app starts a stopped daemon service when it opens, not while it is open. `kcap daemon status` and `kcap daemon doctor` both report installed services.
 
 Each daemon process holds an exclusive `flock` on `~/.config/kcap/daemons/<name>.lock` for its entire lifetime. The kernel releases the lock automatically when the daemon exits (including `SIGKILL` or power-off), so leftover lock files on disk are never a blocker — only a live process holding the kernel-level lock can prevent another daemon from acquiring the same name.
 
@@ -2868,6 +2868,8 @@ DO_NOT_TRACK=1 KCAP_TELEMETRY=1 kcap status   # reports anyway — the explicit 
 
 `kcap config show` reports the effective state and which setting decided it, e.g. `Telemetry: off (source: DO_NOT_TRACK)`, or `Telemetry: off (source: local edition)` on a local machine where nobody has chosen.
 
+**The local edition's release manifest is not usage data.** Setting up a local server (`kcap setup --local`, `kcap local fetch`, `kcap local upgrade` or the desktop app's setup) and opening the desktop app's Search settings download that version's signed manifest from `https://www.kurrent.io/download/local`. The request carries no device id or other identifier, and nothing fetches it when the app starts or on a schedule, so `telemetry`, `KCAP_TELEMETRY` and `DO_NOT_TRACK` leave it alone: it happens only when you set up, upgrade or open Search settings. The desktop app says so under Settings → Usage data.
+
 ### Uninstalling
 
 To remove kcap from this machine, run:
@@ -2883,7 +2885,7 @@ kcap uninstall --keep-config    # remove integrations, keep ~/.config/kcap
 
 When a local server is installed (`kcap setup --local`), `uninstall` removes it first, as `kcap local uninstall --purge` does: its service, binaries, data and logs go, with every session it recorded. The prompt names the server and the deletion; `--yes` alone is not consent to it, so a non-interactive run refuses unless you pass `--purge-local` (or `--keep-config`, which removes the server but keeps its data). An interrupted purge needs `--purge-local` even with `--keep-config`: recovering it finishes deleting the data. If the local server cannot be removed, or its registry cannot be read, the local server is left as it is and `~/.config/kcap/` is kept; integrations are still removed, and the uninstall is reported incomplete so a re-run can finish once the registry is repaired.
 
-When a local server was ever set up on this machine, cleanup holds its lifecycle lock through integration and configuration removal, and the local `install.json` retired-URL registry and `lifecycle.lock` remain as safety metadata; they contain no recordings. This stops another setup from starting during cleanup, and stops stale profiles from recording to a retired URL after a reinstall. A machine where no local setup ever started has no such metadata, and `~/.config/kcap/` is deleted whole. A local installation that appears after you confirm, or replaces the one you confirmed, stops the uninstall with nothing removed, `--keep-config` included; re-run to review it. Only `--purge-local` covers it.
+When a local server was ever set up on this machine, cleanup holds its lifecycle lock through integration and configuration removal, and the local `install.json` retired-URL registry and `lifecycle.lock` remain as safety metadata, as do `~/.config/kcap/local-retired.json` wherever a purge wrote it and the user-wide lock `~/.config/kcap/local-unit.lock`; they contain no recordings. This stops another setup from starting during cleanup, and stops stale profiles from recording to a retired URL after a reinstall. A machine where no local setup ever started has no such metadata, and `~/.config/kcap/` is deleted whole. A local installation that appears after you confirm, or replaces the one you confirmed, stops the uninstall with nothing removed, `--keep-config` included; re-run to review it. Only `--purge-local` covers it.
 
 Uninstall also removes Mistral Vibe hooks and MCP entries, kcap's `~/.cache/kcap` cache, legacy Cursor pending recordings, and retired `kcap-*` skills in Kiro, Kiro Crew and Antigravity skill trees. Malformed Antigravity hooks, unreadable Kiro settings and a global git config that git cannot edit are reported as incomplete cleanup; retry information is kept. Without a git that runs, the git hook is left in place and not counted as a failure, since nothing reads it. The macOS app removes its per-app Velopack update cache, scratch files and logs alongside its other support files.
 

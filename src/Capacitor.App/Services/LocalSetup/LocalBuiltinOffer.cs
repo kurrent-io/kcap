@@ -10,11 +10,16 @@ namespace Capacitor.App.Services.LocalSetup;
 public static class LocalBuiltinOffer {
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
+    // One client for the app's lifetime, so its kept manifests answer a version that offers no built-in model too.
+    static readonly LocalBundleClient Bundles = new(Http, TimeProvider.System);
+
+    static readonly LocalBuiltinOfferCache Lookups = new(version =>
+        new LocalEmbeddingOffer(Bundles, LocalBundleManifestKey.Load(), RuntimeInformation.RuntimeIdentifier).LookupAsync(version, CancellationToken.None));
+
     public static async Task<LocalEmbeddingModelManifest?> LookupAsync(LocalRoot root, CancellationToken ct) {
         var version = await Task.Run(() => TargetVersion(root), ct);
-        var offer   = new LocalEmbeddingOffer(new LocalBundleClient(Http, TimeProvider.System), LocalBundleManifestKey.Load(), RuntimeInformation.RuntimeIdentifier);
 
-        return ReleaseManifest.IsValidVersion(version) ? await offer.LookupAsync(version, ct) : null;
+        return ReleaseManifest.IsValidVersion(version) ? await Lookups.LookupAsync(version, ct) : null;
     }
 
     /// The installed bundle pins the required model set. The recorded set can belong to an older version.
