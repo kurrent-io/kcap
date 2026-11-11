@@ -212,7 +212,9 @@ public class UnixPtyProcessSpawnTests {
         var       buffer = new System.Text.StringBuilder();
         try {
             await foreach (var chunk in proc.ReadOutputAsync(cts.Token)) buffer.Append(System.Text.Encoding.UTF8.GetString(chunk));
-        } catch (OperationCanceledException) { }
+        } catch (OperationCanceledException) {
+            // The limit passed with the output still open, which Ended reports.
+        }
 
         return (buffer.ToString(), !cts.IsCancellationRequested);
     }
