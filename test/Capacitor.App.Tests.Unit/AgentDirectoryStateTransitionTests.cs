@@ -247,6 +247,20 @@ public class AgentDirectoryStateTransitionTests {
         await Assert.That(directory.Rows.Lookup("server:" + listed).Value.IsEndedSession).IsFalse();
     }
 
+    /// A down daemon's registry row still stands in for its session, but nothing hosts it, so it opens no handover grace.
+    [Test]
+    [Arguments("Running", true)]
+    [Arguments(AgentRow.DaemonDownStatus, false)]
+    public async Task Only_a_live_registry_row_renews_the_hosted_grace(string status, bool renews) {
+        var now = DateTime.UnixEpoch;
+        var row = AgentRow.FromRemote(Remote()) with { Status = status };
+
+        var (state, kept) = SessionMergeState.Empty.Transition([row], Listed(), localConnected: false, registryCurrent: true, now);
+
+        await Assert.That(kept).Contains(row.Key);
+        await Assert.That(state.HostedUntil).IsEqualTo(renews ? now + AgentDirectory.HandoverGrace : null);
+    }
+
     [Test]
     public async Task Alias_matching_prefers_the_canonical_listing_without_renaming_other_server_keys() {
         var (local, _, sessions, _, directory) = Build("recorded");

@@ -2039,6 +2039,28 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// <summary>Stopping goes through the daemon, so a row whose daemon is not running offers no Stop until it runs again.</summary>
+    [Test]
+    public async Task A_row_whose_daemon_is_down_cannot_be_stopped() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var vm = h.Build(Harness.Row());
+            var canStop = false;
+            using var stop = vm.StopCommand.CanExecute.Subscribe(can => canStop = can);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && canStop, what: "ready to stop");
+
+            h.Directory.Rows.AddOrUpdate(Harness.Row() with { Status = AgentRow.DaemonDownStatus });
+
+            await WaitUntilAsync(() => !canStop, what: "the stop withdrawn");
+            await Assert.That(vm.SessionEnded).IsFalse();
+
+            h.Directory.Rows.AddOrUpdate(Harness.Row());
+
+            await WaitUntilAsync(() => canStop, what: "the stop offered again");
+            await vm.TeardownAsync();
+        });
+    }
+
     static AgentRow RowWith(AgentViewerRightsDto? rights, string vendor = "claude") => Harness.Row(vendor: vendor) with { ViewerRights = rights };
 
     static readonly AgentViewerRightsDto HeldParticipant = new() { Reaches = true, AnswerQuestions = true, HoldMessages = true };

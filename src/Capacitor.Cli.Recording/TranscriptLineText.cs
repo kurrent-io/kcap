@@ -160,11 +160,9 @@ public static partial class TranscriptLineText {
             if (vendor == "codex") {
                 // Codex rolls everything into a top-level response_item envelope;
                 // a "message" payload (user or assistant) is the analog of Claude's
-                // user/assistant event for title-threshold purposes. User-role
-                // payloads that are codex-injected preludes
-                // (<environment_context>, AGENTS.md, <turn_aborted>) must NOT
-                // count — otherwise a fresh session with no real prompts can
-                // reach the 5-event threshold and produce a low-context title.
+                // user/assistant event for title-threshold purposes. A user-role
+                // payload that is only Codex's injected context must NOT count, or a
+                // fresh session with no real prompt reaches the threshold.
                 if (root.Str("type") != "response_item") return false;
 
                 var payload = root.Obj("payload");
@@ -175,8 +173,7 @@ public static partial class TranscriptLineText {
 
                 return role switch {
                     "assistant" => true,
-                    "user"      => CodexLineText.ExtractCodexBlockText(payload.Value, "input_text") is { } text
-                                && !CodexLineText.IsCodexInjectedUserPrelude(text),
+                    "user"      => CodexLineText.ExtractCodexUserPrompt(payload.Value) is not null,
                     _           => false
                 };
             }
@@ -503,11 +500,7 @@ public static partial class TranscriptLineText {
 
             if (payload?.Str("type") != "message" || payload.Value.Str("role") != "user") return null;
 
-            // Skip codex-injected wrappers (environment_context, AGENTS.md, turn_aborted). These
-            // role:"user" payloads precede the real prompt and would otherwise title the session.
-            var text = CodexLineText.ExtractCodexBlockText(payload.Value, "input_text");
-
-            return text is null || CodexLineText.IsCodexInjectedUserPrelude(text) ? null : text;
+            return CodexLineText.ExtractCodexUserPrompt(payload.Value);
         } catch (Exception ex) {
             parseErrors?.Write($"TryExtractUserText (codex) parse error (further errors suppressed): {ex.Message}");
         }

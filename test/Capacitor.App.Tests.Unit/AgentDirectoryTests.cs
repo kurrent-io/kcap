@@ -220,6 +220,55 @@ public class AgentDirectoryTests {
         await Assert.That(dir.IsProvenLocalTwin("a1")).IsFalse();
     }
 
+    /// The registry lists a killed daemon's agents live until the server notices the disconnect. With the twin
+    /// neither serving nor starting, its rows read as not running, and only its rows: another daemon's agents are live.
+    [Test]
+    public async Task A_down_twins_registry_rows_read_daemon_not_running() {
+        var (local, remote, starting, dir) = BuildRestarting();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo(AgentRow.DaemonDownStatus);
+        await Assert.That(dir.Rows.Lookup("remote:b1").Value.Status).IsEqualTo("Running");
+        await Assert.That(dir.IsHostedNow(dir.Rows.Lookup("remote:a1").Value)).IsFalse();
+
+        starting.OnNext(true);
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+
+        starting.OnNext(false);
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/2"]));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsFalse();
+        await Assert.That(dir.Rows.Lookup("local:a1").Value.Status).IsEqualTo("Running");
+    }
+
+    /// A daemon the app rejects as incompatible is still running and serving the server, and a reconnect
+    /// attempt's Connecting reports no outage of its own, so neither reads the twin's rows as not running.
+    [Test]
+    public async Task An_incompatible_or_reconnecting_twin_keeps_its_registry_rows_running() {
+        var (local, remote, _, dir) = BuildRestarting();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_incompatible", null, "0.0.1"));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+        await Assert.That(dir.IsHostedNow(dir.Rows.Lookup("remote:a1").Value)).IsTrue();
+
+        local.StatusSubject.OnNext(new(AttachState.Connecting, null, null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+        local.StatusSubject.OnNext(new(AttachState.Connecting, null, null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo(AgentRow.DaemonDownStatus);
+    }
+
     /// A restarting daemon drops off the server's registry before it comes back. The twin proven
     /// before is still its identity, so the agent is not listed twice in that gap.
     [Test]
