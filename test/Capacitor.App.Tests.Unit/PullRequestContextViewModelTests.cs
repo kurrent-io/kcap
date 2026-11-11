@@ -276,6 +276,60 @@ public class PullRequestContextViewModelTests {
         }
     });
 
+    /// A closed PR can reopen while the session is away, so only a merge outlives the pane.
+    [Test]
+    public Task A_reopened_session_reconsiders_a_pull_request_it_saw_closed() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Source.Lifecycles[2] = "closed";
+            first.Push(); first.Vm.SetForeground(true);
+            await WaitUntilAsync(() => first.Vm.Selected?.Subject.Number == 1 && first.Vm.CanReveal && !first.Vm.IsReading, what: "closed default advanced");
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Push();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            await second.Show();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+        } finally {
+            await second.Dispose();
+        }
+    });
+
+    /// The snapshot's links predate the return; the first fresh list without the pick hands the card
+    /// to the default, where a pick made in this pane would stay as unavailable.
+    [Test]
+    public Task A_restored_pick_unlinked_while_away_gives_way_to_the_default() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var first = new Harness(snapshots: snapshots);
+        try {
+            first.Push();
+            await first.Show();
+            first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
+            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+        } finally {
+            await first.Dispose();
+        }
+
+        var second = new Harness(snapshots: snapshots);
+        try {
+            second.Source.Links = [Link(2)];
+            second.Push();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(1);
+            await second.Show();
+            await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(2);
+            await Assert.That(second.Vm.Selected.IsAvailable).IsTrue();
+            await Assert.That(second.Vm.Choices.Count).IsEqualTo(1);
+            await Assert.That(snapshots.Get("session")!.Picked).IsNull();
+        } finally {
+            await second.Dispose();
+        }
+    });
+
     /// Only the user's pick is remembered: a default the card chose still hands over once its PR merges.
     [Test]
     public Task A_reopened_session_does_not_pin_the_default() => RunOnUiAsync(async () => {

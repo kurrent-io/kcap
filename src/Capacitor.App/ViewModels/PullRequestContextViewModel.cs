@@ -82,7 +82,11 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     public IAvaloniaReadOnlyList<PullRequestChoice> Choices => _choices;
     public PullRequestChoice? Selected {
         get => _selected;
-        set { if (!_updatingChoices) Select(value, explicitSelection: true); }
+        set {
+            if (_updatingChoices) return;
+            _restoredPick = null;
+            Select(value, explicitSelection: true);
+        }
     }
     public string Notice => _notice;
     public string ReaderNote => _readerNote?.Text ?? "";
@@ -196,6 +200,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             _sessionItems.Clear();
             _selected = null;
             _explicitSelection = false;
+            _restoredPick = null;
             _positions.Clear();
             _lifecycles.Clear();
             ClearProtected();
@@ -227,6 +232,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _sessionItems.Clear();
         _selected = null;
         _explicitSelection = false;
+        _restoredPick = null;
         _positions.Clear();
         _lifecycles.Clear();
         _hasListed = true;
@@ -307,6 +313,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     }
     public void SelectSubject(PullRequestSubjectDto subject) {
         if (_disposed) return;
+        _restoredPick = null;
         _requestedSubject = subject;
         ApplyRequestedSubject();
     }
