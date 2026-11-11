@@ -243,16 +243,11 @@ public static class PiMcpExtensionInstaller {
         try { if (File.Exists(marker)) File.Delete(marker); } catch { }
     }
 
-    public static bool Install(string extensionPath) {
-        try {
-            Directory.CreateDirectory(Path.GetDirectoryName(extensionPath)!);
-            File.WriteAllText(extensionPath, ExtensionContent);
-            WriteMarker(extensionPath);
-            return true;
-        } catch {
-            return false;
-        }
-    }
+    /// <summary>Leaves a current file and marker untouched and says so.</summary>
+    public static SettingsEdit Apply(string extensionPath) =>
+        OwnedFile.Write(extensionPath, ExtensionContent, ReadMarker(extensionPath), WriteMarker);
+
+    public static bool Install(string extensionPath) => Apply(extensionPath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
 
     /// <summary>
     /// Removes kcap-mcp.ts + marker. Returns true if kcap-mcp.ts existed. IO/permission failures on

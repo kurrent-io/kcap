@@ -20,10 +20,12 @@ internal static class MuseAssistantPosture {
 
     public const string SummaryValue = "Muse Assistant (no harness wiring; sessions private by default)";
 
-    public static string? ArgumentError(bool tenantGiven) =>
-        tenantGiven
-            ? null
-            : $"{Flag} signs in by device code with no terminal prompt, so it needs the workspace: kcap setup <tenant> {Flag}";
+    public static string? ArgumentError(bool tenantGiven, bool steeringGiven = false) =>
+        !tenantGiven
+            ? $"{Flag} signs in by device code with no terminal prompt, so it needs the workspace: kcap setup <tenant> {Flag}"
+            : steeringGiven
+                ? $"{Flag} runs no agent daemon and wires no Claude Code, so it cannot take {SetupSteering.Flag}."
+                : null;
 
     public static CodingAgentsStep.Options Apply(CodingAgentsStep.Options options) => options with {
         InstallAgents               = false,

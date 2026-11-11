@@ -56,6 +56,16 @@ public class CaptureScopeTests {
         await Assert.That(result[0].OutsideAllowlist).IsFalse();
     }
 
+    /// <summary>A folder entry names a repository with no remote, as it does for the live hooks and discovery.</summary>
+    [Test]
+    public async Task A_folder_entry_excludes_a_local_repository() {
+        var result = await Scope(excludedRepos: [LocalRepository.FolderEntryPrefix + "notes"],
+                repoDetector: Detects(LocalRepository.OwnerPrefix + "abc123", "notes"))
+            .ApplyAsync([Session("s1", "/tmp/anywhere")], NoResolved);
+
+        await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo([LocalRepository.OwnerPrefix + "abc123/notes"]);
+    }
+
     /// <summary>An import places a session under the repository its harness recorded, so scope judges that one even
     /// when its folder now resolves elsewhere.</summary>
     [Test]

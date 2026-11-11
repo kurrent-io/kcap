@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -72,6 +73,25 @@ sealed class CaptureScope {
             ? scoped with { Status = ImportCommand.ClassificationStatus.Excluded }
             : null;
     }
+
+    /// <summary>
+    /// Whether the profile keeps a discovered session out of any import, judged as <see cref="Stamp"/> judges it:
+    /// paths on the raw cwd alone, so a remap into an ignored folder does not keep a session out, and
+    /// <c>excluded_repos</c> on both the resolved repository and <paramref name="rawRepo"/>, the raw cwd's own.
+    /// </summary>
+    internal static bool ExcludesDiscovered(
+            Profile profile, UserHome home, string? rawCwd, (string Owner, string Name)? repo, string? rawRepo = null) {
+        var repoKey = repo is { } r ? $"{r.Owner}/{r.Name}" : null;
+
+        return ExcludesRecorded(profile, home, rawCwd, rawRepo)
+            || RepoScope.IsOutOfScope(repoKey, profile.AllowedRepos, profile.ExcludedRepos);
+    }
+
+    /// <summary>The part of <see cref="ExcludesDiscovered"/> judged on the raw cwd alone, which no remap can lift.</summary>
+    internal static bool ExcludesRecorded(Profile profile, UserHome home, string? rawCwd, string? rawRepo) =>
+        PathExclusion.IsExcluded(rawCwd, profile.ExcludedPaths, home)
+     || PathExclusion.IsOutsideAllowlist(rawCwd, profile.AllowedPaths, home)
+     || rawRepo is not null && profile.ExcludedRepos is { Length: > 0 } && RepoScope.Names(profile.ExcludedRepos, rawRepo);
 
     /// <summary>
     /// The statuses that can still reach the server this run: <c>BuildImportChains</c> takes New and
@@ -159,7 +179,7 @@ sealed class CaptureScope {
         NeedsRepo && cwd is not null && _repoCache.TryGetValue(cwd, out var key) ? key : null;
 
     string? ExcludedRepo(string? repoKey) =>
-        repoKey is not null && _excludedRepos!.Contains(repoKey, StringComparer.OrdinalIgnoreCase) ? repoKey : null;
+        repoKey is not null && RepoScope.Names(_excludedRepos!, repoKey) ? repoKey : null;
 
     async Task<string?> DetectAsync(string cwd) {
         try {

@@ -711,7 +711,8 @@ sealed class SetupCommand(
                           || args.Contains("--server-url")
                           || args.Any(a => a.StartsWith("--server-url=", StringComparison.Ordinal));
 
-        if (museAssistant && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null) is { } museError) {
+        if (museAssistant
+         && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null, steeringGiven: args.Contains(SetupSteering.Flag)) is { } museError) {
             await Console.Error.WriteLineAsync($"  {museError}");
 
             return SetupExit.Refused;
@@ -1070,7 +1071,9 @@ sealed class SetupCommand(
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
             ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
-            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp,
+            KiroCli:     harnesses.ResolveExecutable(HarnessId.Kiro) is not null,
+            KiroAgentCloned: File.Exists(kiro.KcapAgentJson));
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });
@@ -1168,20 +1171,20 @@ sealed class SetupCommand(
                 : [serverUrl]);
 
         var stepInstallers = new CodingAgentsStep.Installers(
-            InstallClaudePlugin:    (settings, plugin) => InstallPlugin(settings, plugin, legacyProjectScope ? null : Path.GetDirectoryName(settings)),
-            InstallCodexHooks:      PluginCommand.InstallCodexHooks,
-            InstallCursorHooks:     PluginCommand.InstallCursorHooks,
-            InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
+            InstallClaudePlugin:    (settings, plugin) => ClaudePluginWriter.Install(settings, legacyProjectScope ? null : Path.GetDirectoryName(settings), plugin),
+            InstallCodexHooks:      CodexHooksWriter.Install,
+            InstallCursorHooks:     path => Edited(PluginCommand.InstallCursorHooks(path)),
+            InstallCopilotHooks:    path => PluginCommand.WriteCopilotHooks(path),
             CopilotHooksNeedPath:   () => PluginCommand.CopilotHooksNeedPath(),
-            InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
+            InstallGeminiHooks:     path => Edited(PluginCommand.InstallGeminiHooks(path)),
             CapacitorOnPath:        () => binaries.Finds("kcap"),
             InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,
             CleanLegacyCodexSkills: legacyDir => AgentsSkillsInstaller.CleanLegacyCodexSkills(legacyDir).RemovedAny,
             // Read when it runs: a reported run swaps stderr for the writer its failure line comes from.
-            InstallKiroHooks:       agentPath => PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error),
-            InstallPiExtension:     PiExtensionInstaller.Install,
-            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Install,
-            InstallAntigravityHooks:  PluginCommand.InstallAntigravityHooks,
+            InstallKiroHooks:       agentPath => Edited(PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error)),
+            InstallPiExtension:     PiExtensionInstaller.Apply,
+            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Apply,
+            InstallAntigravityHooks:  path => Edited(PluginCommand.InstallAntigravityHooks(path)),
             EnableCodexNetworkAccess: () => CodexConfigToml.EnableNetworkAccess(codexAllowDomains, codex.ConfigToml),
             RegisterCodexMcp:         () => CodexConfigToml.RegisterKcapMcpServers(codex.ConfigToml),
             // every non-Claude JSON harness registers the ForCursor subset — the full set,
@@ -1210,13 +1213,17 @@ sealed class SetupCommand(
             InstallAntigravityInstructions: () => AgentInstructionsWriter.Write(
                 agy.InstructionsMd, KcapAgentInstructions.Body),
             // Pi has no JSON MCP config — the "MCP" is a second extension file (kcap-mcp.ts).
-            InstallPiMcp:             PiMcpExtensionInstaller.Install,
+            InstallPiMcp:             PiMcpExtensionInstaller.Apply,
             InstallPiInstructions:    () => AgentInstructionsWriter.Write(
                 pi.AgentsMd, KcapAgentInstructions.Body),
             // Vibe's hooks.toml and MCP config.toml are TOML (not the JSON writer / Codex map).
-            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) != TomlConfigFile.Outcome.Failed,
+            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) switch {
+                TomlConfigFile.Outcome.Unchanged => SettingsEdit.Unchanged,
+                TomlConfigFile.Outcome.Updated   => SettingsEdit.Changed,
+                _                                => SettingsEdit.Failed,
+            },
             RegisterVibeMcp:          () => MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml),
-            InstallGrokHooks:         GrokHooksInstaller.Install,
+            InstallGrokHooks:         path => Edited(GrokHooksInstaller.Install(path)),
             // Muse's hooks and MCP servers share one JSON settings.json; an unparseable file is a failure, not a success.
             InstallMuseHooks:         p => InstallMuseHooks(p, home, muse, WriteLine),
             RegisterMuseMcp:          () => MuseSettingsJson.RegisterKcapMcpServers(muse.SettingsJson, home),
@@ -1481,7 +1488,7 @@ sealed class SetupCommand(
             AuthSatisfied:       authSatisfied,
             SkipImport:          skipImport,
             NoPrompt:            noPrompt,
-            PromptYesNo:         () => AnsiConsole.Prompt(new ConfirmationPrompt(ImportPrompt) { DefaultValue = true }),
+            PromptYesNo:         question => AnsiConsole.Prompt(new ConfirmationPrompt(Markup.Escape(question)) { DefaultValue = true }),
             // Naming runs the user's own agent, which an installation without background intelligence never does.
             PromptNameSessions:  LocalIntelligenceGate.For(config, localRoot).Allows(serverUrl)
                 ? () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false })
@@ -1716,6 +1723,20 @@ sealed class SetupCommand(
     /// <summary>Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
     internal const string ImportPrompt = "Import past sessions from this machine?";
 
+    /// <summary>Asked instead of <see cref="ImportPrompt"/> when the project checklist follows a yes, so the
+    /// question is not read as all or nothing. Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
+    internal const string ImportPromptBeforeChecklist = "Import past sessions from this machine? You choose which projects next.";
+
+    internal static string ChecklistCountLine(IReadOnlyList<SetupImportChoice> choices) {
+        var repos   = choices.Count(c => c.Repo is not null);
+        var folders = choices.Count(c => c.Folder is not null);
+        var named   = new List<string>();
+        if (repos > 0) named.Add(repos == 1 ? "1 repository" : $"{repos} repositories");
+        if (folders > 0) named.Add(folders == 1 ? "1 folder" : $"{folders} folders");
+
+        return $"{string.Join(" and ", named)} found; the next step lists them.";
+    }
+
     internal const string RememberedHarnessDeclineLine =
         "Not installing kcap into these harnesses: an earlier setup of this installation was told not to. Run kcap setup --local at a terminal to be asked again.";
 
@@ -1830,7 +1851,7 @@ sealed class SetupCommand(
         bool                          AuthSatisfied,
         bool                          SkipImport,
         bool                          NoPrompt,
-        Func<bool>                    PromptYesNo,
+        Func<string, bool>            PromptYesNo,
         ProfileContext                Profiles,
         string                        ProfileName,
         string                        ServerUrl,
@@ -1949,8 +1970,18 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
+        var skip = inputs.Skip ?? ImportSkip.None;
+        IReadOnlyList<SetupImportChoice> choices = !inputs.NoPrompt && found is not null && inputs.ChooseProjects is not null
+            ? SetupImportChoice.From(found, skip)
+            : [];
+
+        // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
+        var checklistFollows = choices.Count > 1 || choices is [{ Included: false }];
+        if (checklistFollows) AnsiConsole.MarkupLine($"  {Markup.Escape(ChecklistCountLine(choices))}");
+
+        var question = checklistFollows ? ImportPromptBeforeChecklist : ImportPrompt;
         var decision = SetupDecisions.DecideImport(
-            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, inputs.PromptYesNo);
+            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, () => inputs.PromptYesNo(question));
 
         if (decision.Outcome == SetupDecisions.ImportOutcome.Skip) {
             AnsiConsole.MarkupLine(decision.SkipReason is { } reason
@@ -1963,24 +1994,17 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
-        var skip = inputs.Skip ?? ImportSkip.None;
+        if (checklistFollows && inputs.ChooseProjects is { } choose) {
+            var kept = choose(choices);
 
-        if (!inputs.NoPrompt && found is not null && inputs.ChooseProjects is { } choose) {
-            var choices = SetupImportChoice.From(found, skip);
+            if (kept.Count == 0) {
+                AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
+                RememberImport(false);
 
-            // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
-            if (choices.Count > 1 || choices is [{ Included: false }]) {
-                var kept = choose(choices);
-
-                if (kept.Count == 0) {
-                    AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
-                    RememberImport(false);
-
-                    return new ImportStepResult(false, null, null, null);
-                }
-
-                skip = SetupImportChoice.SkipFor(choices, kept, skip);
+                return new ImportStepResult(false, null, null, null);
             }
+
+            skip = SetupImportChoice.SkipFor(choices, kept, skip);
         }
 
         if (found is not null && inputs.Intelligence is { Mode: not IntelligenceModes.None } applied
@@ -3423,16 +3447,19 @@ sealed class SetupCommand(
     /// True only once every event carries kcap's hook. The roots are written whenever any kcap hook is in
     /// the file, complete or not: a hook Muse runs finds its session log only through them.
     /// </summary>
-    internal static bool InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
-        var installed = MuseHooksInstaller.Install(settingsPath) is SettingsEdit.Changed or SettingsEdit.Unchanged
-                     && MuseHooksInstaller.HasAllHooks(settingsPath);
+    internal static SettingsEdit InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
+        var edit = MuseHooksInstaller.Install(settingsPath);
+        if (!MuseHooksInstaller.HasAllHooks(settingsPath)) edit = SettingsEdit.Failed;
 
         if (MuseHooksInstaller.IsWired(settingsPath) && !MuseHookRoots.Persist(home, muse))
             writeLine($"  [yellow]⚠[/] Could not write {Markup.Escape(MuseHookRoots.PathFor(home))} — "
                     + "Muse hooks may look for sessions outside this shell's XDG roots.");
 
-        return installed;
+        return edit;
     }
+
+    /// <summary>For an installer that cannot tell a current file from one it rewrote.</summary>
+    static SettingsEdit Edited(bool installed) => installed ? SettingsEdit.Changed : SettingsEdit.Failed;
 
     /// <summary>
     /// Codex runs only hooks it trusts. When kcap could not have Codex trust them, the line names the routes that

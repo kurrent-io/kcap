@@ -223,7 +223,7 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(loss.AgentId).IsNull();
         await Assert.That(loss.LineNumber).IsEqualTo(1);
         await Assert.That(loss.Reason).IsEqualTo(RedactionLossReason.InputLimit);
-        await Assert.That(loss.Message).Contains("could not be captured");
+        await Assert.That(loss.Message).Contains("line 2 could not be captured");
 
         var body = _server.LogEntries.Single().RequestMessage.Body;
         await Assert.That(body).Contains("\"line_numbers\":[0,1,2]");
@@ -253,7 +253,17 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(dropped.Count).IsEqualTo(2);
         await Assert.That(dropped[0]).IsEqualTo(new BatchDropped("s1", "agent-1", 0, 99, "HTTP 413"));
         await Assert.That(dropped[1]).IsEqualTo(new BatchDropped("s1", "agent-1", 100, 149, "HTTP 413"));
-        await Assert.That(dropped[0].Message).IsEqualTo("subagent agent-1 lines 0-99 dropped: HTTP 413");
+        await Assert.That(dropped[0].Message).IsEqualTo("subagent agent-1 lines 1-100 dropped: HTTP 413");
+        await Assert.That(dropped[1].Message).IsEqualTo("subagent agent-1 lines 101-150 dropped: HTTP 413");
+    }
+
+    /// <summary>A skipped line is named as an editor counts it, like the other import warnings, while the record keeps
+    /// the wire index.</summary>
+    [Test]
+    public async Task A_skipped_line_is_named_1_based() {
+        var skipped = new LineSkipped("s1", null, LineNumber: 0, Bytes: 42);
+
+        await Assert.That(skipped.Message).StartsWith("line 1 skipped: 42 bytes");
     }
 
     /// A Cursor 409 frontier can name a blank source line, which was never posted: the drop starts at
@@ -297,7 +307,7 @@ public class SessionImporterProgressTests : IDisposable {
             , time: TimeProvider.System);
         });
 
-        await Assert.That(ex.Message).Contains("lines 0-4");
+        await Assert.That(ex.Message).Contains("lines 1-5");
         await Assert.That(ex.Message).Contains("HTTP 413");
     }
 

@@ -1954,7 +1954,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     /// embeds the event name in the command because Copilot hook payloads
     /// carry no uniform event-name field (see <c>CopilotHookCommand</c>).
     /// </summary>
-    public static bool InstallCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) {
+    public static bool InstallCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) =>
+        WriteCopilotHooks(hooksPath, resolveBinaryPath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
+
+    public static SettingsEdit WriteCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) {
         try {
             var binary = CopilotHookBinary(resolveBinaryPath);
             var hooks = new JsonObject();
@@ -1974,12 +1977,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                 ["hooks"]   = hooks
             };
 
-            Directory.CreateDirectory(Path.GetDirectoryName(hooksPath)!);
-            File.WriteAllText(hooksPath, root.ToJsonString(WriteOpts));
-            CopilotHooksInstaller.WriteMarker(hooksPath);
-
-            return true;
-        } catch { return false; }
+            return OwnedFile.Write(hooksPath, root.ToJsonString(WriteOpts), CopilotHooksInstaller.ReadMarker(hooksPath), CopilotHooksInstaller.WriteMarker);
+        } catch { return SettingsEdit.Failed; }
     }
 
     /// <summary>
@@ -2087,7 +2086,11 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // deleted kcap.json is recreated). MCP is registered below regardless of the clone outcome.
         var hooksFailed = false;
         var hooksCurrent = refreshOnly && File.Exists(agentPath) && KiroHooksInstaller.ReadMarker(agentPath) == CapacitorVersion.Current();
-        if (!hooksCurrent) {
+        if (!hooksCurrent && !File.Exists(agentPath) && env.Harnesses.ResolveExecutable(HarnessId.Kiro) is null) {
+            hooksFailed = true;
+            await env.Stderr.WriteLineAsync(
+                $"Warning: {CodingAgentsStep.KiroCliMissingLine(args.Contains("--skip-kiro-mcp"), skipSkills)}");
+        } else if (!hooksCurrent) {
             if (InstallKiroHooks(agentPath, env.Harnesses, env.Stderr)) {
                 var clonedFrom = KiroHooksInstaller.ReadPreviousDefault(agentPath) ?? "your default agent";
                 await env.Stdout.WriteLineAsync(
