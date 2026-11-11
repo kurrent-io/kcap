@@ -206,12 +206,12 @@
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.chatColumnGrip">
-            <Setter Property="Width" Value="4" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="CornerRadius" Value="2" />
+            <Setter Property="Width" Value="2" />
+            <Setter Property="Height" Value="96" />
+            <Setter Property="CornerRadius" Value="1" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="Background" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="Background" Value="{StaticResource KcapBorderStrongBrush}" />
         </Style>
         <Style Selector="Border.thinkingBody">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
