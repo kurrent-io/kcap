@@ -82,15 +82,24 @@ public class UnixPtyReaderThreadTests {
     public async Task A_slow_consumer_still_gets_all_the_output_left_at_the_exit() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
 
-        using var pipe    = new AnonymousPipeServerStream(PipeDirection.In);
-        var       readFd  = (int)pipe.SafePipeHandle.DangerousGetHandle();
-        var       writeFd = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
-        var       left    = new byte[5 * 4096];
+        var pipe    = new AnonymousPipeServerStream(PipeDirection.In);
+        var readFd  = (int)pipe.SafePipeHandle.DangerousGetHandle();
+        var writeFd = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
+        var left    = new byte[5 * 4096];
         Array.Fill(left, (byte)'x');
-        await Assert.That((int)UnixPtyInterop.write(writeFd, left, left.Length)).IsEqualTo(left.Length);
 
         using var stop   = new CancellationTokenSource();
         var       reader = new UnixPtyReaderThread(readFd, 0, () => true, TimeProvider.System, stop.Token);
+
+        // Written beside the reader: a pipe smaller than the output would block a write made ahead of it.
+        var writing = Task.Factory.StartNew(() => {
+            for (var at = 0; at < left.Length;) {
+                var wrote = (int)UnixPtyInterop.write(writeFd, left.AsSpan(at), left.Length - at);
+                if (wrote <= 0) return;
+
+                at += wrote;
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         try {
             using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -104,6 +113,9 @@ public class UnixPtyReaderThreadTests {
         } finally {
             await stop.CancelAsync();
             await reader.Stopped;
+            // Closing the read end fails a write still blocked on a full pipe.
+            await pipe.DisposeAsync();
+            await writing.WaitAsync(TimeSpan.FromSeconds(10));
         }
     }
 }
