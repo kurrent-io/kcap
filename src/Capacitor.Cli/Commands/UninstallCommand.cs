@@ -506,12 +506,7 @@ sealed class UninstallCommand(
     /// <summary>The user-wide unit lock when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
     string? UnitLockIn(string configDir) => Inside(configDir, LocalUnitLock.PathFor(home));
 
-    static string? Inside(string configDir, string file) {
-        var path      = Path.GetFullPath(file);
-        var directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configDir)) + Path.DirectorySeparatorChar;
-
-        return path.StartsWith(directory, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ? path : null;
-    }
+    static string? Inside(string configDir, string file) => UninstallFiles.Holds(configDir, file) ? Path.GetFullPath(file) : null;
 
     static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 
