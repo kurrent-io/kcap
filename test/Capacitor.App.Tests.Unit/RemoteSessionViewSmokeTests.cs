@@ -120,9 +120,9 @@ public class RemoteSessionViewSmokeTests {
 
     const string Machine = "machine-1";
 
-    static AgentRow ResumableServerRow() => AgentRow.FromServer(new RepoSessionDto {
+    static AgentRow ResumableServerRow(string? cwd = null) => AgentRow.FromServer(new RepoSessionDto {
         SessionId = "s1", Status = "ended", AccessLevel = "full", Vendor = "claude", Title = "Widgets",
-        Owner = new() { UserId = "u1", DisplayName = "Alexey" }, Branch = "feature/x", Cwd = HandoffComposerFixture.Checkout,
+        Owner = new() { UserId = "u1", DisplayName = "Alexey" }, Branch = "feature/x", Cwd = cwd ?? HandoffComposerFixture.Checkout,
         StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),
         EndedAt = DateTimeOffset.UnixEpoch.AddHours(1),
         Repo = new() { Hash = "h", Owner = "acme", Name = "widgets" },
@@ -188,6 +188,21 @@ public class RemoteSessionViewSmokeTests {
 
         await Assert.That(fixture.Launch.Requests.Single().Resume).IsEqualTo(new ResumeLaunchPayload("s1", HandoffComposerFixture.Checkout));
     }, fixture => fixture.OfferResume(Machine), ResumableServerRow());
+
+    const string ManagedWorktree = HandoffComposerFixture.Checkout + "/.capacitor/worktrees/warm-drum";
+
+    [Test]
+    public Task Resuming_a_managed_worktree_probes_and_launches_the_recorded_directory() => WithHandoffAsync(async (host, fixture, view) => {
+        await host.SettleUntilAsync(() => host.Vm.Chat.Handoff!.ResumeOffered, "resume offered");
+        await Assert.That(fixture.Ops.ResumeProbes.Single().Directory).IsEqualTo(ManagedWorktree);
+
+        Click(host, Named<Button>(view, "ResumeButton"));
+        await host.SettleUntilAsync(() => fixture.Launch.Requests.Count == 1, "the launch");
+
+        var request = fixture.Launch.Requests.Single();
+        await Assert.That(request.Resume).IsEqualTo(new ResumeLaunchPayload("s1", ManagedWorktree));
+        await Assert.That(request.RepoPath).IsEqualTo(ManagedWorktree);
+    }, fixture => fixture.OfferResume(Machine), ResumableServerRow(ManagedWorktree));
 
     [Test]
     public Task Hand_off_opens_the_settings_and_Esc_closes_them() => WithHandoffAsync(async (host, fixture, view) => {
