@@ -68,4 +68,19 @@ public class TranscriptLineMapTests {
 
         await Assert.That(await map.FirstChangedLineAsync(path, 3, CancellationToken.None)).IsEqualTo(2);
     }
+
+    /// <summary>A second rewrite found before the cursor moved, further back than the first, still holds back the
+    /// lines sent before the first.</summary>
+    [Test]
+    public async Task Copies_stay_held_back_across_rewrites_found_one_after_another() {
+        var map  = new TranscriptLineMap();
+        var sent = Enumerable.Range(0, 10).Select(i => $"a{i}").ToArray();
+        map.Observe(sent, Enumerable.Range(0, 10).ToArray(), 10);
+        map.Rewritten(4, 10, 10);
+        map.Rewritten(3, 10, 4);
+
+        var kept = map.KeptCopies(sent[3..], Enumerable.Range(3, 7).ToArray(), 3);
+
+        await Assert.That(kept).IsEquivalentTo(Enumerable.Repeat(true, 7).ToArray());
+    }
 }

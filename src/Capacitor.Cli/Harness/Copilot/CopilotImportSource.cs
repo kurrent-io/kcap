@@ -32,6 +32,8 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
+    const string LineNumberOffsetKey = "LineNumberOffset";
+
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
     readonly ConfigRoot                            _config;
@@ -226,13 +228,25 @@ internal sealed class CopilotImportSource : IImportSource {
             // forever re-sending noise lines that can never advance the
             // watermark.
             var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
+            var sourceMeta     = s.SourceMeta;
+
+            // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
+            // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
+            // A watermark below the rewrite is a server missing lines the watcher sent: those go by file position.
+            var renumbered = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
+            int SentAs(int fileLine) => renumbered is { } r && fileLine >= r.FileLine ? fileLine + r.Shift : fileLine;
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) {
+                if (srv >= SentAs(lastImportable)) {
                     status = ImportCommand.ClassificationStatus.AlreadyLoaded;
                 } else {
                     status       = ImportCommand.ClassificationStatus.Partial;
                     resumeFromLn = srv + 1;
+
+                    if (renumbered is { } r && srv + 1 >= r.FileLine) {
+                        resumeFromLn = Math.Max(r.FileLine, srv + 1 - r.Shift);
+                        sourceMeta   = new Dictionary<string, object?>(s.SourceMeta) { [LineNumberOffsetKey] = r.Shift };
+                    }
                 }
             }
 
@@ -248,7 +262,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = s.SourceMeta,
+                SourceMeta      = sourceMeta,
             });
         }
 
@@ -302,7 +316,8 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
-                progress:   ctx.Progress);
+                progress:   ctx.Progress,
+                lineNumberOffset: startLine > 0 && classification.SourceMeta.TryGetValue(LineNumberOffsetKey, out var offset) && offset is int shift ? shift : 0);
         } catch {
             return ImportOutcome.Failed;
         }

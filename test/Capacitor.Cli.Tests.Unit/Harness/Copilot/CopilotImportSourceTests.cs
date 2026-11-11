@@ -218,6 +218,37 @@ public class CopilotImportSourceTests {
         await Assert.That(found.Summary.Repos.Single().Name).IsEqualTo("widget");
     }
 
+    /// <summary>A watcher that saw the transcript rewritten sent its later lines above their file numbers, so the
+    /// server watermark is not a file position: the import resumes after the file line sent under it, and numbers
+    /// what it sends the way the watcher did.</summary>
+    [Test]
+    public async Task an_import_after_a_rewrite_resumes_after_the_file_line_the_server_took() {
+        using var tmp = new TempDir();
+        var paths     = Layout(tmp);
+        WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a", createdAt: "2026-06-01T10:00:00Z");
+        var prompts = Enumerable.Range(0, 5).Select(i =>
+            $$$"""{"type":"user.message","data":{"content":"p{{{i}}}"},"id":"{{{i}}}","timestamp":"2026-06-10T20:23:50Z","parentId":null}""" + "\n");
+        await File.AppendAllTextAsync(Path.Combine(paths.SessionStateDir, Sid1, "events.jsonl"), string.Concat(prompts));
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":9}"""));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+        // File lines from 2 on were sent six above their own number, so the server's line 9 is file line 3.
+        new TranscriptRenumbering(Config.Root, server.Url!).Record(Sid1.Replace("-", ""), 2, 6);
+
+        var source     = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        var sent = server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")
+            .SelectMany(e => JsonNode.Parse(e.RequestMessage.Body!)!["line_numbers"]!.AsArray().Select(n => n!.GetValue<int>()))
+            .ToArray();
+        await Assert.That(sent).IsEquivalentTo(new[] { 10, 11 });
+    }
+
     // The server watermark is the max persisted canonical $lineNumber, and
     // every Copilot transcript ends with lines the server normalizer skips
     // (session.shutdown + the sessionEnd hook's own hook.start/hook.end pair).

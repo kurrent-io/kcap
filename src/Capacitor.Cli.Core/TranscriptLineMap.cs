@@ -31,6 +31,9 @@ public sealed class TranscriptLineMap {
     /// <summary>Counts a poll; true for the first and every <paramref name="every"/>th after it.</summary>
     public bool PollIsDue(int every) => _polls++ % every == 0;
 
+    /// <summary>The file line the latest renumbering starts at, and the shift every line from it on is sent under.</summary>
+    public (int FileLine, int Shift) LastRenumbering => _segments[^1];
+
     public int ToSent(int fileLine) => fileLine + SegmentAt(fileLine).Shift;
 
     /// <summary>The first file line sent under <paramref name="sentLine"/> or later.</summary>
@@ -89,9 +92,18 @@ public sealed class TranscriptLineMap {
     /// been sent.
     /// </summary>
     public void Rewritten(int fileLine, int nextSentLine, int fileCursor) {
-        _sentBeforeRewrite      = [];
+        // An earlier rewrite the cursor has not got past yet still has sent lines no read has accounted for: they
+        // carry over, less the copies the lines read since have taken.
+        var carried = _sentBeforeRewrite.Count > 0 && fileCursor < _sentBeforeRewriteEnd
+            ? new Dictionary<ulong, int>(_sentBeforeRewrite)
+            : [];
+        if (carried.Count > 0) {
+            for (var i = _sentBeforeRewriteStart; i < Math.Min(fileCursor, _hashes.Count); i++) Take(carried, _hashes[i]);
+        }
+
+        _sentBeforeRewriteEnd   = carried.Count > 0 ? _sentBeforeRewriteEnd : fileCursor;
         _sentBeforeRewriteStart = fileLine;
-        _sentBeforeRewriteEnd   = fileCursor;
+        _sentBeforeRewrite      = carried;
         for (var i = fileLine; i < Math.Min(fileCursor, _hashes.Count); i++) {
             if (_hashes[i] != BlankHash) _sentBeforeRewrite[_hashes[i]] = _sentBeforeRewrite.GetValueOrDefault(_hashes[i]) + 1;
         }

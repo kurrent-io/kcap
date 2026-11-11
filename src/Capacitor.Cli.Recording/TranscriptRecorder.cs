@@ -1423,6 +1423,10 @@ public sealed class TranscriptRecorder(
             if (rewrittenAt is { } changed) {
                 context.Log($"Transcript was rewritten from line {changed}; numbering the lines after it from {sentCursor}");
                 map.Rewritten(changed, sentCursor, cursor);
+                if (source.AgentId is null) {
+                    var (fileLine, shift) = map.LastRenumbering;
+                    new TranscriptRenumbering(context.Server.Config, context.Server.Url).Record(source.SessionId, fileLine, shift);
+                }
                 offsets?.Reset();
                 wholePrefix = false;
                 continue;
