@@ -219,6 +219,8 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         }).DisposeWith(_subscriptions);
         signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => {
             if (_session is null || _disposed) return;
+            // Lifecycles came from the previous account's reads; kept, the next snapshot would hand them to this one.
+            _lifecycles.Clear();
             CancelReads(); ClearProtected(); _source.ResetSession(_session); _stopped = false; _lastRefresh = null; RequestRefresh(manual: true);
         }).DisposeWith(_subscriptions);
     }

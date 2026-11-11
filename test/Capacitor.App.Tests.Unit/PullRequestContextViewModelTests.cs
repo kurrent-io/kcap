@@ -276,6 +276,28 @@ public class PullRequestContextViewModelTests {
         }
     });
 
+    /// Sign-in clears the snapshots before the pane hears of it; merges the pane learned under the
+    /// previous account must not be written back into the cache the next account's panes seed from.
+    [Test]
+    public Task A_sign_in_does_not_save_merges_learned_under_the_previous_account() => RunOnUiAsync(async () => {
+        var snapshots = new LastReads<PullRequestSnapshot>();
+        var h = new Harness(snapshots: snapshots);
+        try {
+            h.Source.Links = [Link(1), Link(2), Link(3)];
+            h.Source.Lifecycles[3] = "merged";
+            h.Push(); h.Vm.SetForeground(true);
+            await WaitUntilAsync(() => h.Vm.Selected?.Subject.Number == 2 && h.Vm.CanReveal && !h.Vm.IsReading, what: "merged default advanced");
+            await Assert.That(snapshots.Get("session")!.Merged).IsNotEmpty();
+            snapshots.Clear();
+            h.Source.Lifecycles.Clear();
+            h.SignIn.OnNext(System.Reactive.Unit.Default);
+            await WaitUntilAsync(() => h.Vm.Selected?.Subject.Number == 3 && h.Vm.CanReveal && !h.Vm.IsReading, what: "default re-learned under the new account");
+            await Assert.That(snapshots.Get("session")!.Merged).IsEmpty();
+        } finally {
+            await h.Dispose();
+        }
+    });
+
     /// A closed PR can reopen while the session is away, so only a merge outlives the pane.
     [Test]
     public Task A_reopened_session_reconsiders_a_pull_request_it_saw_closed() => RunOnUiAsync(async () => {
