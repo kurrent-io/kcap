@@ -1076,7 +1076,7 @@ class ImportCommand(
             }
         }
 
-        var (ignored, ignoredBeyondRemap) =
+        var (ignored, ignoredBeyondRemap, ignoredFolders) =
             await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved, cwdRemap);
 
         // Folders that no longer exist explain why a session matches no repository and can be remapped. An allow
@@ -1101,7 +1101,10 @@ class ImportCommand(
                     sources.SelectMany((src, i) => discoveriesPerSource[i].Select(d => (d.SessionId, src.Vendor)))
                         .DistinctBy(s => s.SessionId)
                         .ToDictionary(s => s.SessionId, s => s.Vendor),
-                    sessionCwds,
+                    // An exclusion covers the folder a session recorded, so that is the folder it is named by.
+                    ignored.Count == 0
+                        ? sessionCwds
+                        : sessionCwds.Where(kv => !ignored.Contains(kv.Key)).Concat(ignoredFolders).ToDictionary(StringComparer.Ordinal),
                     ignored),
                 ScannedVendors(sources)));
 
@@ -3117,17 +3120,20 @@ class ImportCommand(
     /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
     /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
     /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
-    /// recorded repository placed it elsewhere, so only those folders' repositories are detected. A transcript that
-    /// records no cwd is placed by the import in the repository of its decoded project folder after remap and worktree
-    /// fallback, which stands in for the one discovery could not resolve.
+    /// recorded repository placed it elsewhere, so only those folders' repositories are detected, and it excludes the
+    /// checkout a session ran in even when its harness recorded another repository. A transcript that records no cwd is
+    /// placed by the import in the repository of its decoded project folder after remap and worktree fallback, which
+    /// stands in for the one discovery could not resolve. <c>Folders</c> names each excluded session by the folder it
+    /// was judged on, before any remap.
     /// </summary>
-    async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap)> CaptureScopeExclusionsAsync(
+    async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap, IReadOnlyDictionary<string, string> Folders)> CaptureScopeExclusionsAsync(
             IEnumerable<DiscoveredSession>                            sessions,
             IReadOnlyDictionary<string, string>                       rawCwds,
             IReadOnlyDictionary<string, string>                       sessionCwds,
             IReadOnlyDictionary<string, (string Owner, string Name)?> resolved,
             IReadOnlyList<CwdRemap>?                                  cwdRemap) {
-        if (profiles.Effective is not { } profile) return (FrozenSet<string>.Empty, FrozenSet<string>.Empty);
+        if (profiles.Effective is not { } profile)
+            return (FrozenSet<string>.Empty, FrozenSet<string>.Empty, FrozenDictionary<string, string>.Empty);
 
         var judged = sessions
             .Select(d => {
@@ -3141,6 +3147,7 @@ class ImportCommand(
                     : null;
 
                 return (d.SessionId, Cwd: recordedCwd ?? folderCwd, PlacedCwd: placedCwd,
+                    EffectiveCwd: placedCwd ?? sessionCwds.GetValueOrDefault(d.SessionId),
                     Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null);
             })
             .ToList();
@@ -3157,7 +3164,11 @@ class ImportCommand(
         var placedDetect = judged
             .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
             .Select(j => j.PlacedCwd!);
-        var detect = rawDetect.Concat(placedDetect)
+        // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
+        var checkoutDetect = judged
+            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Select(j => j.EffectiveCwd!);
+        var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
             .Where(Directory.Exists)
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -3173,16 +3184,23 @@ class ImportCommand(
 
         var all         = new HashSet<string>(StringComparer.Ordinal);
         var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
+        var folders     = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var (sessionId, cwd, placedCwd, recorded) in judged) {
-            var rawRepo = cwd is not null && repos.GetValueOrDefault(cwd) is { } f ? $"{f.Owner}/{f.Name}" : null;
-            var repo    = placedCwd is not null && !recorded ? repos.GetValueOrDefault(placedCwd) : resolved.GetValueOrDefault(sessionId);
+        foreach (var (sessionId, cwd, placedCwd, effectiveCwd, recorded) in judged) {
+            var rawRepo  = cwd is not null && repos.GetValueOrDefault(cwd) is { } f ? $"{f.Owner}/{f.Name}" : null;
+            var repo     = placedCwd is not null && !recorded ? repos.GetValueOrDefault(placedCwd) : resolved.GetValueOrDefault(sessionId);
+            var checkout = recorded && effectiveCwd is not null && repos.GetValueOrDefault(effectiveCwd) is { } c ? $"{c.Owner}/{c.Name}" : null;
 
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
-            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)) all.Add(sessionId);
+
+            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+                all.Add(sessionId);
+                if (cwd is not null) folders[sessionId] = cwd;
+            }
         }
 
-        return (all, beyondRemap);
+        return (all, beyondRemap, folders);
     }
 
     /// <summary>

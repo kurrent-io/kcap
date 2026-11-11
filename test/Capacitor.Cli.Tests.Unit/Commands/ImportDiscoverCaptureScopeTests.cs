@@ -31,12 +31,24 @@ public class ImportDiscoverCaptureScopeTests {
             }),
         ]);
 
-    async Task<ImportCommand.ImportDiscoveryResult> DiscoverAsync(ProfileContext profiles, TestImportTerminal? terminal = null) {
+    /// <summary>A Copilot session whose harness recorded <paramref name="repository"/> as well as its cwd.</summary>
+    IImportSource WriteCopilotSession(string sessionId, string cwd, string repository) {
+        var session = Tmp.CreateDir("copilot", "session-state", sessionId);
+        session.CreateFile("workspace.yaml",
+            $"id: {sessionId}\ncwd: '{cwd.Replace("'", "''")}'\ncreated_at: 2026-10-13T10:00:00Z\nrepository: {repository}\n");
+        session.CreateFile("events.jsonl",
+            """{"type":"user.message","timestamp":"2026-10-13T10:00:00Z","data":{"content":"hello"}}""" + "\n");
+
+        return new CopilotImportSource(Config.Root, new CopilotPaths(Home, Tmp.PathTo("copilot")), new GitProviderRouter(), TimeProvider.System);
+    }
+
+    async Task<ImportCommand.ImportDiscoveryResult> DiscoverAsync(
+            ProfileContext profiles, TestImportTerminal? terminal = null, IReadOnlyList<IImportSource>? sources = null) {
         ImportCommand.ImportDiscoveryResult? found = null;
         var exit = await new ImportCommand(Config.Root, profiles, Home,
                 TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(),
                 time: TimeProvider.System, accounts: TestAccounts.None, console: (terminal ?? new TestImportTerminal()).Console)
-            .HandleImport(filterCwd: null, minLines: 1, discoverOnly: true, onDiscovered: r => found = r);
+            .HandleImport(filterCwd: null, minLines: 1, sources: sources, discoverOnly: true, onDiscovered: r => found = r);
 
         await Assert.That(exit).IsEqualTo(0);
 
@@ -115,8 +127,8 @@ public class ImportDiscoverCaptureScopeTests {
     }
 
     /// <summary>The import excludes a session whose recorded folder is in an excluded repository even when a remap
-    /// moves it elsewhere, so discovery must leave it out too. Without the remap the folder's own repository is
-    /// what resolves, so the remap is what makes this test about the recorded folder.</summary>
+    /// moves it elsewhere, so discovery must leave it out too, named by that recorded folder. Without the remap the
+    /// folder's own repository is what resolves, so the remap is what makes this test about the recorded folder.</summary>
     [Test]
     public async Task A_remap_out_of_an_excluded_repository_still_leaves_the_session_out() {
         var recorded = Tmp.CreateDir("old-checkout");
@@ -131,6 +143,7 @@ public class ImportDiscoverCaptureScopeTests {
 
         await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
         await Assert.That(found.Summary.UnmatchedCount).IsEqualTo(0);
+        await Assert.That(found.Summary.IgnoredFolders.Single().Folder).Contains("old-checkout");
     }
 
     /// <summary>The import excludes a session whose folder is in an excluded repository even when its harness recorded
@@ -142,23 +155,31 @@ public class ImportDiscoverCaptureScopeTests {
         using var repo  = GitRepo.InitIn(checkout);
         repo.AddRemote("https://github.com/acme/secret.git");
 
-        var copilot = new CopilotPaths(Home, Tmp.PathTo("copilot"));
-        var session = Tmp.CreateDir("copilot", "session-state", id);
-        session.CreateFile("workspace.yaml",
-            $"id: {id}\ncwd: '{checkout.Path.Replace("'", "''")}'\ncreated_at: 2026-10-13T10:00:00Z\nrepository: acme/open\n");
-        session.CreateFile("events.jsonl",
-            """{"type":"user.message","timestamp":"2026-10-13T10:00:00Z","data":{"content":"hello"}}""" + "\n");
+        var source = WriteCopilotSession(id, checkout.Path, "acme/open");
 
-        ImportCommand.ImportDiscoveryResult? found = null;
-        var exit = await new ImportCommand(Config.Root, Resolutions.Of(new Profile { ExcludedRepos = ["acme/secret"] }), Home,
-                TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(),
-                time: TimeProvider.System, accounts: TestAccounts.None, console: new TestImportTerminal().Console)
-            .HandleImport(filterCwd: null, minLines: 1,
-                sources: [new CopilotImportSource(Config.Root, copilot, new GitProviderRouter(), TimeProvider.System)],
-                discoverOnly: true, onDiscovered: r => found = r);
+        var found = await DiscoverAsync(Resolutions.Of(new Profile { ExcludedRepos = ["acme/secret"] }), sources: [source]);
 
-        await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(found!.Summary.IgnoredCount).IsEqualTo(1);
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+    }
+
+    /// <summary>The import also excludes the checkout a remap moves such a session into, so discovery must leave it out
+    /// and name it by its recorded folder. The recorded folder does not exist, so only the remapped checkout resolves.</summary>
+    [Test]
+    public async Task A_recorded_repository_does_not_hide_a_remapped_excluded_checkout() {
+        const string id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        var gone        = Tmp.PathTo("gone-place");
+        var checkout    = Tmp.CreateDir("secret-checkout");
+        using var repo  = GitRepo.InitIn(checkout);
+        repo.AddRemote("https://github.com/acme/secret.git");
+        var source = WriteCopilotSession(id, gone, "acme/open");
+
+        var found = await DiscoverAsync(new ProfileContext(
+                new(null, "default", new Profile { ExcludedRepos = ["acme/secret"] }, null),
+                new ProfileConfig { CwdRemap = [new CwdRemap { From = gone, To = checkout.Path }] }),
+            sources: [source]);
+
+        await Assert.That(found.Summary.IgnoredCount).IsEqualTo(1);
+        await Assert.That(found.Summary.IgnoredFolders.Single().Folder).Contains("gone-place");
     }
 
     /// <summary>A remap cannot bring a session under an ignored path back into scope, so its missing folder is not
