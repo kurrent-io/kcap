@@ -523,7 +523,8 @@ public partial class App : Application {
         if (_postUpdate is not null && setUp) {
             try {
                 await Task.Run(() => refresh.Schedule(install.Root), _shutdown.Token);
-            } catch (IOException ex) {
+            } catch (Exception ex) when (ex is not OperationCanceledException) {
+                // Lock timeout, mutex ACL or a marker AV holds open: none of them may fail the launch.
                 Console.Error.WriteLine($"kcap: could not schedule the integration refresh: {ex.Message}");
             }
         }
