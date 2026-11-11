@@ -27,7 +27,7 @@ internal static partial class UnixPtyInterop {
 
     /// <summary>Whether <paramref name="pid"/> has exited, without reaping it: its zombie keeps its pid and process
     /// group id from being reused. The code is 128 plus the signal for a child a signal killed. -1 with errno
-    /// set when the call fails, as for a child already reaped. <c>siginfo_t</c> differs per OS: <c>si_pid</c>
+    /// set when the call fails, as for a child already reaped; an interrupted call is retried. <c>siginfo_t</c> differs per OS: <c>si_pid</c>
     /// and <c>si_status</c> sit at 16 and 24 on 64-bit Linux, after a padding word, and at 12 and 20 on macOS.</summary>
     public static unsafe int PeekExit(int pid, out bool exited, out int code) {
         const int P_PID = 1, WEXITED = 4, CLD_EXITED = 1;
@@ -38,7 +38,10 @@ internal static partial class UnixPtyInterop {
         exited = false;
         code   = 0;
 
-        var rc = waitid(P_PID, pid, info, WEXITED | WNOHANG | (IsMacOS ? 0x20 : 0x01000000));
+        int rc;
+        while ((rc = waitid(P_PID, pid, info, WEXITED | WNOHANG | (IsMacOS ? 0x20 : 0x01000000))) != 0
+            && Marshal.GetLastPInvokeError() == EINTR) { }
+
         if (rc != 0) return rc;
 
         var (pidAt, statusAt) = IsMacOS ? (12, 20) : (16, 24);
@@ -49,6 +52,21 @@ internal static partial class UnixPtyInterop {
         code   = *(int*)(info + 8) == CLD_EXITED ? status & 0xFF : 128 + status;
 
         return 0;
+    }
+
+    [LibraryImport("libc", SetLastError = true)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe partial int sigaction(int sig, byte* act, byte* oldact);
+
+    /// <summary>The handler now set for SIGCHLD: 0 for the default, 1 for ignored, anything else an installed
+    /// handler. It leads <c>struct sigaction</c> on Linux and macOS alike.</summary>
+    public static unsafe nint SigChldHandler() {
+        const int SIGCHLD_LINUX = 17, SIGCHLD_MACOS = 20;
+
+        var old = stackalloc byte[256];
+        new Span<byte>(old, 256).Clear();
+
+        return sigaction(IsMacOS ? SIGCHLD_MACOS : SIGCHLD_LINUX, null, old) == 0 ? *(nint*)old : -1;
     }
 
     [LibraryImport("libc", SetLastError = true)]

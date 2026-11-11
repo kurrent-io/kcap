@@ -353,17 +353,11 @@ public sealed class UnixPtyProcess : IPtyProcess {
         if (Pid <= 0) return;
 
         lock (_reapSignalGate) {
-            if (_reaped) return; // the ids may be recycled
+            if (_reaped || !LookAtLeader()) return; // the ids may be recycled, or nothing proves they are not
 
-            // Looked at again here, not trusted from an earlier look: .NET's SIGCHLD handler reaps every
-            // child with waitpid(-1) when the daemon is pid 1, as in a container, or inherited SIGCHLD
-            // ignored. Only a reaper running in this same instant can still slip past it.
-            if (UnixPtyInterop.PeekExit(Pid, out _, out _) != 0) {
-                HasExited = true;
-                _reaped   = true;
-
-                return;
-            }
+            // Where the runtime reaps every child, it can reap an exited leader between the look and the
+            // kill, freeing the group id; only a live leader pins it there.
+            if (HasExited && ChildReapers.RuntimeMayReap) return;
 
             if (UnixPtyInterop.kill(-Pid, sig) != 0) UnixPtyInterop.kill(Pid, sig);
         }
@@ -387,19 +381,29 @@ public sealed class UnixPtyProcess : IPtyProcess {
 
     void CheckExited() {
         lock (_reapSignalGate) {
-            if (HasExited) return;
+            if (!HasExited) LookAtLeader();
+        }
+    }
 
-            if (UnixPtyInterop.PeekExit(Pid, out var exited, out var code) == 0) {
-                if (!exited) return;
-
+    /// <summary>Under <see cref="_reapSignalGate"/>. Records the leader's exit, or its reap by someone else;
+    /// false when that is what it found, or the look itself failed.</summary>
+    bool LookAtLeader() {
+        if (UnixPtyInterop.PeekExit(Pid, out var exited, out var code) == 0) {
+            if (exited && !HasExited) {
                 HasExited = true;
                 ExitCode  = code;
-            } else if (Marshal.GetLastPInvokeError() == UnixPtyInterop.ECHILD) {
-                // Reaped by someone else, so the status is lost; the pid may already be another process's.
-                HasExited = true;
-                _reaped   = true;
             }
+
+            return true;
         }
+
+        if (Marshal.GetLastPInvokeError() == UnixPtyInterop.ECHILD) {
+            // Reaped by someone else, so the status is lost; the pid may already be another process's.
+            HasExited = true;
+            _reaped   = true;
+        }
+
+        return false;
     }
 
     /// <summary>Kills what is left of an exited leader's group, its helpers that kept the terminal open, and

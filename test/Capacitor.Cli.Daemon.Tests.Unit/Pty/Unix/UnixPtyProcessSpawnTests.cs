@@ -110,10 +110,12 @@ public class UnixPtyProcessSpawnTests {
 
     /// <summary>A helper that inherited the terminal and ignores SIGHUP keeps it open after the leader
     /// exits, so the terminal never hangs up: the output must still end once the leader has gone, with
-    /// the leader's own exit code, and the helper goes down with the group when the process is disposed.</summary>
+    /// the leader's own exit code, and the helper goes down with the group when the process is disposed.
+    /// Not where the runtime reaps every child: there an exited leader's group is never signalled.</summary>
     [Test]
     public async Task Output_ends_when_the_leader_exits_though_a_helper_holds_the_terminal() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        if (ChildReapers.RuntimeMayReap) return;
 
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
@@ -167,10 +169,11 @@ public class UnixPtyProcessSpawnTests {
     /// <summary>A leader something else reaped after the runtime saw it exit has its group left alone at
     /// disposal: once reaped, the group id no longer proves the group is the agent's. The helper surviving
     /// the disposal is what shows no signal went out. The runtime never reaps before disposal, so the
-    /// test's reap always wins.</summary>
+    /// test's reap always wins, except where .NET reaps every child itself.</summary>
     [Test]
     public async Task A_leader_reaped_elsewhere_after_its_exit_was_seen_has_its_group_left_alone() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        if (ChildReapers.RuntimeMayReap) return;
 
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
