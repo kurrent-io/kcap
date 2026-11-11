@@ -53,8 +53,17 @@ public sealed record AgentRow(
         // Where the listing says the session was recorded; null below ownership, from an older server, and on a daemon row.
         RepoSessionRecordingDto? Recording = null,
         string? AccountLabel = null,
+        // Whether the hosted agent's terminal takes typed input from this viewer's hub.
+        bool TerminalInput = false,
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
         AgentViewerRightsDto? ViewerRights = null) {
+
+    /// A terminal session a daemon steers rather than hosts, from either lane.
+    public bool IsAttached => Kind == AgentActionService.AttachedKind;
+
+    /// A registry row of the local daemon while that daemon neither serves nor starts: the registry still
+    /// lists it live until the server notices the disconnect, and nothing can stop or message it meanwhile.
+    public const string DaemonDownStatus = "DaemonDown";
 
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
@@ -75,23 +84,29 @@ public sealed record AgentRow(
         TerminalDialog: dto.TerminalDialog, Interruption: dto.Interruption,
         AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel);
 
+    /// An attached agent's daemon steers it from the same machine and hosts nothing, so its row carries neither the
+    /// daemon's badge nor its checkout group.
     public static AgentRow FromRemote(AgentInstanceDto dto) {
         var daemonKey = $"{dto.OwnerUserId}/{dto.DaemonName}";
-        var repo = RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
+        var attached = dto.Attached;
+        var repo = attached && (string.IsNullOrEmpty(dto.RepoOwner) || string.IsNullOrEmpty(dto.RepoName))
+            ? RepoIdentity.NoRepository
+            : RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
         return new AgentRow(
             Key: $"remote:{dto.AgentId}", Origin: AgentOrigin.Remote, Id: dto.AgentId, SessionId: dto.SessionId,
-            Kind: "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status), CreatedAt: dto.RegisteredAt,
+            Kind: attached ? AgentActionService.AttachedKind : "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status),
+            CreatedAt: dto.RegisteredAt,
             RepoPath: dto.RepoPath, Title: dto.Title is { Length: > 0 } ? dto.Title : TitleFromPrompt(dto.Prompt),
             Model: dto.Model, RequesterDisplay: null,
             WorktreePath: null, WorkLocation: null, BorrowedFrom: null,
-            MachineBadge: dto.DaemonName, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
-            CheckoutKey: $"@{daemonKey}", CheckoutLabel: $"on {dto.DaemonName}",
+            MachineBadge: attached ? null : dto.DaemonName, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
+            CheckoutKey: attached ? "" : $"@{daemonKey}", CheckoutLabel: attached ? "" : $"on {dto.DaemonName}",
             TerminalDialog: dto.TerminalDialog is { } dialog
                 ? new TerminalDialogDto(dialog.Heading, dialog.Body, dialog.Options, dialog.Selected, dialog.Screen)
                 : null,
             OwnerUserId: dto.OwnerUserId,
             AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel,
-            ViewerRights: dto.ViewerRights);
+            TerminalInput: dto.TerminalInput, ViewerRights: dto.ViewerRights);
     }
 
     /// A row from the server's listing. The status is the daemon vocabulary the rail already reads:
@@ -100,17 +115,12 @@ public sealed record AgentRow(
     /// row for the same session has just gone, so a hand-over never flashes as a terminal session.
     public static AgentRow FromServer(RepoSessionDto dto, bool hostedPresentation) {
         var active = dto.Status == "active";
-        // The listing names only the cwd. A hosted agent's is its worktree, whose path names the
-        // checkout that owns it; any other cwd could be a linked worktree just the same, so it is
-        // not presented as one.
-        var agentWorktree = dto.Cwd is { } cwd ? GitRepository.AgentWorktreeOf(cwd) : null;
-        var repoPath = agentWorktree?.Owner ?? dto.Cwd;
-        var repo = RepoIdentityResolver.ForRemote(dto.Repo?.Owner, dto.Repo?.Name, repoPath, "server");
+        var (repoPath, worktreePath, repo) = ListedCheckout(dto);
         return new(
             Key: $"server:{dto.SessionId}", Origin: AgentOrigin.Server, Id: dto.SessionId, SessionId: dto.SessionId,
             Kind: "session", Vendor: dto.Vendor ?? "", Status: active ? "Running" : "Completed",
             CreatedAt: dto.StartedAt.UtcDateTime, RepoPath: repoPath, Title: dto.Title, Model: null, RequesterDisplay: null,
-            WorktreePath: agentWorktree?.Worktree, WorkLocation: null, BorrowedFrom: null,
+            WorktreePath: worktreePath, WorkLocation: null, BorrowedFrom: null,
             MachineBadge: null, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
             CheckoutKey: "@server", CheckoutLabel: "",
             OwnerUserId: dto.Owner?.UserId, OwnerName: dto.Owner?.DisplayName ?? dto.Owner?.Username,
@@ -118,6 +128,15 @@ public sealed record AgentRow(
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
             IsStale: dto.Stale, IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
             ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording);
+    }
+
+    /// The checkout a listing names for its session. The listing names only the cwd. A hosted agent's is its worktree,
+    /// whose path names the checkout that owns it; any other cwd could be a linked worktree just the same, so it is not
+    /// presented as one.
+    internal static (string? RepoPath, string? WorktreePath, RepoIdentity Repo) ListedCheckout(RepoSessionDto dto) {
+        var agentWorktree = dto.Cwd is { } cwd ? GitRepository.AgentWorktreeOf(cwd) : null;
+        var repoPath = agentWorktree?.Owner ?? dto.Cwd;
+        return (repoPath, agentWorktree?.Worktree, RepoIdentityResolver.ForRemote(dto.Repo?.Owner, dto.Repo?.Name, repoPath, "server"));
     }
 
     static string CanonicalRemoteStatus(string status) => status.ToLowerInvariant() switch {

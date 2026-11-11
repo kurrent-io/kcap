@@ -102,6 +102,22 @@ public class ServerChatInputTests {
     }
 
     [Test]
+    public async Task A_session_whose_daemon_is_down_takes_no_text_or_interrupt_and_says_why() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(hasTerminal: true);
+            h.Ready();
+            await Assert.That(h.Input.CanInterrupt).IsTrue();
+
+            h.Session.OnNext(Harness.Info(AgentRow.DaemonDownStatus));
+
+            await Assert.That(h.Input.CanAcceptText).IsFalse();
+            await Assert.That(h.Input.CanInterrupt).IsFalse();
+            await Assert.That(h.Input.Hint).IsEqualTo(ServerChatInput.DaemonDownHint);
+            h.Input.Dispose();
+        });
+    }
+
+    [Test]
     public async Task Ready_needs_a_live_lane_an_established_session_and_a_running_agent() {
         await RunOnUiAsync(async () => {
             var h = new Harness();

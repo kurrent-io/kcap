@@ -21,6 +21,8 @@ internal sealed record SessionsOptions(
 /// <summary>Parses <c>kcap sessions</c> flags. The generic top-level flag helper returns the first
 /// value and validates nothing, so exclusivity, value presence and shapes are checked here.</summary>
 internal static class SessionsArgs {
+    public const int MaxLimit = 100;
+
     public const string Usage =
         "Usage: kcap sessions [--active | --ended | --all] [--repo <owner/name|hash|all>] [--mine] [--touching <path>] [--since <when>] [--until <when>] [--cursor <value>] [--limit <n>] [--json]";
 
@@ -92,7 +94,7 @@ internal static class SessionsArgs {
 
                     break;
                 case "--limit":
-                    if (!TryValue(args, ref i, out var raw) || !int.TryParse(raw, out limit) || limit is < 1 or > 100) {
+                    if (!TryValue(args, ref i, out var raw) || !int.TryParse(raw, out limit) || limit is < 1 or > MaxLimit) {
                         error = "--limit must be a number from 1 to 100";
 
                         return null;

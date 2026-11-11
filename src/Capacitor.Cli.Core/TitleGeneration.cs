@@ -14,6 +14,10 @@ namespace Capacitor.Cli.Core;
 /// import paths and by the daemon's title resolution.
 /// </summary>
 public static partial class TitleGeneration {
+    /// <summary>The <c>kcap</c> verb that finishes a title for a recorder that can't: it takes the session, the vendor
+    /// and the transcript's path, never the prompt.</summary>
+    public const string HandOffCommand = "generate-title";
+
     static readonly TimeSpan ClaudeTimeout = TimeSpan.FromSeconds(15);
 
     // The claude fallback's process start, which its timeout does not count, and a pi cleanup running past its limit:
@@ -160,12 +164,22 @@ public static partial class TitleGeneration {
     }
 
     /// <summary>
-    /// Strips markdown formatting, trailing question marks, and caps length.
+    /// Strips markdown syntax, trailing question marks, and caps length. Only syntax goes: a <c>#</c>, <c>_</c> or
+    /// <c>*</c> inside the text is part of it, as in "C#", "#2131" or "snake_case", and a code span keeps its
+    /// content verbatim, as in <c>`__init__`</c>.
     /// Returns null if the output looks like a refusal preamble rather than a title —
     /// the caller can retry or fall back instead of persisting garbage.
     /// </summary>
     internal static string? CleanTitle(string raw) {
-        var title = MarkdownRx().Replace(raw, "").Trim();
+        var spans = new List<string>();
+        var title = CodeSpanRx().Replace(raw.Replace(CodeSpanMark, "", StringComparison.Ordinal), m => {
+            spans.Add(m.Groups[1].Value);
+            return CodeSpanMark;
+        });
+        title = HeadingRx().Replace(title.Trim(), "");
+        title = EmphasisRx().Replace(title, "$2").Replace("`", "", StringComparison.Ordinal);
+        var parts = title.Split(CodeSpanMark);
+        title = string.Concat(parts.Select((part, i) => i == 0 ? part : spans[i - 1] + part)).Trim();
         title = title.TrimEnd('?').TrimEnd();
 
         if (LooksLikeRefusal(title)) {
@@ -207,8 +221,17 @@ public static partial class TitleGeneration {
         return sb.ToString();
     }
 
-    [GeneratedRegex("[*_`#]+")]
-    private static partial Regex MarkdownRx();
+    [GeneratedRegex(@"^#{1,6}\s+")]
+    private static partial Regex HeadingRx();
+
+    // Stands in for each code span while emphasis is stripped around it; a private-use character no title carries.
+    const string CodeSpanMark = "";
+
+    [GeneratedRegex("`([^`]+)`")]
+    private static partial Regex CodeSpanRx();
+
+    [GeneratedRegex(@"(?<![\w*])(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*])")]
+    private static partial Regex EmphasisRx();
 
     [GeneratedRegex(@"^(?:I\s+(?:cannot|can't|can\s+only|am\s+(?:unable|not\s+able))\b|I'?m\s+(?:sorry|unable)\b|Sorry[,\s]|My\s+(?:instructions|role|job)\b|As\s+an?\s+\w+,?\s+I\b|Unfortunately[,\s])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

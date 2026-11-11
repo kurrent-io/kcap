@@ -56,4 +56,5 @@ public interface IServerLane {
     Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, IReadOnlyList<string> attachmentIds, CancellationToken ct);
     Task<HubCallOutcome> DiscardQueuedInputAsync(string agentId, Guid dispatchId, CancellationToken ct);
     Task<HubCallOutcome> SendSpecialKeyAsync(string agentId, string key, CancellationToken ct);
+    Task<HubCallOutcome> SendTerminalInputAsync(string agentId, byte[] data, CancellationToken ct);
 }

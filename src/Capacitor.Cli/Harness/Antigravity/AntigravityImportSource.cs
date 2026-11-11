@@ -63,7 +63,17 @@ internal sealed class AntigravityImportSource : IImportSource {
     public bool   SupportsTitleGeneration => false; // server computes a fallback title at session-end
     public bool   AttachesChildContentOnReplay => true;  // AlreadyLoaded repair branch imports children
 
-    void Log(TextWriter? stderr, string message) => (stderr ?? Console.Error).WriteLine($"[{_time.GetLocalNow():HH:mm:ss.fff}] [antigravity-import] {message}");
+    static void ReportDrift(TextWriter? stderr, int danglingChild, int msgButNoInvoke) {
+        var drift = new List<string>();
+
+        if (danglingChild > 0)
+            drift.Add($"{danglingChild} invoked subagent(s) have no conversation directory");
+
+        if (msgButNoInvoke > 0)
+            drift.Add($"{msgButNoInvoke} conversation(s) have messages but no invoke edge, so their subagents may import as separate sessions");
+
+        if (drift.Count > 0) (stderr ?? Console.Error).WriteLine($"! Antigravity: {string.Join("; ", drift)}.");
+    }
 
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var result = new List<DiscoveredSession>();
@@ -111,16 +121,15 @@ internal sealed class AntigravityImportSource : IImportSource {
         }
         var byRoot    = AntigravitySubagents.BuildRootDescendants(convIds, parentMap);
 
-        // drift observability: surface format drift without a messages fallback.
-        // HashSet membership so the counters stay O(n), not O(n²), on large brain trees (qodo #285).
+        // Format drift shows as linkage the invoke edges no longer explain; a clean tree says nothing, since this
+        // prints into the setup wizard and `import --discover`. Sets keep the counts O(n) on large brain trees.
         var allConversationIds = convIds.ToHashSet(StringComparer.Ordinal);
         var linkedChildIds     = parentMap.Values.ToHashSet(StringComparer.Ordinal);
-        var invokeEdges   = parentMap.Count;
         var danglingChild = parentMap.Keys.Count(c => !allConversationIds.Contains(c));
         var msgButNoInvoke = convIds.Count(id =>
             Directory.Exists(_paths.MessagesDirUnder(productRoot, id))
             && !parentMap.ContainsKey(id) && !linkedChildIds.Contains(id));
-        Log(stderr, $"Antigravity import ({Path.GetFileName(productRoot)}): {invokeEdges} invoke edge(s); {danglingChild} invoked child id(s) with no conversation dir; {msgButNoInvoke} conversation(s) with messages/ but no invoke edge");
+        ReportDrift(stderr, danglingChild, msgButNoInvoke);
 
         foreach (var (convId, descendants) in byRoot) {
             ct.ThrowIfCancellationRequested();
@@ -180,6 +189,12 @@ internal sealed class AntigravityImportSource : IImportSource {
             }
             if (nonBlank < ctx.MinLines) {
                 results.Add(Make(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank));
+                continue;
+            }
+
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Make(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
+                results.Add(excluded);
                 continue;
             }
 

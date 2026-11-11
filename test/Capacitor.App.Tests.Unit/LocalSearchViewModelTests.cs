@@ -25,8 +25,9 @@ public class LocalSearchViewModelTests {
         public int Reconnects;
         /// What `data/embedding.json` holds; the view model reads it again once a run settles.
         public LocalEmbeddingSetting? Setting;
-        /// What the installed stack's manifest offers; looked up again on every reconnect.
+        /// What the installed stack's manifest offers; looked up once the controls show, then on every reconnect.
         public LocalEmbeddingModelManifest? Offered;
+        public int OfferLookups;
         /// Set before construction to hold the lookup open.
         public TaskCompletionSource<LocalEmbeddingModelManifest?>? Lookup;
 
@@ -37,20 +38,24 @@ public class LocalSearchViewModelTests {
         public int HealthReads;
 
         public Harness(LocalEmbeddingSetting? setting, bool offered = true, TaskCompletionSource<LocalEmbeddingModelManifest?>? lookup = null,
-                EmbeddingHealthAnswer? health = null, IScheduler? reads = null) {
+                EmbeddingHealthAnswer? health = null, IScheduler? reads = null, bool shown = true) {
             Lookup  = lookup;
             Setting = setting;
             Health  = health;
             Offered = offered ? new("builtin-test", 1, new('e', 64), [new("model.onnx", new('f', 64), 300L * 1024 * 1024)]) : null;
             Search  = new LocalSearchController(() => Cli, action => action(), held: () => Upgrade.Running);
             Upgrade = new LocalUpgradeController(() => Cli, action => action(), held: () => Search.Running);
-            Vm = new LocalSearchViewModel(() => Setting, _ => Lookup?.Task ?? Task.FromResult(Offered), Status, Search, Upgrade, () => {
+            Vm = new LocalSearchViewModel(() => Setting, _ => {
+                OfferLookups++;
+                return Lookup?.Task ?? Task.FromResult(Offered);
+            }, Status, Search, Upgrade, () => {
                 Reconnects++;
                 return Task.CompletedTask;
             }, CancellationToken.None, reads ?? ImmediateScheduler.Instance, openSettings: OpenSettings, readHealth: _ => {
                 HealthReads++;
                 return Task.FromResult(Health);
             });
+            if (shown) Vm.Shown();
         }
 
         public async Task ApplyAsync(int exitCode, params string[] lines) {
@@ -121,6 +126,29 @@ public class LocalSearchViewModelTests {
 
             await Assert.That(h.Vm.Choice.BuiltinEnabled).IsTrue();
             await Assert.That(h.Vm.Choice.UseBuiltin).IsTrue();
+        });
+    }
+
+    /// <summary>The offer is a fetch of the release manifest, so neither launch nor the lane's first connect makes it;
+    /// only the search controls being shown does.</summary>
+    [Test]
+    public async Task The_builtin_offer_waits_for_the_search_controls_to_show() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(null, shown: false);
+            h.Status.OnNext(new(ServerLaneState.Retrying));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+
+            await Assert.That(h.OfferLookups).IsEqualTo(0);
+
+            h.Vm.Shown();
+
+            await Assert.That(h.OfferLookups).IsEqualTo(1);
+            await Assert.That(h.Vm.Choice.BuiltinEnabled).IsTrue();
+
+            h.Status.OnNext(new(ServerLaneState.Retrying));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+
+            await Assert.That(h.OfferLookups).IsEqualTo(2);
         });
     }
 
@@ -500,7 +528,7 @@ public class LocalSearchViewModelTests {
     [Test]
     public async Task A_reconnect_or_a_showing_rereads_the_vectors_state() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var h = new Harness(LocalEmbeddingSetting.Builtin(new string('a', 64)), health: Builtin(VectorStorageState.NotRun));
+            using var h = new Harness(LocalEmbeddingSetting.Builtin(new string('a', 64)), health: Builtin(VectorStorageState.NotRun), shown: false);
 
             h.Health = Builtin(VectorStorageState.Failing);
             h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
@@ -509,7 +537,7 @@ public class LocalSearchViewModelTests {
             await Assert.That(h.Vm.VectorsFailing).IsTrue();
 
             h.Health = Builtin(VectorStorageState.Ok);
-            h.Vm.ReadHealth();
+            h.Vm.Shown();
 
             await Assert.That(h.Vm.VectorsFailing).IsFalse();
             await Assert.That(h.HealthReads).IsEqualTo(3);

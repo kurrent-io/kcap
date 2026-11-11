@@ -28,6 +28,27 @@ public class AgentActionServiceTests {
 
     // ---- stop result mapping ----
 
+    /// Stopping an attached agent disconnects steering and leaves its session running, so there is no flow to strand and
+    /// nothing to confirm; a failure on either lane says the disconnect failed, never that a stop did.
+    [Test]
+    public async Task An_attached_agents_stop_confirms_nothing_and_a_failure_reads_as_a_failed_disconnect() {
+        var ops = new ScriptedLocalControlOps();
+        var notifier = new RecordingNotifier();
+        var lane = new FakeServerLane { StopHandler = _ => Task.FromResult(HubCallOutcome.Failed("daemon offline")) };
+        var service = NewService(ops, notifier, new RecordingOpener(), lane: lane);
+
+        ops.QueueStop(new StopAgentResult(false, "failed", null));
+        service.RequestStop("mod-1", "Terminal session", "attached");
+        await WaitUntilAsync(() => notifier.Notified.Count >= 1, what: "the local failure");
+
+        service.RequestStop("mod-2", "Terminal session", "attached", AgentOrigin.Remote);
+        await WaitUntilAsync(() => notifier.Notified.Count >= 2, what: "the remote failure");
+
+        await Assert.That(ops.StopPayloads).IsEquivalentTo([("mod-1", false)], CollectionOrdering.Matching);
+        await Assert.That(notifier.Notified).IsEquivalentTo(
+            ["Failed to disconnect steering", "Failed to disconnect steering: daemon offline"], CollectionOrdering.Matching);
+    }
+
     [Test]
     public async Task Stop_failed_banners() {
         var ops = new ScriptedLocalControlOps();

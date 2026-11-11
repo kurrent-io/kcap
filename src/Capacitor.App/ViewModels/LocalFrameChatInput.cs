@@ -48,8 +48,10 @@ internal sealed class LocalFrameChatInput : ChatInput {
         Raise();
     }
 
+    /// Only the server can send to a terminal session the daemon steers: the daemon's own SendText has no such agent.
     public override SendAvailability Availability =>
         _presence.SessionEnded ? SendAvailability.Ended
+        : _presence.Dto?.Kind == AgentActionService.AttachedKind ? SendAvailability.ReadOnly
         : _status.State != AttachState.Connected ? SendAvailability.Connecting
         : _status.Capabilities is not { } caps || !caps.Contains(InputCapability) ? SendAvailability.Unsupported
         : _sending ? SendAvailability.Sending
@@ -63,6 +65,7 @@ internal sealed class LocalFrameChatInput : ChatInput {
         SendAvailability.Sending     => "Sending…",
         SendAvailability.Unsupported => "Update the daemon to send messages from the app",
         SendAvailability.Ended       => "This session has ended",
+        SendAvailability.ReadOnly    => AttachedAgentCopy.NotListed,
         // An agent with no process: the daemon is bringing it back, or gave up.
         _ when _presence.Dto?.Status == "Interrupted" => TerminalChatInput.InterruptedHint(_presence.Dto.Interruption),
         _ when _presence.Dto?.Status == "Resuming" => "Waiting for the agent to resume after a daemon restart…",
@@ -105,7 +108,10 @@ internal sealed class LocalFrameChatInput : ChatInput {
         }
         if (result.Ok) return Settle(ChatSendOutcome.Accepted, null);
         var outcome = result.Reason == SendTextReasons.Transport ? ChatSendOutcome.Unconfirmed : ChatSendOutcome.Rejected;
-        return Settle(outcome, NoticeFor(result));
+        var notice = result.Reason == SendTextReasons.TextEmpty && attachmentIds.Count > 0 && string.IsNullOrWhiteSpace(text)
+            ? "Add text to send these files, or update the daemon."
+            : NoticeFor(result);
+        return Settle(outcome, notice);
     }
 
     internal static string NoticeFor(SendTextResult result) => result.Reason switch {

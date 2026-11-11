@@ -1,5 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Reactive.Threading.Tasks;
+using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
@@ -37,6 +39,29 @@ public class WorkspaceViewModelTests {
             webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages);
 
     const string Session = "0123456789abcdef0123456789abcdef";
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_start_failure_arriving_after_workspace_teardown_does_not_throw() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var result = new TaskCompletionSource<StartDaemonResult>();
+            daemon.StartBehavior = _ => result.Task;
+            var vm = Build(daemon, WorkspaceFixtures.NewActions(), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
+            var errors = new List<Exception>();
+            using var exceptions = vm.StartDaemonCommand.ThrownExceptions.Subscribe(errors.Add);
+            var start = vm.StartDaemonCommand.Execute().ToTask();
+            try {
+                await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
+                await vm.TeardownAsync();
+            } finally {
+                result.TrySetResult(new StartDaemonResult(false, "start failed"));
+            }
+            await start;
+            await Assert.That(errors).IsEmpty();
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+        });
+    }
 
     /// The tab exists only while the session has a document, like Pull request with its changes.
     [Test]
@@ -418,6 +443,33 @@ public class WorkspaceViewModelTests {
         });
     }
 
+    /// The daemon's row for an attached agent, which it steers rather than hosts: the stop disconnects steering through
+    /// the daemon's own stop, which takes it without a force, so nothing asks to confirm stranding a flow, and there is
+    /// no terminal to show.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_attached_agents_stop_reads_as_disconnecting_steering() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var ops = new ScriptedLocalControlOps();
+            var vm = new WorkspaceViewModel("mod-1", daemon, NewActions(ops, new RecordingNotifier(), new RecordingOpener()),
+                new FakeTerminalAttachClientFactory().Factory, () => new FakeTerminalSurface(), new FakeTimeProvider(), new RecordingOpener(),
+                new FakePermissionService(), new FakeWorkContextSource(), ops, new NoAttachmentUploader());
+            daemon.Agents.AddOrUpdate(Agent("mod-1", "claude", hasTerminal: false, kind: "attached", sessionId: Session));
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+
+            await Assert.That(vm.StopLabel).IsEqualTo("Disconnect steering");
+            await Assert.That(vm.RepoLabelText).IsEqualTo("Terminal session");
+            await Assert.That(vm.ShowsTerminalTab).IsFalse();
+
+            ops.QueueStop(new StopAgentResult(true, "stopped", null));
+            await vm.StopCommand.Execute();
+            await WaitUntilAsync(() => ops.StopCalls >= 1, what: "the stop");
+            await Assert.That(ops.StopPayloads).IsEquivalentTo([("mod-1", false)], CollectionOrdering.Matching);
+            await vm.TeardownAsync();
+        });
+    }
+
     /// Between the launch being accepted and the daemon publishing the agent, the header reads the
     /// directory's pending row, so the workspace never opens as a blank shell.
     [Test]
@@ -587,27 +639,35 @@ public class WorkspaceViewModelTests {
         });
     }
 
-    /// The banner layer (session-ended card, detach/reattach controls) is Terminal-tab-only: a
-    /// non-PTY session's chat surface owns the pane on every other tab, so it must never render
-    /// underneath ChatHost.
+    /// One banner at a time: none over the chat, which shows its own; the daemon's notice over the
+    /// terminal's, since a down daemon is the cause of any terminal state; the terminal's once it is back.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task ShowsTerminalBanners_is_true_only_on_the_Terminal_tab_pty_or_not() {
+    public async Task The_banner_shows_one_notice_and_the_daemon_outranks_the_terminal() {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
-            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
-
-            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: false));
-            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
-            await Assert.That(vm.ShowsTerminalBanners).IsFalse();
-            await vm.ShowTerminalCommand.Execute();
-            await Assert.That(vm.ShowsTerminalBanners).IsTrue();
-
+            var attach = new FakeTerminalAttachClientFactory();
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), attach, new FakeTimeProvider());
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
-            await Assert.That(vm.ShowsTerminalBanners).IsTrue();
+            await vm.ShowTerminalCommand.Execute();
+            attach.Created[^1].Result.SetResult(new AttachOutcome.Detached());
+            await vm.Terminal.CurrentRunForTesting!;
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("Detached from the terminal");
+
+            daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("The daemon isn’t running");
+
             await vm.ShowChatCommand.Execute();
-            await Assert.That(vm.ShowsTerminalBanners).IsFalse();
+            await Assert.That(vm.HasBannerNotice).IsFalse();
+
+            await vm.ShowTerminalCommand.Execute();
+            daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.BannerNotice?.Title).IsEqualTo("Detached from the terminal");
 
             await vm.TeardownAsync();
         });

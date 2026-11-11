@@ -260,8 +260,13 @@ public sealed class AccountsCommand(AccountStore accounts, PluginEnvironment env
         string? error = null;
         if (!fatal) {
             await Say($"Wired {account.Vendor} account {account.Label} ({account.Directory}).");
-            if (account.Vendor is HarnessId.Codex)
-                await Say($"  Trust the kcap hooks the next time you start Codex with CODEX_HOME={account.Directory}.");
+            if (account.Vendor is HarnessId.Codex) {
+                var seed = await new CodexHookTrustSeeder(env.Harnesses, env.Home, time)
+                    .SeedAsync(AccountLayouts.Codex(env.Home, account.Directory), CancellationToken.None);
+                await Say(seed is CodexHookTrustSeed.Trusted or CodexHookTrustSeed.AlreadyTrusted
+                    ? "  Codex trusts the kcap hooks, so `codex exec` records too."
+                    : $"  Trust the kcap hooks the next time you start Codex with CODEX_HOME={account.Directory}.");
+            }
         }
 
         if (steps.Any(s => !s.Succeeded)) {

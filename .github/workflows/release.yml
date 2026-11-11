@@ -150,17 +150,21 @@ jobs:
             cd -
           done
 
-      - name: Update plugin version
+      # Both plugins: Claude Code reads a plugin's payload as new only when its version moves.
+      - name: Update plugin versions
         run: |
           node -e "
-            const pkg = require('./kcap/.claude-plugin/plugin.json');
-            pkg.version = '$VERSION';
-            require('fs').writeFileSync('./kcap/.claude-plugin/plugin.json', JSON.stringify(pkg, null, 2) + '\n');
+            for (const path of ['./kcap/.claude-plugin/plugin.json', './kcap/steering/.claude-plugin/plugin.json']) {
+              const pkg = require(path);
+              pkg.version = '$VERSION';
+              require('fs').writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+            }
           "
 
       - name: Copy plugin and license into wrapper package
         run: |
           cp -r kcap/ npm/kcap/kcap/
+          source scripts/lib/plugin-dev-files.sh && strip_plugin_dev_files npm/kcap/kcap
           cp LICENSE.md npm/kcap/LICENSE.md
 
       # A wrapper installable before its platform packages installs without them, silently: npm

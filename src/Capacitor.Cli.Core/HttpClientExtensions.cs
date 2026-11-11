@@ -82,7 +82,7 @@ public static class HttpClientExtensions {
     static readonly TimeSpan MaxDelay       = TimeSpan.FromSeconds(4);
 
     /// <summary>
-    /// Per-attempt cap on a single HTTP call inside <see cref="SendWithRetryAsync(Func{CancellationToken, Task{HttpResponseMessage}}, TimeSpan, TimeProvider, CancellationToken, bool)"/>.
+    /// Per-attempt cap on a single HTTP call inside <see cref="SendWithRetryAsync(Func{CancellationToken, Task{HttpResponseMessage}}, TimeSpan, TimeProvider, CancellationToken, bool, Func{bool})"/>.
     /// Enforced via a linked <see cref="CancellationTokenSource"/> so the wall-clock cap
     /// is observable on the token we pass to <see cref="HttpClient"/> — not on the
     /// client's own <see cref="HttpClient.Timeout"/> (default 100s), which would
@@ -90,6 +90,17 @@ public static class HttpClientExtensions {
     /// site whose <c>catch</c> only covers <see cref="HttpRequestException"/>.
     /// </summary>
     internal static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>A caller's guard on a request: a handler about to send it again within one attempt, as
+    /// <c>UnauthorizedRecoveryHandler</c> does after a 401 and <c>LocalDestinationHandler</c> does for a redirect hop,
+    /// sends it only when this says so.</summary>
+    internal static readonly HttpRequestOptionsKey<Func<bool>> MayResend = new("kcap.may-resend");
+
+    static HttpRequestMessage Guarded(HttpRequestMessage request, Func<bool> mayAttempt) {
+        request.Options.Set(MayResend, mayAttempt);
+
+        return request;
+    }
 
     internal const string SchemeMissingHint =
         "server_url is missing a scheme. Run: kcap config set server_url https://<host>";
@@ -103,15 +114,23 @@ public static class HttpClientExtensions {
         /// <param name="retryStatuses">Retry a retryable status as a transport fault is retried — see
         /// <see cref="IsRetryableStatus"/>. Off by default, and set only where a lost call is counted and
         /// shown to someone.</param>
+        /// <param name="mayAttempt">Asked before every attempt, a retry's included: false ends the call with
+        /// <see cref="OperationCanceledException"/>, sending nothing more. The request carries it too, so a handler
+        /// that would send it again within one attempt asks first (see <see cref="MayResend"/>).</param>
         public Task<HttpResponseMessage> PostWithRetryAsync(
                 string            url,
                 HttpContent       content,
                 TimeProvider      time,
                 TimeSpan?         timeout       = null,
                 CancellationToken ct            = default,
-                bool              retryStatuses = false
+                bool              retryStatuses = false,
+                Func<bool>?       mayAttempt    = null
             ) =>
-            SendWithRetryAsync(token => client.PostAsync(url, content, token), timeout ?? DefaultTimeout, time, ct, retryStatuses);
+            SendWithRetryAsync(
+                token => mayAttempt is null
+                    ? client.PostAsync(url, content, token)
+                    : client.SendAsync(Guarded(new HttpRequestMessage(HttpMethod.Post, url) { Content = content }, mayAttempt), token),
+                timeout ?? DefaultTimeout, time, ct, retryStatuses, mayAttempt);
 
         public Task<HttpResponseMessage> GetWithRetryAsync(
                 string url, TimeProvider time, TimeSpan? timeout = null, CancellationToken ct = default) =>
@@ -259,8 +278,9 @@ public static class HttpClientExtensions {
             TimeSpan                                           totalTimeout,
             TimeProvider                                       time,
             CancellationToken                                  ct,
-            bool                                               retryStatuses = false
-        ) => SendWithRetryAsync(send, totalTimeout, PerAttemptTimeout, time, ct, retryStatuses);
+            bool                                               retryStatuses = false,
+            Func<bool>?                                        mayAttempt    = null
+        ) => SendWithRetryAsync(send, totalTimeout, PerAttemptTimeout, time, ct, retryStatuses, mayAttempt);
 
     internal static async Task<HttpResponseMessage> SendWithRetryAsync(
             Func<CancellationToken, Task<HttpResponseMessage>> send,
@@ -268,7 +288,8 @@ public static class HttpClientExtensions {
             TimeSpan                                           perAttemptTimeout,
             TimeProvider                                       time,
             CancellationToken                                  ct,
-            bool                                               retryStatuses = false
+            bool                                               retryStatuses = false,
+            Func<bool>?                                        mayAttempt    = null
         ) {
         var        started   = time.GetTimestamp();
         var        delayMs   = 250;
@@ -291,6 +312,9 @@ public static class HttpClientExtensions {
 
                 if (remaining <= TimeSpan.Zero)
                     return Answered() ?? throw BudgetExhausted(totalTimeout, perAttemptTimeout, lastError);
+
+                // Outside the try, so no catch below takes it for a fault to retry.
+                if (mayAttempt?.Invoke() == false) throw new OperationCanceledException("The caller withdrew the request before its next attempt.");
 
                 var attemptCap = remaining < perAttemptTimeout ? remaining : perAttemptTimeout;
 

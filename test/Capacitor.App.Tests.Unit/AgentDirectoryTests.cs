@@ -220,6 +220,83 @@ public class AgentDirectoryTests {
         await Assert.That(dir.IsProvenLocalTwin("a1")).IsFalse();
     }
 
+    /// The local daemon steers an attached agent's terminal session but does not host it, and only the server can send to
+    /// it. So once the twin's registry lists it, that row stands for it while the local socket is up, and its leaving
+    /// is never read as this machine taking the agent over.
+    [Test]
+    public async Task An_attached_agent_the_twin_registers_is_listed_from_the_server() {
+        var (local, remote, _, dir) = Build();
+        using var _d = dir;
+        local.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/1"]));
+        local.Agents.AddOrUpdate(new AgentStatusDto(
+            "mod-1", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null,
+            HasTerminal: false, SessionId: "s1"));
+        remote.DaemonsSubject.OnNext([TwinDaemon]);
+
+        var unregistered = dir.Rows.Lookup("local:mod-1").Value;
+        await Assert.That(unregistered.IsAttached).IsTrue();
+        await Assert.That(unregistered.RepoGroupKey).IsEqualTo("path:");
+
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "daemon-a", sessionId: "s1") with { RepoOwner = null, RepoName = null, Attached = true });
+
+        await Assert.That(dir.Rows.Lookup("local:mod-1").HasValue).IsFalse();
+        var registered = dir.Rows.Lookup("remote:mod-1").Value;
+        await Assert.That(registered.IsAttached).IsTrue();
+        await Assert.That(registered.MachineBadge).IsNull();
+        await Assert.That(registered.RepoGroupKey).IsEqualTo("path:");
+        await Assert.That(dir.IsProvenLocalTwin("mod-1")).IsFalse();
+    }
+
+    /// The registry lists a killed daemon's agents live until the server notices the disconnect. With the twin
+    /// neither serving nor starting, its rows read as not running, and only its rows: another daemon's agents are live.
+    [Test]
+    public async Task A_down_twins_registry_rows_read_daemon_not_running() {
+        var (local, remote, starting, dir) = BuildRestarting();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo(AgentRow.DaemonDownStatus);
+        await Assert.That(dir.Rows.Lookup("remote:b1").Value.Status).IsEqualTo("Running");
+        await Assert.That(dir.IsHostedNow(dir.Rows.Lookup("remote:a1").Value)).IsFalse();
+
+        starting.OnNext(true);
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+
+        starting.OnNext(false);
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/2"]));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsFalse();
+        await Assert.That(dir.Rows.Lookup("local:a1").Value.Status).IsEqualTo("Running");
+    }
+
+    /// A daemon the app rejects as incompatible is still running and serving the server, and a reconnect
+    /// attempt's Connecting reports no outage of its own, so neither reads the twin's rows as not running.
+    [Test]
+    public async Task An_incompatible_or_reconnecting_twin_keeps_its_registry_rows_running() {
+        var (local, remote, _, dir) = BuildRestarting();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_incompatible", null, "0.0.1"));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+        await Assert.That(dir.IsHostedNow(dir.Rows.Lookup("remote:a1").Value)).IsTrue();
+
+        local.StatusSubject.OnNext(new(AttachState.Connecting, null, null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo("Running");
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+        local.StatusSubject.OnNext(new(AttachState.Connecting, null, null));
+
+        await Assert.That(dir.Rows.Lookup("remote:a1").Value.Status).IsEqualTo(AgentRow.DaemonDownStatus);
+    }
+
     /// A restarting daemon drops off the server's registry before it comes back. The twin proven
     /// before is still its identity, so the agent is not listed twice in that gap.
     [Test]
@@ -974,6 +1051,87 @@ public class AgentDirectoryTests {
         remote.CurrentSubject.OnNext(true);
         await Assert.That(dir.Rows.Lookup("remote:b1").HasValue).IsTrue();
         await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
+    }
+
+    /// Neither lane names an attached agent's checkout, but the listing knows its session's, so the agent sits in that
+    /// repository's group, and in the same worktree, where the session's own row sits when nothing steers it.
+    [Test]
+    public async Task An_attached_agent_takes_its_sessions_repository_from_the_listing() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var listed = Listed("S", "active") with {
+            Cwd = "/w/kcap-cli/.claude/worktrees/fine-mat/src", Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
+        };
+        sessions.LiveCache.AddOrUpdate(listed);
+        sessions.MineLiveCache.AddOrUpdate(listed);
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with { RepoOwner = null, RepoName = null, Attached = true });
+
+        var row = dir.Rows.Lookup("remote:mod-1").Value;
+        var own = AgentRow.FromServer(listed, hostedPresentation: false);
+        await Assert.That((row.RepoGroupKey, row.RepoGroupLabel, row.RepoPath, row.WorktreePath))
+            .IsEqualTo((own.RepoGroupKey, own.RepoGroupLabel, own.RepoPath, own.WorktreePath));
+        await Assert.That(row.RepoGroupKey).IsEqualTo("repo:kurrent-io/kcap-cli");
+        await Assert.That(row.RepoPath).IsEqualTo("/w/kcap-cli");
+        await Assert.That(row.WorktreePath).IsEqualTo("/w/kcap-cli/.claude/worktrees/fine-mat");
+        await Assert.That(row.MachineBadge).IsNull();
+        await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
+    }
+
+    /// The registry can name an attached agent's repository, from its session, and still no checkout: the listing's cwd
+    /// names that, and the registry's group stands.
+    [Test]
+    public async Task An_attached_agent_the_registry_names_a_repository_for_takes_its_checkout_from_the_listing() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var listed = Listed("S", "active") with { Cwd = "/w/kcap-cli/.claude/worktrees/fine-mat/src" };
+        sessions.LiveCache.AddOrUpdate(listed);
+        sessions.MineLiveCache.AddOrUpdate(listed);
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RepoOwner = "kurrent-io", RepoName = "kcap-cli", Attached = true,
+        });
+
+        var row = dir.Rows.Lookup("remote:mod-1").Value;
+        await Assert.That(row.RepoGroupKey).IsEqualTo("repo:kurrent-io/kcap-cli");
+        await Assert.That(row.RepoPath).IsEqualTo("/w/kcap-cli");
+        await Assert.That(row.WorktreePath).IsEqualTo("/w/kcap-cli/.claude/worktrees/fine-mat");
+    }
+
+    /// The registry can name an attached agent's repository and its checkout, and still no worktree: the listing's cwd
+    /// names that, inside the same checkout.
+    [Test]
+    public async Task An_attached_agent_the_registry_names_a_checkout_for_takes_its_worktree_from_the_listing() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var listed = Listed("S", "active") with { Cwd = "/w/kcap-cli/.claude/worktrees/fine-mat/src" };
+        sessions.LiveCache.AddOrUpdate(listed);
+        sessions.MineLiveCache.AddOrUpdate(listed);
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RepoOwner = "kurrent-io", RepoName = "kcap-cli", RepoPath = "/w/kcap-cli", Attached = true,
+        });
+
+        var row = dir.Rows.Lookup("remote:mod-1").Value;
+        await Assert.That(row.RepoGroupKey).IsEqualTo("repo:kurrent-io/kcap-cli");
+        await Assert.That(row.RepoPath).IsEqualTo("/w/kcap-cli");
+        await Assert.That(row.WorktreePath).IsEqualTo("/w/kcap-cli/.claude/worktrees/fine-mat");
+    }
+
+    /// Disconnecting steering leaves the session running in its terminal, so its own row reads as a terminal session
+    /// at once: no hand-over grace, which is for an agent a daemon hosts.
+    [Test]
+    public async Task A_session_whose_steering_ends_reads_as_a_terminal_session_at_once() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        MineLive(sessions, "S");
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with { Attached = true });
+        await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
+
+        remote.Cache.RemoveKey("mod-1");
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
     }
 
     [Test]

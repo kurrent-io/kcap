@@ -508,6 +508,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     public Task<HubCallOutcome> DiscardQueuedInputAsync(string agentId, Guid dispatchId, CancellationToken ct) =>
         InvokeAsync(HubMethods.DiscardQueuedInput, ct, new DiscardQueuedInputRequest(agentId, dispatchId));
     public Task<HubCallOutcome> SendSpecialKeyAsync(string agentId, string key, CancellationToken ct) => InvokeAsync(HubMethods.SendSpecialKey, ct, agentId, key);
+    public Task<HubCallOutcome> SendTerminalInputAsync(string agentId, byte[] data, CancellationToken ct) =>
+        InvokeAsync(HubMethods.SendTerminalInput, ct, new SendTerminalInputRequest(agentId, Convert.ToBase64String(data)));
 
     /// Denied is the server's session-visibility refusal (HubException carrying WireTokens.
     /// SessionNotVisible); every other exception is Failed with its message, and a lane with no

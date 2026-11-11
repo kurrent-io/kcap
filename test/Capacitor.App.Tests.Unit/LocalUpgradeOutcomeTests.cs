@@ -30,6 +30,18 @@ public class LocalUpgradeOutcomeTests {
         await Assert.That(outcome).IsEqualTo(new LocalUpgradeOutcome.NothingToDo(reason));
     }
 
+    /// <summary>A current or newer stack exits 0 with its nothing_to_do line, and must not read as an upgrade.</summary>
+    [Test]
+    [Arguments("current")]
+    [Arguments("stack_newer")]
+    public async Task Exit_0_with_nothing_to_do_is_nothing_to_do(string reason) {
+        var p = Run(UpgradeScript.NothingToDo(reason, "1.2.0", "1.2.0"));
+
+        var outcome = LocalUpgradeOutcome.Settle(p, 0, null);
+
+        await Assert.That(outcome).IsEqualTo(new LocalUpgradeOutcome.NothingToDo(reason));
+    }
+
     [Test]
     public async Task Exit_4_is_not_published_rather_than_a_failure() {
         var p = Run(UpgradeScript.Failed("bundle_not_published", "No bundle is published for 1.3.0 yet.", false));

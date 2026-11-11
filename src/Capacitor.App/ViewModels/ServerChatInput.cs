@@ -17,6 +17,7 @@ internal sealed class ServerChatInput : ChatInput {
     /// The listing does not say whether a session ran live or came in through a history import, so
     /// the hint names both rather than calling an imported one ended.
     internal const string EndedHint = "This session ended or was imported. Its recorded history is read-only.";
+    internal const string DaemonDownHint = "Its daemon is not running. Start it to message this session.";
 
     readonly string _agentId;
     readonly IServerLane _lane;
@@ -109,6 +110,7 @@ internal sealed class ServerChatInput : ChatInput {
             SendAvailability.Ready   => "Enter sends · Shift+Enter for a new line",
             SendAvailability.Sending => "Sending…",
             SendAvailability.Ended   => EndedHint,
+            _ when _session?.Status == AgentRow.DaemonDownStatus => DaemonDownHint,
             _                        => "Connecting to the session…",
         };
 

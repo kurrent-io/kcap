@@ -147,6 +147,14 @@ public class ShortLiveSessionTests {
         await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(Tmp.PathTo("missing.jsonl"), 0, "pi")).IsFalse();
     }
 
+    /// <summary>A directory refuses a read on every platform, as a file pending delete does on Windows.</summary>
+    [Test]
+    public async Task A_transcript_that_refuses_its_read_may_hold_a_turn() {
+        string refused = Tmp.CreateDir("refused.jsonl");
+
+        await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(refused, 0, "pi")).IsTrue();
+    }
+
     [Test]
     public async Task A_turn_the_server_already_holds_is_not_counted_again() {
         var path = Tmp.CreateFile("t.jsonl", Lines(PiPrompt, PiModelChange));

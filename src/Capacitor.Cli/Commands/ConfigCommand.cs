@@ -97,7 +97,7 @@ public sealed class ConfigCommand(
         if (key == "daemon.max_agents" && updated.Daemon is { } daemon) {
             var name = DaemonNameResolver.Resolve([], daemon.Name);
             await Console.Out.WriteLineAsync(
-                await ApplyCapacityLiveAsync(new LocalControlOps(daemons, name, time), name, daemon.MaxAgents, CancellationToken.None));
+                await ApplyCapacityLiveAsync(new LocalControlOps(daemons, name, time), name, daemon.MaxAgents ?? DaemonSettings.DefaultMaxAgents, CancellationToken.None));
         }
 
         return 0;

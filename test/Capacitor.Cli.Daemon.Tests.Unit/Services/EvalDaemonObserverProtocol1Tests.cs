@@ -48,10 +48,53 @@ public class EvalDaemonObserverProtocol1Tests {
         await Assert.That(connection.CompletedCalls[0].Score).IsEqualTo(4);
     }
 
+    /// <summary>A score and summary of a session a person disabled, from a run that outlasted the disable. The check is
+    /// at the send, because a relay queues behind the ones ahead of it.</summary>
+    [Test]
+    public async Task A_disabled_session_gets_no_more_of_its_eval() {
+        var disabled    = false;
+        var connection  = new CapturingServerConnection { IsDisabledByPerson = session => disabled && session == "sess-1" };
+        var observer    = new DaemonEvalObserver(connection, "run-1", "sess-1", NullLogger.Instance);
+
+        observer.OnFinished(Aggregate("before"));
+        await connection.Finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        disabled = true;
+        observer.OnFinished(Aggregate("after"));
+        observer.OnFailed("after");
+        await observer.RelayedAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(connection.FinishedSummaries).IsEquivalentTo(new[] { "before" });
+        await Assert.That(connection.FailedReasons).IsEmpty();
+    }
+
+    static SessionEvalCompletedPayloadV4 Aggregate(string summary) => new() {
+        EvalRunId = "run-1", JudgeModel = "model", Summary = summary, AssessedQuestions = 0, UnassessedQuestions = 0,
+        JudgedQuestions = 0, TotalQuestions = 0, CoveragePolicyVersion = "1"
+    };
+
     sealed class CapturingServerConnection() : ServerConnection(
             new() { Name = "test", ServerUrl = "http://127.0.0.1:1" },
             new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance,
             TimeProvider.System) {
+        public List<string> FinishedSummaries { get; } = [];
+        public List<string> FailedReasons     { get; } = [];
+
+        public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override Task EvalFinishedAsync(string evalRunId, string sessionId, int? overallScore, string summary) {
+            lock (FinishedSummaries) FinishedSummaries.Add(summary);
+            Finished.TrySetResult();
+
+            return Task.CompletedTask;
+        }
+
+        public override Task EvalFailedAsync(string evalRunId, string sessionId, string reason) {
+            lock (FailedReasons) FailedReasons.Add(reason);
+
+            return Task.CompletedTask;
+        }
+
         public List<(string Category, string QuestionId, string Outcome, int? Score, string? Verdict)> CompletedCalls { get; } = [];
         public List<(string Category, string QuestionId, string Reason)>                               FailedCalls    { get; } = [];
 

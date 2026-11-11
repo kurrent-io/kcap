@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Mcp;
 
@@ -20,6 +21,75 @@ public class JsonMcpConfigWriterTests {
     }
 
     static JsonObject Read(string path) => (JsonObject)JsonNode.Parse(File.ReadAllText(path))!;
+
+    static readonly byte[] Bom = [0xEF, 0xBB, 0xBF];
+
+    /// The bytes PowerShell 5.1 writes for a compressed `ConvertTo-Json` piped to `Set-Content -Encoding UTF8`:
+    /// a BOM, one line, CRLF.
+    static readonly byte[] PowerShellSeed =
+        [.. Bom, .. "{\"mcpServers\":{\"my-notes\":{\"type\":\"local\",\"command\":\"notes-mcp\",\"args\":[],\"tools\":[\"*\"]}}}\r\n"u8];
+
+    [Test]
+    public async Task Register_then_unregister_gives_back_the_users_file_byte_for_byte() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("mcp-config.json");
+        File.WriteAllBytes(path, PowerShellSeed);
+        var marker = new FakeMarker();
+
+        JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.Copilot, null, marker);
+
+        var installed = File.ReadAllBytes(path);
+        await Assert.That(installed.AsSpan().StartsWith(Bom)).IsTrue();
+        await Assert.That(installed.AsSpan(0, installed.Length - 2).IndexOf((byte)'\n')).IsEqualTo(-1);
+        await Assert.That(((JsonObject)Read(path)["mcpServers"]!).ContainsKey("kcap-review")).IsTrue();
+
+        JsonMcpConfigWriter.Unregister(path, McpConfigShape.Copilot, marker);
+
+        await Assert.That(Convert.ToHexString(File.ReadAllBytes(path))).IsEqualTo(Convert.ToHexString(PowerShellSeed));
+    }
+
+    [Test]
+    public async Task A_four_space_file_stays_four_space() {
+        using var tmp = new TempDir();
+        var path = tmp.CreateFile("mcp.json", "{\n    \"mcpServers\": {\n        \"other\": {\n            \"command\": \"x\"\n        }\n    }\n}\n");
+
+        JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.Standard, null, new FakeMarker());
+
+        var lines = File.ReadAllText(path).Split('\n');
+        await Assert.That(lines[1]).StartsWith("    \"mcpServers\"");
+        await Assert.That(lines[2]).StartsWith("        \"");
+        await Assert.That(File.ReadAllText(path)).EndsWith("}\n");
+        await Assert.That(File.ReadAllText(path)).DoesNotContain("\r");
+    }
+
+    [Test]
+    public async Task A_new_file_is_two_space_indented_without_a_bom() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("mcp.json");
+
+        JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.Standard, null, new FakeMarker());
+
+        var bytes = File.ReadAllBytes(path);
+        await Assert.That(bytes.AsSpan().StartsWith(Bom)).IsFalse();
+        await Assert.That(File.ReadAllText(path).Split('\n')[1]).StartsWith("  \"mcpServers\"");
+    }
+
+    /// The bytes PowerShell 5.1's `ConvertTo-Json > mcp-config.json` writes: UTF-16 LE with a BOM, which does not parse
+    /// when decoded as UTF-8.
+    [Test]
+    public async Task A_utf16_file_registers_and_keeps_the_users_entry() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("mcp-config.json");
+        File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes("{\"mcpServers\":{\"my-notes\":{\"command\":\"notes-mcp\"}}}\r\n")]);
+
+        var change = JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.Copilot, null, new FakeMarker());
+
+        await Assert.That(change).IsEqualTo(JsonMcpConfigWriter.Change.Updated);
+        var servers = (JsonObject)Read(path)["mcpServers"]!;
+        await Assert.That(servers.ContainsKey("my-notes")).IsTrue();
+        await Assert.That(servers.ContainsKey("kcap-review")).IsTrue();
+        await Assert.That(File.ReadAllBytes(path)[0]).IsEqualTo((byte)'{');
+    }
 
     [Test]
     public async Task Register_removes_an_owned_entry_under_a_retired_name() {

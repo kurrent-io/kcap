@@ -82,15 +82,25 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
 
         // A start, stop, restart or uninstall in flight passes through every state below on its way.
         var held = LifecycleLease.IsHeld(stack.Root);
+        if (state.UnitAbsent) fields.RemoveAll(f => f.Key == "Service");
         if (held && state.UnitAbsent) return Changing(fields, notes);
 
-        if (state.UnitAbsent)
-            return Directory.Exists(Path.Combine(stack.Root.Directory, "bin"))
-                ? Down($"Not running: no {service.Describe} is installed for it.", fields, notes, StoppedAdvice(unit, "installs and starts it"), Leftovers())
-                    with { Reading = Startable(unit) }
-                : Down($"Uninstalled: its {service.Describe} and the server's files were removed.", [.. fields.Where(f => f.Key != "Service")], [],
+        if (state.UnitAbsent) {
+            var bin = LocalBin.Directory(stack.Root);
+            if (LocalServerConditions.Read(stack.Root) is not LocalServerCondition.Uninstalled)
+                return Down($"Not running: no {service.Describe} is installed for it.", fields, notes, StoppedAdvice(unit, "installs and starts it"), Leftovers())
+                    with { Reading = Startable(unit) };
+
+            // A quick uninstall removes bin/current first, so a server still exiting can leave the version it ran.
+            string[] leftBin = Directory.Exists(bin)
+                ? [$"A server that was still stopping held files in {bin}; kcap setup --local or kcap local uninstall removes them."]
+                : [];
+
+            return Down(leftBin.Length > 0 ? $"Uninstalled: its {service.Describe} was removed." : $"Uninstalled: its {service.Describe} and the server's files were removed.",
+                    fields, [],
                     [$"Its data in {Path.Combine(stack.Root.Directory, "data")} and its URL are kept. kcap setup --local reinstalls it on the same port; "
-                   + "kcap local start cannot run it until then."], Leftovers()) with { Reading = new(LocalServerCondition.Uninstalled) };
+                   + "kcap local start cannot run it until then."], leftBin, Leftovers()) with { Reading = new(LocalServerCondition.Uninstalled) };
+        }
 
         switch (state.Owner) {
             case OwnerDecision.NotOurs:

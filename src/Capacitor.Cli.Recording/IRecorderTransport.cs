@@ -7,7 +7,10 @@ namespace Capacitor.Cli.Recording;
 public interface IRecorderTransport {
     bool IsConnected { get; }
 
-    /// <summary>Registers the source and returns the line the server wants next.</summary>
+    /// <summary>Registers the source and returns the line the server wants next. The task completes once the server
+    /// has answered or the connection has gone, whatever <paramref name="ct"/> does: a call that has left this client
+    /// can still register, and a caller that gave up detaches only when this task says nothing is left to land.
+    /// <paramref name="ct"/> stops only what comes before the call leaves the client.</summary>
     Task<int> ConnectAsync(RecordingSource source, CancellationToken ct);
 
     /// <summary>Sends one batch. A Cursor batch returns the server's acknowledged next line, which can be short of
@@ -20,6 +23,12 @@ public interface IRecorderTransport {
         string sessionId, string title, string? model, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens, CancellationToken ct);
 
     Task DrainCompleteAsync(RecordingSource source, CancellationToken ct);
+
+    /// <summary>Tells the server this connection no longer records the source, for a connection that outlives its
+    /// sources. A host calls this once a source has ended, on any path, before its key can be added again, so a
+    /// transport must not let a later <see cref="ConnectAsync"/> overtake it: on a shared connection a detach landing
+    /// behind that connect would remove the new recorder's registration.</summary>
+    Task DetachAsync(RecordingSource source, CancellationToken ct);
 
     /// <summary>The server asked the source with this key to stop, for this reason.</summary>
     event Func<string, string, Task> StopRequested;

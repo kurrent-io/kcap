@@ -1,4 +1,5 @@
 using Capacitor.Cli.Recording.PrDetection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.PrDetection;
 
@@ -37,6 +38,89 @@ public class GitProviderRouterTests {
         await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), fake);
         await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), fake);
         await Assert.That(calls).IsEqualTo(1);
+    }
+
+    /// <summary>A probe that failed says nothing about the host, so a long-lived process must soon ask again, and a
+    /// remembered answer must outlast the gap at which a failed one is asked again.</summary>
+    [Test]
+    public async Task A_probe_failure_is_not_remembered_for_as_long_as_a_good_one() {
+        var time   = new FakeTimeProvider();
+        var router = new GitProviderRouter(time);
+        var calls  = 0;
+
+        Task<string?> Fails(string cmd, string args, string cwd, TimeSpan cap) { calls++; return Task.FromResult<string?>(null); }
+        Task<string?> Lists(string cmd, string args, string cwd, TimeSpan cap) { calls++; return Task.FromResult<string?>("""{"hosts":{"ghe.corp.com":[]}}"""); }
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Fails)).IsEqualTo(GitProviderKind.GitLab);
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Lists)).IsEqualTo(GitProviderKind.GitLab);
+        await Assert.That(calls).IsEqualTo(1);
+
+        time.Advance(GitProviderRouter.FailedProbeLifetime);
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Lists)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(2);
+
+        time.Advance(GitProviderRouter.FailedProbeLifetime);
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Fails)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(2);
+    }
+
+    /// <summary>A probe that failed says nothing about the host, so what gh last answered still stands, for as long as
+    /// a failed probe is remembered. Reading it as GitLab would run the wrong detector on a GitHub host.</summary>
+    [Test]
+    public async Task A_failed_probe_leaves_an_answered_kind_standing() {
+        var time   = new FakeTimeProvider();
+        var router = new GitProviderRouter(time);
+        var calls  = 0;
+
+        Task<string?> Fails(string cmd, string args, string cwd, TimeSpan cap) { calls++; return Task.FromResult<string?>(null); }
+        Task<string?> Lists(string cmd, string args, string cwd, TimeSpan cap) { calls++; return Task.FromResult<string?>("""{"hosts":{"ghe.corp.com":[]}}"""); }
+        Task<string?> Omits(string cmd, string args, string cwd, TimeSpan cap) { calls++; return Task.FromResult<string?>("""{"hosts":{}}"""); }
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Lists)).IsEqualTo(GitProviderKind.GitHub);
+
+        time.Advance(GitProviderRouter.AnswerLifetime);
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Fails)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(2);
+
+        time.Advance(GitProviderRouter.FailedProbeLifetime - TimeSpan.FromSeconds(1));
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Fails)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(2);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Fails)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(3);
+
+        time.Advance(GitProviderRouter.FailedProbeLifetime);
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Omits)).IsEqualTo(GitProviderKind.GitLab);
+    }
+
+    [Test]
+    public async Task A_remembered_host_expires() {
+        var time    = new FakeTimeProvider();
+        var router  = new GitProviderRouter(time);
+        var listed  = true;
+        var calls   = 0;
+
+        Task<string?> Probe(string cmd, string args, string cwd, TimeSpan cap) {
+            calls++;
+
+            return Task.FromResult<string?>(listed ? """{"hosts":{"ghe.corp.com":[]}}""" : """{"hosts":{}}""");
+        }
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Probe)).IsEqualTo(GitProviderKind.GitHub);
+
+        listed = false;
+        time.Advance(GitProviderRouter.AnswerLifetime - TimeSpan.FromSeconds(1));
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Probe)).IsEqualTo(GitProviderKind.GitHub);
+        await Assert.That(calls).IsEqualTo(1);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        await Assert.That(await router.ResolveAsync("ghe.corp.com", "/c", TimeSpan.FromSeconds(2), Probe)).IsEqualTo(GitProviderKind.GitLab);
+        await Assert.That(calls).IsEqualTo(2);
     }
 
     [Test]

@@ -4,6 +4,9 @@ using System.Text.Json.Nodes;
 namespace Capacitor.Cli.Core.Config;
 
 public static class ConfigMigration {
+    const int LegacyDefaultMaxAgents = 5;
+    const int MaxAgentsOptionalSince  = 3;
+
     public record MigrationResult(ProfileConfig Config, bool WasMigrated, bool ShouldPersist);
 
     static MigrationResult FreshDefault() =>
@@ -38,7 +41,7 @@ public static class ConfigMigration {
         if (node.ContainsKey("version")) {
             var v2 = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.ProfileConfig)!;
 
-            return (ConfigMigrationOutcome.Ok, new(ApplyDefaults(v2, node), WasMigrated: false, ShouldPersist: false));
+            return (ConfigMigrationOutcome.Ok, new(ApplyDefaults(v2, node, v2.Version), WasMigrated: false, ShouldPersist: false));
         }
 
         // V1 → V2: read old flat fields, build default profile. The v1 flat keys sit
@@ -60,7 +63,7 @@ public static class ConfigMigration {
         };
 
         return (ConfigMigrationOutcome.Ok,
-                new(ApplyDefaults(config, node, sharedProfilePayload: true), WasMigrated: true, ShouldPersist: true));
+                new(ApplyDefaults(config, node, fileVersion: 1, sharedProfilePayload: true), WasMigrated: true, ShouldPersist: true));
     }
 
     /// <summary>
@@ -71,20 +74,23 @@ public static class ConfigMigration {
     /// with nulls where the record declares non-null defaults, and every command that touched
     /// one crashed before it could dispatch (including the <c>kcap config set</c> needed to
     /// repair the file).
-    /// <para><paramref name="raw"/> supplies the two defaults that differ from
-    /// <c>default(T)</c> — <c>update_check</c> and <c>daemon.max_agents</c> — because only the
-    /// JSON can tell "absent" from an explicit <c>false</c>/<c>0</c>.
+    /// <para><paramref name="raw"/> supplies the one default that differs from <c>default(T)</c> —
+    /// <c>update_check</c> — because only the JSON can tell "absent" from an explicit <c>false</c>.
+    /// A file older than version 3 holding <c>daemon.max_agents</c> 5 holds the default it was written
+    /// with, not a choice, so it reads as unset; the version stamped here makes that happen only until
+    /// the file is next saved.
     /// <paramref name="sharedProfilePayload"/> marks the v1 layout, whose profile fields are
     /// the top-level object rather than entries under <c>profiles</c>.</para>
     /// </summary>
-    static ProfileConfig ApplyDefaults(ProfileConfig config, JsonObject raw, bool sharedProfilePayload = false) {
+    static ProfileConfig ApplyDefaults(ProfileConfig config, JsonObject raw, int fileVersion, bool sharedProfilePayload = false) {
         var rawProfiles = raw["profiles"] as JsonObject;
         var profiles    = new Dictionary<string, Profile>();
 
         foreach (var (name, profile) in config.Profiles ?? new())
             profiles[name] = ApplyDefaults(
                 profile ?? new(),
-                sharedProfilePayload ? raw : rawProfiles?[name] as JsonObject
+                sharedProfilePayload ? raw : rawProfiles?[name] as JsonObject,
+                fileVersion
             );
 
         var bindings = new Dictionary<string, string>();
@@ -93,6 +99,7 @@ public static class ConfigMigration {
             if (!string.IsNullOrEmpty(name)) bindings[path] = name;
 
         return config with {
+            Version         = Math.Max(fileVersion, ProfileConfig.CurrentVersion),
             ActiveProfile   = config.ActiveName,
             Profiles        = profiles,
             ProfileBindings = bindings,
@@ -102,7 +109,7 @@ public static class ConfigMigration {
         };
     }
 
-    static Profile ApplyDefaults(Profile profile, JsonObject? raw) => profile with {
+    static Profile ApplyDefaults(Profile profile, JsonObject? raw, int fileVersion) => profile with {
         DefaultVisibility = string.IsNullOrEmpty(profile.DefaultVisibility) ? "org_public" : profile.DefaultVisibility,
         UpdateChannel     = string.IsNullOrEmpty(profile.UpdateChannel) ? "latest" : profile.UpdateChannel,
         UpdateCheck       = Scalar(raw, "update_check", true),
@@ -111,9 +118,9 @@ public static class ConfigMigration {
         AllowedPaths      = profile.AllowedPaths ?? [],
         AllowedRepos      = profile.AllowedRepos ?? [],
         Remotes           = profile.Remotes ?? [],
-        Daemon = profile.Daemon is null
-            ? null
-            : profile.Daemon with { MaxAgents = Scalar(raw?["daemon"] as JsonObject, "max_agents", 5) }
+        Daemon = profile.Daemon is { MaxAgents: LegacyDefaultMaxAgents } && fileVersion < MaxAgentsOptionalSince
+            ? profile.Daemon with { MaxAgents = null }
+            : profile.Daemon
     };
 
     /// <summary>

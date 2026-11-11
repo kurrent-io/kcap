@@ -29,6 +29,33 @@ public class WizardCompositionLocalPathTests {
             new("0123456789abcdef0123456789abcdef", LocalPort, LocalSetupScript.ServerUrl, "1.0.0")));
     }
 
+    /// The first page counts the local path it recommends, so taking the recommendation leaves the total alone.
+    [Test]
+    public async Task Choosing_the_recommended_local_edition_keeps_the_step_total() {
+        using var harness = new WizardFixtures.GraphHarness(Config.Root);
+        harness.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(NotInstalled());
+
+        var (preselected, first, install, current) = await AvaloniaSession.DispatchAsync(async () => {
+            var graph = WizardComposition.BuildGraph(harness.Options());
+            await graph.ViewModel.PendingEnterForTesting;
+            var edition = graph.Steps.OfType<EditionStepViewModel>().Single();
+            var first = graph.ViewModel.Eyebrow;
+
+            await edition.ChooseLocalCommand.Execute().ToTask();
+            await graph.ViewModel.PendingAdvanceForTesting;
+
+            return (edition.LocalPreselected, first, graph.ViewModel.Eyebrow, graph.ViewModel.Current.Id);
+        }).WaitAsync(TimeSpan.FromSeconds(30));
+
+        static string Total(string eyebrow) => eyebrow.Split(" · ")[0].Split(" OF ")[1];
+
+        await Assert.That(preselected).IsTrue();
+        await Assert.That(current).IsEqualTo(WizardStepId.Install);
+        await Assert.That(first).StartsWith("STEP 1 OF ");
+        await Assert.That(install).StartsWith("STEP 2 OF ");
+        await Assert.That(Total(install)).IsEqualTo(Total(first));
+    }
+
     [Test]
     public async Task Local_path_skips_sign_in_and_enables_the_daemon_only_after_install() {
         using var harness = new WizardFixtures.GraphHarness(Config.Root);

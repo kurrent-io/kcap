@@ -5,6 +5,50 @@ using Capacitor.Cli.Core.Harness;
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
 public class SetupDecisionsTests {
+    /// <summary>Only a run that cannot ask repeats a remembered no; a yes, no answer, or nothing detected leaves the
+    /// unattended yes in place.</summary>
+    [Test]
+    [Arguments(true, false, true, true)]
+    [Arguments(false, false, true, false)]
+    [Arguments(true, true, true, false)]
+    [Arguments(true, null, true, false)]
+    [Arguments(true, false, false, false)]
+    public async Task RepeatsHarnessDecline_only_for_a_remembered_no_that_nobody_can_revisit(
+            bool noPrompt, bool? remembered, bool detectsClaude, bool expected) {
+        var detected = new CodingAgentsStep.DetectedAgents(Claude: detectsClaude, Codex: false, Cursor: false, Copilot: false);
+
+        await Assert.That(SetupDecisions.RepeatsHarnessDecline(detected, noPrompt, remembered)).IsEqualTo(expected);
+    }
+
+    /// <summary>Only a run that cannot ask repeats a remembered no; a yes or no answer leaves the unattended import in
+    /// place, and <c>--skip-import</c> skips under its own name.</summary>
+    [Test]
+    [Arguments(false, true, false, true)]
+    [Arguments(false, false, false, false)]
+    [Arguments(false, true, true, false)]
+    [Arguments(false, true, null, false)]
+    [Arguments(true, true, false, false)]
+    public async Task RepeatsImportDecline_only_for_a_remembered_no_that_nobody_can_revisit(
+            bool skipImport, bool noPrompt, bool? remembered, bool expected) =>
+        await Assert.That(SetupDecisions.RepeatsImportDecline(skipImport, noPrompt, remembered)).IsEqualTo(expected);
+
+    /// <summary>A rerun with no skip flag parses to an empty skip, and must still leave out what the last setup did.</summary>
+    [Test]
+    public async Task A_rerun_without_skip_flags_leaves_out_what_the_last_setup_did() {
+        var remembered = new ImportSkip([], [@"C:\work\secret-project"]);
+        var (flagged, _) = SetupCommand.ImportSkipArgs(["setup", "--local", "--no-prompt"]);
+
+        await Assert.That(SetupDecisions.LeftOutOfImport(flagged!, remembered)).IsEqualTo(remembered);
+    }
+
+    [Test]
+    public async Task A_skip_flag_replaces_what_the_last_setup_left_out() {
+        var remembered = new ImportSkip([], [@"C:\work\secret-project"]);
+        var (flagged, _) = SetupCommand.ImportSkipArgs(["setup", "--local", "--skip-import-repo", "acme/other"]);
+
+        await Assert.That(SetupDecisions.LeftOutOfImport(flagged!, remembered)).IsEqualTo(flagged);
+    }
+
     [Test]
     public async Task DecideInstallAgents_NoAgentsDetected_ReturnsFalseWithoutPrompting() {
         var detected = new CodingAgentsStep.DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false);
