@@ -30,6 +30,17 @@ public class TitleGenerationTests {
         await Assert.That(TitleGeneration.CleanTitle(raw)).IsEqualTo("Fix login");
 
     [Test]
+    [Arguments("Fix *login* timeout", "Fix login timeout")]
+    [Arguments("Fix _login_ and **auth** timeout", "Fix login and auth timeout")]
+    [Arguments("**Fix `parse` timeout**", "Fix parse timeout")]
+    [Arguments("Fix `__init__` lookup", "Fix __init__ lookup")]
+    [Arguments("Fix `*args` and `_private` names", "Fix *args and _private names")]
+    [Arguments("Forward *args and **kwargs", "Forward *args and **kwargs")]
+    [Arguments("Compute 5 * 3 * 2", "Compute 5 * 3 * 2")]
+    public async Task CleanTitle_strips_inline_emphasis_but_not_identifiers(string raw, string expected) =>
+        await Assert.That(TitleGeneration.CleanTitle(raw)).IsEqualTo(expected);
+
+    [Test]
     public async Task CleanTitle_caps_length_at_120() {
         var longTitle = new string('a', 200);
 

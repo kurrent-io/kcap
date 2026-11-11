@@ -164,15 +164,22 @@ public static partial class TitleGeneration {
     }
 
     /// <summary>
-    /// Strips markdown syntax, trailing question marks, and caps length. Only syntax goes: a <c>#</c> or <c>_</c>
-    /// inside the text is part of it, as in "C#", "#2131" or "snake_case".
+    /// Strips markdown syntax, trailing question marks, and caps length. Only syntax goes: a <c>#</c>, <c>_</c> or
+    /// <c>*</c> inside the text is part of it, as in "C#", "#2131" or "snake_case", and a code span keeps its
+    /// content verbatim, as in <c>`__init__`</c>.
     /// Returns null if the output looks like a refusal preamble rather than a title —
     /// the caller can retry or fall back instead of persisting garbage.
     /// </summary>
     internal static string? CleanTitle(string raw) {
-        var title = HeadingRx().Replace(raw.Trim(), "");
-        title = StrongRx().Replace(title, "$2").Replace("`", "", StringComparison.Ordinal);
-        title = WrappingEmphasisRx().Replace(title.Trim(), "$2").Trim();
+        var spans = new List<string>();
+        var title = CodeSpanRx().Replace(raw.Replace(CodeSpanMark, "", StringComparison.Ordinal), m => {
+            spans.Add(m.Groups[1].Value);
+            return CodeSpanMark;
+        });
+        title = HeadingRx().Replace(title.Trim(), "");
+        title = EmphasisRx().Replace(title, "$2").Replace("`", "", StringComparison.Ordinal);
+        var parts = title.Split(CodeSpanMark);
+        title = string.Concat(parts.Select((part, i) => i == 0 ? part : spans[i - 1] + part)).Trim();
         title = title.TrimEnd('?').TrimEnd();
 
         if (LooksLikeRefusal(title)) {
@@ -217,11 +224,14 @@ public static partial class TitleGeneration {
     [GeneratedRegex(@"^#{1,6}\s+")]
     private static partial Regex HeadingRx();
 
-    [GeneratedRegex(@"(?<!\w)(\*\*|__)(?=\S)(.+?)(?<=\S)\1(?!\w)")]
-    private static partial Regex StrongRx();
+    // Stands in for each code span while emphasis is stripped around it; a private-use character no title carries.
+    const string CodeSpanMark = "";
 
-    [GeneratedRegex(@"^([*_])(?=\S)(.+)(?<=\S)\1$")]
-    private static partial Regex WrappingEmphasisRx();
+    [GeneratedRegex("`([^`]+)`")]
+    private static partial Regex CodeSpanRx();
+
+    [GeneratedRegex(@"(?<![\w*])(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*])")]
+    private static partial Regex EmphasisRx();
 
     [GeneratedRegex(@"^(?:I\s+(?:cannot|can't|can\s+only|am\s+(?:unable|not\s+able))\b|I'?m\s+(?:sorry|unable)\b|Sorry[,\s]|My\s+(?:instructions|role|job)\b|As\s+an?\s+\w+,?\s+I\b|Unfortunately[,\s])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
