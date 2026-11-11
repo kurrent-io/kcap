@@ -13,8 +13,8 @@ internal static class SetupDecisions {
     /// <summary>
     /// Human-readable, comma-joined list of detected harnesses (in a stable, user-facing
     /// order), or null when none are detected. Kiro is annotated because installing for it
-    /// makes a material change (clones the user's default agent and sets kcap as default), which only
-    /// happens with kiro-cli on PATH.
+    /// makes a material change (clones the user's default agent and sets kcap as default), which
+    /// happens only with kiro-cli on PATH or kcap's Kiro agent already cloned.
     /// </summary>
     public static string? DetectedAgentsSummary(CodingAgentsStep.DetectedAgents d) {
         var names = new List<string>();
@@ -24,7 +24,7 @@ internal static class SetupDecisions {
         if (d.Cursor)      names.Add("Cursor");
         if (d.Copilot)     names.Add("Copilot");
         if (d.Gemini)      names.Add("Gemini");
-        if (d.Kiro)        names.Add(d.KiroCli ? "Kiro (installing sets kcap as your default Kiro agent)" : "Kiro");
+        if (d.Kiro)        names.Add(d.KiroCli || d.KiroAgentCloned ? "Kiro (installing sets kcap as your default Kiro agent)" : "Kiro");
         if (d.Pi)          names.Add("Pi");
         if (d.OpenCode)    names.Add("OpenCode");
         if (d.Antigravity) names.Add("Antigravity");

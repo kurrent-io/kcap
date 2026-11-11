@@ -106,6 +106,15 @@ public class SetupDecisionsTests {
         await Assert.That(SetupDecisions.DetectedAgentsSummary(detected)).IsEqualTo("Kiro");
     }
 
+    /// <summary>An agent kcap already cloned is refreshed and made the default without kiro-cli, so the aside stays.</summary>
+    [Test]
+    public async Task DetectedAgentsSummary_KiroAgentAlreadyCloned_KeepsDefaultAgentAnnotationWithoutItsCli() {
+        var detected = new CodingAgentsStep.DetectedAgents(
+            Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false, KiroAgentCloned: true);
+
+        await Assert.That(SetupDecisions.DetectedAgentsSummary(detected)).IsEqualTo("Kiro (installing sets kcap as your default Kiro agent)");
+    }
+
     [Test]
     public async Task DetectedAgentsSummary_MultipleDetected_CommaJoinsFriendlyNames() {
         var detected = new CodingAgentsStep.DetectedAgents(Claude: true, Codex: true, Cursor: false, Copilot: false);

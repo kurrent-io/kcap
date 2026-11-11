@@ -40,7 +40,9 @@ internal static class CodingAgentsStep {
     /// hook through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
     /// <param name="KiroCli">Whether <c>kiro-cli</c> is on PATH. Kiro is detected by its IDE or its data too, but only
     /// the CLI can clone the default agent kcap's hooks ride on.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null, bool KiroCli = false);
+    /// <param name="KiroAgentCloned">Whether kcap's Kiro agent is already cloned: a refresh of it needs no
+    /// <c>kiro-cli</c>, and still makes it the default agent.</param>
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null, bool KiroCli = false, bool KiroAgentCloned = false);
 
     internal record Paths(
             string  ClaudeSettingsPath,
