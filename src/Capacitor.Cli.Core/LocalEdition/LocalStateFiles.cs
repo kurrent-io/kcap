@@ -19,14 +19,19 @@ public static partial class LocalStateFiles {
 
     const UnixFileMode OwnerReadWrite = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
-    public static StateRead<InstallRegistry> ReadRegistry(LocalRoot root) =>
-        Read(root.RegistryPath, LocalStateJsonContext.Default.RegistryWire, ToRegistry);
+    public static StateRead<InstallRegistry> ReadRegistry(LocalRoot root) => ReadRegistryAt(root.RegistryPath);
+
+    /// <summary>A registry's shape at another path, as the user-wide <see cref="RetiredPorts"/> record keeps it.</summary>
+    internal static StateRead<InstallRegistry> ReadRegistryAt(string path) =>
+        Read(path, LocalStateJsonContext.Default.RegistryWire, ToRegistry);
 
     public static StateRead<LifecycleJournalEntry> ReadJournal(LocalRoot root) =>
         Read(root.JournalPath, LocalStateJsonContext.Default.JournalWire, ToJournal);
 
-    internal static void PublishRegistry(LocalRoot root, InstallRegistry registry) =>
-        Write(root.RegistryPath, JsonSerializer.SerializeToUtf8Bytes(FromRegistry(registry), LocalStateJsonContext.Default.RegistryWire));
+    internal static void PublishRegistry(LocalRoot root, InstallRegistry registry) => PublishRegistryAt(root.RegistryPath, registry);
+
+    internal static void PublishRegistryAt(string path, InstallRegistry registry) =>
+        Write(path, JsonSerializer.SerializeToUtf8Bytes(FromRegistry(registry), LocalStateJsonContext.Default.RegistryWire));
 
     internal static void WriteJournal(LocalRoot root, LifecycleJournalEntry entry) =>
         Write(root.JournalPath, JsonSerializer.SerializeToUtf8Bytes(FromJournal(entry), LocalStateJsonContext.Default.JournalWire));

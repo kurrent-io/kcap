@@ -17,11 +17,14 @@ Subcommands:
   service <action>        Manage the OS service (launchd/systemd/Scheduled Task)
   shim <action>           Manage the command-line tool (kcap on your terminal PATH)
   consent <verb>          Manage the launch-consent policy (see "Consent" below)
+  steering <on|off>       Turn steering of this profile's terminal Claude Code
+                          sessions on or off (see "Steering" below)
+  steering-socket         Print the daemon's steering socket, or nothing
 
 Options for start:
   --name <name>           Daemon name (defaults to OS username)
   --server-url <url>      Server URL
-  --max-agents <n>        Max concurrent hosted coding agents (default: 5; 0 = unlimited)
+  --max-agents <n>        Max concurrent hosted coding agents (default: 20; 0 = unlimited)
   --log-file <path>       Log to file instead of console
   --log-level <level>     Log verbosity: trace|debug|information|warning|error|
                           critical|none (default: information). Also settable via
@@ -42,9 +45,11 @@ Options for stop:
                           graceful stop; to stop a supervised daemon, use
                           `daemon service stop`.
 
-A daemon that a service supervises (launchd, systemd, or on Windows kcap-service
-or a Scheduled Task) is not stopped, since the service would restart it: stop
-exits 1 and prints the `kcap daemon service stop --name N` command to use.
+A daemon that launchd, systemd --user or a Windows Scheduled Task supervises is
+stopped through that manager, as `kcap daemon service stop` does, since a raw
+stop would be restarted; it starts again at sign-in or with `daemon service
+start`. One that kcap-service supervises is not stopped: stop exits 1 and prints
+the `kcap daemon service stop --name N` command to use.
 
 Options for restart:
   (none)                  Restart now. Interactive agents and Claude flow
@@ -263,6 +268,59 @@ Consent:
   no-op, and a flagless "deny" is already expressible as `set-default deny`.
   --repo accepts an exact path or a "/prefix/*" glob. All six verbs take
   --name <n> like the rest of `kcap daemon`.
+
+Steering:
+  Steering lets you send messages from the kcap web and mobile apps into
+  Claude Code sessions running in your own terminal, through the
+  kcap-steering Claude Code plugin, which talks to the daemon. It is off by
+  default; `kcap setup` asks whether to turn it on once kcap's Claude Code
+  plugin is installed and the daemon service is up. The switch belongs to one
+  daemon, so each profile has its own, and turning it on for one profile
+  leaves the other's sessions closed.
+
+  kcap daemon steering on|off   Turn it on or off for the current profile's
+                                daemon, which must be running. The daemon
+                                saves the switch and opens or closes its
+                                steering socket at once, with no restart.
+  kcap daemon steering-socket   Print the steering socket's path, and nothing
+                                else, while steering is on and the daemon is
+                                running; otherwise print nothing. Exits 0
+                                either way.
+
+  The first `steering on` installs and enables the kcap-steering plugin
+  wherever kcap's own Claude Code plugin is installed (the user settings, and
+  each Claude config dir `kcap accounts` records), once per settings file
+  rather than per profile: if you later disable or uninstall it in Claude
+  Code, turning steering on again leaves it that way and says so. Sessions
+  started after the install load it. A session started while steering was
+  off, or while the daemon was down, is steered from its next /clear, resume
+  or restart, and a Claude config dir added later with `kcap accounts add`
+  gets the plugin at the next `steering on`. Where kcap's plugin isn't
+  installed, nothing is written; if it is installed nowhere, steering still
+  turns on and the command says so and exits 1: run `kcap plugin install`,
+  then `steering on` again. `steering off` leaves the steering plugin installed,
+  doing nothing while the switch is off. If a settings file can't be written,
+  steering still turns on and the command says why and exits 1; install the
+  plugin by hand with `claude plugin install kcap-steering@kcap`, or fix the
+  cause and run `steering on` again.
+
+  If a message from the web or mobile app keeps waiting while the terminal
+  sits idle, type at the terminal, or run /clear: the plugin hands a message
+  over only between turns, and it can miss the end of one. /clear starts a
+  new conversation and drops the waiting message, so send it again
+  afterwards.
+
+  Steering needs a kcap server that takes steered sessions. The daemon asks
+  its server once per connection, before it registers any; against one that
+  doesn't, it steers nothing, and the plugin asks again every ten seconds, so
+  a server upgrade is picked up without a restart.
+
+  The socket is owner-only, in a directory only you can enter, and that is
+  its only authentication: no token ever reaches a session. Both verbs take
+  --name <n>, and `steering on --name` refuses a daemon other than the current
+  profile's, the only one the plugin finds. Steering isn't offered on Windows
+  yet: `steering on` refuses there, `steering-socket` prints nothing, and
+  setup doesn't ask.
 
 Notes:
   Each daemon holds an exclusive flock on ~/.config/kcap/daemons/<name>.lock

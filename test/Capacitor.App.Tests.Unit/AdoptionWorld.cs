@@ -22,8 +22,6 @@ sealed class AdoptionWorld {
     public const int NewDaemonPid = 4200;
     public const string Version = "1.4.1-beta.2";
 
-    public static readonly TimeSpan Bounded = TimeSpan.FromSeconds(15);
-
     readonly TempDir _tmp;
     readonly Lock _lock = new();
     readonly List<(string Event, Dictionary<string, string?> Fields)> _log = [];
@@ -171,9 +169,12 @@ sealed class AdoptionWorld {
     }
 
     /// <summary>Starts <paramref name="launch"/> and waits for its first look and the notices it posted.</summary>
+    /// <remarks>No wait in this world has a deadline: a run takes the config file lock, a named mutex, many times over,
+    /// and other .NET processes on the machine slow that down, so a busy machine pushes a healthy run past any fixed
+    /// bound. CI's hang dump catches a run that never ends.</remarks>
     public async Task FirstLookAsync(CliAdoptionCoordinator launch) {
         launch.Start();
-        await launch.FirstLook.WaitAsync(Bounded);
+        await launch.FirstLook;
         await SettledAsync(launch);
     }
 
@@ -199,9 +200,9 @@ sealed class AdoptionWorld {
         do {
             if (++runs > MaxRuns) throw new TimeoutException($"More than {MaxRuns} runs followed each other.");
             settled = launch.Settled;
-            await settled.WaitAsync(Bounded);
+            await settled;
         } while (!ReferenceEquals(settled, launch.Settled));
-        if (Notices is { } notices) await notices.Settled.WaitAsync(Bounded);
+        if (Notices is { } notices) await notices.Settled;
     }
 
     /// <summary>Every folder at or under <see cref="Prefix"/>, the first install's links included, is root's.</summary>

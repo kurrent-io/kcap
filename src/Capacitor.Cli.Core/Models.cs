@@ -1204,6 +1204,11 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(PidIdentityKind))]
 [JsonSerializable(typeof(AgentRegistered))]
 [JsonSerializable(typeof(AgentRegisteredResponse))]
+[JsonSerializable(typeof(ConfirmInputHandoverRequest))]
+[JsonSerializable(typeof(ConfirmInputHandoverResponse))]
+[JsonSerializable(typeof(ReportInputLinkRequest))]
+[JsonSerializable(typeof(ReportInputUnconfirmedRequest))]
+[JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(AgentStatusChanged))]
 [JsonSerializable(typeof(ReportAgentTerminalDialogArgs))]
 [JsonSerializable(typeof(AgentUnregistered))]
@@ -1562,9 +1567,9 @@ public readonly record struct AcpEventEnvelope(
         // token_usage — a per-event additive token DELTA (codex app-server). Additive/nullable, so
         // ContractVersion stays 1: an older server ignores them. The model rides the Model field
         // above (attributed to the model resolved at the delta's instant — correct across a reroute).
-        // input is GROSS (server converts to net = input − cached before stamping $usage, matching
-        // UsageMetadataHelper's cross-vendor contract). cache-write is the cache-CREATION tier, billed
-        // separately from cached reads. total is derived server-side and not carried.
+        // input is GROSS of both cache tiers whatever the vendor reports, and every reader normalises to
+        // that; the server converts it to net = input − cached − cache-write. cache-write is the
+        // cache-CREATION tier, billed separately from cached reads. total is derived server-side and not carried.
         long?   UsageInputTokens       = null,
         long?   UsageCachedInputTokens = null,
         long?   UsageCacheWriteInputTokens = null,
@@ -2355,7 +2360,9 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsDenyMessage = false,
         // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
         // of one already taken. An older server ignores it and sends each input once.
-        bool                                        SupportsInputAcks = false
+        bool                                        SupportsInputAcks = false,
+        // Capability tokens (DaemonCapabilities). Null from a daemon that advertises none.
+        string[]?                                   Capabilities = null
     );
 
 public sealed record UnattendedVendorCapability(
@@ -2428,7 +2435,12 @@ public readonly record struct AgentRegistered(
         // process. Trailing name-bound fields, like the rest: an older server ignores both.
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResumedSessionId = null,
         // True only on the resumed process's first registration, the one that may reopen the session.
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResumeFirstAnnounce = false
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResumeFirstAnnounce = false,
+        // An attached agent's, on every announcement of one: its session, the Claude process attached to it, and the
+        // agent that process carried on from after a session change. Null for any other agent.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId       = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProcessKey      = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReplacesAgentId = null
     );
 
 public readonly record struct AgentStatusChanged(

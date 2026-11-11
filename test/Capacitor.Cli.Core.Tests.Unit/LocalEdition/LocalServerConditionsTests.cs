@@ -44,11 +44,21 @@ public class LocalServerConditionsTests {
     }
 
     [Test]
-    public async Task A_bin_without_the_server_binary_is_missing_files() {
+    public async Task A_current_link_without_the_server_binary_is_missing_files() {
         await PublishAsync(InstallRegistry.Empty.WithActive(Active));
-        Directory.CreateDirectory(Path.Combine(Root.Directory, "bin"));
+        Directory.CreateDirectory(Path.Combine(Root.Directory, "bin", "current"));
 
         await Assert.That(LocalServerConditions.Read(Root)).IsEqualTo(LocalServerCondition.FilesMissing);
+    }
+
+    /// <summary>An uninstall removes <c>bin/current</c> before the version it names, which a server still exiting can
+    /// keep open; what is left is an uninstalled root, not one missing its files.</summary>
+    [Test]
+    public async Task A_bin_left_without_its_current_link_is_uninstalled() {
+        await PublishAsync(InstallRegistry.Empty.WithActive(Active));
+        Tmp.CreateFile(["local", "bin", "1.4.0", LocalServerConditions.ServerFileName]);
+
+        await Assert.That(LocalServerConditions.Read(Root)).IsEqualTo(LocalServerCondition.Uninstalled);
     }
 
     [Test]

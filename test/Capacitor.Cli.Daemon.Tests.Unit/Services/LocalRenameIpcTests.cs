@@ -96,6 +96,24 @@ public class LocalRenameIpcTests {
         await Assert.That(server.Renames).IsEmpty();
     }
 
+    /// <summary>The person deleted this session, and a title sent now is written to nothing they asked to keep.</summary>
+    [Test]
+    public async Task A_disabled_sessions_rename_is_refused() {
+        const string session = "0123456789abcdef0123456789abcdef";
+        ConfigRoot? root = null;
+        var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: config => root = config.ConfigRoot);
+        await using var _ = orch;
+        var server = new FakeTitleServer();
+        orch.TitleServerForTest = server;
+        orch.SetUserSubjectForTest(Subject);
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "a1", new FakeAcpRuntime { AcpSessionId = session });
+        DisabledSessions.Mark(session, root!);
+
+        await Assert.That((await Rename(orch, Payload("a1", "New"))).Reason).IsEqualTo(SessionRenameReasons.NoSession);
+        await Assert.That(server.Renames).IsEmpty();
+    }
+
     [Test]
     public async Task Private_agent_is_refused() {
         var (orch, server) = Build();

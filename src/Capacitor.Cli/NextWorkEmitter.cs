@@ -90,10 +90,17 @@ static partial class NextWorkEmitter {
 
     /// <summary><see cref="BuildFragment"/>, falling back to <see cref="InstructionOnly"/> when the ack has
     /// no rows to show. Null only when disabled.</summary>
-    public static string? BuildFragmentOrInstruction(JsonNode? responseNode, bool disabled) =>
-        disabled ? null : BuildFragment(responseNode, disabled: false) ?? WithOffer(InstructionOnly, responseNode);
+    public static string? BuildFragmentOrInstruction(JsonNode? responseNode, bool disabled, string? serverUrl = null) =>
+        disabled ? null : BuildFragment(responseNode, disabled: false, serverUrl) ?? WithOffer(InstructionOnly, responseNode);
 
-    public static string? BuildFragment(JsonNode? responseNode, bool disabled) {
+    /// <summary>A server-relative href joined to the server's base URL, so it opens from a terminal. Any
+    /// other href is returned as is; <c>//host/…</c> names its own host and is not server-relative.</summary>
+    internal static string? AbsoluteHref(string? href, string? serverUrl) =>
+        href is ['/', ..] && !href.StartsWith("//", StringComparison.Ordinal) && !string.IsNullOrEmpty(serverUrl)
+            ? serverUrl.TrimEnd('/') + href
+            : href;
+
+    public static string? BuildFragment(JsonNode? responseNode, bool disabled, string? serverUrl = null) {
         if (disabled) return null;
         if (responseNode is not JsonObject obj) return null;
         if (obj["next_work"] is not JsonObject nextWork) return null;
@@ -108,7 +115,7 @@ static partial class NextWorkEmitter {
             if (label.Length == 0) continue;
 
             var because = NextWorkUntrustedText.Render(ReadString(row, "because"), FieldCap);
-            var href    = NextWorkUntrustedText.Render(ReadString(row, "href"), FieldCap);
+            var href    = NextWorkUntrustedText.Render(AbsoluteHref(ReadString(row, "href"), serverUrl), FieldCap);
 
             var line = new StringBuilder($"{lines.Count + 1}. {label}");
             if (because.Length > 0) line.Append($" — {because}");

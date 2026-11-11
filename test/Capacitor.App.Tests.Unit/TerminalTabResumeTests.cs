@@ -766,18 +766,15 @@ public class TerminalTabResumeTests {
             await rig.TickAsync();
 
             await Assert.That(rig.Vm.State.Phase).IsEqualTo(TerminalSessionPhase.Failed);
-            await Assert.That(rig.Vm.State.Detail).Contains("kcap agent ls");
+            await Assert.That(rig.Vm.State.Detail).Contains("didn’t come back");
         });
     }
 
     [Test]
-    public async Task The_interrupted_banner_names_the_reason_and_the_retry() {
-        var withReason = Views.TerminalInterruptedMessageConverter.Instance.Convert(
-            TerminalSessionState.Interrupted("too_old"), typeof(string), null, System.Globalization.CultureInfo.InvariantCulture);
-        var without = Views.TerminalInterruptedMessageConverter.Instance.Convert(
-            TerminalSessionState.Interrupted(null), typeof(string), null, System.Globalization.CultureInfo.InvariantCulture);
-
-        await Assert.That(withReason).IsEqualTo("This session was not resumed after the daemon restarted (too_old). Retry it with `kcap agent resume`, or stop it to discard it.");
-        await Assert.That(without).IsEqualTo("This session was not resumed after the daemon restarted. Retry it with `kcap agent resume`, or stop it to discard it.");
+    public async Task The_interrupted_notice_names_the_reason_and_the_retry() {
+        await Assert.That(TerminalNotices.InterruptedDetail("too_old"))
+            .IsEqualTo("The daemon restarted without it (too_old). Retry it with `kcap agent resume`, or stop it to discard it.");
+        await Assert.That(TerminalNotices.InterruptedDetail(null))
+            .IsEqualTo("The daemon restarted without it. Retry it with `kcap agent resume`, or stop it to discard it.");
     }
 }

@@ -164,12 +164,19 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     readonly CompositeDisposable _disposables = new();
 
     string _selectedRepoPath = ScratchRepoPath;
+    // Every assignment counts, the same path included: a pick of no repository leaves the
+    // selection reading as it did, and default discovery must still yield to it.
+    int _repoPicks;
+    // Held for a task pick's whole run: it selects the checkout before it records the task, and
+    // discovery in between would see neither.
+    int _taskPicksInFlight;
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
     public string SelectedRepoPath {
         get => _selectedRepoPath;
         set {
+            Interlocked.Increment(ref _repoPicks);
             // Same rule as SameLaunchTarget and the picker, so a refusal clears exactly when they see a new folder.
             var changed = !PathComparerFor(RemoteMachineSelected).Equals(_selectedRepoPath, value);
             this.RaiseAndSetIfChanged(ref _selectedRepoPath, value);
@@ -451,16 +458,21 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Picks a next-work task for the next launch, on the machine and in the checkout it names when it names one. The
     /// composer keeps what it holds, as context for the task.
     public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
-        bool OnTasksMachine() => fill.Machine is not { } want
-            || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
-        if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
-        // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
-        // path names nothing: the task waits for its checkout instead.
-        if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
-        if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
-        // A repository already chosen for something else is not this task's: left selected, Start would run it there.
-        else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
-        NextWorkSource = fill;
+        Interlocked.Increment(ref _taskPicksInFlight);
+        try {
+            bool OnTasksMachine() => fill.Machine is not { } want
+                || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
+            if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
+            // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
+            // path names nothing: the task waits for its checkout instead.
+            if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
+            if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
+            // A repository already chosen for something else is not this task's: left selected, Start would run it there.
+            else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
+            NextWorkSource = fill;
+        } finally {
+            Interlocked.Decrement(ref _taskPicksInFlight);
+        }
         _composerFills.OnNext(Unit.Default);
     }
 
@@ -494,6 +506,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Same lane for the action cluster: false until AttachDaemonRecovery subscribes the real predicates.
     readonly BehaviorSubject<bool> _daemonStartVisibleFeed = new(false);
     readonly BehaviorSubject<bool> _daemonRetryVisibleFeed = new(false);
+    readonly BehaviorSubject<bool> _daemonSignInOffered = new(false);
+    internal void SetDaemonSignInOffered(bool offered) {
+        if (!_disposed) _daemonSignInOffered.OnNext(offered);
+    }
     readonly BehaviorSubject<bool> _daemonRepairVisibleFeed = new(false);
 
     /// Wired by AttachDaemonRecovery to MainWindow's Start/Reconnect commands.
@@ -1101,7 +1117,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
         var signInVisible = signInState
             .CombineLatest(_catchUpTimedOut, _localServer, (t, timedOut, local) => SignInOffered(
-                local, t.Awaiting, t.Expired, timedOut, t.Foreign, t.Availability, t.Lane));
+                local, t.Awaiting, t.Expired, timedOut, t.Foreign, t.Availability, t.Lane))
+            .CombineLatest(_daemonSignInOffered, _machineSelectionChanges, _localServer, _awaitingServerAfterSignIn,
+                (normal, daemonSignIn, selection, local, awaiting) => normal || (daemonSignIn && !selection.Remote && !local && !awaiting));
         _signInVisible = signInVisible
             .ToProperty(this, x => x.SignInVisible, initialValue: false)
             .DisposeWith(_disposables);
@@ -1240,6 +1258,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// Which of the launcher's problem notices show.
     public LauncherNotices Notices { get; } = new();
+
+    public IDisposable AttachHistoryImport(HistoryImportBannerViewModel? import) => Notices.TrackHistory(import is null
+        ? Observable.Return((false, LauncherNotices.Kind.Note))
+        : import.WhenAnyValue(x => x.IsVisible, x => x.Running, x => x.NeedsAttention,
+            (visible, running, attention) => (visible, running ? LauncherNotices.Kind.Progress
+                : attention ? LauncherNotices.Kind.Attention : LauncherNotices.Kind.Note)));
 
     /// True while an update the user went on from early is still finishing on this machine.
     public IObservable<bool> UpdateFinishing => _updateFinishing.DistinctUntilChanged();
@@ -1458,6 +1482,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         _daemonStartMessageFeed.Dispose();
         _daemonStartVisibleFeed.Dispose();
         _daemonRetryVisibleFeed.Dispose();
+        _daemonSignInOffered.Dispose();
         _daemonRepairVisibleFeed.Dispose();
         _openHarnessesSettings.Dispose();
         _retryServer.Dispose();
@@ -1735,32 +1760,45 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// The path-gathering half of ListRepositoriesAsync's local branch, split out so
     /// ListMachinesAsync can reuse it for the local MachineOption's RepoPaths without a second
     /// AppStateStore read of the same file.
+    /// A path that is not a directory now is left out, whichever source names it: the stores keep a
+    /// deleted clone, so a remounted volume's repositories come back on their own.
     async Task<(IReadOnlyDictionary<string, string>? ByRepo, List<string> Paths)> GatherLocalRepoDataAsync() {
         var byRepo = (await _state.LoadAsync()).HarnessByRepo;
         var known = await _knownRepos();
+        var agentPaths = AgentRepoPaths();
+        var selected = SelectedRepoPath;
 
-        var seen = new HashSet<string>(PathComparer);
-        var paths = new List<string>();
-        void Add(string? path) {
-            if (string.IsNullOrEmpty(path)) return;
-            var normalized = PlatformPaths.Normalize(path);
-            if (seen.Add(normalized)) paths.Add(normalized);
-        }
+        var paths = await Task.Run(() => {
+            var seen = new HashSet<string>(PathComparer);
+            var found = new List<string>();
+            void Add(string? path) {
+                if (string.IsNullOrEmpty(path)) return;
+                var normalized = PlatformPaths.Normalize(path);
+                if (seen.Add(normalized) && Directory.Exists(normalized)) found.Add(normalized);
+            }
 
-        foreach (var key in byRepo?.Keys ?? [])
-            Add(key);
-        // An agent's RepoPath can be a worktree checkout (review flows launch into the
-        // requester's worktree) — the menu offers the repository, never the checkout.
-        var agentPaths = _daemon.Agents.Items.Select(agent => agent.RepoPath)
-            .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
-        var roots = await Task.Run(() => agentPaths.Select(GitRepository.ResolveMainRepoRoot).ToArray());
-        foreach (var root in roots) Add(root);
-        foreach (var repo in known)
-            Add(repo);
-        Add(SelectedRepoPath);
+            foreach (var key in byRepo?.Keys ?? [])
+                Add(key);
+            // An agent's RepoPath can be a worktree checkout (review flows launch into the
+            // requester's worktree) — the menu offers the repository, never the checkout.
+            foreach (var path in agentPaths)
+                Add(GitRepository.ResolveMainRepoRoot(path));
+            foreach (var repo in known)
+                Add(repo);
+            Add(selected);
+            return found;
+        });
 
         return (byRepo, paths);
     }
+
+    string[] AgentRepoPaths() => _daemon.Agents.Items.Select(agent => agent.RepoPath)
+        .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
+
+    /// The first of these that is a directory now, normalized; null when none is. Off the UI thread,
+    /// since a stat on a dropped network volume can stall.
+    static Task<string?> FirstExistingAsync(IEnumerable<string> paths) =>
+        Task.Run(() => paths.Select(PlatformPaths.Normalize).FirstOrDefault(path => path.Length > 0 && Directory.Exists(path)));
 
     /// The launcher's machine chip menu: local first, always, then the viewer's own connected
     /// remote daemons — filtered through the one ownership definition (OwnDaemonsAsync), so a row
@@ -1929,35 +1967,38 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         return machine is { Connected: true } ? LaunchAvailability.Ready : LaunchAvailability.DaemonUnavailable;
     }
 
-    /// When nothing is selected, adopt the most recently used known repository (then a remembered
-    /// harness key, then an agent root). No-op when a selection already exists or nothing is known,
-    /// for a remote machine, which these local paths do not describe, and while a picked task waits
-    /// for its own checkout: the empty selection is how Start knows to refuse, not a gap to fill.
+    /// When nothing is selected, or the selected directory has been deleted, adopt the most recently
+    /// used known repository that still exists (then a remembered harness key, then an agent root),
+    /// or no repository when none does. No-op while the selection exists, for a remote machine,
+    /// which these local paths do not describe, and while a task is being picked. A picked task that
+    /// has a repository falls back only to its own checkout, else to none, where Start refuses it.
     public async Task EnsureDefaultRepositoryAsync() {
-        bool Settled() => SelectedRepoPath.Length > 0 || RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
-        if (Settled()) return;
-        if (await PreferRecentRepositoryAsync() is not { Length: > 0 } recent) return;
-        // PreferRecent can await file I/O — a pick or a machine switch made while that ran must win.
-        if (Settled()) return;
-        await SelectRepositoryAsync(recent);
+        bool Held() => RemoteMachineSelected || Volatile.Read(ref _taskPicksInFlight) > 0;
+        if (Held()) return;
+        var picks = Volatile.Read(ref _repoPicks);
+        var source = NextWorkSource;
+        var selected = SelectedRepoPath;
+        if (selected.Length > 0 && await FirstExistingAsync([selected]) is not null) return;
+        var fallback = HasRepository(source)
+            ? await FirstExistingAsync(source is { MachineIsLocal: true, RepoPath: { } own } ? [own] : [])
+            : await PreferRecentRepositoryAsync();
+        // Both awaits are file I/O — a pick or a machine switch made while they ran must win.
+        if (Held() || Volatile.Read(ref _repoPicks) != picks) return;
+        // A task picked or dropped meanwhile changes where the selection may go.
+        if (!ReferenceEquals(NextWorkSource, source)) {
+            await EnsureDefaultRepositoryAsync();
+            return;
+        }
+        if (fallback is not null) await SelectRepositoryAsync(fallback);
+        else if (selected.Length > 0) await SelectRepositoryAsync(ScratchRepoPath);
     }
 
-    async Task<string?> PreferRecentRepositoryAsync() {
-        foreach (var path in await _knownRepos()) {
-            var normalized = PlatformPaths.Normalize(path);
-            if (normalized.Length > 0) return normalized;
-        }
+    static bool HasRepository(NextWork.NextWorkFill? task) => task is { AwaitsCheckout: true } or { RepoPath: not null };
 
-        foreach (var key in (await _state.LoadAsync()).HarnessByRepo?.Keys ?? []) {
-            var normalized = PlatformPaths.Normalize(key);
-            if (normalized.Length > 0) return normalized;
-        }
-
-        var agentPaths = _daemon.Agents.Items.Select(agent => agent.RepoPath)
-            .OfType<string>().Where(path => path.Length > 0).Distinct(PathComparer).ToArray();
-        return await Task.Run(() => agentPaths.Select(path => PlatformPaths.Normalize(GitRepository.ResolveMainRepoRoot(path)))
-            .FirstOrDefault(path => path.Length > 0));
-    }
+    async Task<string?> PreferRecentRepositoryAsync() =>
+        await FirstExistingAsync(await _knownRepos())
+        ?? await FirstExistingAsync((await _state.LoadAsync()).HarnessByRepo?.Keys ?? [])
+        ?? await FirstExistingAsync(AgentRepoPaths().Select(GitRepository.ResolveMainRepoRoot));
 
     /// Sets the repository and restores that repository's remembered harness, or DefaultVendor
     /// when none — never the vendor a DIFFERENT repository had selected while DefaultVendor is
@@ -2154,7 +2195,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
         var picked = NextWorkSource;
-        if (picked is { AwaitsCheckout: true } && string.IsNullOrEmpty(SelectedRepoPath)) {
+        if (HasRepository(picked) && string.IsNullOrEmpty(SelectedRepoPath)) {
             StartError = PickTaskRepository;
             return;
         }

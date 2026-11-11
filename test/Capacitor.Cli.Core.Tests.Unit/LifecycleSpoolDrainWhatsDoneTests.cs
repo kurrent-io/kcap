@@ -44,7 +44,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var calls = new List<(string SessionId, string Vendor)>();
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (sid, vendor) => calls.Add((sid, vendor)), time: TimeProvider.System);
 
@@ -64,7 +64,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var calls = new List<(string SessionId, string Vendor)>();
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (sid, vendor) => calls.Add((sid, vendor)), time: TimeProvider.System);
 
@@ -84,7 +84,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var fired = false;
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (_, _) => fired = true, time: TimeProvider.System);
 
@@ -104,7 +104,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var fired = false;
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (_, _) => fired = true, time: TimeProvider.System);
 
@@ -125,7 +125,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         // No onWhatsDoneRequested — the daemon's periodic drain and callers that don't need
         // the side effect may omit it; this must never throw.
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token, time: TimeProvider.System);
 
         await Assert.That(life.HasBacklog(Sid)).IsFalse();

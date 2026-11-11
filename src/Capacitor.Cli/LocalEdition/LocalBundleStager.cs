@@ -107,18 +107,16 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
     /// reach, the one a fetch cached: it carries the same signature and is checked exactly as a downloaded one is.</summary>
     async Task<(LocalBundleManifest Manifest, byte[] Bytes, string Signature)> VerifiedManifestAsync(string version, string rid, bool fromCache,
         CancellationToken ct) {
-        byte[] bytes;
-        string signature;
-
         try {
-            (bytes, signature) = await bundles.FetchManifestAsync(version, rid, ct);
+            return await bundles.FetchManifestAsync(version, rid, Verify, ct);
         } catch (ArgumentException ex) {
             throw new LocalInstallFailure(LocalInstallFailureCode.InvalidArguments, ex.Message);
         } catch (LocalBundleException ex) when (fromCache && ex.Code == LocalInstallFailureCode.DownloadFailed && CachedManifest(version, rid) is { } cached) {
-            (bytes, signature) = cached;
+            return Verify(cached.Bytes, cached.Signature);
         }
 
-        return (LocalBundleManifest.Verify(bytes, signature, manifestKey, version, rid), bytes, signature);
+        (LocalBundleManifest Manifest, byte[] Bytes, string Signature) Verify(byte[] bytes, string signature) =>
+            (LocalBundleManifest.Verify(bytes, signature, manifestKey, version, rid), bytes, signature);
     }
 
     (byte[] Bytes, string Signature)? CachedManifest(string version, string rid) {

@@ -19,24 +19,24 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
 
     string _version = "";
 
-    /// <summary>Every answer a run that cannot ask is missing, or null when it has both, so one retry is
-    /// enough. A reuse needs no confirmation: it installs nothing.</summary>
-    public static string? MissingAnswer(LocalSetupArgs args, LocalPlan plan, string root) {
-        var needsYes = !args.Yes && plan.Hint != PlanHint.Reuse;
+    /// <summary>Whether the run reused an installation an earlier setup made.</summary>
+    public bool Reused { get; private set; }
 
-        return !args.SingleUser && needsYes ? MissingBoth(plan.Version, root)
-             : !args.SingleUser ? MissingSingleUser
-             : needsYes ? MissingYes(plan.Version, root)
-             : null;
+    /// <summary>Every answer a run that cannot ask is missing, or null when it has both, so one retry is
+    /// enough. A reuse needs neither: it installs nothing, and the installation it reuses was confirmed when it was made.</summary>
+    public static string? MissingAnswer(LocalSetupArgs args, LocalPlan plan, string root) {
+        if (plan.Hint == PlanHint.Reuse) return null;
+
+        return (args.SingleUser, args.Yes) switch {
+            (false, false) => $"Pass --single-user and --yes to install kcap local {plan.Version} in {root}. {SingleUserMeaning}",
+            (false, true)  => $"Pass --single-user to install kcap local {plan.Version} in {root}. {SingleUserMeaning}",
+            (true, false)  => $"Pass --yes to install kcap local {plan.Version} in {root}.",
+            _              => null,
+        };
     }
 
-    const string MissingSingleUser =
-        "Pass --single-user to confirm this machine has one user: on a shared machine, other users can open the web UI and act as its admin.";
-
-    static string MissingBoth(string version, string root) =>
-        $"Pass --single-user and --yes to install kcap local {version} in {root}. --single-user confirms this machine has one user: on a shared machine, other users can open the web UI and act as its admin.";
-
-    static string MissingYes(string version, string root) => $"Pass --yes to install kcap local {version} in {root}.";
+    const string SingleUserMeaning =
+        "--single-user confirms this machine has one user: on a shared machine, other users can open the web UI and act as its admin.";
 
     /// <returns>The commit, or null with the exit code when the later steps must not run.</returns>
     public async Task<(int Exit, LocalInstallEvent.Committed? Committed)> RunAsync() {
@@ -61,16 +61,23 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
 
         if (!canAsk && MissingAnswer(args, plan, root) is { } missing) return await RefuseAsync(missing);
 
-        if (!args.SingleUser && !Ask("Continue?")) return Declined();
+        var singleUser = args.SingleUser;
+        var confirmed  = args.Yes;
 
-        var confirmed = args.Yes;
+        // A reuse asks nothing, and passes on only the answers it was given: a plan that becomes an install under the
+        // lease must still be refused for want of one.
+        if (plan.Hint != PlanHint.Reuse) {
+            if (!singleUser) {
+                if (!Ask("Continue?")) return Declined();
 
-        // A reuse asks nothing, and passes on no confirmation: a plan that becomes an install under the lease
-        // must still be refused for want of one.
-        if (!confirmed && plan.Hint != PlanHint.Reuse) {
-            if (!Ask($"Install kcap local {plan.Version} in {root}?")) return Declined();
+                singleUser = true;
+            }
 
-            confirmed = true;
+            if (!confirmed) {
+                if (!Ask($"Install kcap local {plan.Version} in {root}?")) return Declined();
+
+                confirmed = true;
+            }
         }
 
         LocalEmbeddingAnswer         embeddings;
@@ -97,7 +104,7 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
         using var deferral = InteractiveLifetime.Defer();
 
         try {
-            var committed = await installer.InstallAsync(new(SingleUser: true, Confirmed: confirmed, embeddings, builtin), progress, deferral.Token);
+            var committed = await installer.InstallAsync(new(singleUser, confirmed, embeddings, builtin), progress, deferral.Token);
 
             if (!deferral.Interrupted) return (SetupExit.Done, committed);
 
@@ -157,7 +164,8 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
         if (withBuiltin is not null) choices.Add(withBuiltin);
         choices.Add(keyword);
 
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Search by meaning with:").UseConverter(Markup.Escape).AddChoices(choices));
+        var picked = WizardChoice.Ask(AnsiConsole.Console,
+            new SelectionPrompt<string>().Title("Search by meaning with:").UseConverter(Markup.Escape).AddChoices(choices), c => c);
 
         if (picked == keyword) return new LocalEmbeddingAnswer.Skip();
         if (picked == withBuiltin) return new LocalEmbeddingAnswer.Builtin();
@@ -192,6 +200,8 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
 
     void Render(LocalInstallEvent e) {
         report?.Install(e);
+
+        if (e is LocalInstallEvent.Reused) Reused = true;
 
         if (Line(e, _version) is { } line) AnsiConsole.MarkupLine($"  {Markup.Escape(line)}");
 

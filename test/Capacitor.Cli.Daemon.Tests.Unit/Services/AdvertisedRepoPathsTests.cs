@@ -22,22 +22,27 @@ public class AdvertisedRepoPathsTests {
         Tmp.CreateDir("repos", "plain");
         var prefix = Tmp.GetResolvedPath("repos");
 
-        var advertised = AdvertisedRepoPaths.Merge([], [prefix + "/*"]);
+        var advertised = AdvertisedRepoPaths.Merge([], [prefix + "/*"]).Paths;
 
         await Assert.That(string.Join("|", advertised)).IsEqualTo($"{a}|{b}");
         await Assert.That(advertised).DoesNotContain(prefix).Because("the prefix is not a repository");
     }
 
     /// The search reads a star the way the allowlist does: after a backslash only on Windows, since on
-    /// POSIX a backslash is part of a name and the entry is a literal path.
+    /// POSIX a backslash is part of a name and the entry is a literal path, which no directory has.
     [Test]
     [Arguments("/*")]
     [Arguments("\\*")]
     public async Task A_wildcard_over_a_repository_advertises_that_repository(string star) {
-        var repo     = Repo("solo");
-        var expected = star == "/*" || OperatingSystem.IsWindows() ? repo : repo + star;
+        var repo   = Repo("solo");
+        var isGlob = star == "/*" || OperatingSystem.IsWindows();
+        string[] expectedPaths   = isGlob ? [repo] : [];
+        string[] expectedMissing = isGlob ? [] : [repo + star];
 
-        await Assert.That(AdvertisedRepoPaths.Merge([], [repo + star])).IsEquivalentTo(new[] { expected });
+        var (paths, missing) = AdvertisedRepoPaths.Merge([], [repo + star]);
+
+        await Assert.That(paths).IsEquivalentTo(expectedPaths);
+        await Assert.That(missing).IsEquivalentTo(expectedMissing);
     }
 
     /// Files are read by the same listing as directories, so they spend the same budget.
@@ -47,17 +52,40 @@ public class AdvertisedRepoPathsTests {
         var big = Tmp.GetResolvedPath("big");
         for (var i = 0; i < 20_000; i++) File.Create(Path.Combine(big, $"f{i}")).Dispose();
 
-        await Assert.That(AdvertisedRepoPaths.Merge([], [big + "/*"])).IsEmpty();
+        await Assert.That(AdvertisedRepoPaths.Merge([], [big + "/*"]).Paths).IsEmpty();
     }
 
     [Test]
     public async Task Persisted_paths_lead_a_literal_entry_is_kept_as_written_and_duplicates_drop() {
         var a = Repo("repos", "a");
         var prefix = Tmp.GetResolvedPath("repos");
+        var persisted = Tmp.CreateDir("persisted").Path;
+        var literal = Tmp.CreateDir("literal", "worktree").Path;
 
-        var advertised = AdvertisedRepoPaths.Merge([a, "/persisted"], ["/literal/worktree", prefix + "/*", "/persisted"]);
+        var advertised = AdvertisedRepoPaths.Merge([a, persisted], [literal, prefix + "/*", persisted]).Paths;
 
-        await Assert.That(string.Join("|", advertised)).IsEqualTo($"{a}|/persisted|/literal/worktree");
+        await Assert.That(string.Join("|", advertised)).IsEqualTo($"{a}|{persisted}|{literal}");
+    }
+
+    /// A clone deleted after it was used stays in repos.json, and an allowlist entry can outlive its
+    /// directory: neither is offered, and both are reported so their return can be noticed.
+    [Test]
+    public async Task A_persisted_path_or_literal_entry_that_is_not_a_directory_is_reported_missing() {
+        var kept = Tmp.CreateDir("kept").Path;
+        var gonePersisted = Tmp.PathTo("gone-persisted");
+        var goneLiteral = Tmp.PathTo("gone-literal");
+
+        var (paths, missing) = AdvertisedRepoPaths.Merge([kept, gonePersisted], [goneLiteral, gonePersisted]);
+
+        await Assert.That(paths).IsEquivalentTo(new[] { kept });
+        await Assert.That(string.Join("|", missing)).IsEqualTo($"{gonePersisted}|{goneLiteral}");
+    }
+
+    [Test]
+    public async Task A_file_is_not_a_repository_directory() {
+        var file = Tmp.CreateFile("not-a-dir");
+
+        await Assert.That(AdvertisedRepoPaths.Merge([file], []).Missing).IsEquivalentTo(new[] { file });
     }
 
     /// A linked worktree is advertised as found, so a launch chosen from the list lands in that checkout.
@@ -69,22 +97,27 @@ public class AdvertisedRepoPathsTests {
         Tmp.CreateDir("elsewhere", "main", ".git", "worktrees", "wt");
         File.WriteAllText(Path.Combine(main, ".git", "worktrees", "wt", "commondir"), "../..\n");
 
-        var advertised = AdvertisedRepoPaths.Merge([], [Tmp.GetResolvedPath("repos") + "/*"]);
+        var advertised = AdvertisedRepoPaths.Merge([], [Tmp.GetResolvedPath("repos") + "/*"]).Paths;
 
         await Assert.That(advertised).IsEquivalentTo(new[] { Tmp.GetResolvedPath("repos", "wt") });
     }
 
     /// The allowlist matches a literal entry as that exact string, separators included.
     [Test]
-    [Arguments("/literal/worktree/")]
-    [Arguments("/")]
-    [Arguments("C:\\repos\\")]
-    public async Task A_literal_entry_is_advertised_exactly_as_written(string entry) =>
-        await Assert.That(AdvertisedRepoPaths.Merge([], [entry])).IsEquivalentTo(new[] { entry });
+    public async Task A_literal_entry_is_advertised_exactly_as_written() {
+        var trailing = Tmp.CreateDir("literal", "worktree").Path + Path.DirectorySeparatorChar;
+        var root = Path.GetPathRoot(Tmp.Path)!;
+
+        await Assert.That(AdvertisedRepoPaths.Merge([], [trailing, root]).Paths).IsEquivalentTo(new[] { trailing, root });
+    }
 
     [Test]
-    public async Task No_allowlist_advertises_the_persisted_paths_alone() =>
-        await Assert.That(AdvertisedRepoPaths.Merge(["/a", "/b"], [])).IsEquivalentTo(new[] { "/a", "/b" });
+    public async Task No_allowlist_advertises_the_persisted_paths_alone() {
+        var a = Tmp.CreateDir("a").Path;
+        var b = Tmp.CreateDir("b").Path;
+
+        await Assert.That(AdvertisedRepoPaths.Merge([a, b], []).Paths).IsEquivalentTo(new[] { a, b });
+    }
 
     /// The allowlist compares a launch's path with the entry as written, so a relative entry admits no
     /// absolute path and nothing found under it could be launched.
@@ -96,7 +129,7 @@ public class AdvertisedRepoPathsTests {
 #pragma warning restore RS0030
         Skip.When(Path.IsPathRooted(relative), "the temp folder is on another volume than the working directory");
 
-        await Assert.That(AdvertisedRepoPaths.Merge([], [relative + "/*"])).IsEmpty();
+        await Assert.That(AdvertisedRepoPaths.Merge([], [relative + "/*"]).Paths).IsEmpty();
     }
 
     /// A launch is authorized on its resolved path, which a link under the prefix leads out of.
@@ -108,10 +141,10 @@ public class AdvertisedRepoPathsTests {
         var allowed = Tmp.CreateDir("allowed").Path;
         Directory.CreateSymbolicLink(Tmp.PathTo("allowed", "link"), outside);
 
-        await Assert.That(AdvertisedRepoPaths.Merge([], [allowed + "/*"])).IsEmpty();
+        await Assert.That(AdvertisedRepoPaths.Merge([], [allowed + "/*"]).Paths).IsEmpty();
     }
 
     [Test]
     public async Task A_missing_prefix_advertises_nothing() =>
-        await Assert.That(AdvertisedRepoPaths.Merge([], [Tmp.PathTo("absent") + "/*"])).IsEmpty();
+        await Assert.That(AdvertisedRepoPaths.Merge([], [Tmp.PathTo("absent") + "/*"]).Paths).IsEmpty();
 }

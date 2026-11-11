@@ -82,29 +82,22 @@
                                                                 </MultiBinding>
                                                             </WrapPanel.IsVisible>
                                                             <TextBlock Classes="kcapLabel accountLabel" Text="{Binding Label}" VerticalAlignment="Center" MaxWidth="260" TextWrapping="Wrap" />
-                                                            <Border Classes="settingsPill accountDefault" IsVisible="{Binding IsDefault}"
-                                                                    ToolTip.Tip="The tool's standard folder, used when a session does not pick an account">
-                                                                <TextBlock Text="Default" />
-                                                            </Border>
-                                                            <Border Classes="settingsStatus" Classes.attention="{Binding StateIsAttention}" Classes.success="{Binding StateIsHealthy}"
+                                                            <views:StatusBadge Classes="accountDefault" Text="Default" IsVisible="{Binding IsDefault}"
+                                                                               ToolTip.Tip="The tool's standard folder, used when a session does not pick an account" />
+                                                            <Border Classes="kcapBadge" Classes.attention="{Binding StateIsAttention}" Classes.success="{Binding StateIsHealthy}"
                                                                     ToolTip.Tip="{Binding StateHint}">
                                                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                                                     <views:AppIcon Kind="TriangleAlert" Size="12" IsVisible="{Binding StateIsAttention}" />
                                                                     <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding StateIsHealthy}" />
-                                                                    <TextBlock Classes="accountState" Classes.attention="{Binding StateIsAttention}"
+                                                                    <TextBlock Classes="accountState kcapStatusWord" Classes.attention="{Binding StateIsAttention}"
                                                                                Text="{Binding StateLabel}" ToolTip.Tip="{Binding StateHint}" />
                                                                 </StackPanel>
                                                             </Border>
-                                                            <Border Classes="accountPlan" IsVisible="{Binding Plan, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                                                                    BorderThickness="1" CornerRadius="999" Padding="8,3" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding Plan}" FontSize="11" FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource KcapMutedBrush}" />
+                                                            <Border Classes="kcapBadge accountPlan" IsVisible="{Binding Plan, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                                <TextBlock Classes="kcapStatusWord" Text="{Binding Plan}" />
                                                             </Border>
-                                                            <Border Classes="accountBlocked" IsVisible="{Binding Usage.View.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"
-                                                                    Background="{StaticResource KcapDangerDimBrush}" CornerRadius="999" Padding="8,3" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding Usage.View.BlockedText}" FontSize="11" FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource KcapDangerBrush}" />
+                                                            <Border Classes="kcapBadge danger accountBlocked" IsVisible="{Binding Usage.View.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                                                                <TextBlock Classes="kcapStatusWord" Text="{Binding Usage.View.BlockedText}" />
                                                             </Border>
                                                         </WrapPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="6">

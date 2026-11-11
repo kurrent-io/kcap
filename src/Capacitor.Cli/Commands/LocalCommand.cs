@@ -210,7 +210,8 @@ sealed class LocalCommand(
             LocalUninstallOutcome.Purged      => $"Purged the local installation in {root}.",
             LocalUninstallOutcome.Uninstalled => $"Uninstalled the local server. Its data in {root} is kept; kcap setup --local brings it back.",
             LocalUninstallOutcome.Unloaded    => $"Removed the local server's service; the server is still stopping, so {Path.Combine(root, "bin")} and "
-                                               + $"{Path.Combine(root, "run")} are left. Its data in {root} is kept; kcap setup --local brings it back.",
+                                               + $"{Path.Combine(root, "run")} are left; kcap local uninstall removes them once it has exited. "
+                                               + $"Its data in {root} is kept; kcap setup --local brings it back.",
             _                                 => $"There is no local installation in {root}.",
         });
 
@@ -258,7 +259,7 @@ sealed class LocalCommand(
     }
 
     static async Task<int> PrintUsage(int exit) {
-        var usage = EmbeddedResources.TryLoad("help-local.txt") ?? "Usage: kcap local <subcommand>";
+        var usage = EmbeddedResources.TryLoadHelp("help-local.txt") ?? "Usage: kcap local <subcommand>";
 
         if (exit == 0) await Console.Out.WriteAsync(usage);
         else await Console.Error.WriteAsync(usage);

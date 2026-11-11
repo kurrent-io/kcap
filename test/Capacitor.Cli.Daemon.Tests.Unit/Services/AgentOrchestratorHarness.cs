@@ -2,6 +2,8 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Hosting;
@@ -46,7 +48,13 @@ internal static class AgentOrchestratorHarness {
             // gets by default; a test that drives expiry passes its own.
             TimeProvider?                                       timeProvider           = null,
             DaemonConfig?                                       sharedConfig           = null,
-            AccountReadingSink?                                 readings               = null
+            AccountReadingSink?                                 readings               = null,
+            // Given the config this harness finished building, whose directories it owns.
+            Func<DaemonConfig, DaemonRecorder>?                 recorder               = null,
+            // Given that config too; the caller disposes what it returns.
+            Func<DaemonConfig, ModAttachments>?                 attachments            = null,
+            // Where the orchestrator's harness registry finds vendor CLIs; nothing by default.
+            BinaryProbe?                                        harnessBinaries        = null
         ) {
         var daemonStore    = new TempDaemonStore();
         var configRoot   = new TempConfigRoot();
@@ -119,7 +127,10 @@ internal static class AgentOrchestratorHarness {
             consentGate,
             deferProcessorPublication,
             time,
-            readings
+            readings,
+            recorder?.Invoke(config),
+            attachments?.Invoke(config),
+            harnessBinaries ?? TestBinaries.None
         );
     }
 
@@ -152,11 +163,14 @@ internal static class AgentOrchestratorHarness {
                 LaunchConsentGate                                       consentGate,
                 bool                                                    deferProcessorPublication,
                 TimeProvider                                            time,
-                AccountReadingSink?                                     readings
+                AccountReadingSink?                                     readings,
+                DaemonRecorder?                                         recorder,
+                ModAttachments?                                         attachments,
+                BinaryProbe                                             harnessBinaries
             ) : base(
             config,
             configRoot.Root,
-            TestHarnesses.Under(home),
+            TestHarnesses.Under(home, harnessBinaries),
             server,
             worktreeManager,
             repoMatcher,
@@ -176,7 +190,9 @@ internal static class AgentOrchestratorHarness {
             // The scratch config root and a fresh checkout carry no approval documents, so every test
             // that writes none still gets an empty snapshot and no upload.
             policySnapshots: new PolicySnapshotProvider(configRoot.Root),
-            readings: readings
+            readings: readings,
+            recorder: recorder,
+            attachments: attachments
         ) {
             _tmp    = tmp;
             _config = configRoot;

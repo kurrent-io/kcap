@@ -38,8 +38,12 @@ public sealed record AgentInstanceDto {
     [JsonPropertyName("account_label")]     public string? AccountLabel { get; init; }
     [JsonPropertyName("terminal_dialog")]   public AgentTerminalDialog? TerminalDialog { get; init; }
     [JsonPropertyName("title")]             public string? Title { get; init; }
+    /// Whether SendTerminalInput reaches the agent's terminal; false from a server that predates it.
+    [JsonPropertyName("terminal_input")]    public bool TerminalInput { get; init; }
     /// Absent while the server has agent privileges off, and from a server that predates them.
     [JsonPropertyName("viewer_rights")]     public AgentViewerRightsDto? ViewerRights { get; init; }
+    /// A Claude Code session in its owner's own terminal that a daemon steers rather than hosts. False from an older server.
+    [JsonPropertyName("attached")]          public bool Attached { get; init; }
 }
 
 public sealed record AccessGrant {

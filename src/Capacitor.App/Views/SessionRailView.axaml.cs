@@ -8,6 +8,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Capacitor.App.ViewModels;
 
@@ -21,6 +22,21 @@ public partial class SessionRailView : UserControl {
     public SessionRailView() {
         InitializeComponent();
         DataContextChanged += (_, _) => BindSearchLabel();
+        foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+    }
+
+    // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
+    static void KeyboardDismissible(Button anchor) {
+        if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
+
+        flyout.Opened += (_, _) => content.GetLogicalDescendants().OfType<Button>()
+            .FirstOrDefault(b => b.IsEffectivelyVisible && b.IsEffectivelyEnabled)?.Focus(NavigationMethod.Tab);
+        content.AddHandler(KeyDownEvent, (_, e) => {
+            if (e.Key != Key.Escape || e.Handled) return;
+            e.Handled = true;
+            flyout.Hide();
+            anchor.Focus(NavigationMethod.Tab);
+        }, RoutingStrategies.Bubble);
     }
 
     // The field shows the page's query while the page is up, and its placeholder otherwise.

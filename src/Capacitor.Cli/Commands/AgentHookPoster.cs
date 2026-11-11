@@ -222,7 +222,7 @@ internal sealed class AgentHookPoster(
     /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
     /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
     /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>
+    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>
     /// directly instead.
     ///
     /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
@@ -307,7 +307,7 @@ internal sealed class AgentHookPoster(
                 // mirroring ClaudeHookCommand.ClaudePoster's own session-end replay side effect: the
                 // server's generate_whats_done signal is vendor-agnostic.
                 await LifecycleSpoolDrain.RunAsync(
-                    new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
+                    config, new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
                     onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
 
@@ -362,7 +362,7 @@ internal sealed class AgentHookPoster(
         var spooled = 0;
         foreach (var session in exited) {
             if (session.Origin is not { Vendor: { } vendor, Server: { } server } origin || !AgentSessions.SameServer(server, url)) continue;
-            if (hold(session)) continue;
+            if (hold(session) || spool.IsDisabledByPerson(session.Session.Value)) continue;
 
             // The fields every vendor's session-end binding requires, as the watcher's own end sends them.
             var end = new JsonObject {

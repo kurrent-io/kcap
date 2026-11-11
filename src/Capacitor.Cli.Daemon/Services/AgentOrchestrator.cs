@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Acp;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.LocalIpc;
@@ -68,6 +69,10 @@ internal record AgentInstance(
     ) {
     public string?              SessionId         { get; set; }
 
+    /// <summary>Sessions the agent moved to after its launch, as its hooks handed them over: <see cref="SessionId"/> is
+    /// the one discovery found, and a clear leaves it behind.</summary>
+    public ConcurrentDictionary<string, byte> MovedTo { get; } = new(StringComparer.Ordinal);
+
     /// The vendor's resume id, which can be reserved before a transcript confirms SessionId.
     public string?              VendorSession     { get; set; }
 
@@ -113,6 +118,9 @@ internal record AgentInstance(
 
     /// Stops in progress, under the orchestrator's ledger lock; the last to settle sends the owed report.
     public int                  StopsInFlight;
+
+    /// Waiting edges not yet written to the resume ledger; the edge that raises it from zero starts the writer.
+    public int                  UnpersistedWaitEdges;
 
     /// Orders a reconnect's status send against a stop's report: whichever starts its sends first is sent first.
     public readonly Lock        StatusSendGate = new();
@@ -795,6 +803,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// </summary>
     internal TimeSpan EndAgentSessionBudget { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>How long an exited agent's end waits for its transcript's final drain. As long as the server gives a
+    /// watcher it has told to stop, so a hung send can hold up neither the end nor the teardown.</summary>
+    internal TimeSpan RecordingDrainBudget { get; set; } = TimeSpan.FromSeconds(10);
+
     // Linked to IHostApplicationLifetime.ApplicationStopping so the shutdown gate
     // trips as soon as the host begins stopping — the same instant ServerConnection's
     // _ct (also ApplicationStopping) cancels SignalR calls. Otherwise there's a
@@ -889,8 +901,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Null outside DaemonRunner: no accounts, so no catalog is probed per account.
             AccountsPublisher?                                accounts = null,
             // Null outside DaemonRunner: limit hits seen on screen are not recorded.
-            AccountReadingSink?                               readings = null
+            AccountReadingSink?                               readings = null,
+            // Null outside DaemonRunner: hosted sessions stay on their watchers.
+            DaemonRecorder?                                   recorder = null,
+            // Null outside DaemonRunner: no terminal session is steered.
+            ModAttachments?                                   attachments = null
         ) {
+        _recorder        = recorder;
+        _attachments     = attachments;
+        if (attachments is not null) attachments.Hosts = Hosts;
         AccountsSnapshot = accounts is null ? static () => null : () => accounts.Current;
         _readings        = readings;
         _admission = admissionFence ?? new AdmissionFence(
@@ -911,6 +930,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _harnesses         = harnesses;
         _server            = server;
         _server.OnCredentialResolved = ObserveCredential;
+        _server.EndsNoSession        = RanDisabledSession;
+        _server.IsDisabledByPerson   = IsDisabled;
         _worktreeManager   = worktreeManager;
         _repoMatcher       = repoMatcher;
         _ptyFactory        = ptyFactory;
@@ -1098,6 +1119,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     bool IsKnownStopTarget(string agentId) =>
         !string.IsNullOrEmpty(agentId)
      && (_agents.ContainsKey(agentId)
+      || _attachments?.Holds(agentId) == true
       || (_pidRecords?.Exists(agentId) ?? false)
       || _resumeCandidates.ContainsKey(agentId)
       || (StoreFor(agentId) is { } ledger && File.Exists(ledger.EntryPath(agentId))));
@@ -1359,6 +1381,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 if (agent.Status != "Running" || !agent.Runtime.EmitsTerminalOutput) continue;
                 if (agent.ActivityClock.TryMarkQuiet(AgentActivityClock.QuietTurn)) {
                     marked = true;
+                    PersistWaitingSoon(agent.ActivityClock);
                     continue;
                 }
                 if (agent.ActivityClock.QuietDue(AgentActivityClock.QuietTurn) is { } due &&
@@ -1603,11 +1626,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ResumingAgents: recovery.Claims);
     }
 
+    /// <summary>Attachments are reported too, so a reconnect does not reap one before its mod returns.</summary>
     string[] LiveAgentIds() => [
         .. _agents
             .Where(kvp => (kvp.Value.Status is "Starting" or "Running") && !kvp.Value.IsServerSilent)
-            .Select(kvp => kvp.Key)
+            .Select(kvp => kvp.Key),
+        .. _attachments?.Live.Select(a => a.AgentId) ?? []
     ];
+
+    /// <summary>Whether a hosted agent here runs the session, under any id it goes by, or is the process: a hosted Claude
+    /// can ask before its session is known here.</summary>
+    bool Hosts(string canonicalSessionId, int pid) =>
+        _agents.Values.Any(a => pid > 0 && a.Runtime.Pid == pid || SessionIdsOf(a).Any(id => SessionIds.Canonical(id) == canonicalSessionId));
 
     /// <summary>Under the ledger lock a resume publishes and its candidate settles under.</summary>
     internal RecoverySnapshot TakeRecoverySnapshot() {
@@ -1883,6 +1913,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     readonly AccountReadingSink? _readings;
+    readonly DaemonRecorder? _recorder;
+
+    /// <summary>Terminal sessions steered through the kcap-steering mod. Never in <see cref="_agents"/>: the daemon
+    /// started none of them, so nothing that launches, resumes, counts, reaps or tears down hosted agents applies.</summary>
+    readonly ModAttachments? _attachments;
 
     /// <summary>
     /// Re-sends the registration on the current connection so the server's copy of a connect
@@ -2316,6 +2351,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 AccountLabel:     CurrentAccountLabel(p.Account?.AccountId, p.Account?.Label)));
         }
 
+        foreach (var attached in _attachments?.Live ?? [])
+            live.Add(new LiveAgentInfo(attached.AgentId, nameof(LaunchKind.Default), attached.AttachedAt));
+
         return live;
     }
 
@@ -2445,8 +2483,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <see cref="SendStatusReportNowAsync"/>. EVERY launch path must route through here — a path that
     /// builds its own clock silently loses the stage-report wiring. Shared with
     /// <see cref="SeedAgentForTest"/> so tests exercise the same wiring, never a test-only hookup.</summary>
-    AgentActivityClock CreateActivityClock(ulong initialSeq = 1, ulong priorAgeMs = 0) =>
-        new(_time, initialSeq, priorAgeMs) {
+    AgentActivityClock CreateActivityClock(ulong initialSeq = 1, ulong priorAgeMs = 0) {
+        AgentActivityClock? clock = null;
+
+        return clock = new(_time, initialSeq, priorAgeMs) {
             OnLaunchStageChanged   = () => { _statusNotifier.Pulse(); _ = SendStatusReportNowAsync(); },
             OnTurnEnded            = () => _ = SendStatusReportNowAsync(),
             // The flag rides the local status payload; the clock already holds the new value when
@@ -2454,9 +2494,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             OnAwaitingInputChanged = _ => {
                 _statusNotifier.Pulse();
                 RescheduleQuietTurn();
+                PersistWaitingSoon(clock!);
             },
             OnTurnAttestedChanged  = _statusNotifier.Pulse,
+            OnSubagentsSettledChanged = () => PersistWaitingSoon(clock!),
         };
+    }
 
     /// <summary>Test-only seam — insert a minimal <see cref="AgentInstance"/> (Noop
     /// PTY runtime, no real process/worktree) so unit tests can exercise <see cref="BuildLiveAgents"/>
@@ -2935,6 +2978,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // through CleanupAgentAsync for the WRONG agent and leave this launch's own journal parked.
         var published = false;
 
+        // Hoisted so the finally below can let go of a claim no agent ever ran under.
+        RecordedSource? recording = null;
+
         // Created here, ahead of the reviewer-token mint and the AgentInstance that will own it, so the
         // SAME instance reaches the permission-bridge grant, the ACP runtime and the AgentInstance —
         // one clock per launch, never three.
@@ -3100,13 +3146,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     var snapshotGitRoot = auth.CanonicalGitRoot
                         ?? throw new InvalidOperationException("borrow_auth_failed: not_a_git_repository");
                     worktree = await _worktreeManager.CreateBorrowedSnapshotAsync(
-                        snapshotGitRoot, borrowedSnapshotSource, $"borrowed-{agentId}", _shutdownCts.Token);
+                        snapshotGitRoot, borrowedSnapshotSource, AgentWorkspaceNames.BorrowedSnapshot(agentId), _shutdownCts.Token);
                 } else {
                     // Direct borrowed runtimes have their own certified read-only boundary.
                     worktree = WorktreeInfo.Borrowed(auth.CanonicalCwd!);
                 }
             } else if (cmd.ScratchWorkspace) {
-                worktree = await _worktreeManager.CreateScratchAsync($"scratch-{agentId}", _shutdownCts.Token);
+                worktree = await _worktreeManager.CreateScratchAsync(AgentWorkspaceNames.Scratch(agentId), _shutdownCts.Token);
             } else {
                 worktree = await _worktreeManager.CreateAsync(sourceRepo, baseRef: baseRef);
             }
@@ -3325,6 +3371,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             if (resume is null) WritePreStartLedger(cmd, prompt, effectiveModel, effort, worktree, work, consent, pinnedSessionId, account);
 
+            // The process's first hook can run before anything after the start has, so the claim comes first.
+            var knownSession = pinnedSessionId ?? cmd.ResumeSessionId ?? resume?.Entry.VendorSession;
+            recording = await ClaimRecordingAsync(agentId, cmd.Vendor, knownSession, isPrivate, worktree, account, skipTitle: knownSession != pinnedSessionId);
+
             // Make this launch describable for the duration of the handshake below: the AgentInstance
             // does not exist until StartAsync returns, so without this the out-of-cycle report each
             // SetLaunchStage fires would omit the very agent it is reporting a stage for.
@@ -3477,6 +3527,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
             }
             published = true;
+            if (recording is not null) _recorder!.StartForAgent(recording);
             onPublished?.Invoke(agent);
             _ = WatchLaunchPromptAsync(agent);
             storeLease?.Keep();
@@ -3713,6 +3764,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         } finally {
             capacity?.Dispose();
 
+            if (recording is not null && !published) _recorder!.ReleaseClaim(recording);
+
             if (storeLease is not null) {
                 // Never drop a directory a LIVE incarnation under this id owns: a relaunch that fails
                 // before publishing finds the previous agent still holding the id, and that agent's
@@ -3729,6 +3782,50 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
         }
     }
+
+    /// <summary>Whether this daemon answers a hook's hand-over.</summary>
+    internal bool RecordingIsOn => _recorder?.IsOn == true;
+
+    /// <summary>Claims a Claude session whose id is known ahead of its process. Null when this daemon won't record it, and
+    /// the launch goes on as it always has: its hook hands over the session once there is an id, or starts a watcher.</summary>
+    async Task<RecordedSource?> ClaimRecordingAsync(
+            string agentId, string vendor, string? session, bool isPrivate, WorktreeInfo worktree, ResolvedAccount? account, bool skipTitle) {
+        if (isPrivate || _recorder is not { Enabled: true } recorder || !IsClaude(vendor) || SessionIds.Canonical(session) is not { } canonical) return null;
+        if ((await RecordingScopeAsync()).LeftToHooks) return null;
+
+        var transcript = Path.Combine(ClaudePathsFor(account).ProjectDir(worktree.Path), $"{(Guid.TryParse(canonical, out var id) ? id.ToString("D") : canonical)}.jsonl");
+        var source     = new RecordedSource(agentId, canonical, null, transcript, "claude", worktree.Path, skipTitle);
+
+        return await recorder.ClaimAsync(source, _shutdownCts.Token) ? source : null;
+    }
+
+    /// <summary>What the capture scope leaves this daemon to do. A hook's gate reads more than a launch knows, and a claim
+    /// would keep a session it refuses from staying off the server, so with a scope configured a session is recorded only
+    /// once its hook hands it over. Two profiles count: the daemon's own, which a service unit pins, and the active one,
+    /// which is what a hosted hook reads, because <c>KCAP_URL</c> in its environment selects no profile.</summary>
+    async Task<RecordingScope> RecordingScopeAsync() {
+        var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(_config.ConfigRoot);
+
+        if (outcome == ProfileConfigLoad.Unreadable) return RecordingScope.Unknown;
+
+        var own    = snapshot.Profiles.GetValueOrDefault(_config.Profiles.Name) ?? _config.Profiles.Effective;
+        var active = snapshot.Active;
+
+        if (!AgentCaptureScope.Configured(own) && !AgentCaptureScope.Configured(active)) return RecordingScope.Open;
+
+        return new RecordingScope(
+            LeftToHooks: true,
+            MayImport: cwd => !AgentCaptureScope.IsOutOfScope(cwd, own, _config.Home, _config.ConfigRoot, _config.ServerUrl)
+                           && !AgentCaptureScope.IsOutOfScope(cwd, active, _config.Home, _config.ConfigRoot, _config.ServerUrl));
+    }
+
+    /// <summary>Hands a recorder the transcript discovery found, for a source computed ahead of the launch.</summary>
+    void FollowDiscoveredTranscript(AgentInstance agent, string sessionId, string path) {
+        if (_recorder is { } recorder && IsClaude(agent.Vendor) && SessionIds.Canonical(sessionId) is { } canonical)
+            _ = recorder.ObserveTranscriptAsync(new RecordedSource(agent.Id, canonical, null, path, "claude", agent.Worktree.Path, false));
+    }
+
+    static bool IsClaude(string vendor) => string.Equals(vendor, "claude", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Completes and, only when safe, deletes a journal from a launch that never produced an
@@ -4234,6 +4331,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 try { await acpCts.CancelAsync(); } catch { /* best-effort */ }
             }
 
+            // Before the end: a transcript line landing behind it would reactivate the session.
+            if (_recorder is { } recorder) await recorder.FinishAgentAsync(agent.Id, RecordingDrainBudget);
+
             // Tell the server to end the AgentSession. Claude doesn't reliably fire
             // its own session-end hook on SIGTERM/exit, so without this call the
             // session would stay "active" forever in the read model. Server-side is
@@ -4250,12 +4350,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             //
             // PrivateLocal agents have no server-side session to end (deny-all).
             //
-            // §2.7 B6 arm-A: a PARKED reviewer (ParkReviewerAsync got a durable Parked ack, which stamped
-            // ReviewerParkedResumableReason here) completes EVERY local-teardown step EXCEPT this hosted
-            // session-end — its Codex app-server thread must survive for a later thread/resume, and the
-            // server's B5 close authority owns the eventual close. Every other teardown step (the ACP
-            // final-drain above, UnregisterAcpBinding + CleanupAgentAsync below) still runs, so the slot
-            // is freed exactly as a reap frees it.
+            // A parked reviewer (ParkReviewerAsync got a durable Parked ack, which stamped
+            // ReviewerParkedResumableReason here) skips only this hosted session-end: its Codex app-server thread has to
+            // survive for a later thread/resume, and the server closes it. Every other teardown step still runs, so the
+            // slot is freed exactly as a reap frees it.
             if (!agent.IsServerSilent && agent.PendingEndReason != ReviewerParkedResumableReason) {
                 var endTask = _server.EndAgentSessionAsync(agent.Id, agent.PendingEndReason);
 
@@ -4673,6 +4771,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// concurrency-safe via the per-agent single-flight teardown latch, and routing them through the lane
     /// would let a parked consent prompt delay reviewer reaping — the exact inversion of its purpose.</summary>
     internal async Task HandleStopAgent(string agentId) {
+        if (_attachments?.Stop(agentId) == true) return;
+
         if (!_agents.TryGetValue(agentId, out var agent)) {
             // An agent a restart left resuming or interrupted has only its ledger entry; a private one is
             // never the server's to stop. One whose resume published since the miss is stopped as live.
@@ -5071,6 +5171,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
         }
 
+        // Held for the mod and returned at once: this runs on the daemon's one sequential server dispatch.
+        if (_attachments?.TakeInput(cmd) == true) return;
+
         try {
             switch (TryHoldForResume(cmd)) {
                 // Acknowledged only once delivered: a resume that fails drops the round, and the server must
@@ -5246,7 +5349,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
 
                 batch   = fetch.Batch;
-                message = $"{text}\n\n{AttachmentTrailer.For(batch.Paths)}";
+                var trailer = AttachmentTrailer.For(batch.Paths);
+                message = string.IsNullOrWhiteSpace(text) ? trailer : $"{text}\n\n{trailer}";
             }
 
             // The files become the agent's only once the prompt naming them has landed: every refusal
@@ -6307,6 +6411,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
             }
         }
+
+        if (_attachments is { } attachments) await attachments.ReRegisterAsync();
+
         // NOTE: the settlement lost-ack re-delivery is deliberately NOT here — this hook runs inside the
         // registration bracket BEFORE readiness is restored, so CommandAckAsync would drop every ack. It
         // is wired to OnRegisteredHook instead, which runs post-MarkRegistered (IsReady == true).
@@ -6427,6 +6534,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     agent.SessionId ??= winner.SessionId;
                     agent.VendorSession ??= winner.SessionId;
                     agent.TranscriptPath = winner.Path;
+                    FollowDiscoveredTranscript(agent, winner.SessionId, winner.Path);
                     // Claude's transcript opens with SessionStart's own record, which a kcap on PATH
                     // too old to send the notice still produces. A resumed one predates the spawn.
                     if (agent.BridgedSinceStart) NoteSessionStarted(agent);
@@ -6595,12 +6703,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     TitleResolveLoop BuildTitleResolveLoop() => new(
         SnapshotAgentsForTitles,
         (agentId, title) => { if (_agents.TryGetValue(agentId, out var agent)) SetResolvedTitle(agent, title); },
-        _titleServer,
+        new DisabledSessionTitles(_titleServer, IsDisabled),
         NativeTitleFor,
         GenerateTitleForAsync,
-        _server.UpdateTitleAsync,
+        PostGeneratedTitleAsync,
         _time,
         _logger);
+
+    internal Task<bool> PostGeneratedTitleAsync(string sessionId, string title, CancellationToken ct) =>
+        IsDisabled(sessionId) ? Task.FromResult(false) : _server.UpdateTitleAsync(sessionId, title, ct);
 
     /// Builds and publishes the loop without starting its timer, so a test can drive its ticks.
     internal TitleResolveLoop PublishTitleLoopForTest() => _titleLoop = BuildTitleResolveLoop();
@@ -6624,23 +6735,48 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// A private agent's contract is "no per-agent server calls", so its view carries no session
-    /// id: the resolver then never polls or pushes for it and only the local lanes apply.
+    /// id: the resolver then never polls or pushes for it and only the local lanes apply. A session
+    /// a person disabled gets the same: its deletion reads as a server with no title, and the loop
+    /// would generate one and send it.
     internal IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
         [.. _agents.Values.Select(a => new TitleAgentView(
             a.Id, a.Vendor, a.ResumedFrom is { } launch ? launch.Prompt : a.Prompt,
-            a.IsServerSilent ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
+            a.IsServerSilent || RunsDisabledSession(a) ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
             a.TranscriptPath, a.CreatedAt, a.StartTitle, Resumed: a.ResumedFrom is not null))];
+
+    /// <summary>Whether a person disabled the session this agent runs, whose recorder knows nothing of what else the
+    /// daemon sends for it.</summary>
+    bool RunsDisabledSession(AgentInstance agent) => SessionIdsOf(agent).Any(IsDisabled);
+
+    /// <summary>Whether a person disabled a session this agent ran, by whatever still knows of it: the caller, the agent
+    /// while it lives, and its ledger entry once it doesn't.</summary>
+    bool RanDisabledSession(string agentId, string? sessionId) =>
+        IsDisabled(sessionId)
+     || _agents.TryGetValue(agentId, out var agent) && RunsDisabledSession(agent)
+     || (ResumeLedger?.TryRead(agentId) ?? ParticipantLedger?.TryRead(agentId)) is { } entry && (IsDisabled(entry.SessionId) || IsDisabled(entry.VendorSession));
+
+    bool IsDisabled(string? session) => session is not null && DisabledSessions.IsDisabledByPerson(session, _config.ConfigRoot);
+
+    /// <summary>Every id this agent's session goes by, an ACP agent's being known only to its runtime.</summary>
+    static string?[] SessionIdsOf(AgentInstance agent) =>
+        [agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId, .. agent.MovedTo.Keys];
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title
             ? new HarnessTitlePost(title.Title, title.IsRename ? HarnessTitleKind.Rename : HarnessTitleKind.Auto, title.IsRename ? title.ChangedAt : null)
             : null;
 
-    async Task<string?> GenerateTitleForAsync(TitleAgentView agent, CancellationToken ct) {
+    internal async Task<string?> GenerateTitleForAsync(TitleAgentView agent, CancellationToken ct) {
+        if (_config.LocalRoot is { } root && !LocalIntelligenceGate.For(_configRoot, root).Allows(_config.ServerUrl)) {
+            _logger.LogInformation("Not generating a title for {AgentId}: {Reason}", agent.Id, LocalIntelligenceGate.NotSetUp);
+
+            return null;
+        }
+
         var result = await TitleGeneration.GenerateAsync(
             agent.Prompt!, null, _time, msg => _logger.LogDebug("Title generation ({AgentId}): {Message}", agent.Id, msg),
-            _config.Profiles.Resolution.Profile, _harnesses,
-            vendor: agent.Vendor == "codex" ? "codex" : "claude", ct: ct);
+            _config.Profiles.Resolution.Profile, _harnesses, _configRoot,
+            vendor: agent.Vendor, ct: ct);
 
         return result?.Result;
     }
@@ -6673,6 +6809,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (agent.Journal is { } journal) {
             try { await journal.CompleteAsync(); } catch (Exception ex) { LogCleanupStepFailed(ex, "completing transcript journal", agentId); }
         }
+
+        // Before the project link goes. Finalization has done this already on every path but a failed launch's.
+        if (_recorder is { } recorder) await recorder.FinishAgentAsync(agentId, RecordingDrainBudget);
 
         // The launcher's teardown deletes the MCP config and the vendor's project link, which a
         // pending resume still needs.
@@ -6808,6 +6947,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
+    /// <summary>Beside the shutdown's report, so it adds nothing to the exit budget, and after the agents have stopped, so
+    /// it takes their last lines. What resumes keeps its claim for the next daemon.</summary>
+    async Task StopRecordingAsync() {
+        if (_recorder is not { } recorder) return;
+
+        try {
+            await recorder.StopAsync(agentId => !_agents.TryGetValue(agentId, out var agent) || agent.ResumePending, CancellationToken.None);
+            await recorder.DisposeAsync();
+        } catch (Exception ex) {
+            LogDisposeStepFailed(ex, "recording");
+        }
+    }
+
     public virtual async ValueTask DisposeAsync() {
         if (Interlocked.Exchange(ref _disposeOnce, 1) != 0) return;
 
@@ -6881,7 +7033,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // away but nothing about the agents it was hosting — and a successor daemon reconnecting
             // under the same name re-binds those retained entries onto its own connection, leaving
             // sessions the surface still composes into and a Stop that has nothing to act on.
+            var recording = StopRecordingAsync();
+
             await ReportAgentsEndedForShutdownAsync();
+            await recording;
 
             foreach (var agentId in _agents.Keys.ToList()) {
                 try {

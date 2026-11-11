@@ -11,7 +11,8 @@ Subcommands:
   attach <agent-id>       Attach your terminal to a running agent
   resume <agent-id>       Retry an interrupted agent
   stop <agent-id> [--force]
-                          Stop an agent (graceful /exit, then terminate)
+                          Stop an agent (graceful /exit, then terminate), or
+                          disconnect steering from an attached session
   stop --all [-y] [--force]
                           Stop every agent this daemon hosts
 
@@ -41,14 +42,16 @@ Options for start:
 
 Options for stop:
   --all                   Stop every agent, including --private ones. Review and
-                          review-flow agents are skipped unless --force is given.
+                          review-flow agents, and attached sessions, are skipped
+                          unless --force is given.
                           Only the displayed snapshot is stopped; agents started
                           after the list was fetched remain running.
                           Listed agents that finish before dispatch count as stopped.
   --force                 Stop a single review or review-flow agent that would
                           otherwise be refused, or include them under --all.
                           Stopping a flow participant mid-round leaves the flow
-                          without it.
+                          without it. Under --all it also disconnects steering
+                          from attached sessions.
   --yes, -y               Skip the confirmation prompt for --all
 
 Options for ls, attach, stop, resume:
@@ -64,6 +67,13 @@ Review and flow agents:
   the flow tools. `attach` gives you a read-only view of one: you see its output,
   your input is not delivered, and your terminal size is not applied to it.
   `stop` refuses unless you pass --force.
+
+Attached sessions:
+  A Claude Code session you run in your own terminal and steer from the web
+  (KIND `attached`, see `kcap daemon steering`) is steered by the daemon but
+  not hosted by it. `stop` disconnects steering from it and leaves the session
+  running in its terminal; `stop --all` leaves it alone unless you pass
+  --force.
 
 Daemon restarts:
   A daemon restart stops the agents and the new daemon resumes them under the

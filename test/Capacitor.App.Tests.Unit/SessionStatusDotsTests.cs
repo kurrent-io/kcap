@@ -110,6 +110,26 @@ public class SessionStatusDotsTests {
         await Assert.That(SessionStatusDots.ForRow(row, pending: false).Kind).IsEqualTo(expected);
     }
 
+    /// <summary>A dead daemon's registry row still says Running, stale or not; drawn as live it offers what nothing can answer.</summary>
+    [Test]
+    public async Task A_row_whose_daemon_is_down_reads_daemon_not_running_ahead_of_stale_and_a_pending_card() {
+        var row = AgentRow.FromRemote(new AgentInstanceDto {
+            AgentId = "r1", Status = "Running", DaemonName = "d", OwnerUserId = "u", Vendor = "claude", RepoOwner = "o", RepoName = "r",
+        }) with { Status = AgentRow.DaemonDownStatus, IsStale = true };
+
+        var status  = SessionStatusDots.ForRow(row, pending: false);
+        var pending = SessionStatusDots.ForRow(row, pending: true);
+
+        await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.DaemonDown);
+        await Assert.That(status.Label).IsEqualTo("Daemon not running");
+        await Assert.That(status.AccessibleName).IsEqualTo("Its daemon is not running");
+        await Assert.That(status.IsWarning).IsTrue();
+        await Assert.That(status.IsInFlight).IsFalse();
+        await Assert.That(pending.Kind).IsEqualTo(AgentStatusKind.DaemonDown);
+        await Assert.That(SessionStatusDots.Rollup([row, Local("w", awaiting: false)], new HashSet<string>())!.AccessibleName)
+            .IsEqualTo("1 session has no daemon running");
+    }
+
     [Test]
     public async Task A_stale_row_asks_nothing_of_a_collapsed_group() {
         await Assert.That(SessionStatusDots.Rollup([Local("a") with { IsStale = true }], new HashSet<string>())).IsNull();

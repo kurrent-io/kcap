@@ -10,16 +10,19 @@ static class LocalPortPicker {
     const int Attempts = 20;
 
     /// <summary>The default port when it is free and not retired, otherwise an OS-assigned one that is free on both
-    /// loopback families and not retired.</summary>
-    public static int Choose(InstallRegistry registry, Func<int, bool>? isFree = null) {
+    /// loopback families and not retired. A port is retired when the root's registry or the user-wide
+    /// <see cref="RetiredPorts"/> record names it.</summary>
+    public static int Choose(InstallRegistry registry, Func<int, bool>? isFree = null, InstallRegistry? retiredForUser = null) {
         isFree ??= FreeOnLoopback;
 
-        if (!registry.IsRetiredPort(DefaultPort) && isFree(DefaultPort)) return DefaultPort;
+        bool Retired(int port) => registry.IsRetiredPort(port) || retiredForUser?.IsRetiredPort(port) == true;
+
+        if (!Retired(DefaultPort) && isFree(DefaultPort)) return DefaultPort;
 
         for (var attempt = 0; attempt < Attempts; attempt++) {
             var port = AssignedPort();
 
-            if (!registry.IsRetiredPort(port) && isFree(port)) return port;
+            if (!Retired(port) && isFree(port)) return port;
         }
 
         throw new InvalidOperationException($"No free loopback port found after {Attempts} attempts.");
