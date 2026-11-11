@@ -360,15 +360,12 @@ class WatchCommand(
                 () => CopilotFinalizeDrainCommand.LastLineIsShutdown(path),
                 time, CopilotStopRequestEnd.Wait);
 
-            // An end nothing holds is lost, so one that could not be held is sent now, though the session may not be over.
-            if (!await holding && reason is null) {
-                Log(time, "Could not hold the Copilot session's end for a later spool drain; sending it now");
-                reason = "parent_exited";
-            }
-
-            Log(time, reason is not null
-                ? $"Stopped with the Copilot session over; ending it ({reason})"
-                : "Stopped before the Copilot session was over; its end is held for a later spool drain");
+            // A premature first end is permanent, where a lost one is the server's stale sweep's to recover, so an end that
+            // could not be held for a session not shown over is left unsent.
+            var isHeld = await holding;
+            Log(time, reason is not null ? $"Stopped with the Copilot session over; ending it ({reason})"
+                : isHeld                 ? "Stopped before the Copilot session was over; its end is held for a later spool drain"
+                                         : "Stopped before the Copilot session was over and its end could not be held; leaving it to the server");
 
             return reason;
         }
