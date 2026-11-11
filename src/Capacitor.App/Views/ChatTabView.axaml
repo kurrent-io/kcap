@@ -191,27 +191,12 @@
         <Style Selector="ContentControl.pendingCard.packsWithPrevious">
             <Setter Property="Margin" Value="0,4,0,12" />
         </Style>
+        <!-- Invisible: the resize cursor is the only sign of a handle. The transparent fill is what
+             makes it hit-testable. -->
         <Style Selector="Border.chatColumnHandle">
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Cursor" Value="SizeWestEast" />
-            <Setter Property="Opacity" Value="0" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-                </Transitions>
-            </Setter>
-        </Style>
-        <Style Selector="Border.chatColumnHandle.shown">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="Border.chatColumnGrip">
-            <Setter Property="Width" Value="2" />
-            <Setter Property="Height" Value="96" />
-            <Setter Property="CornerRadius" Value="1" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="Background" Value="{StaticResource KcapBorderStrongBrush}" />
         </Style>
         <Style Selector="Border.thinkingBody">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
@@ -593,15 +578,9 @@
                 </ItemsControl.DataTemplates>
             </ItemsControl>
             <!-- Over the list rather than in it, so a handle drag is not read as the scrollbar's. -->
-            <Border x:Name="ChatColumnLeftHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset">
-                <Border Classes="chatColumnGrip" />
-            </Border>
-            <Border x:Name="ChatColumnRightHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset">
-                <Border Classes="chatColumnGrip" />
-            </Border>
-            <Border x:Name="ChatLaneHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset">
-                <Border Classes="chatColumnGrip" />
-            </Border>
+            <Border x:Name="ChatColumnLeftHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+            <Border x:Name="ChatColumnRightHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+            <Border x:Name="ChatLaneHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
         </Panel>
         <Border x:Name="FindBar" Grid.Row="1" Classes="findBar" DataContext="{Binding Find}" x:DataType="vm:ChatFindViewModel"
                 IsVisible="{Binding IsOpen}">

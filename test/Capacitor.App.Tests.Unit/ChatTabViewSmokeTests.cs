@@ -800,26 +800,6 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Pointing_at_any_chat_handle_shows_them_all() => RunOnUiAsync(async () => {
-        var host = new Host();
-        try {
-            host.Window.Width = 1400;
-            await host.LoadAsync(Tmp.CreateFile("column-hover.jsonl", [UserLine]));
-            var handles = new[] { "ChatColumnLeftHandle", "ChatColumnRightHandle", "ChatLaneHandle" }
-                .Select(name => host.View.FindControl<Border>(name)!).ToArray();
-            await Assert.That(handles.Any(h => h.Classes.Contains("shown"))).IsFalse();
-
-            host.Window.MouseMove(PresentAndLocate(host, handles[1]));
-            await Assert.That(handles.All(h => h.Classes.Contains("shown"))).IsTrue();
-
-            host.Window.MouseMove(new Point(700, 300));
-            host.Settle();
-            await Assert.That(handles.Any(h => h.Classes.Contains("shown"))).IsFalse();
-        } finally { await host.CloseAsync(); }
-    });
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
     public Task Wheel_notches_interpolate_across_animation_frames() => RunOnUiAsync(async () => {
         var host = new Host();
         try {

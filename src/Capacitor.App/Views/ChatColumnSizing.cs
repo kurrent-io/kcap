@@ -23,7 +23,6 @@ public sealed class ChatColumnSizing {
     readonly Control _leftHandle;
     readonly Control _rightHandle;
     readonly Control _laneHandle;
-    readonly HashSet<Control> _hovered = [];
     ChatTailPanel? _tail;
     PaneLayout? _panes;
     double _column = PaneLayout.ChatColumnDefaultFraction;
@@ -83,14 +82,6 @@ public sealed class ChatColumnSizing {
 
     void Wire(Control handle) {
         handle.Width = HandleWidth;
-        handle.PointerEntered += (_, _) => {
-            _hovered.Add(handle);
-            ShowHandles();
-        };
-        handle.PointerExited += (_, _) => {
-            _hovered.Remove(handle);
-            ShowHandles();
-        };
         handle.PointerPressed += (_, e) => {
             if (!e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed) return;
             e.Handled = true;
@@ -105,7 +96,6 @@ public sealed class ChatColumnSizing {
             _dragStartX = e.GetPosition(_area).X;
             _dragStartWidth = handle == _laneHandle ? LaneWidth(ColumnWidth()) : ColumnWidth();
             e.Pointer.Capture(handle);
-            ShowHandles();
         };
         handle.PointerMoved += (_, e) => {
             if (!ReferenceEquals(e.Pointer, _dragPointer)) return;
@@ -132,12 +122,6 @@ public sealed class ChatColumnSizing {
     void EndDrag() {
         _dragPointer = null;
         _dragHandle = null;
-        ShowHandles();
-    }
-
-    void ShowHandles() {
-        var shown = _dragPointer is not null || _hovered.Count > 0;
-        foreach (var handle in _handles) handle.Classes.Set("shown", shown);
     }
 
     double MaxColumnWidth => Math.Max(0, _area.Bounds.Width - 2 * HandleReserve);
