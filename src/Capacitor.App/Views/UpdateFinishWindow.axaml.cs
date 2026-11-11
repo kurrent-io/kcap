@@ -1,4 +1,6 @@
 using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -12,6 +14,14 @@ public partial class UpdateFinishWindow : ReactiveWindow<UpdateFinishViewModel> 
         InitializeComponent();
         Opened += (_, _) => FitToScreen();
         ScalingChanged += (_, _) => FitToScreen();
+    }
+
+    // The window's peer reads Title as its name but raises no change for it, so without this a screen reader keeps
+    // announcing the first heading after the update settles.
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property == TitleProperty && ControlAutomationPeer.FromElement(this) is { } peer)
+            peer.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, change.OldValue, change.NewValue);
     }
 
     void FitToScreen() {
