@@ -29,7 +29,7 @@ public class CloseToTrayHintTests {
         await Assert.That(shown[0].Title).IsEqualTo(CloseToTrayHint.Title);
         await Assert.That(shown[0].Body).IsEqualTo(CloseToTrayHint.Body);
         await Assert.That(states.State.CloseToTrayExplained).IsTrue();
-        await Assert.That(hint.TrayHint).IsNull();
+        await Assert.That(hint.TrayHint).IsEqualTo(CloseToTrayHint.TrayText);
     }
 
     [Test]
@@ -60,6 +60,30 @@ public class CloseToTrayHintTests {
         await Assert.That(hidden).IsEqualTo(CloseToTrayHint.TrayText);
         await Assert.That(hint.TrayHint).IsNull();
         await Assert.That(changes).IsEquivalentTo([CloseToTrayHint.TrayText, null]);
+        await Assert.That(states.State.CloseToTrayExplained).IsTrue();
+    }
+
+    /// A window opened again before the hide's checks finish must not be left with a stale tooltip or a toast.
+    [Test]
+    public async Task A_window_reopened_while_the_hide_is_pending_gets_no_hint_until_the_next_hide() {
+        var states = new States(new AppState());
+        var shown = new List<DesktopNotification>();
+        var allowed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hint = new CloseToTrayHint(states, () => allowed.Task, shown.Add);
+
+        var pending = hint.OnHiddenAsync();
+        hint.OnShown();
+        allowed.SetResult(true);
+        await pending;
+
+        await Assert.That(shown).IsEmpty();
+        await Assert.That(hint.TrayHint).IsNull();
+        await Assert.That(states.State.CloseToTrayExplained).IsFalse();
+
+        await hint.OnHiddenAsync();
+
+        await Assert.That(shown.Count).IsEqualTo(1);
+        await Assert.That(hint.TrayHint).IsEqualTo(CloseToTrayHint.TrayText);
         await Assert.That(states.State.CloseToTrayExplained).IsTrue();
     }
 }
