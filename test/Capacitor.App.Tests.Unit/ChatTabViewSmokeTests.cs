@@ -751,8 +751,8 @@ public class ChatTabViewSmokeTests {
             double Right(Control c) => Left(c) + c.Bounds.Width;
             double Centre(Control c) => Left(c) + c.Bounds.Width / 2;
             async Task LaidOut(double column, double lane, double window) {
-                await Assert.That(presenter.Bounds.Width).IsEqualTo(column - 44).Within(1);
-                await Assert.That(composer.Bounds.Width).IsEqualTo(column - 44).Within(1);
+                await Assert.That(presenter.Bounds.Width).IsEqualTo(column).Within(1);
+                await Assert.That(composer.Bounds.Width).IsEqualTo(column).Within(1);
                 await Assert.That(Centre(presenter)).IsEqualTo(window / 2).Within(1);
                 await Assert.That(Right(bubble)).IsEqualTo(Right(presenter)).Within(1);
                 await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter)).Within(1);
@@ -768,33 +768,33 @@ public class ChatTabViewSmokeTests {
             }
             var column = 1400 * PaneLayout.ChatColumnDefaultFraction;
             var lane = PaneLayout.ChatLaneDefaultFraction;
-            await LaidOut(column, lane * (column - 44), 1400);
+            await LaidOut(column, lane * column, 1400);
 
             Drag("ChatColumnRightHandle", 100);
             column += 200;
-            await LaidOut(column, lane * (column - 44), 1400);
+            await LaidOut(column, lane * column, 1400);
 
             host.Window.Width = 1000;
             host.Settle();
             column = column / 1400 * 1000;
-            await LaidOut(column, lane * (column - 44), 1000);
+            await LaidOut(column, lane * column, 1000);
 
             Drag("ChatLaneHandle", -200);
-            var laneWidth = lane * (column - 44) - 200;
+            var laneWidth = lane * column - 200;
             await LaidOut(column, laneWidth, 1000);
 
             host.Window.Width = 1400;
             host.Settle();
             var wide = column / 1000 * 1400;
-            await LaidOut(wide, laneWidth / (column - 44) * (wide - 44), 1400);
+            await LaidOut(wide, laneWidth / column * wide, 1400);
 
             Drag("ChatColumnLeftHandle", 5000);
-            await LaidOut(PaneLayout.ChatColumnMinWidth, laneWidth / (column - 44) * (PaneLayout.ChatColumnMinWidth - 44), 1400);
+            await LaidOut(PaneLayout.ChatColumnMinWidth, laneWidth / column * PaneLayout.ChatColumnMinWidth, 1400);
 
             // Below the drag minimum the column keeps shrinking with its share, never filling the chat.
             host.Window.Width = 700;
             host.Settle();
-            await LaidOut(PaneLayout.ChatColumnMinWidth / 1400 * 700, laneWidth / (column - 44) * (PaneLayout.ChatColumnMinWidth / 2 - 44), 700);
+            await LaidOut(PaneLayout.ChatColumnMinWidth / 1400 * 700, laneWidth / column * (PaneLayout.ChatColumnMinWidth / 2), 700);
         } finally { await host.CloseAsync(); }
     });
 
@@ -985,7 +985,8 @@ public class ChatTabViewSmokeTests {
                 var block = MarkdownViewHarness.Paragraphs(markdown).Single();
                 var first = block.TextLayout.HitTestTextPosition(0);
                 var last = block.TextLayout.HitTestTextPosition(10);
-                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                // Clear of the column's resize handle, which takes the 8px beside an agent's text.
+                var start = block.TranslatePoint(new Point(-16, first.Height / 2), host.Window)!.Value;
                 if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
                 var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
                 host.Window.MouseMove(start);

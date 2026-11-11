@@ -29,6 +29,17 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
 
     internal bool MeasuredAtEstimatedEnd { get; private set; }
 
+    public static readonly StyledProperty<double> LaneWidthProperty =
+        AvaloniaProperty.Register<ChatVirtualizingPanel, double>(nameof(LaneWidth), double.PositiveInfinity);
+
+    static ChatVirtualizingPanel() => AffectsMeasure<ChatVirtualizingPanel>(LaneWidthProperty);
+
+    /// How wide the agent's rows may be.
+    public double LaneWidth {
+        get => GetValue(LaneWidthProperty);
+        set => SetValue(LaneWidthProperty, value);
+    }
+
     public ChatVirtualizingPanel() => EffectiveViewportChanged += OnViewportChanged;
 
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
@@ -54,8 +65,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
     static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem;
 
-    double RowWidth(object item, double width) =>
-        SpansColumn(item) ? width : Math.Min(width, this.FindAncestorOfType<ChatTailPanel>()?.LaneWidth ?? width);
+    double RowWidth(object item, double width) => SpansColumn(item) ? width : Math.Min(width, LaneWidth);
 
     protected override Size MeasureOverride(Size availableSize) {
         var scroll = this.FindAncestorOfType<ScrollViewer>();

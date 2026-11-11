@@ -20,10 +20,10 @@ public sealed class PaneLayout {
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 
-    // The chat column's share of the chat's width, and the narrowest a drag makes it, its 22px gutters included.
+    // The chat column's share of the chat's width, and the narrowest a drag makes it.
     public const double ChatColumnDefaultFraction = 0.75;
     public const double ChatColumnMinWidth = 564;
-    // The agent's lane's share of the column's content width, and the narrowest a drag makes it.
+    // The agent's lane's share of the column, and the narrowest a drag makes it.
     public const double ChatLaneDefaultFraction = 0.85;
     public const double ChatLaneMinWidth = 320;
 
