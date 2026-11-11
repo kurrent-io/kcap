@@ -460,7 +460,9 @@ public sealed class ConPtyProcess : IPtyProcess {
                 var data = new byte[read];
                 Array.Copy(buf, data, (int)read);
 
+                exit.Handing();
                 yield return data;
+                exit.Reading();
             } else {
                 exit.Check();
 
@@ -472,19 +474,33 @@ public sealed class ConPtyProcess : IPtyProcess {
 
         if (!exit.ChildGone || linked.Token.IsCancellationRequested) yield break;
 
-        if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
-            ClosePseudoConsole(_hPC);
-        }
+        // Off this thread, which goes on draining: before Windows 11 24H2 the close waits for the output pipe to be
+        // read, so a close here with output pending would wait for good.
+        var closing = Interlocked.Exchange(ref _pcClosed, 1) == 0
+            ? Task.Run(() => ClosePseudoConsole(_hPC), CancellationToken.None)
+            : Task.CompletedTask;
+        var closed = new PtyExitWatch(static () => true, _time);
+        closed.Check();
 
-        // More than one read's worth can be left once the console closes, and a descendant may still be writing.
-        var closedAt = _time.GetTimestamp();
-        while (_time.GetElapsedTime(closedAt) < PtyExitWatch.DrainLimit
-            && PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0
-            && ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
+        while (!closed.DrainOver) {
+            if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero)) yield break;
+
+            if (finalAvail == 0) {
+                if (closing.IsCompleted) yield break;
+
+                try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
+
+                continue;
+            }
+
+            if (!ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) || finalRead == 0) yield break;
+
             var finalData = new byte[finalRead];
             Array.Copy(buf, finalData, (int)finalRead);
 
+            closed.Handing();
             yield return finalData;
+            closed.Reading();
         }
     }
 
