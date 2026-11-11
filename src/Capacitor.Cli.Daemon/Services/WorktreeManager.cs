@@ -1030,10 +1030,8 @@ public partial class WorktreeManager(
         }
     }
 
-    /// <summary>Builds an independent, bundle-derived repository snapshot outside the source
-    /// checkout. Unlike a linked worktree it shares no gitdir, refs, reflogs, object alternates, or
-    /// worktree registration with the requester's repository.</summary>
     public const string ScratchDirectoryName = "scratch";
+    public const string BorrowedSnapshotsDirectoryName = "borrowed-snapshots";
 
     /// <summary>An empty workspace for a reviewer that judges only its prompt: no source repository, no
     /// files. It is still a git repository, because some vendors (Codex) refuse to run outside one.</summary>
@@ -1053,6 +1051,9 @@ public partial class WorktreeManager(
         }
     }
 
+    /// <summary>Builds an independent, bundle-derived repository snapshot outside the source
+    /// checkout. Unlike a linked worktree it shares no gitdir, refs, reflogs, object alternates, or
+    /// worktree registration with the requester's repository.</summary>
     public async Task<WorktreeInfo> CreateBorrowedSnapshotAsync(
             string sourceRepoRoot, string? name, CancellationToken ct) {
         return await CreateBorrowedSnapshotAsync(sourceRepoRoot, sourceRepoRoot, name, ct);
@@ -1074,7 +1075,7 @@ public partial class WorktreeManager(
         if (!Directory.Exists(cwd))
             throw new InvalidOperationException("borrowed_snapshot_cwd_missing");
         var gitRelativeCwd = await ReadGitRelativeCwdAsync(source, cwd, time, ct);
-        var root = Path.GetFullPath(Path.Combine(config.WorktreeRoot, "borrowed-snapshots"));
+        var root = Path.GetFullPath(Path.Combine(config.WorktreeRoot, BorrowedSnapshotsDirectoryName));
         EnsureSeparateRoots(source, root);
         CreateOwnerOnlyDirectory(root);
 
@@ -1820,9 +1821,9 @@ public partial class WorktreeManager(
     }
 
     public async Task CleanupOrphanedAsync(IEnumerable<string>? activeWorktreePaths = null) {
-        // Legacy global root — clean up any leftover worktrees from before the per-repo change
+        // The global root: worktrees from daemons that predate per-repo roots, then the daemon-owned roots.
         var worktreePaths = activeWorktreePaths as string[] ?? [..activeWorktreePaths ?? []];
-        string[] daemonOwnedRoots = ["borrowed-snapshots", ScratchDirectoryName];
+        string[] daemonOwnedRoots = [BorrowedSnapshotsDirectoryName, ScratchDirectoryName];
         await CleanupDirectoryAsync(config.WorktreeRoot, worktreePaths, daemonOwnedRoots);
         foreach (var name in daemonOwnedRoots) {
             var ownedRoot = Path.Combine(config.WorktreeRoot, name);
@@ -1860,15 +1861,9 @@ public partial class WorktreeManager(
                 continue;
             var fullDir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
 
-            // Two ways to be live, and BOTH are checked. A directory is live if it is itself an active
-            // worktree (or contains one) — the original rule — or, for a per-launch vendor state
-            // directory, if the snapshot it sits beside is: a state directory is never itself an active
-            // worktree path, so without the second arm the sweep reaps a running reviewer's HOME.
-            //
-            // Checking the first arm unconditionally is what keeps the suffix a hint rather than a
-            // classification. Snapshot directories are named from the agent id, so one could legitimately
-            // end in the suffix; deriving an "owner" and testing only that would then compare an active
-            // snapshot against a path that does not exist and delete the live worktree.
+            // Live if it is (or contains) an active worktree, or if it is a vendor state or review
+            // context directory beside an active snapshot. The first check runs unconditionally: a snapshot
+            // an older daemon named with the raw agent id can itself end in one of those suffixes.
             if (IsActive(fullDir, activePaths)) continue;
             if (fullDir.EndsWith(VendorStateSuffix, StringComparison.OrdinalIgnoreCase) &&
                 IsActive(fullDir[..^VendorStateSuffix.Length], activePaths))
