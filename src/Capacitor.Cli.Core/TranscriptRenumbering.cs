@@ -62,10 +62,11 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
 
     /// <summary>
     /// Keeps <paramref name="hashes"/> up to <paramref name="count"/>, of which the first <paramref name="saved"/> are
-    /// on disk already. Only what changed is written; a write cut short leaves fewer hashes, never wrong ones.
+    /// on disk already. Only what changed is written; a write cut short leaves fewer hashes, never wrong ones. False
+    /// when they could not be written, for the caller to try again.
     /// </summary>
-    public void SaveHashes(string sessionId, IReadOnlyList<ulong> hashes, int saved, int count) {
-        if (PathFor(sessionId) is not { } path) return;
+    public bool SaveHashes(string sessionId, IReadOnlyList<ulong> hashes, int saved, int count) {
+        if (PathFor(sessionId) is not { } path) return false;
 
         try {
             Directory.CreateDirectory(partition.DirectoryPath);
@@ -78,8 +79,10 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
             for (var i = have; i < count; i++) BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan((i - have) * 8), hashes[i]);
 
             file.Write(buffer);
+
+            return true;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            // Best effort, as the summary says.
+            return false;
         }
     }
 
@@ -98,6 +101,8 @@ public sealed class TranscriptRenumbering(SpoolPartition partition) {
     }
 
     const string HashesSuffix = ".hashes";
+
+    internal string? HashesPath(string sessionId) => PathFor(sessionId) is { } path ? path + HashesSuffix : null;
 
     string? PathFor(string sessionId) =>
         sessionId.Length is > 0 and <= 128 && sessionId.All(char.IsAsciiLetterOrDigit)

@@ -1414,8 +1414,7 @@ public sealed class TranscriptRecorder(
         var sent = Math.Min(map.ToFile(state.LinesProcessed), map.Known);
         if (sent == map.HashesSaved) return;
 
-        Numbering.SaveHashes(source.SessionId, map.Hashes, map.HashesSaved, sent);
-        map.HashesSaved = sent;
+        if (Numbering.SaveHashes(source.SessionId, map.Hashes, map.HashesSaved, sent)) map.HashesSaved = sent;
     }
 
     /// <summary>
@@ -1458,9 +1457,15 @@ public sealed class TranscriptRecorder(
                     }
                 }
             } else {
-                // Only lines no watcher here has read yet, since every read records the lines through its end.
-                map.Observe(read.Lines, read.LineNumbers, Math.Min(read.NextPosition, cursor));
-                if (read.NextPosition < cursor) rewrittenAt = read.NextPosition;
+                // Lines below the cursor whose hashes were never saved are taken as the file has them; the ones that
+                // were are compared first, or a rewrite of them would be taken in as what was sent.
+                var at = map.Known > 0 ? await map.FirstChangedLineAsync(TranscriptPath, map.Known, ct) : 0;
+                if (at < map.Known) {
+                    rewrittenAt = at;
+                } else {
+                    map.Observe(read.Lines, read.LineNumbers, Math.Min(read.NextPosition, cursor));
+                    if (read.NextPosition < cursor) rewrittenAt = read.NextPosition;
+                }
             }
 
             if (rewrittenAt is { } changed) {

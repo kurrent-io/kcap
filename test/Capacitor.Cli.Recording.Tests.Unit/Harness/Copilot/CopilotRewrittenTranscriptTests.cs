@@ -177,13 +177,43 @@ public class CopilotRewrittenTranscriptTests {
         var (path, state) = await Sent(10);
         await File.WriteAllTextAsync(path, Lines("a", 0, 5) + Lines("b", 5, 7));
 
+        await Assert.That(await Restarted(path, state.LinesProcessed))
+            .IsEquivalentTo(Enumerable.Range(5, 7).Select(i => (i + 5, Line("b", i))).ToArray());
+    }
+
+    TranscriptRenumbering Numbering => new(Config.Root, "http://127.0.0.1:1");
+
+    /// <summary>What a new watcher, resumed at <paramref name="cursor"/>, sends on its first drain.</summary>
+    async Task<(int, string)[]> Restarted(string path, int cursor) {
         var restarted = new TestRecorders(Config.Root);
         restarted.Transport.IsConnected = true;
         await restarted.For(Sid, path, null, "copilot").DrainNewLines(
-            new WatchState { LinesProcessed = state.LinesProcessed, ThresholdReached = true }, CancellationToken.None);
+            new WatchState { LinesProcessed = cursor, ThresholdReached = true }, CancellationToken.None);
 
-        var resent = restarted.Transport.Batches.SelectMany(b => b.LineNumbers!.Zip(b.Lines, (n, l) => (n, l))).ToArray();
-        await Assert.That(resent).IsEquivalentTo(Enumerable.Range(5, 7).Select(i => (i + 5, Line("b", i))).ToArray());
+        return restarted.Transport.Batches.SelectMany(b => b.LineNumbers!.Zip(b.Lines, (n, l) => (n, l))).ToArray();
+    }
+
+    /// <summary>Hashes saved for fewer lines than the cursor, as a save cut short leaves, are still compared: only the
+    /// lines past them are taken as the file now has them.</summary>
+    [Test]
+    public async Task A_rewrite_inside_a_short_saved_prefix_is_found_by_the_next_watcher() {
+        var (path, state) = await Sent(10);
+        await using (var hashes = new FileStream(Numbering.HashesPath(Sid)!, FileMode.Open)) hashes.SetLength(8 * 8);
+        await File.WriteAllTextAsync(path, Lines("a", 0, 2) + Lines("b", 2, 10));
+
+        await Assert.That(await Restarted(path, state.LinesProcessed))
+            .IsEquivalentTo(Enumerable.Range(2, 10).Select(i => (i + 8, Line("b", i))).ToArray());
+    }
+
+    [Test]
+    public async Task Hashes_that_could_not_be_saved_are_saved_by_the_next_drain() {
+        var blocked = Directory.CreateDirectory(Numbering.HashesPath(Sid)!);
+        var (path, state) = await Sent(10);
+        blocked.Delete();
+
+        await Drain(path, state);
+
+        await Assert.That(Numbering.ReadHashes(Sid).Length).IsEqualTo(10);
     }
 
     /// <summary>A watcher started again on a rewritten transcript numbers its lines the way the one before it did.</summary>
