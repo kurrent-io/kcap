@@ -53,11 +53,12 @@ public class VendorWorkspaceSpanTests : IDisposable {
             .Handle(new StringReader(payload), new CodexHookEnvironment(TextWriter.Null, TextWriter.Null, Skip: false, HostedAppServer: false));
     }
 
-    Task<int> CopilotAsync(string eventName) {
+    Task<int> CopilotAsync(string eventName, string? transcriptPath = null) {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         var watchers = new WatcherManager(Config.Root, profiles, http, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
         var payload  = new JsonObject { ["sessionId"] = Session, ["cwd"] = Repo.Path, ["reason"] = "user_exit" };
+        if (transcriptPath is not null) payload["transcriptPath"] = transcriptPath;
         return new CopilotHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home),
                 HostedAgent.Terminal, http, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
             .Handle(new StringReader(payload.ToJsonString()), ["--event", eventName]);
@@ -236,7 +237,48 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var watch    = new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(), TestWatchers.For(Config.Root, profiles, http),
             new GitProviderRouter(), _time, TestAccounts.None, Home, new(_server.Url, Config.Root, profiles));
 
-        await watch.PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited", stoppedAt);
+        await watch.PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited", new WorkspaceRunCutoff(null, stoppedAt));
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    const string RunStart  = """{"type":"session.start","data":{},"id":"evt-start","timestamp":1}""";
+    const string RunResume = """{"type":"session.resume","data":{},"id":"evt-resume","timestamp":2}""";
+
+    WatchCommand Watch() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        return new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(), TestWatchers.For(Config.Root, profiles, http),
+            new GitProviderRouter(), _time, TestAccounts.None, Home, new(_server.Url, Config.Root, profiles));
+    }
+
+    /// <summary>VS Code can quit while a run's sessionStart hook is still on its way, so the stop comes before that run's
+    /// span opens. The span still carries the run it opened in, and the run's end closes it.</summary>
+    [Test]
+    public async Task A_Copilot_end_closes_its_runs_span_opened_after_the_stop() {
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n");
+        var stoppedAt  = _time.GetUtcNow();
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited",
+            new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcript), stoppedAt));
+
+        await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
+    }
+
+    /// <summary>A span a resumed run opened has the resume's later boundary, so the earlier run's end leaves it.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_the_span_of_a_run_resumed_after_it() {
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n");
+        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
+        await File.AppendAllTextAsync(transcript, RunResume + "\n");
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited", ended);
 
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");

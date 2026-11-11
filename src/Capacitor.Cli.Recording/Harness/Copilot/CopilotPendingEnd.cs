@@ -111,7 +111,8 @@ public static class CopilotPendingEnd {
         foreach (var session in SessionsWithPending(paths)) {
             try {
                 // The span close it owes is recorded first, so no spooled end goes without one.
-                if (Decide(paths, session, lifecycle, server, time) is { } body && CopilotSpanClose.Record(paths, session, server, body, time) && lifecycle.Append(session, Route, body)) {
+                if (Decide(paths, session, lifecycle, server, time) is { } due
+                 && CopilotSpanClose.Record(paths, session, server, due.Body, time, due.RunBoundary) && lifecycle.Append(session, Route, due.Body)) {
                     Discard(paths, session);
                     spooled++;
                 }
@@ -124,7 +125,10 @@ public static class CopilotPendingEnd {
     }
 
     /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
-    static string? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
+    /// <summary>A pending end that is due, with the run its transcript was on when the watcher stopped.</summary>
+    readonly record struct Due(string Body, long? RunBoundary);
+
+    static Due? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
         JsonObject? record;
 
         try {
@@ -164,9 +168,13 @@ public static class CopilotPendingEnd {
         // Without the runtime's identity, a live pid may be another process, so a transcript gone quiet stands in.
         var quietUnidentified = (pid is null || token is null) && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
 
-        return shutdown || runtimeGone || quietUnidentified ? record["body"]?.GetValue<string>() ?? Drop() : null;
+        if (!shutdown && !runtimeGone && !quietUnidentified) return null;
 
-        string? Drop() {
+        if (record["body"]?.GetValue<string>() is not { } body) return Drop();
+
+        return new Due(body, CopilotRunBoundary.Latest(transcript, record["transcript_length"]?.GetValue<long>()));
+
+        Due? Drop() {
             Discard(paths, session);
 
             return null;

@@ -6,6 +6,7 @@ using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
@@ -310,11 +311,15 @@ class WatchCommand(
             Interlocked.CompareExchange(ref stopTicks, time.GetUtcNow().UtcTicks, 0);
         }
 
-        // The end of this watcher's run: the stop request when one came, or else when the run was found over.
-        DateTimeOffset RunOpenedBy() {
-            var ticks = Interlocked.Read(ref stopTicks);
+        // The run this watcher recorded: the transcript's run boundary where the stop found it, or where it is now when the
+        // run was found over some other way. Unreadable, the spans opened by the stop, or by now.
+        WorkspaceRunCutoff RunCutoff() {
+            var ticks  = Interlocked.Read(ref stopTicks);
+            var offset = Interlocked.Read(ref stopOffset);
 
-            return ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow();
+            return new WorkspaceRunCutoff(
+                CopilotRunBoundary.Latest(recorder.TranscriptPath, offset >= 0 ? offset : null),
+                ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow());
         }
 
         Console.CancelKeyPress += (_, e) => {
@@ -521,7 +526,7 @@ class WatchCommand(
         try {
             await recorder.RunAsync(cts.Token);
         } catch (OperationCanceledException) when (transport.StoppedBeforeConnect) {
-            var earlyRunOpenedBy = RunOpenedBy();
+            var earlyRun = RunCutoff();
             await hubConnection.DisposeAsync();
 
             // A watcher stopped before it connected is still the one the Muse hook may have handed an
@@ -538,7 +543,7 @@ class WatchCommand(
 
             if (CopilotStopEndApplies() && await CopilotStopEndAsync(transcriptPath) is { } early) {
                 watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
-                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early, earlyRunOpenedBy);
+                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early, earlyRun);
             }
 
             await logWriter.DisposeAsync();
@@ -555,7 +560,7 @@ class WatchCommand(
         }
 
         // Before the final drain and any post or wait, each of which a replacement run can start during.
-        var runOpenedBy = RunOpenedBy();
+        var run = RunCutoff();
 
         await recorder.FinishAsync(CancellationToken.None);
 
@@ -630,7 +635,7 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
-                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason, runOpenedBy);
+                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason, run);
                     else await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
@@ -643,12 +648,12 @@ class WatchCommand(
 
     /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
     /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>
-    /// <param name="runOpenedBy">When this watcher's run stopped, taken before any wait or post: every span of the run was
-    /// opened by then, and a replacement run's are not this end's to close.</param>
-    internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, DateTimeOffset runOpenedBy) {
+    /// <param name="run">The run this watcher recorded, taken before any wait or post: a replacement run's spans are not
+    /// this end's to close.</param>
+    internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, WorkspaceRunCutoff run) {
         await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
 
-        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, runOpenedBy))
+        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
             CopilotPendingEnd.Discard(_paths, sessionId);
     }
 
@@ -690,8 +695,8 @@ class WatchCommand(
             string?            cwd,
             string             vendor,
             RepositoryPayload? repository,
-            string             reason      = "parent_exited",
-            DateTimeOffset?    runOpenedBy = null
+            string             reason = "parent_exited",
+            WorkspaceRunCutoff? run        = null
         ) {
         if (!KnownVendors.Contains(vendor)) {
             Log(time, $"Parent-exit session-end skipped: unknown vendor '{vendor}'");
@@ -784,7 +789,7 @@ class WatchCommand(
         // A run cutoff keeps this end to its own run's spans, should a later run already have opened one.
         if (posted) {
             var spans = new WorkspaceSpanHook(config, profiles, http, time);
-            await (runOpenedBy is { } cutoff ? spans.EndRunAsync(sessionId, cutoff, WorkspaceEndCap) : spans.EndAsync(sessionId, WorkspaceEndCap));
+            await (run is not null ? spans.EndRunAsync(sessionId, run, WorkspaceEndCap) : spans.EndAsync(sessionId, WorkspaceEndCap));
         }
 
         return posted;

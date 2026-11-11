@@ -79,11 +79,11 @@ internal sealed class SpoolDrainLoop {
             MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
 
             // Spools only, so it needs no credential; the workspace drain posts what it closed.
-            await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time, async (owed, openedBy) => {
+            await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time, async (owed, run) => {
                 var store = new WorkspaceSpanStore(_configRoot, _baseUrl, new WorkspaceSpool(_configRoot, _baseUrl, _time),
                     new WorkspaceSnapshotter(new WorkspaceGit(_time), _time), _time);
-                await store.EndSessionAsync(owed, Budget, openedBy);
-                return !store.Holds(owed, openedBy);
+                await store.EndSessionAsync(owed, Budget, run);
+                return !store.Holds(owed, run);
             }, budget: Budget);
             CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time);
 

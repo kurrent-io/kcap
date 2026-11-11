@@ -245,9 +245,25 @@ public class WorkspaceSpanStoreTests {
         File.Delete(blocker);
 
         rig.Write("later.txt", "x");
-        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, endedAt);
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff(null, endedAt));
 
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "later.txt")).IsEqualTo(carriedOn);
+    }
+
+    /// <summary>An end bounded to its run closes the spans opened at or below its run boundary, and those recorded before
+    /// spans named a run, whenever they were opened; a span a later run opened is left.</summary>
+    [Test]
+    [Arguments(0L, 0L, true)]
+    [Arguments(null, 0L, true)]
+    [Arguments(120L, 0L, false)]
+    public async Task An_end_bounded_to_its_run_closes_that_runs_spans_only(long? spanBoundary, long endBoundary, bool closed) {
+        using var rig = new WorkspaceRig();
+        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, spanBoundary);
+        rig.Write("made.txt", "x");
+
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff(endBoundary, rig.Time.GetUtcNow() - TimeSpan.FromHours(1)));
+
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "made.txt")).IsEqualTo(closed);
     }
 
     /// <summary>A Stop whose snapshot is slow must not hold the lock an <c>EnterWorktree</c> open of the same

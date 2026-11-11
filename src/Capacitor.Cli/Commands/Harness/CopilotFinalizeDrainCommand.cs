@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
 using System.Text.Json;
@@ -96,7 +97,7 @@ sealed class CopilotFinalizeDrainCommand(
         // The watcher the hook asked to stop, read before anything awaits: one found later follows a resumed run. The run's
         // spans were all opened by now too, which is what this end may close.
         var askedToStop = WatcherIncarnation(sessionId);
-        var runOpenedBy = time.GetUtcNow();
+        var run         = new WorkspaceRunCutoff(CopilotRunBoundary.Latest(transcriptPath), time.GetUtcNow());
 
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
@@ -132,13 +133,13 @@ sealed class CopilotFinalizeDrainCommand(
         endDurable?.Invoke();
 
         // Only after an end the server took: a span must never outlive a lost end.
-        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndRunAsync(sessionId, runOpenedBy, WorkspaceSpanHook.EndBudget);
+        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndRunAsync(sessionId, run, WorkspaceSpanHook.EndBudget);
 
         // Detached, so it pays the span closes the drains ahead of hooks only recorded.
-        await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(config), new HookSpool(config, time, profiles.Resolution.ServerUrl), profiles.Resolution.ServerUrl, time, async (owed, openedBy) => {
+        await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(config), new HookSpool(config, time, profiles.Resolution.ServerUrl), profiles.Resolution.ServerUrl, time, async (owed, owedRun) => {
             var spans = new WorkspaceSpanHook(config, profiles, http, time);
-            await spans.EndRunAsync(owed, openedBy, WorkspaceSpanHook.EndBudget);
-            return !spans.Holds(owed, openedBy);
+            await spans.EndRunAsync(owed, owedRun, WorkspaceSpanHook.EndBudget);
+            return !spans.Holds(owed, owedRun);
         });
 
         return posted;

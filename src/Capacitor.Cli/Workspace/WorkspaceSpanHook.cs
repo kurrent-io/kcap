@@ -43,8 +43,8 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
 
     bool Withheld(string sessionId) => DisabledSessions.IsDisabled(sessionId, config);
 
-    public Task OpenAsync(string? sessionId, string? dir, WorkspaceOpen mode, TimeSpan budget, bool drain = true) =>
-        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : StoreWithin(budget).OpenAsync(sessionId!, dir, mode, left()));
+    public Task OpenAsync(string? sessionId, string? dir, WorkspaceOpen mode, TimeSpan budget, bool drain = true, long? runBoundary = null) =>
+        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : StoreWithin(budget).OpenAsync(sessionId!, dir, mode, left(), runBoundary));
 
     public Task CloseAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
         RunAsync(sessionId, budget, drain, left => StoreWithin(budget).CloseAllAsync(sessionId!, left()));
@@ -54,12 +54,12 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
     public Task EndAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
         RunAsync(sessionId, budget, drain, left => StoreWithin(budget).EndSessionAsync(sessionId!, left()));
 
-    /// <summary><see cref="EndAsync"/> for the spans of one run, those opened by <paramref name="openedBy"/>.</summary>
-    public Task EndRunAsync(string sessionId, DateTimeOffset openedBy, TimeSpan budget) =>
-        RunAsync(sessionId, budget, drain: true, left => StoreWithin(budget).EndSessionAsync(sessionId, left(), openedBy));
+    /// <summary><see cref="EndAsync"/> for the spans of one run.</summary>
+    public Task EndRunAsync(string sessionId, WorkspaceRunCutoff run, TimeSpan budget) =>
+        RunAsync(sessionId, budget, drain: true, left => StoreWithin(budget).EndSessionAsync(sessionId, left(), run));
 
-    /// <summary>Whether a span of the session opened by <paramref name="openedBy"/> is left.</summary>
-    public bool Holds(string sessionId, DateTimeOffset openedBy) => Store.Holds(sessionId, openedBy);
+    /// <summary>Whether a span of <paramref name="run"/> is left.</summary>
+    public bool Holds(string sessionId, WorkspaceRunCutoff run) => Store.Holds(sessionId, run);
 
     /// <summary>Drops the session's open spans and spooled events unsent, and says whether none are left. A
     /// session end clears the disabled marker only once this succeeds: the marker is what withholds them,
