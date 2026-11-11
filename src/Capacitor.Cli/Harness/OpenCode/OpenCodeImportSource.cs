@@ -146,6 +146,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
                 continue;
             }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Make(s, meta, ImportCommand.ClassificationStatus.New, total)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             // Completeness is tracked client-side (the ledger): a hit on this server with a
             // matching content fingerprint (parent transcript + children) means we already
             // fully imported it AND it hasn't changed since — skip. Never trusted when the

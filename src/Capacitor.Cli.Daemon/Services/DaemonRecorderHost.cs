@@ -5,8 +5,8 @@ using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Daemon.Services;
 
-/// <summary>What one recorder asks of the daemon. A hosted Claude session has a transcript, no child scan and no SQLite
-/// store, so the members for those answer in kind. SQLite's native bundle must never reach this binary.</summary>
+/// <summary>What one recorder asks of the daemon. A Claude session, hosted or in a terminal, has a transcript, no child
+/// scan and no SQLite store, so the members for those answer in kind. SQLite's native bundle must never reach this binary.</summary>
 /// <param name="hookCommand">The command kcap's git hook names, from the CLI beside this binary; null when there is
 /// none, so no commit counts as covered.</param>
 /// <param name="stop">Finishes this recorder's source.</param>
@@ -15,7 +15,8 @@ namespace Capacitor.Cli.Daemon.Services;
 internal sealed class DaemonRecorderHost(
         ConfigRoot config, string? hookCommand, TimeProvider time, Action stop, Action<string, string, string> handOffTitle, Action<string> log,
         CommandRunner? run = null) : IRecorderHost {
-    // The daemon hears of its agent's exit through the runtime, and the recorder's stop comes from there.
+    // The daemon hears of its agent's exit through the runtime, and watches a terminal session's process itself; the
+    // recorder's stop comes from there.
     public void ArmProcessWatches() { }
 
     public void StopRun() => stop();
@@ -47,6 +48,7 @@ internal sealed class DaemonRecorderHost(
     // The daemon's spool drain loop delivers the workspace spool on its own cadence.
     public Task DrainWorkspaceAsync() => Task.CompletedTask;
 
-    // A hosted session runs under the agent process this daemon started, whatever its hooks have got round to claiming.
+    // A hosted session runs under the agent process this daemon started, whatever its hooks have got round to claiming,
+    // and a terminal session is handed over only by a hook that found its Claude process, which it claims first.
     static bool Claimed(SessionId session) => true;
 }

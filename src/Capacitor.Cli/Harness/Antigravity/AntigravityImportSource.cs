@@ -183,6 +183,12 @@ internal sealed class AntigravityImportSource : IImportSource {
                 continue;
             }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Make(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             int? serverLastLine;
             try {
                 serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, agentId: null, ct);

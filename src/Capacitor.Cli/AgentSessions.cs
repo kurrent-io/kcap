@@ -15,6 +15,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     static readonly TimeSpan ExitRetention = TimeSpan.FromDays(30);
 
     readonly TimeProvider _time = time ?? TimeProvider.System;
+    readonly AgentSessionNotes _notes = new(config);
 
     public static AgentSessions OnThisMachine(ConfigRoot config) => new(config, pid => ProcessHelpers.GetProcessInfo(pid)?.ppid);
 
@@ -217,18 +218,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     /// A process running <paramref name="session"/> that is not provably gone, or null. Hooks may
     /// write the id in another case than the one asked about, so the match ignores case.
     /// </summary>
-    public int? LiveClaimant(SessionId session) {
-        foreach (var pid in Claimants()) {
-            try {
-                if (File.ReadAllText(Note(pid)).Split('\n') is [var named, var token]
-                 && string.Equals(SessionId.Parse(named)?.Value, session.Value, StringComparison.OrdinalIgnoreCase)
-                 && !HolderIsGone(pid, token))
-                    return pid;
-            } catch { }
-        }
-
-        return null;
-    }
+    public int? LiveClaimant(SessionId session) => _notes.LiveClaimant(session, HolderIsGone)?.Pid;
 
     /// <summary>
     /// The session of the nearest agent process at or above <paramref name="pid"/>.
@@ -244,17 +234,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
         return null;
     }
 
-    int[] Claimants() {
-        try {
-            return [
-                ..Directory.EnumerateFiles(config.Path("agent-sessions"))
-                    .Select(file => int.TryParse(Path.GetFileName(file), NumberStyles.None, CultureInfo.InvariantCulture, out var pid) ? pid : 0)
-                    .Where(pid => pid > 0)
-            ];
-        } catch {
-            return [];
-        }
-    }
+    int[] Claimants() => _notes.Claimants();
 
     void RecordExit(SessionId session) {
         var record = ExitRecord(session);
@@ -280,7 +260,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
 
     string ExitRecord(SessionId session) => config.Path("agent-sessions", "exited", session.Value.ToLowerInvariant());
 
-    string Note(int pid) => config.Path("agent-sessions", pid.ToString(CultureInfo.InvariantCulture));
+    string Note(int pid) => _notes.Note(pid);
 
     string DeferredEnd(SessionId session) => config.Path("agent-sessions", "deferred-ends", session.Value.ToLowerInvariant());
 

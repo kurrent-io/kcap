@@ -26,6 +26,7 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     readonly ConcurrentDictionary<string, HubCallerContext> _contexts = new();
 
     WebApplication _app = null!;
+    int _refusals;
 
     RecordingHubHost() { }
 
@@ -48,6 +49,9 @@ public sealed class RecordingHubHost : IAsyncDisposable {
 
     /// <summary>Whether the hub refuses a negotiate that carries no bearer, as a signed-in server does.</summary>
     public bool RequiresBearer { get; set; }
+
+    /// <summary>How many requests <see cref="RequiresBearer"/> has turned away.</summary>
+    public int Refusals => Volatile.Read(ref _refusals);
 
     /// <summary>What the hub did, in order: <c>connect {session}</c>, <c>detach {session}</c>, <c>drain {session}</c>,
     /// <c>batch {first line}</c>.</summary>
@@ -86,6 +90,7 @@ public sealed class RecordingHubHost : IAsyncDisposable {
         host._app = builder.Build();
         host._app.Use(async (context, next) => {
             if (host.RequiresBearer && context.Request.Headers.Authorization.Count == 0) {
+                Interlocked.Increment(ref host._refusals);
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 
                 return;

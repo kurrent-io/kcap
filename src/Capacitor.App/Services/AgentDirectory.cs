@@ -102,18 +102,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     string? _serverPinnedId;
     RailScope _scope = RailScope.Mine;
     IReadOnlySet<string> _viewerIds = FrozenSet<string>.Empty;
-    /// Session id → when its hosted presentation lapses; written while a daemon row suppresses the
-    /// server row, read once none does.
-    readonly Dictionary<string, DateTime> _hostedUntil = new(StringComparer.Ordinal);
-    /// Session id, under both spellings the server may list it by → the checkout facts its daemon row last reported,
-    /// for the server row that stands for the session once the daemon row is gone. The branch outranks the listing's
-    /// only when the daemon itself reported it.
-    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch, bool FromLocal, bool BranchFromDaemon)> _hostedFacts =
-        new(StringComparer.Ordinal);
-    /// Session id → until when its hosted agent counts as finished while the listing may still say live:
-    /// a local row seen Completed, which renews it while the row stays, or a stop the app saw accepted. A
-    /// live local row clears it, and so does the listing once it says ended.
-    readonly Dictionary<string, DateTime> _finished = new(StringComparer.Ordinal);
+    // Aliases receive the same checkout snapshot, but presentation leases belong to the exact
+    // listing key. Server ids remain distinct even when a daemon can match either spelling.
+    readonly Dictionary<string, SessionMergeState> _sessionStates = new(StringComparer.Ordinal);
+    readonly HashSet<string> _timedSessions = new(StringComparer.Ordinal);
     bool _disposed;
 
     /// <param name="localStarting">The local daemon's process is up but not yet serving its socket.</param>
@@ -279,12 +271,22 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         Recompute();
     }
 
-    /// Under the lock. Both spellings the server may list the session under.
     void MarkFinished(string? sessionId) {
         if (SessionIds.Canonical(sessionId) is not { } own) return;
-        var until = _time.GetUtcNow().UtcDateTime + FinishedHold;
-        _finished[own] = until;
-        _finished[SessionIds.ServerToken(own)] = until;
+        var now = _time.GetUtcNow().UtcDateTime;
+        foreach (var id in new[] { own, SessionIds.ServerToken(own) }) {
+            var (state, _) = StateFor(id).Transition([], null, false, false, now, observedFinished: true);
+            StoreState(id, state);
+        }
+    }
+
+    SessionMergeState StateFor(string id) => _sessionStates.GetValueOrDefault(id) ?? SessionMergeState.Empty;
+
+    void StoreState(string id, SessionMergeState state) {
+        if (state.HasRetention) _sessionStates[id] = state;
+        else _sessionStates.Remove(id);
+        if (state.NextExpiry is not null) _timedSessions.Add(id);
+        else _timedSessions.Remove(id);
     }
 
     // Placeholders are keyed by the normalized id: the server accepts a launch under one spelling
@@ -476,22 +478,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         }
     }
 
-    /// One session, one row, decided by evidence. A daemon row is live only while its lane is
-    /// current: the local socket Connected, or a registry read that succeeded in this connection.
-    /// A live daemon row hides the server row for its session and stamps the hand-over grace; a
-    /// finished local row yields to the server's, which reads ended from then on even while the
-    /// listing still says live; a Failed local row stays, since its reason is what the user needs; a
-    /// cached row the lane merely retains yields to a server row that says the session ended and
-    /// hides one that says it is still active. Under Mine, the scoped live
-    /// listing is the ownership proof for every daemon row the server has listed, and a registry row
-    /// the server has not listed is hidden while a local one is presumed the viewer's own. The pinned
-    /// session is exempt from that filter, and joins the merge under either scope.
     void MergeServerLane(List<AgentRow> next) {
         var now = _time.GetUtcNow().UtcDateTime;
         var localMatchable = ServerIdentity.SameServer(_localServerUrl, _appServerUrl);
         var registryMatchable = _appServerUrl is not null;
-        // The ended prefix counts as listed too: under Mine it is owner-filtered, so a session in it
-        // is as much the viewer's as one in the scoped live listing.
         var listed = new Dictionary<string, RepoSessionDto>(StringComparer.Ordinal);
         foreach (var dto in _serverLive) listed[dto.SessionId] = dto;
         foreach (var dto in _serverMineLive) listed.TryAdd(dto.SessionId, dto);
@@ -500,13 +490,9 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         var mine = _serverMineLive.Select(dto => dto.SessionId).ToHashSet(StringComparer.Ordinal);
         if (_scope == RailScope.Mine) foreach (var dto in _serverEnded) mine.Add(dto.SessionId);
 
-        // A pinned session no Mine listing proves the viewer's is judged by owner id, never by scope.
         bool? Ownership(RepoSessionDto dto, string sid) =>
             sid == _serverPinnedId && !mine.Contains(sid) ? ViewerOwns(dto) : OwnerIsViewer(dto, mine.Contains(sid));
         bool Matchable(AgentRow row) => row.Origin == AgentOrigin.Local ? localMatchable : registryMatchable;
-        // The daemon spells a hook's GUID as it came and an ACP id as the vendor gave it; the server
-        // files the first as 32 hex digits and the second under its own token. The server's spelling
-        // is the key throughout, so each daemon row is resolved to it once.
         string? ListedId(AgentRow row) {
             if (SessionIds.Canonical(row.SessionId) is not { } own) return null;
             if (listed.ContainsKey(own)) return own;
@@ -519,129 +505,65 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             foreach (var row in next)
                 if (row is { Origin: AgentOrigin.Local, Status: "Completed" }) MarkFinished(row.SessionId);
 
-        // The checkout is kept for every daemon row on the app's server, listed yet or not: a short run can leave
-        // before the listing first names its session.
+        // Capture before visibility filtering: a run can finish before its first listing,
+        // and a session hidden by scope can become visible again with the same checkout.
         foreach (var row in next) {
             if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || !Matchable(row)) continue;
             if (row.RepoPath is null && row.WorktreePath is null || SessionIds.Canonical(row.SessionId) is not { } own) continue;
-            var listedDto = listedIdOf.GetValueOrDefault(row.Key) is { } listedSid ? listed.GetValueOrDefault(listedSid) : null;
-            // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
+            var metadata = listedIdOf.GetValueOrDefault(row.Key) is { } listedSid ? listed.GetValueOrDefault(listedSid) : null;
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
-            // The checkout, branch included, is one unit from one row. A local row is the daemon's own account,
-            // so a worktree it leaves out means the agent runs in the checkout itself; a registry row never names
-            // a worktree, and a local and a registry row can both list one session, twins or not. So a local row
-            // replaces the kept checkout, a registry row replaces only one a registry row reported, and a branch
-            // the row lacks carries over only within the same checkout: the same worktree, or with none, the
-            // same repository.
-            var known = _hostedFacts.GetValueOrDefault(own);
-            var fromLocal = row.Origin == AgentOrigin.Local;
-            var fromDaemon = !string.IsNullOrWhiteSpace(daemonBranch);
-            var reported = fromDaemon ? daemonBranch : row.Branch ?? listedDto?.Branch;
-            var replaces = fromLocal || !known.FromLocal;
-            var sameCheckout = string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
-            var (branch, branchFromDaemon) = reported is not null ? (reported, fromDaemon)
-                : sameCheckout ? (known.Branch, known.BranchFromDaemon) : (null, false);
-            // A row that does not replace the kept checkout leaves all of it, branch included: a registry row's branch is
-            // only the listing's, and must not displace the one the local daemon reported.
-            var facts = replaces ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal, branchFromDaemon) : known;
-            _hostedFacts[own] = facts;
-            _hostedFacts[SessionIds.ServerToken(own)] = facts;
+            var checkout = HostedSessionCheckout.Capture(StateFor(own).Checkout, row, daemonBranch, metadata?.Branch);
+            foreach (var id in new[] { own, SessionIds.ServerToken(own) })
+                StoreState(id, StateFor(id) with { Checkout = checkout });
         }
 
-        for (var i = 0; i < next.Count; i++) {
-            var row = next[i];
-            if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
-            next[i] = row with {
-                OwnerUserId = dto.Owner?.UserId,
-                OwnerName = dto.Owner?.DisplayName ?? dto.Owner?.Username,
-                OwnerAvatarUrl = dto.Owner?.AvatarUrl,
-                OwnerIsViewer = Ownership(dto, sid),
-                LastActivityAt = dto.LastActivityAt.UtcDateTime,
-                ListedPullRequests = dto.PullRequests,
-                Branch = row.Branch ?? dto.Branch,
-            };
-        }
         if (_scope == RailScope.Mine) {
             next.RemoveAll(row => {
                 if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || !Matchable(row)) return false;
                 if (listedIdOf.GetValueOrDefault(row.Key) is { } sid) return !mine.Contains(sid) && sid != _serverPinnedId;
-                // The registry names the owner before the listing names the session.
                 return row.Origin == AgentOrigin.Remote && !(row.OwnerUserId is { } owner && _viewerIds.Contains(owner));
             });
         }
 
+        // Metadata prefers the live listing above; emitted server rows use the ended set's
+        // last word. A pin fills a missing entry without overriding either source.
         var source = (_scope == RailScope.Mine ? _serverMineLive : _serverLive).Concat(_serverEnded);
         var byId = new Dictionary<string, RepoSessionDto>(StringComparer.Ordinal);
         foreach (var dto in source) byId[dto.SessionId] = dto;
         if (_serverPinnedId is { } pinnedId && listed.TryGetValue(pinnedId, out var pinnedDto)) byId.TryAdd(pinnedId, pinnedDto);
-        foreach (var dto in byId.Values) {
-            var sid = dto.SessionId;
-            var serverEnded = dto.Status != "active";
-            var suppressServer = false;
-            var hostedNow = false;
-            var hostedLocally = false;
-            next.RemoveAll(row => {
-                if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || listedIdOf.GetValueOrDefault(row.Key) != sid || !Matchable(row)) return false;
-                if (row.Origin == AgentOrigin.Remote) {
-                    // A stale registry is not an ended session: the retained row stands while the
-                    // listing says live, and yields only to the server's word that it ended.
-                    if (!_registryCurrent) {
-                        if (serverEnded) return true;
-                        suppressServer = true;
-                        return false;
-                    }
-                    suppressServer = true;
-                    hostedNow = row.Status != AgentRow.DaemonDownStatus;
-                    return false;
-                }
-                if (!_localConnected) {
-                    if (serverEnded) return true;
-                    suppressServer = true;
-                    return false;
-                }
-                switch (row.Status) {
-                    case "Completed": return true;
-                    case "Failed": suppressServer = true; return false;
-                    default: suppressServer = true; hostedNow = hostedLocally = true; return false;
-                }
-            });
-            if (hostedNow) _hostedUntil[sid] = now + HandoverGrace;
-            // Only the daemon that finished the agent can say it runs again: a registry row, unproven twin or another
-            // daemon's, can lag that daemon's completion, so it keeps the grace without undoing the end.
-            if (hostedLocally) _finished.Remove(sid);
-            if (serverEnded) _finished.Remove(sid);
-            if (suppressServer) continue;
-            var hosted = _hostedUntil.TryGetValue(sid, out var until) && until > now;
-            // The listing says live until the server folds the end; the agent's own end is the newer word.
-            var shown = !serverEnded && _finished.TryGetValue(sid, out var finishedUntil) && finishedUntil > now ? dto with { Status = "ended", EndedAt = dto.LastActivityAt } : dto;
-            var server = AgentRow.FromServer(shown, hosted) with { OwnerIsViewer = Ownership(dto, sid) };
-            // What the daemon row reported while it hosted the session outranks the listing, kept only at full
-            // access, and stays one checkout. A local row's missing worktree means the agent runs in the checkout itself,
-            // so it stands; only a registry row, which never names one, takes the agent worktree the listing's cwd names,
-            // and only when it belongs to the same repository. Both paths are on the daemon's machine, so they compare
-            // exactly, not by this host's case rules.
-            if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts)) {
-                var listingWorktree = !facts.FromLocal && facts.WorktreePath is null && server.WorktreePath is { } named
-                    && (facts.RepoPath is null || SameRemotePath(facts.RepoPath, server.RepoPath)) ? named : null;
-                server = server with {
-                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? listingWorktree,
-                    WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom,
-                    // A branch the daemon reported is the checkout's own; one taken from an earlier listing yields to the current one.
-                    Branch = facts.BranchFromDaemon ? facts.Branch ?? server.Branch : server.Branch ?? facts.Branch,
-                };
-            }
-            next.Add(server);
+        var sessionOfRow = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in next)
+            if ((row.Origin is AgentOrigin.Local or AgentOrigin.Remote) && Matchable(row)
+                && (listedIdOf.GetValueOrDefault(row.Key) ?? SessionIds.Canonical(row.SessionId)) is { } sid)
+                sessionOfRow[row.Key] = sid;
+        var candidates = next.Where(row => sessionOfRow.ContainsKey(row.Key))
+            .GroupBy(row => sessionOfRow[row.Key], StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<AgentRow>)group.ToList(), StringComparer.Ordinal);
+        var removed = new HashSet<string>(StringComparer.Ordinal);
+        var serverRows = new List<AgentRow>();
+        foreach (var sid in byId.Keys.Concat(candidates.Keys.Where(id => !byId.ContainsKey(id)))) {
+            var rows = candidates.GetValueOrDefault(sid) ?? [];
+            var listing = byId.GetValueOrDefault(sid);
+            var (state, keptRows) = StateFor(sid).Transition(rows, listing, _localConnected, _registryCurrent, now);
+            StoreState(sid, state);
+            foreach (var row in rows) if (!keptRows.Contains(row.Key)) removed.Add(row.Key);
+            if (listing is not null && keptRows.Count == 0) serverRows.Add(state.ProjectServer(listing, Ownership(listing, sid), now));
         }
 
-        foreach (var sid in _hostedUntil.Where(kv => kv.Value <= now).Select(kv => kv.Key).ToList()) _hostedUntil.Remove(sid);
-        foreach (var sid in _finished.Where(kv => kv.Value <= now).Select(kv => kv.Key).ToList()) _finished.Remove(sid);
-        var lapses = _hostedUntil.Values.Concat(_finished.Values).ToList();
-        var nextLapse = lapses.Count == 0 ? Timeout.InfiniteTimeSpan : lapses.Min() - now;
-        _graceExpiry.Change(nextLapse, Timeout.InfiniteTimeSpan);
-    }
+        // Keep daemon order and keys, including unproven duplicates; resolution changes
+        // their fields and visibility, never their source identity.
+        for (var i = next.Count - 1; i >= 0; i--) {
+            var row = next[i];
+            if (removed.Contains(row.Key)) { next.RemoveAt(i); continue; }
+            if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var metadata)) continue;
+            next[i] = StateFor(sid).ProjectDaemon(row, metadata, Ownership(metadata, sid));
+        }
+        next.AddRange(serverRows);
 
-    static bool SameRemotePath(string a, string? b) =>
-        b is not null && string.Equals(a.TrimEnd('/', '\\'), b.TrimEnd('/', '\\'), StringComparison.Ordinal);
+        foreach (var sid in _timedSessions.ToArray()) StoreState(sid, StateFor(sid).Expire(now));
+        var lapses = _timedSessions.Select(id => StateFor(id).NextExpiry.GetValueOrDefault()).ToList();
+        _graceExpiry.Change(lapses.Count == 0 ? Timeout.InfiniteTimeSpan : lapses.Min() - now, Timeout.InfiniteTimeSpan);
+    }
 
     /// Under Mine the scoped listing answers; under Team only the account's ids can, and only once known.
     bool? OwnerIsViewer(RepoSessionDto dto, bool inMine) => _scope == RailScope.Mine ? inMine : ViewerOwns(dto);

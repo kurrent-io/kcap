@@ -37,6 +37,7 @@ public sealed record LocalFrame(FrameType Type) {
     public static LocalFrame AgentSession(string agentId) => new(FrameType.AgentSession)       { Text = agentId };
     public static LocalFrame AgentSessionReply(string? sessionId) => new(FrameType.AgentSessionReply) { Text = sessionId ?? "" };
     public static LocalFrame RecordSource(string json) => new(FrameType.RecordSource)          { Text = json };
+    public static LocalFrame RecordTerminalSource(string json) => new(FrameType.RecordTerminalSource) { Text = json };
     public static LocalFrame RecordSourceAck(string status) => new(FrameType.RecordSourceAck)  { Text = status };
     public static LocalFrame FinishSource(string key) => new(FrameType.FinishSource)           { Text = key };
     public static LocalFrame FinishSourceAck(string status) => new(FrameType.FinishSourceAck)  { Text = status };
