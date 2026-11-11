@@ -3117,7 +3117,9 @@ class ImportCommand(
     /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
     /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
     /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
-    /// recorded repository placed it elsewhere, so only those folders' repositories are detected.
+    /// recorded repository placed it elsewhere, so only those folders' repositories are detected. A transcript that
+    /// records no cwd is placed by the import in its project folder's repository as decoded, unremapped, so that folder's
+    /// repository stands in for the one discovery could not resolve.
     /// </summary>
     async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap)> CaptureScopeExclusionsAsync(
             IEnumerable<DiscoveredSession>                            sessions,
@@ -3127,40 +3129,51 @@ class ImportCommand(
         if (profiles.Effective is not { } profile) return (FrozenSet<string>.Empty, FrozenSet<string>.Empty);
 
         var judged = sessions
-            .Select(d => (d.SessionId, Cwd: rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd
-                ?? (d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded ? SessionImporter.DecodeCwdFromDirName(encoded) : null),
-                Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null))
+            .Select(d => {
+                var recordedCwd = rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd;
+                var folderCwd   = recordedCwd is null && d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded
+                    ? SessionImporter.DecodeCwdFromDirName(encoded)
+                    : null;
+
+                return (d.SessionId, Cwd: recordedCwd ?? folderCwd,
+                    FromFolder: folderCwd is not null && !sessionCwds.ContainsKey(d.SessionId),
+                    Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null);
+            })
             .ToList();
 
-        var rawRepos = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
+        var rawRepos     = new ConcurrentDictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
+        var excludesRepo = profile.ExcludedRepos is { Length: > 0 };
+        var judgesRepo   = excludesRepo || profile.AllowedRepos is { Length: > 0 };
 
-        if (profile.ExcludedRepos is { Length: > 0 }) {
-            var moved = judged
-                .Where(j => j.Cwd is not null && Directory.Exists(j.Cwd)
-                         && (j.Recorded
-                          || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
-                .Select(j => j.Cwd!)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
+        var detect = judged
+            .Where(j => j.Cwd is not null && Directory.Exists(j.Cwd)
+                     && (judgesRepo && j.FromFolder && !j.Recorded
+                      || excludesRepo
+                      && (j.Recorded
+                       || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal))))
+            .Select(j => j.Cwd!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
-            await Parallel.ForEachAsync(moved, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
-                try {
-                    var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
-                    rawRepos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? $"{o}/{n}" : null;
-                } catch {
-                    rawRepos[cwd] = null;
-                }
-            });
-        }
+        await Parallel.ForEachAsync(detect, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
+            try {
+                var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
+                rawRepos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? (o, n) : null;
+            } catch {
+                rawRepos[cwd] = null;
+            }
+        });
 
         var all         = new HashSet<string>(StringComparer.Ordinal);
         var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var (sessionId, cwd, _) in judged) {
-            var rawRepo = cwd is null ? null : rawRepos.GetValueOrDefault(cwd);
+        foreach (var (sessionId, cwd, fromFolder, recorded) in judged) {
+            var folderRepo = cwd is null ? null : rawRepos.GetValueOrDefault(cwd);
+            var rawRepo    = folderRepo is { } f ? $"{f.Owner}/{f.Name}" : null;
+            var repo       = fromFolder && !recorded ? folderRepo : resolved.GetValueOrDefault(sessionId);
 
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
-            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, resolved.GetValueOrDefault(sessionId), rawRepo)) all.Add(sessionId);
+            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)) all.Add(sessionId);
         }
 
         return (all, beyondRemap);
