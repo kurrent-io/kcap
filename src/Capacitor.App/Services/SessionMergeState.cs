@@ -78,13 +78,17 @@ internal sealed record SessionMergeState {
         return ApplyListing(WithListedCheckout(row, listing), listing, ownerIsViewer, kind);
     }
 
-    // Neither lane names an attached agent's checkout; the listing names its session's. The registry can name the
-    // repository without it, and that group stands.
+    // Neither lane names an attached agent's worktree; the listing names its session's. The registry can name the
+    // repository, and its checkout, without it, and that group stands. Both paths are on the daemon's machine, so they
+    // compare exactly.
     static AgentRow WithListedCheckout(AgentRow row, RepoSessionDto listing) {
-        var grouped = row.RepoGroupKey != RepoIdentity.NoRepository.Key;
-        if (!row.IsAttached || row.RepoPath is not null && grouped) return row;
+        if (!row.IsAttached) return row;
 
+        var grouped = row.RepoGroupKey != RepoIdentity.NoRepository.Key;
         var (repoPath, worktreePath, repo) = AgentRow.ListedCheckout(listing);
+
+        if (row.RepoPath is not null && grouped)
+            return row.WorktreePath is null && worktreePath is not null && repoPath == row.RepoPath ? row with { WorktreePath = worktreePath } : row;
 
         return row with {
             RepoPath = repoPath, WorktreePath = worktreePath,
