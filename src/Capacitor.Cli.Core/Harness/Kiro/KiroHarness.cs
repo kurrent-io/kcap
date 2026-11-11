@@ -39,5 +39,7 @@ public sealed class KiroHarness : IHarness<KiroHarness> {
         UserDataSignal = Paths.HasUserData,
         AppSignal      = apps => apps.Finds("Kiro.app", "Kiro CLI.app", "KiroCrew.app", "Kiro", "kiro-cli", "kirocrew-desktop"),
         Wired          = () => KiroHooksInstaller.IsInstalled(Paths.KcapAgentJson),
+        // Its agent is a clone of the user's default, which only kiro-cli can make.
+        WiringNeedsCli = true,
     };
 }

@@ -38,7 +38,9 @@ internal static class CodingAgentsStep {
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every shell-form
     /// hook through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null);
+    /// <param name="KiroCli">Whether <c>kiro-cli</c> is on PATH. Kiro is detected by its IDE or its data too, but only
+    /// the CLI can clone the default agent kcap's hooks ride on.</param>
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null, bool KiroCli = false);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -339,6 +341,10 @@ internal static class CodingAgentsStep {
         );
     }
 
+    internal const string KiroCliMissingLine =
+        "kiro-cli is not on PATH, so kcap cannot make its agent your default: Kiro CLI sessions are not recorded. "
+      + "MCP servers and skills are still installed.";
+
     static bool HandleKiroHooks(
             Options            options,
             DetectedAgents     detected,
@@ -355,7 +361,7 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        writeLine("  [green]✓[/] Kiro CLI detected");
+        writeLine(detected.KiroCli ? "  [green]✓[/] Kiro CLI detected" : "  [green]✓[/] Kiro detected");
 
         // Both flags → nothing will be written (no agent clone, no MCP), so short-circuit with the
         // accurate message BEFORE the PATH precheck — that check only matters when we'd write a
@@ -388,6 +394,13 @@ internal static class CodingAgentsStep {
         // Opted into Kiro (InstallAgents true, not skipped) + kcap on PATH → hooks + MCP. MCP still
         // registers even if the clone below fails.
         selected = true;
+
+        // An agent already cloned needs no kiro-cli to refresh.
+        if (!detected.KiroCli && !File.Exists(paths.KiroHooksPath)) {
+            writeLine($"  [dim]· {Markup.Escape(KiroCliMissingLine)}[/]");
+
+            return false;
+        }
 
         var ok = installers.InstallKiroHooks?.Invoke(paths.KiroHooksPath) ?? false;
 

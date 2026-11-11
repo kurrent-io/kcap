@@ -90,12 +90,20 @@ public class SetupDecisionsTests {
 
     [Test]
     public async Task DetectedAgentsSummary_KiroDetected_ContainsDefaultAgentAnnotation() {
-        var detected = new CodingAgentsStep.DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new CodingAgentsStep.DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var summary = SetupDecisions.DetectedAgentsSummary(detected);
 
         await Assert.That(summary).IsNotNull();
         await Assert.That(summary!).Contains("Kiro (installing sets kcap as your default Kiro agent)");
+    }
+
+    /// <summary>Without kiro-cli nothing becomes the default agent, so the aside would promise a change that never happens.</summary>
+    [Test]
+    public async Task DetectedAgentsSummary_KiroWithoutItsCli_HasNoDefaultAgentAnnotation() {
+        var detected = new CodingAgentsStep.DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false);
+
+        await Assert.That(SetupDecisions.DetectedAgentsSummary(detected)).IsEqualTo("Kiro");
     }
 
     [Test]

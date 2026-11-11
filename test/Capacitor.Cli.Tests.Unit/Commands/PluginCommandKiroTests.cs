@@ -137,6 +137,24 @@ public class PluginCommandKiroTests {
         await Assert.That(File.Exists(env.Harnesses.Of<KiroHarness>().Paths.KcapAgentJson)).IsFalse();
     }
 
+    /// <summary>Kiro found by its data alone, with kcap on PATH and no kiro-cli: the clone is not tried, the reason is
+    /// said, the MCP servers still register, and the explicit install still fails because nothing will be recorded.</summary>
+    [Test]
+    public async Task install_kiro_without_kiro_cli_says_why_and_still_registers_mcp() {
+        using var home   = new TempHome();
+        using var bin    = new TempDir();
+        using var stderr = new StringWriter();
+        var binaries = TestBinaries.Searching(bin, "kcap");
+        var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--kiro"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(stderr.ToString()).Contains("kiro-cli is not on PATH");
+        await Assert.That(File.Exists(env.Harnesses.Of<KiroHarness>().Paths.KcapAgentJson)).IsFalse();
+        await Assert.That(await File.ReadAllTextAsync(env.Harnesses.Of<KiroHarness>().Paths.SettingsMcpJson)).Contains("kcap-");
+    }
+
     // Deterministic native-binary path: registration writes the resolved binary as the command
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.

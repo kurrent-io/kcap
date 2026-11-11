@@ -325,4 +325,20 @@ public class StatusCommandHooksTests {
         await Assert.That(line).Contains("hooks installed (trust in Codex)");
         await Assert.That(line).Contains("not wired");
     }
+
+    /// <summary>Kiro found by its IDE or data cannot be wired until kiro-cli is on PATH, so the hint names that first.</summary>
+    [Test]
+    public async Task An_unconfigured_harness_that_needs_its_cli_names_the_cli_when_it_is_missing() {
+        using var home      = new TempHome();
+        var       harnesses = TestHarnesses.Under(home);
+        var       kiro      = harnesses.First(h => h.Id == HarnessId.Kiro);
+        var       claude    = harnesses.First(h => h.Id == HarnessId.Claude);
+
+        await Assert.That(StatusCommand.UnconfiguredLine(kiro, "kcap plugin install --kiro", cliOnPath: false))
+            .IsEqualTo("Kiro found, but kiro-cli is not on PATH; install it, then run `kcap plugin install --kiro`");
+        await Assert.That(StatusCommand.UnconfiguredLine(kiro, "kcap plugin install --kiro", cliOnPath: true))
+            .IsEqualTo("Kiro installed but kcap not configured — run `kcap plugin install --kiro`");
+        await Assert.That(StatusCommand.UnconfiguredLine(claude, "kcap plugin install", cliOnPath: false))
+            .IsEqualTo("Claude Code installed but kcap not configured — run `kcap plugin install`");
+    }
 }

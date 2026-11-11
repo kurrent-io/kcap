@@ -1067,7 +1067,8 @@ sealed class SetupCommand(
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
             ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
-            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp,
+            KiroCli:     harnesses.ResolveExecutable(HarnessId.Kiro) is not null);
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });

@@ -70,7 +70,7 @@ public sealed class StatusCommand(
         foreach (var h in harnesses) {
             if (!harnesses.Detected(h.Id)) continue;
             if (h.Signals.IsWired) continue;
-            await Line($"           {h.Label} installed but kcap not configured — run `{(baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id))}`");
+            await Line($"           {UnconfiguredLine(h, baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id), harnesses.ResolveExecutable(h.Id) is not null)}");
         }
 
         var activity = new HookActivity(config, time);
@@ -307,6 +307,12 @@ public sealed class StatusCommand(
         remaining.TotalHours > 1
             ? $"expires in {remaining.TotalHours:F0}h"
             : $"expires in {remaining.TotalMinutes:F0}m";
+
+    /// <summary>A vendor whose wiring runs its CLI is found by its app or data too, so the command alone would fail.</summary>
+    internal static string UnconfiguredLine(IHarness h, string command, bool cliOnPath) =>
+        h.Signals.WiringNeedsCli && !cliOnPath
+            ? $"{h.Label} found, but {h.CliBinary} is not on PATH; install it, then run `{command}`"
+            : $"{h.Label} installed but kcap not configured — run `{command}`";
 
     static string InstallCommandFor(HarnessId id) =>
         id.PluginInstallFlag is { } flag ? $"kcap plugin install {flag}" : "kcap plugin install";
