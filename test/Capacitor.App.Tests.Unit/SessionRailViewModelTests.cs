@@ -975,6 +975,23 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// A group with only live rows loaded can still have ended sessions on a later page.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_live_only_group_count_reads_as_a_floor_while_ended_pages_remain() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, _, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                directory.Rows.AddOrUpdate([Local("a"), Local("b")]);
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2+ sessions");
+
+                rail.State = RailState.Live;
+                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2 sessions");
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Live_filter_hides_ended_pagination_and_switching_back_restores_it() {

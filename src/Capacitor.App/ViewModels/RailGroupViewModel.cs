@@ -154,18 +154,18 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
     /// Mixed groups count each kind; a group of one kind reads as it always did. A local row whose
     /// agent completed is ended, as its row and its workspace header already say. The ended list loads
-    /// a page at a time, so while pages remain an ended count is only a floor and reads "N+".
+    /// a page at a time, so while pages remain a count is only a floor and reads "N+" — a group showing
+    /// only live rows may still have ended sessions on a page not yet loaded.
     static (string Text, bool Partial) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
         int live = 0, ended = 0;
         foreach (var row in rows) {
             if (row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" }) ended++;
             else live++;
         }
-        var partial = endedListPartial && ended > 0;
-        var more = partial ? "+" : "";
-        if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", partial);
+        var more = endedListPartial ? "+" : "";
+        if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", endedListPartial);
         var count = live + ended;
-        return (count == 1 && !partial ? "1 session" : $"{count}{more} sessions", partial);
+        return (count == 1 && !endedListPartial ? "1 session" : $"{count}{more} sessions", endedListPartial);
     }
 
     // Key's own prefixes ("repo:", "path:", "daemon:{owner}/{daemon}:{path}") are a group identity,
