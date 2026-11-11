@@ -852,9 +852,11 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         string[] silent;
         lock (_gate) silent = [.. _live.Values.Where(r => r.SilentFor > LapseBound).Select(r => r.AgentId)];
 
-        foreach (var agentId in silent)
+        // All at once, each under its own agent's gate: a server sitting on one unregistration holds back no other.
+        await Task.WhenAll(silent.Select(async agentId => {
             if (await EndAsync(agentId, LapsedAnswer, retry: true, r => r.SilentFor > LapseBound, QueueUnconfirmed))
                 LogLapsed(agentId, (int)LapseBound.TotalSeconds);
+        }));
     }
 
     void QueueUnconfirmed(ModAttachedAgentRuntime lapsed) {

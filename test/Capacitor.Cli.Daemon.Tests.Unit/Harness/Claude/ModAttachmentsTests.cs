@@ -987,6 +987,28 @@ public class ModAttachmentsTests {
         await Assert.That(string.Join(",", server.AttachedCallOrder)).IsEqualTo($"register:{agentId},register:{agentId},unregister:{agentId}");
     }
 
+    /// <summary>A server sitting on one lapsed attachment's unregistration holds back no other: each ends under its own
+    /// agent's gate, all at once.</summary>
+    [Test]
+    public async Task Lapsed_attachments_end_together_while_the_server_sits_on_an_unregistration() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var first  = await AttachAsync(attachments);
+        var second = await AttachAsync(attachments, "6fa459ea-ee8a-3ca4-894e-db77e160355e", "4343:Sat Nov  8 10:00:00 2026");
+        var release = Gate();
+        server.UnregisterGate = release;
+
+        _time.Advance(ModAttachments.LapseBound + ModAttachments.SweepInterval);
+        await Within(server.UnregisterEntered.Task);
+        var gone = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while ((attachments.Holds(first) || attachments.Holds(second)) && DateTime.UtcNow < gone) await Task.Delay(10);
+
+        await Assert.That(attachments.Holds(first)).IsFalse();
+        await Assert.That(attachments.Holds(second)).IsFalse();
+
+        release.SetResult();
+    }
+
     /// <summary>The mod wakes from a suspension while its lapse is being told to the server: its attach again waits until
     /// the unregistration is done, so the fresh attachment is not ended by it.</summary>
     [Test]
