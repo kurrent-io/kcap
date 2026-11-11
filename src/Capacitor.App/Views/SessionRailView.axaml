@@ -87,6 +87,26 @@
             <Setter Property="ToolTip.Tip" Value="Session list settings · Custom list settings applied" />
             <Setter Property="AutomationProperties.HelpText" Value="Custom list settings applied: scope, state, grouping, or sorting differs from the defaults." />
         </Style>
+        <!-- The alert reads as a status line that leads to the launcher: no fill at rest or on hover
+             (the footer grid clips anything wider), an underline and a brighter chevron instead. -->
+        <Style Selector="Button.railAlertLink">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.railAlertLink:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railAlertLink:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.railAlertLink views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Button.railAlertLink:pointerover views|AppIcon, Button.railAlertLink:focus-visible views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.railAlertLink:pointerover TextBlock#RailAlertText, Button.railAlertLink:focus-visible TextBlock#RailAlertText">
+            <Setter Property="TextDecorations" Value="Underline" />
+        </Style>
         <Style Selector="Button#RailFilterButton views|AppIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -304,18 +324,20 @@
                     <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="2" IsVisible="{Binding !ShowsUpdateContext}">
                     <!-- One status slot above the org: the alert when something needs the user,
                          Connected otherwise. The words are the indicator; the hover carries what the
-                         one line leaves out. -->
-                    <StackPanel x:Name="RailAlertRow" Spacing="6"
+                         one line leaves out. The repairing actions live in the launcher's banner, so
+                         the alert opens the launcher rather than carrying a button of its own. -->
+                    <StackPanel x:Name="RailAlertRow"
                                 IsVisible="{Binding Alert, Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
-                                   Foreground="{Binding StatusBrush}" TextWrapping="Wrap"
-                                   ToolTip.Tip="{Binding Alert.Detail, FallbackValue={x:Null}}" />
-                        <Button x:Name="RailAlertActionButton" Classes="kcapChip" HorizontalAlignment="Left"
-                                Content="{Binding Alert.ActionLabel, FallbackValue={x:Null}}"
-                                Command="{Binding AlertActionCommand}"
-                                AutomationProperties.Name="{Binding Alert.ActionLabel, FallbackValue={x:Null}}"
-                                IsVisible="{Binding AlertActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                Padding="10,3" FontSize="12" CornerRadius="6" />
+                        <Button x:Name="RailAlertLink" Classes="kcapGhost railAlertLink" HorizontalAlignment="Left"
+                                Command="{Binding OpenRailAlertCommand}"
+                                AutomationProperties.Name="{Binding Alert.Text, StringFormat='{}{0}: open the launcher', FallbackValue={x:Null}}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
+                                           Foreground="{Binding StatusBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                           ToolTip.Tip="{Binding Alert.Detail, FallbackValue={x:Null}}" />
+                                <views:AppIcon Kind="ChevronRight" Size="12" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                     <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
                                Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
