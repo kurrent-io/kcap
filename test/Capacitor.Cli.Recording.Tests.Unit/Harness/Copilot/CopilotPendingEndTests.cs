@@ -349,6 +349,72 @@ public class CopilotPendingEndTests {
         await Assert.That(CopilotPendingEnd.HeldForWatcher(Paths, CopilotPendingEnd.Route, end, new FakeTimeProvider(now))).IsEqualTo(held);
     }
 
+    static string? RunIdOnDisk(WatcherPaths paths) {
+        var file = Path.Combine(paths.Directory, Session + ".copilot-pending-end.json");
+        return File.Exists(file) ? System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))?["run_id"]?.GetValue<string>() : null;
+    }
+
+    static System.Text.Json.Nodes.JsonObject Snapshot(WatcherPaths paths) =>
+        (System.Text.Json.Nodes.JsonObject) System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(paths.Directory, Session + ".copilot-pending-end.json")))!;
+
+    /// <summary>A sweep that read run A's record holds the session's lock until it is done with it, so a new run's hook and
+    /// watcher writing run B's meanwhile land after the sweep's own write of A, never under it. The test holds the lock and
+    /// saves A's snapshot as the sweep would.</summary>
+    [Test]
+    public async Task A_sweep_saving_what_it_read_cannot_overwrite_a_new_runs_end() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+        var readByTheSweep = Snapshot(Paths);
+
+        Task newRun;
+        using (CopilotPendingEndLock.TryAcquire(Paths, Session)) {
+            newRun = Task.Run(() => {
+                CopilotPendingEnd.Discard(Paths, Session);
+                CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-b");
+            });
+            await Task.Delay(300);
+
+            readByTheSweep["mismatch"] = new System.Text.Json.Nodes.JsonObject { ["since"] = DateTimeOffset.UtcNow.ToString("O"), ["shape"] = "0:0" };
+            CopilotPendingEnd.Save(Paths, Session, readByTheSweep);
+        }
+
+        await newRun;
+
+        await Assert.That(RunIdOnDisk(Paths)).IsEqualTo("run-b");
+    }
+
+    /// <summary>A hook's discard waits out a sweep holding the record, so the sweep cannot bring back what the hook
+    /// discarded.</summary>
+    [Test]
+    public async Task A_sweep_saving_what_it_read_cannot_revive_an_end_a_hook_discarded() {
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, Transcript(StartA + "\n" + Turn), TimeProvider.System, runId: "run-a");
+        var readByTheSweep = Snapshot(Paths);
+
+        Task hook;
+        using (CopilotPendingEndLock.TryAcquire(Paths, Session)) {
+            hook = Task.Run(() => CopilotPendingEnd.Discard(Paths, Session));
+            await Task.Delay(300);
+
+            CopilotPendingEnd.Save(Paths, Session, readByTheSweep);
+        }
+
+        await hook;
+
+        await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>A watcher that posted its own end discards only the record it wrote, not a later watcher's.</summary>
+    [Test]
+    public async Task A_watchers_discard_leaves_a_later_watchers_end() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a", watcherPid: 100);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-b", watcherPid: 200);
+
+        CopilotPendingEnd.Discard(Paths, Session, ownedBy: 100);
+
+        await Assert.That(RunIdOnDisk(Paths)).IsEqualTo("run-b");
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);

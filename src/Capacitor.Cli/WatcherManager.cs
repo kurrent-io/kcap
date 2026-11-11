@@ -100,7 +100,7 @@ public sealed partial class WatcherManager(
             }
         }
 
-        removed += Directory.GetFiles(dir, "*.spawnlock").Count(WatcherLiveness.TryDeleteSpawnLock);
+        removed += Directory.GetFiles(dir, "*.spawnlock").Concat(Directory.GetFiles(dir, "*.copilot-pending-end.lock")).Count(WatcherLiveness.TryDeleteSpawnLock);
 
         return removed;
     }

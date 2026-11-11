@@ -656,7 +656,7 @@ class WatchCommand(
         await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
 
         if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
-            CopilotPendingEnd.Discard(_paths, sessionId);
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
     }
 
     /// <summary>

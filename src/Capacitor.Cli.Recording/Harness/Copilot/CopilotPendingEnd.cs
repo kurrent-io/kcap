@@ -40,11 +40,14 @@ public static class CopilotPendingEnd {
             ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
         };
 
-        return Save(paths, sessionId, record);
+        using var held = CopilotPendingEndLock.TryAcquire(paths, sessionId);
+
+        return held is not null && Save(paths, sessionId, record);
     }
 
-    // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none.
-    static bool Save(WatcherPaths paths, string sessionId, JsonObject record) {
+    // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none. The
+    // caller holds the session's CopilotPendingEndLock.
+    internal static bool Save(WatcherPaths paths, string sessionId, JsonObject record) {
         var target = FileFor(paths, sessionId);
         var temp   = $"{target}.{Guid.NewGuid():N}.tmp";
 
@@ -92,7 +95,23 @@ public static class CopilotPendingEnd {
     }
 
     /// <summary>Drops the session's pending end: a hook for it has run, and its end or its next run is that hook's.</summary>
-    public static void Discard(WatcherPaths paths, string sessionId) => TryDelete(FileFor(paths, sessionId));
+    /// <param name="ownedBy">The watcher discarding the end it wrote, which leaves one a later watcher wrote since.</param>
+    public static void Discard(WatcherPaths paths, string sessionId, int? ownedBy = null) {
+        using var held = CopilotPendingEndLock.TryAcquire(paths, sessionId);
+        if (held is null) return;
+
+        if (ownedBy is { } owner && ReadRecord(paths, sessionId)?["watcher_pid"]?.GetValue<int>() != owner) return;
+
+        TryDelete(FileFor(paths, sessionId));
+    }
+
+    static JsonObject? ReadRecord(WatcherPaths paths, string sessionId) {
+        try {
+            return File.Exists(FileFor(paths, sessionId)) ? JsonNode.Parse(File.ReadAllText(FileFor(paths, sessionId))) as JsonObject : null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {
+            return null;
+        }
+    }
 
     // Best effort: a record left behind is retried or dropped on the next pass.
     static void TryDelete(string path) {
@@ -114,10 +133,14 @@ public static class CopilotPendingEnd {
 
         foreach (var session in SessionsWithPending(paths)) {
             try {
+                // From the read to the promotion or drop: a hook or watcher writing meanwhile would be overwritten or revived.
+                using var held = CopilotPendingEndLock.TryAcquire(paths, session);
+                if (held is null) continue;
+
                 // The span close it owes is recorded first, so no spooled end goes without one.
                 if (Decide(paths, session, lifecycle, server, time) is { } due
                  && CopilotSpanClose.Record(paths, session, server, due.Body, time, due.RunId) && lifecycle.Append(session, Route, due.Body)) {
-                    Discard(paths, session);
+                    TryDelete(FileFor(paths, session));
                     spooled++;
                 }
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) {
@@ -136,7 +159,10 @@ public static class CopilotPendingEnd {
     static readonly TimeSpan MismatchSettles = TimeSpan.FromSeconds(30);
 
     /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
+    /// <remarks>The caller holds the session's <see cref="CopilotPendingEndLock"/>.</remarks>
     static Due? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
+        if (!File.Exists(FileFor(paths, session))) return null;
+
         JsonObject? record;
 
         try {
@@ -204,7 +230,7 @@ public static class CopilotPendingEnd {
         return new Due(body, runId);
 
         Due? Drop() {
-            Discard(paths, session);
+            TryDelete(FileFor(paths, session));
 
             return null;
         }
