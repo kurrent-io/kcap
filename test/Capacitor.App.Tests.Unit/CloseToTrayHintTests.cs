@@ -43,9 +43,9 @@ public class CloseToTrayHintTests {
         await Assert.That(hint.TrayHint).IsNull();
     }
 
-    /// With notifications denied the tray icon's tooltip says it instead, until the window is opened again.
+    /// With notifications denied only the tooltip says it, and nothing proves it was read, so every hide says it again.
     [Test]
-    public async Task Without_notifications_the_tray_tooltip_carries_it_until_the_window_opens() {
+    public async Task Without_notifications_every_hide_leads_the_tray_tooltip_with_it() {
         var states = new States(new AppState());
         var shown = new List<DesktopNotification>();
         var hint = new CloseToTrayHint(states, () => Task.FromResult(false), shown.Add);
@@ -55,11 +55,33 @@ public class CloseToTrayHintTests {
         await hint.OnHiddenAsync();
         var hidden = hint.TrayHint;
         hint.OnShown();
+        var reopened = hint.TrayHint;
+        await hint.OnHiddenAsync();
 
         await Assert.That(shown).IsEmpty();
         await Assert.That(hidden).IsEqualTo(CloseToTrayHint.TrayText);
-        await Assert.That(hint.TrayHint).IsNull();
-        await Assert.That(changes).IsEquivalentTo([CloseToTrayHint.TrayText, null]);
+        await Assert.That(reopened).IsNull();
+        await Assert.That(hint.TrayHint).IsEqualTo(CloseToTrayHint.TrayText);
+        await Assert.That(changes).IsEquivalentTo([CloseToTrayHint.TrayText, null, CloseToTrayHint.TrayText]);
+        await Assert.That(states.State.CloseToTrayExplained).IsFalse();
+    }
+
+    /// A hide, a reopen and a second hide all before the first check finishes: the second hide still gets the hint.
+    [Test]
+    public async Task A_hide_that_lands_while_an_earlier_hide_is_pending_is_explained() {
+        var states = new States(new AppState());
+        var shown = new List<DesktopNotification>();
+        var allowed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hint = new CloseToTrayHint(states, () => allowed.Task, shown.Add);
+
+        var pending = hint.OnHiddenAsync();
+        hint.OnShown();
+        await hint.OnHiddenAsync();
+        allowed.SetResult(true);
+        await pending;
+
+        await Assert.That(shown.Count).IsEqualTo(1);
+        await Assert.That(hint.TrayHint).IsEqualTo(CloseToTrayHint.TrayText);
         await Assert.That(states.State.CloseToTrayExplained).IsTrue();
     }
 

@@ -54,7 +54,7 @@ public sealed record AppState(
     IReadOnlyList<string>? UnverifiedHarnessSetups = null,
     // Server URL -> the next-work target keys the launcher's band last showed, so a row can say it is new.
     IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null,
-    // Set once CloseToTrayHint has said that closing the main window keeps kcap running.
+    // Set once a CloseToTrayHint toast has said that closing the main window keeps kcap running.
     bool CloseToTrayExplained = false);
 
 public interface IAppStateStore {

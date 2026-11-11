@@ -2,17 +2,18 @@ using Capacitor.App.Services.Notifications;
 
 namespace Capacitor.App.Services;
 
-/// <summary>Says once per user that closing the main window keeps kcap running in the notification area: the tray
-/// icon's tooltip leads with it until the window opens again, and a desktop notification says it too when
-/// notifications are allowed. Without it a close looks like a quit that did not happen.</summary>
+/// <summary>Says that closing the main window keeps kcap running in the notification area: the tray icon's tooltip
+/// leads with it while the window is hidden, and a toast says it once when one can be shown. Until a toast has said
+/// it, every hide repeats the tooltip, since nothing proves a tooltip was ever hovered.</summary>
 public sealed class CloseToTrayHint(IAppStateStore state, Func<Task<bool>> canNotify, Action<DesktopNotification> notify) {
     public const string NotificationId = "close-to-tray";
     public const string Title = "kcap is still running";
     public const string Body = "Open it or quit from its icon in the notification area.";
     public const string TrayText = "kcap is still running: click to open it, or right-click to quit";
 
-    bool _handled;
-    int _shows;
+    bool _explained;
+    bool _deciding;
+    bool _hidden;
 
     /// <summary>The line the tray icon's tooltip leads with, or null.</summary>
     public string? TrayHint { get; private set; }
@@ -20,26 +21,32 @@ public sealed class CloseToTrayHint(IAppStateStore state, Func<Task<bool>> canNo
     public event Action<string?>? TrayHintChanged;
 
     public async Task OnHiddenAsync() {
-        if (_handled) return;
-        _handled = true;
-        var shows = _shows;
+        _hidden = true;
+        // A hide that lands while an earlier one is being decided is served by that decision, which reads _hidden last.
+        if (_explained || _deciding) return;
+        _deciding = true;
+        try {
+            if ((await state.LoadAsync()).CloseToTrayExplained) {
+                _explained = true;
+                return;
+            }
+            var notifies = await canNotify();
+            // A window opened again while this hide was being decided needs no explanation; the next hide gives it.
+            if (!_hidden) return;
 
-        if ((await state.LoadAsync()).CloseToTrayExplained) return;
-        var notifies = await canNotify();
-        // A window opened again while this hide was being decided needs no explanation; the next hide gives it.
-        if (shows != _shows) {
-            _handled = false;
-            return;
+            // A toast the platform accepts can still fail to appear, so the tooltip says it whether or not one is shown.
+            SetTrayHint(TrayText);
+            if (!notifies) return;
+            _explained = true;
+            notify(new DesktopNotification(NotificationId, Title, Body, []));
+            await state.UpdateAsync(s => s with { CloseToTrayExplained = true });
+        } finally {
+            _deciding = false;
         }
-
-        // A toast the platform accepts can still fail to appear, so the tooltip says it whether or not one is shown.
-        SetTrayHint(TrayText);
-        if (notifies) notify(new DesktopNotification(NotificationId, Title, Body, []));
-        await state.UpdateAsync(s => s with { CloseToTrayExplained = true });
     }
 
     public void OnShown() {
-        _shows++;
+        _hidden = false;
         SetTrayHint(null);
     }
 
