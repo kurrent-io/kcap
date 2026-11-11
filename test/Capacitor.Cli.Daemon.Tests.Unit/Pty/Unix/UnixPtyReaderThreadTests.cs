@@ -82,7 +82,7 @@ public class UnixPtyReaderThreadTests {
     public async Task A_slow_consumer_still_gets_all_the_output_left_at_the_exit() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
 
-        var pipe    = new AnonymousPipeServerStream(PipeDirection.In);
+        await using var pipe = new AnonymousPipeServerStream(PipeDirection.In);
         var readFd  = (int)pipe.SafePipeHandle.DangerousGetHandle();
         var writeFd = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
         var left    = new byte[5 * 4096];
