@@ -3,6 +3,7 @@ using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.UserMessages;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -229,6 +230,28 @@ public class TranscriptChatCanonicalTests {
         var result = chat.ProjectWithInputs(line, 1, DateTimeOffset.UnixEpoch, chat.CreateContext("s", null));
         await Assert.That(result.Envelopes.Select(e => e.Kind)).IsEquivalentTo(new[] { AcpEventKind.AssistantText });
         await Assert.That(result.Runs.Cast<RunSignal.Started>().Select(s => s.CallId)).IsEquivalentTo(new[] { "t1", "t2" });
+    }
+
+    /// <summary>A cancelled prompt keeps its row and acknowledges its send; the sibling that cancelled it shows a note
+    /// ahead of its own row, and a compaction boundary shows the compaction note.</summary>
+    [Test]
+    public async Task A_claude_cancelled_prompt_and_a_compaction_boundary_read_as_notes() {
+        var chat = TranscriptChat.For("claude")!;
+        var ctx  = chat.CreateContext("s", null);
+        ChatProjectionResult Line(string line, int n) => chat.ProjectWithInputs(line, n, DateTimeOffset.UnixEpoch, ctx);
+        const string parent = "3944ba5e-0000-0000-0000-000000000000";
+
+        var cancelled = Line($$$"""{"type":"user","uuid":"a1b2c3d4-0000-4000-8000-0000000000c1","parentUuid":"{{{parent}}}","message":{"content":"first try"}}""", 1);
+        var resubmit  = Line($$$"""{"type":"user","uuid":"a1b2c3d4-0000-4000-8000-0000000000c2","parentUuid":"{{{parent}}}","message":{"content":"second try"}}""", 2);
+        var boundary  = Line("""{"type":"system","subtype":"compact_boundary","uuid":"a1b2c3d4-0000-4000-8000-0000000000c3","compactMetadata":{"trigger":"auto","preTokens":9}}""", 3);
+
+        await Assert.That(cancelled.Envelopes.Single().Text).IsEqualTo("first try");
+        await Assert.That(cancelled.SubmittedInputs).IsEquivalentTo(["first try"]);
+        await Assert.That(resubmit.Envelopes.Select(e => $"{e.Kind}: {e.Text}")).IsEquivalentTo([
+            $"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.RetractedNote}", $"{AcpEventKind.UserMessage}: second try",
+        ], CollectionOrdering.Matching);
+        await Assert.That(resubmit.SubmittedInputs).IsEquivalentTo(["second try"]);
+        await Assert.That(boundary.Envelopes.Select(e => $"{e.Kind}: {e.Text}")).IsEquivalentTo([$"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.CompactedNote}"]);
     }
 
     [Test]

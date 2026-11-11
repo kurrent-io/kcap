@@ -74,7 +74,7 @@ public class CodexGoldenTests {
                 ["eventId"] = t.EventId.ToString(), ["eventType"] = t.EventType, ["toolName"] = t.ToolName, ["isEcho"] = t.IsEcho,
             })]),
         },
-        ContextCompactedEvent compacted => JsonNode.Parse(JsonSerializer.Serialize(compacted, CodexJsonContext.Default.ContextCompactedEvent)),
+        ContextCompactedEvent compacted => JsonNode.Parse(JsonSerializer.Serialize(compacted, TranscriptEventJsonContext.Default.ContextCompactedEvent)),
         _ => throw new InvalidOperationException($"No rendering for {payload.GetType().Name}"),
     };
 

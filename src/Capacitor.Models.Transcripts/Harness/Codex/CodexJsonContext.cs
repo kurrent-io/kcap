@@ -13,5 +13,4 @@ namespace Capacitor.Models.Transcripts.Harness.Codex;
 [JsonSerializable(typeof(CodexPatchResultExtension))]
 [JsonSerializable(typeof(CodexTurnTimingExtension))]
 [JsonSerializable(typeof(CodexUsageBackfilledEvent))]
-[JsonSerializable(typeof(ContextCompactedEvent))]
 public sealed partial class CodexJsonContext : JsonSerializerContext;

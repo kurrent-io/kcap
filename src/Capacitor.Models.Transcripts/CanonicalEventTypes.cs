@@ -12,6 +12,7 @@ public static class CanonicalEventTypes {
     public const string SubagentCompleted           = "SubagentCompleted";
     public const string SubagentStarted             = "SubagentStarted";
     public const string ContextCompacted            = "ContextCompacted";
+    public const string UserMessageRetracted        = "UserMessageRetracted";
     public const string CodexUsageBackfilled        = "CodexUsageBackfilled";
 
     public static string Of(object payload) => payload switch {
@@ -25,6 +26,7 @@ public static class CanonicalEventTypes {
         Kurrent.Agent.Schema.Events.SubagentCompleted           => SubagentCompleted,
         Kurrent.Agent.Schema.Events.SubagentStarted             => SubagentStarted,
         ContextCompactedEvent                                   => ContextCompacted,
+        UserMessageRetractedEvent                               => UserMessageRetracted,
         Harness.Codex.CodexUsageBackfilledEvent                 => CodexUsageBackfilled,
         _ => throw new ArgumentException($"No canonical event type for {payload.GetType().Name}", nameof(payload)),
     };
