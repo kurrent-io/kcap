@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -69,6 +70,22 @@ public class CopilotSessionEndHookTests : IDisposable {
 
         var posted = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost()).Single().RequestMessage.Body;
         await Assert.That(posted).Contains("user_exit");
+    }
+
+    /// <summary>A pending end goes only on a new run: a notification proves nothing about it, a sessionStart does.</summary>
+    [Test]
+    [Arguments("notification", true)]
+    [Arguments("sessionStart", false)]
+    public async Task a_pending_end_outlives_every_hook_but_a_new_run(string eventName, bool kept) {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        var canonical = Session.Replace("-", "");
+        CopilotPendingEnd.Write(paths, canonical, "{}", _server.Url, runtimePid: null, Config.CreateFile("events.jsonl", ""), TimeProvider.System);
+
+        var client  = new FixedCapacitorHttpClient();
+        var payload = new JsonObject { ["sessionId"] = Session, ["message"] = "m", ["notification_type"] = "idle_prompt" }.ToJsonString();
+        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(new StringReader(payload), ["--event", eventName]);
+
+        await Assert.That(CopilotPendingEnd.SessionsWithPending(paths).Contains(canonical)).IsEqualTo(kept);
     }
 
     /// <summary>An end the spool cannot hold travels with the finalizer instead, so one owner always has it.</summary>

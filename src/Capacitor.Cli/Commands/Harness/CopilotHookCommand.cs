@@ -218,9 +218,6 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
-        // A hook for the session proves it is still running, or brings its own end.
-        CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
-
         return eventName switch {
             "sessionStart" => await HandleSessionStart(node, dashedSessionId, sessionId, cwd, activeProfile, spool, clock.Budget(Ceiling)),
             "sessionEnd"   => await HandleSessionEnd(node, dashedSessionId, sessionId, cwd),
@@ -239,6 +236,9 @@ sealed class CopilotHookCommand(
             HookSpool  spool,
             HookBudget budget
         ) {
+        // A new run: the held end of the one before it would close this one.
+        CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+
         var source = TryGetString(node, "source") is { Length: > 0 } s ? s : "startup";
 
         var forwarded = new JsonObject {
@@ -384,6 +384,7 @@ sealed class CopilotHookCommand(
         // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap process's
         // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
         var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
+        if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
         // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started

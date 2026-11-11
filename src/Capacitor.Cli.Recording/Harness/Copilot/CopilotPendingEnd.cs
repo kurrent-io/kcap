@@ -18,6 +18,10 @@ public static class CopilotPendingEnd {
 
     static readonly TimeSpan Retention = TimeSpan.FromDays(30);
 
+    // For a watcher that never resolved its runtime: Copilot writes its shutdown line within seconds of stopping, and a
+    // session waiting on a person is woken by a new run, which drops the record, so ten quiet minutes stand for an exit.
+    public static readonly TimeSpan QuietPeriod = TimeSpan.FromMinutes(10);
+
     static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
 
     /// <summary>Holds <paramref name="endBody"/> until the runtime is gone or the transcript ends on its shutdown line.</summary>
@@ -89,7 +93,9 @@ public static class CopilotPendingEnd {
         var runtimeGone = record["runtime_pid"]?.GetValue<int>() is { } pid
                        && (record["runtime_token"]?.GetValue<string>() is not { } token || ProcessStartToken.ForPid(pid) is null || ProcessStartToken.Matches(pid, token) == false);
 
-        return shutdown || runtimeGone ? record["body"]?.GetValue<string>() ?? Drop() : null;
+        var quietWithNoRuntime = record["runtime_pid"] is null && time.GetUtcNow() - LastWrite(transcript, writtenAt) >= QuietPeriod;
+
+        return shutdown || runtimeGone || quietWithNoRuntime ? record["body"]?.GetValue<string>() ?? Drop() : null;
 
         string? Drop() {
             Discard(paths, session);
@@ -144,6 +150,14 @@ public static class CopilotPendingEnd {
             return last is not null && CopilotShutdown.IsShutdownLine(last);
         } catch (IOException) {
             return false;
+        }
+    }
+
+    static DateTimeOffset LastWrite(string path, DateTimeOffset fallback) {
+        try {
+            return File.Exists(path) ? new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero) : fallback;
+        } catch (IOException) {
+            return fallback;
         }
     }
 

@@ -107,6 +107,21 @@ public class CopilotPendingEndTests {
         await Assert.That(sent[0]).IsEqualTo(hookEnd);
     }
 
+    /// <summary>A watcher that never resolved its runtime has no process to outlive, so a transcript gone quiet stands in.</summary>
+    [Test]
+    public async Task An_end_with_no_runtime_is_spooled_once_the_transcript_goes_quiet() {
+        var transcript = Transcript(Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System);
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
+
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow - CopilotPendingEnd.QuietPeriod - TimeSpan.FromMinutes(1));
+
+        await Assert.That(Sweep()).IsEqualTo(1);
+        await Assert.That(Spool.HasBacklog(Session)).IsTrue();
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);
