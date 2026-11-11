@@ -109,17 +109,20 @@ public class RecorderHostTests {
     }
 
     /// <summary>Waits for <paramref name="condition"/>, moving the clock a second at a time but never more than half the
-    /// watchdog's threshold past <paramref name="key"/>'s last beat or the loop's last heartbeat slice, whichever is later:
-    /// a clock that outruns a slow runner's loop starves the watchdog of beats the source does make, and one that stops
-    /// short of a slice armed after the cap was reached never lets the loop beat again. A source that stops beating and
-    /// arming slices stops the clock, and the wait times out.</summary>
+    /// watchdog's threshold past <paramref name="key"/>'s last beat: a clock that outruns a slow runner's loop starves the
+    /// watchdog of beats the source does make. A heartbeat slice the loop arms only once the clock has reached that cap is
+    /// still let fire, but nothing past it, so the clock stays well short of the watchdog until a fresh beat. A source
+    /// that stops beating stops the clock, and the wait times out.</summary>
     async Task EventuallyPacedBy(string key, Func<bool> condition, string what) =>
         await Eventually(() => {
             if (condition()) return true;
 
             if (_beatAt.TryGetValue(key, out var beat)) {
-                var anchor = _time.SliceArmedAt is { } armed && armed > beat ? armed : beat;
-                if (_time.GetUtcNow() - anchor < RecorderHost.WedgedAfter / 2) _time.Advance(TimeSpan.FromSeconds(1));
+                var cap = beat + RecorderHost.WedgedAfter / 2;
+
+                if (_time.SliceDueAt is { } due && due > cap) cap = due < cap + TranscriptRecorder.HeartbeatSlice ? due : cap + TranscriptRecorder.HeartbeatSlice;
+
+                if (_time.GetUtcNow() < cap) _time.Advance(TimeSpan.FromSeconds(1));
             }
 
             return condition();
@@ -2808,12 +2811,12 @@ public class RecorderHostTests {
 
         public IReadOnlyList<(int Attempts, TimeSpan Due)> Timers => [.._timers];
 
-        /// <summary>When a timer no longer than a heartbeat slice was last armed: a loop parked between beats.</summary>
-        public DateTimeOffset? SliceArmedAt { get; private set; }
+        /// <summary>When the timer no longer than a heartbeat slice armed last falls due: a loop parked between beats.</summary>
+        public DateTimeOffset? SliceDueAt { get; private set; }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
             _timers.Enqueue((Attempts(), dueTime));
-            if (dueTime > TimeSpan.Zero && dueTime <= TranscriptRecorder.HeartbeatSlice) SliceArmedAt = GetUtcNow();
+            if (dueTime > TimeSpan.Zero && dueTime <= TranscriptRecorder.HeartbeatSlice) SliceDueAt = GetUtcNow() + dueTime;
 
             return base.CreateTimer(callback, state, dueTime, period);
         }
