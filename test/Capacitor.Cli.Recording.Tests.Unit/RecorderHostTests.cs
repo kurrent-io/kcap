@@ -2396,11 +2396,15 @@ public class RecorderHostTests {
             await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
             using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
-            var finish = host.FinishAsync(source.Key, CancellationToken.None);
             release.SetResult();
+            await Eventually(() => AfterDrains(source.Key) == 1, "the first failed drain");
+            await Assert.That(_log.Count(line => line.StartsWith($"{source.Key}: Error reading file:", StringComparison.Ordinal))).IsEqualTo(1);
+
+            var finish = host.FinishAsync(source.Key, CancellationToken.None);
             await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
             await finish;
 
+            await Assert.That(_log.Count(line => line.StartsWith($"{source.Key}: Error reading file:", StringComparison.Ordinal))).IsEqualTo(2);
             await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
         } finally {
             release.TrySetResult();
