@@ -253,7 +253,7 @@ public class ImportDiscoverySummaryTests {
             ignoredSessions: new HashSet<string> { "secret", "secret-too", "listed" });
 
         await Assert.That(s.UnmatchedCount).IsEqualTo(1);
-        await Assert.That(s.UnmatchedFolders.Select(f => f.Folder).ToList()).IsEquivalentTo(["/w/scratch"]);
+        await Assert.That(s.UnmatchedFolders).IsEquivalentTo([new ImportUnmatchedFolder("/w/scratch", 1)]);
         await Assert.That(s.Repos.Single().SessionCount).IsEqualTo(1);
         await Assert.That(s.ByWindow.Single(w => w.Since is null).SessionCount).IsEqualTo(2);
         await Assert.That(s.IgnoredCount).IsEqualTo(3);
