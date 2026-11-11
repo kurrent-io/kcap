@@ -38,9 +38,29 @@ public class MarkViewSelectionTests {
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// What the view copies, read from a clipboard emptied first, so a copy that does nothing reads as
+    /// nothing rather than as an earlier test's text.
     static async Task<string?> Copied(MarkdownView view) {
+        var clipboard = TopLevel.GetTopLevel(view)!.Clipboard!;
+        await clipboard.ClearAsync();
         await view.CopySelectionAsync();
-        return await TopLevel.GetTopLevel(view)!.Clipboard!.TryGetTextAsync();
+        return await clipboard.TryGetTextAsync();
+    }
+
+    /// The first press on a view pays a one-off cost that a loaded runner can stretch past the
+    /// double-click window, which runs on real time, so it is paid on another line ahead of the counted
+    /// clicks, where the count starts again at one.
+    static void WarmUp(Window window, Point point) {
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    static void DoubleClick(Window window, Point point) {
+        window.MouseMove(point);
+        window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
+        window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// The last sample inside the block sits on the left half of the final glyph, where the
@@ -97,11 +117,8 @@ public class MarkViewSelectionTests {
         await RunOnUiAsync(async () => {
             var (window, view, _) = Show("First paragraph here.\n\nSecond one, clicked.\n\nThird.");
             try {
-                var point = At(window, BlockReading(view, "Second one, clicked."), 20);
-                window.MouseMove(point);
-                window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
-                window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
-                Dispatcher.UIThread.RunJobs();
+                WarmUp(window, At(window, BlockReading(view, "Third."), 20));
+                DoubleClick(window, At(window, BlockReading(view, "Second one, clicked."), 20));
                 await Assert.That(await Copied(view)).IsEqualTo("Second one, clicked.");
             } finally { window.Close(); }
         });
@@ -114,12 +131,13 @@ public class MarkViewSelectionTests {
             var (window, view, _) = Show("```\nfirst line\nsecond line\n```");
             try {
                 var block = All<TextBlock>(view).First(t => Reads(t).StartsWith("first line", StringComparison.Ordinal));
-                var glyph = block.TextLayout.HitTestTextPosition(14);
-                var point = block.TranslatePoint(new Point(glyph.X + block.Padding.Left + 1, glyph.Y + block.Padding.Top + glyph.Height / 2), window)!.Value;
-                window.MouseMove(point);
-                window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
-                window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
-                Dispatcher.UIThread.RunJobs();
+                Point Over(int index) {
+                    var glyph = block.TextLayout.HitTestTextPosition(index);
+                    return block.TranslatePoint(new Point(glyph.X + block.Padding.Left + 1, glyph.Y + block.Padding.Top + glyph.Height / 2), window)!.Value;
+                }
+
+                WarmUp(window, Over(2));
+                DoubleClick(window, Over(14));
                 await Assert.That(await Copied(view)).IsEqualTo("second line");
             } finally { window.Close(); }
         });

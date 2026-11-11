@@ -11,9 +11,12 @@ namespace Capacitor.Cli.Daemon.Pty.Unix;
 /// </summary>
 sealed class UnixPtyReaderThread {
     const int PollTimeoutMs = 200;
+    // A write the child made just before exiting can reach the master a moment after the exit is seen.
+    const int DrainPollMs   = 50;
     const int ChunkSize     = 4096;
 
     readonly int                  _masterFd;
+    readonly PtyExitWatch         _exit;
     readonly CancellationToken    _stop;
     readonly Channel<byte[]>      _chunks  = Channel.CreateUnbounded<byte[]>(new() { SingleWriter = true });
     readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -25,8 +28,11 @@ sealed class UnixPtyReaderThread {
     readonly object _creditGate = new();
     bool            _credit     = true;
 
-    public UnixPtyReaderThread(int masterFd, int pid, CancellationToken stop) {
+    /// <param name="childExited">Whether the child has exited: a descendant that inherited the terminal
+    /// keeps it open after the child dies, so no hangup comes.</param>
+    public UnixPtyReaderThread(int masterFd, int pid, Func<bool> childExited, TimeProvider time, CancellationToken stop) {
         _masterFd = masterFd;
+        _exit     = new PtyExitWatch(childExited, time);
         _stop     = stop;
 
         new Thread(Run) { IsBackground = true, Name = $"kcap-pty-reader-{pid}" }.Start();
@@ -58,7 +64,9 @@ sealed class UnixPtyReaderThread {
             var buf = new byte[ChunkSize];
 
             while (TakeCredit()) {
+                _exit.Reading();
                 var bytesRead = ReadChunk(buf);
+                _exit.Handing();
                 if (bytesRead <= 0) break;
 
                 _chunks.Writer.TryWrite(buf.AsSpan(0, bytesRead).ToArray());
@@ -86,7 +94,8 @@ sealed class UnixPtyReaderThread {
         }
     }
 
-    /// <summary>Bytes read, or 0 once the slave side has hung up or the stop token fired. Throws
+    /// <summary>Bytes read, or 0 once the slave side has hung up, the child has exited with nothing left
+    /// to read, or the stop token fired. Throws
     /// <see cref="IOException"/> for any other failure: the end of the stream is what tears an agent
     /// down, so a failure that is not a hangup must surface as one rather than pass for an exit.</summary>
     int ReadChunk(byte[] buf) {
@@ -95,8 +104,10 @@ sealed class UnixPtyReaderThread {
         var pfd = new UnixPtyInterop.PollFd { fd = _masterFd, events = UnixPtyInterop.POLLIN };
 
         while (!_stop.IsCancellationRequested) {
+            if (_exit.DrainOver) return 0;
+
             pfd.revents = 0;
-            var pollResult = UnixPtyInterop.poll(ref pfd, 1, PollTimeoutMs);
+            var pollResult = UnixPtyInterop.poll(ref pfd, 1, _exit.ChildGone ? DrainPollMs : PollTimeoutMs);
 
             if (pollResult < 0) {
                 var errno = Marshal.GetLastPInvokeError();
@@ -105,9 +116,18 @@ sealed class UnixPtyReaderThread {
                 throw Failure("poll", errno);
             }
 
-            if (pollResult == 0) continue;
+            if (pollResult == 0) {
+                if (_exit.ChildGone) return 0;
+
+                // Read on until the master has nothing left, so the child's last output is not dropped.
+                _exit.Check();
+
+                continue;
+            }
 
             if ((pfd.revents & UnixPtyInterop.POLLIN) != 0) {
+                _exit.CheckIfDue();
+
                 var bytesRead = (int)UnixPtyInterop.read(_masterFd, buf, buf.Length);
                 if (bytesRead >= 0) return bytesRead;
 
