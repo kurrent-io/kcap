@@ -79,7 +79,7 @@ internal sealed class SpoolDrainLoop {
             MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
 
             // Spools only, so it needs no credential; the workspace drain posts what it closed.
-            await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), async owed => {
+            await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, async owed => {
                 var store = new WorkspaceSpanStore(_configRoot, _baseUrl, new WorkspaceSpool(_configRoot, _baseUrl, _time),
                     new WorkspaceSnapshotter(new WorkspaceGit(_time), _time), _time);
                 await store.EndSessionAsync(owed, Budget);
@@ -105,10 +105,7 @@ internal sealed class SpoolDrainLoop {
                 await LifecycleSpoolDrain.RunAsync(
                     _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
-                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
-                    onLifecycleOutcome: (route, body, outcome) => {
-                        if (CopilotPendingEnd.EndedSession(route, body, outcome) is { } copilot) CopilotSpanClose.Record(WatcherPaths.FromEnvironment(_configRoot), copilot);
-                    });
+                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.

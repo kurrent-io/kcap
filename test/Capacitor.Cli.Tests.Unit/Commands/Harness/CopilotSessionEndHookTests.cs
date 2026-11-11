@@ -56,6 +56,7 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(_server.LogEntries).IsEmpty();
         await Assert.That(SpooledEnds()).Contains("session-end/copilot");
         await Assert.That(SpooledEnds()).Contains("user_exit");
+        await Assert.That(CopilotSpanClose.Pending(WatcherPaths.FromEnvironment(Config.Root), _server.Url)).Contains(Session.Replace("-", ""));
         await Assert.That(starter.Seen!.ArgumentList.Count).IsEqualTo(3);
     }
 

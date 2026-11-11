@@ -383,7 +383,9 @@ sealed class CopilotHookCommand(
 
         // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap process's
         // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
-        var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
+        // The span close is owed with the end; without it the finalizer carries the end, and closes the span itself.
+        var spooled = new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end)
+                   && CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url);
         if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
         // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under

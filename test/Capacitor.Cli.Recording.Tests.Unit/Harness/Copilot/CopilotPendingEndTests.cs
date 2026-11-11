@@ -40,6 +40,7 @@ public class CopilotPendingEndTests {
         await Assert.That(Sweep()).IsEqualTo(1);
         await Assert.That(Spool.HasBacklog(Session)).IsTrue();
         await Assert.That(Pending).IsFalse();
+        await Assert.That(CopilotSpanClose.Pending(Paths, Server)).Contains(Session);
     }
 
     [Test]

@@ -104,9 +104,9 @@ public class VendorWorkspaceSpanTests : IDisposable {
     }
 
     /// <summary>The drain ahead of every hook spends nothing on spans: under Copilot's shared shutdown budget, closing
-    /// another chat's span there would starve this hook's own end. It leaves the close owed to a detached process.</summary>
+    /// another chat's span there would starve this hook's own end.</summary>
     [Test]
-    public async Task A_drained_Copilot_end_owes_its_span_close_and_does_no_span_work() {
+    public async Task A_drained_Copilot_end_does_no_span_work() {
         await CopilotAsync("sessionStart");
         Repo.CreateFile("made.txt", "x");
 
@@ -120,7 +120,6 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
-        await Assert.That(CopilotSpanClose.Pending(WatcherPaths.FromEnvironment(Config.Root))).Contains(canonical);
     }
 
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
@@ -131,7 +130,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         var canonical = Session.Replace("-", "");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
-        CopilotSpanClose.Record(paths, canonical);
+        CopilotSpanClose.Record(paths, canonical, _server.Url);
 
         var profiles   = Resolutions.At(_server.Url!, Config.Root);
         var http       = new FixedCapacitorHttpClient();
@@ -141,7 +140,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
             .RunAsync("another-session", transcript, endBody: null, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
 
         await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
-        await Assert.That(CopilotSpanClose.Pending(paths)).DoesNotContain(canonical);
+        await Assert.That(CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(canonical);
     }
 
     [Test]

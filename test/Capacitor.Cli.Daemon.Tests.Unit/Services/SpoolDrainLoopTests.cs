@@ -44,11 +44,11 @@ public class SpoolDrainLoopTests {
     public async Task Tick_closes_an_owed_Copilot_span() {
         const string session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session);
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session, "https://example.invalid");
 
         await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
 
-        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths)).DoesNotContain(session);
+        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, "https://example.invalid")).DoesNotContain(session);
     }
 
     // Credential resolution must run on the loop's own token, not one truncated to the drain

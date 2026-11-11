@@ -56,25 +56,14 @@ public static class CopilotPendingEnd {
             ? Directory.EnumerateFiles(paths.Directory, "*" + Suffix).Select(file => Path.GetFileName(file)[..^Suffix.Length]).ToList()
             : [];
 
-    /// <summary>The Copilot session a drained lifecycle entry ended, when the server took it. No finalizer follows an end
-    /// a drain delivers, so the drain closes that session's workspace span.</summary>
-    public static string? EndedSession(string route, string body, DrainOutcome outcome) {
-        if (route != Route || outcome != DrainOutcome.Delivered) return null;
-
-        try {
-            return JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
-        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
-            return null;
-        }
-    }
-
     /// <summary>Spools every pending end for <paramref name="server"/> that is due and returns how many. Never throws.</summary>
     public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time) {
         var spooled = 0;
 
         foreach (var session in SessionsWithPending(paths)) {
             try {
-                if (Decide(paths, session, lifecycle, server, time) is { } body && lifecycle.Append(session, Route, body)) {
+                // The span close goes with the end, or the end is retried: a delivered end must never lose it.
+                if (Decide(paths, session, lifecycle, server, time) is { } body && lifecycle.Append(session, Route, body) && CopilotSpanClose.Record(paths, session, server)) {
                     Discard(paths, session);
                     spooled++;
                 }

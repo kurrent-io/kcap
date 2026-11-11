@@ -133,7 +133,7 @@ sealed class CopilotFinalizeDrainCommand(
         if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
 
         // Detached, so it pays the span closes the drains ahead of hooks only recorded.
-        await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(config), async owed => {
+        await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(config), new HookSpool(config, time, profiles.Resolution.ServerUrl), profiles.Resolution.ServerUrl, async owed => {
             var spans = new WorkspaceSpanHook(config, profiles, http, time);
             await spans.EndAsync(owed, WorkspaceSpanHook.EndBudget);
             return !spans.Holds(owed);
