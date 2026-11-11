@@ -4,7 +4,8 @@ namespace Capacitor.App.Services.LocalSetup;
 public enum WindowsServiceOffer {
     /// Not Windows, or a current service already runs kcap: the install uses it without asking.
     Hidden,
+    /// Offered ticked.
     On,
-    /// Offered unticked: the user declined the administrator prompt before.
+    /// Offered unticked, so the default install raises no administrator prompt.
     Off,
 }

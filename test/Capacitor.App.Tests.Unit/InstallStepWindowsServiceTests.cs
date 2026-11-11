@@ -25,17 +25,6 @@ public class InstallStepWindowsServiceTests {
         new(controller, () => "default", () => "default", () => true, _ => Task.FromResult<LocalEmbeddingModelManifest?>(null),
             windowsServiceOffer: offer is { } o ? _ => Task.FromResult(o) : null, search: search);
 
-    sealed class AppStates(AppState state) : IAppStateStore {
-        public AppState State = state;
-
-        public Task<AppState> LoadAsync() => Task.FromResult(State);
-
-        public Task<bool> UpdateAsync(Func<AppState, AppState> mutate) {
-            State = mutate(State);
-            return Task.FromResult(true);
-        }
-    }
-
     [Test]
     [NotInParallel("AvaloniaSession")]
     [Arguments(WindowsServiceOffer.On, true, true, true)]
@@ -151,21 +140,20 @@ public class InstallStepWindowsServiceTests {
         await Assert.That(ollamaPicked).IsFalse();
     }
 
+    /// The service needs an administrator, so a plain Install must not ask for one: the box starts unticked.
     [Test]
-    [Arguments("windows_service", false, false, WindowsServiceOffer.Hidden)]
-    [Arguments("windows_service", true, false, WindowsServiceOffer.On)]
-    [Arguments("windows_scheduled_task", null, false, WindowsServiceOffer.On)]
-    [Arguments("windows_scheduled_task", null, true, WindowsServiceOffer.Off)]
-    [Arguments(null, null, false, WindowsServiceOffer.On)]
-    public async Task The_offer_hides_behind_a_current_service_and_starts_unticked_after_a_decline(
-            string? supervisor, bool? upgrade, bool declined, WindowsServiceOffer expected) {
+    [Arguments("windows_service", false, WindowsServiceOffer.Hidden)]
+    [Arguments("windows_service", true, WindowsServiceOffer.Off)]
+    [Arguments("windows_scheduled_task", null, WindowsServiceOffer.Off)]
+    [Arguments(null, null, WindowsServiceOffer.Off)]
+    public async Task The_offer_hides_behind_a_current_service_and_otherwise_starts_unticked(
+            string? supervisor, bool? upgrade, WindowsServiceOffer expected) {
         var cli = new FakeKcapCli {
             StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(supervisor is null ? null : new ServiceSnapshot(
                 "daemon", true, "running", null, null, null, 1, false, false, Supervisor: supervisor, ServiceUpgradeAvailable: upgrade)),
         };
 
-        var offer = await WizardComposition.WindowsServiceOfferAsync(
-            new AppStates(new AppState { WindowsServiceDeclined = declined }), cli, CancellationToken.None);
+        var offer = await WizardComposition.WindowsServiceOfferAsync(cli, CancellationToken.None);
 
         await Assert.That(offer).IsEqualTo(expected);
     }
