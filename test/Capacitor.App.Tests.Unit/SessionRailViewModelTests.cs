@@ -957,7 +957,7 @@ public class SessionRailViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, _, _, rail) = BuildWithControls();
             using (directory) using (sessions) using (rail) {
-                directory.Rows.AddOrUpdate(["e1", "e2", "e3", "e4"].Select(id => Server(id)));
+                directory.Rows.AddOrUpdate([Server("e1"), Server("e2"), Server("e3"), Server("e4")]);
                 sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
                 var group = rail.Groups.Single();
                 await Assert.That(group.CountText).IsEqualTo("4+ sessions");
