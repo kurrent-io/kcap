@@ -787,8 +787,7 @@ class WatchCommand(
             }
         }
 
-        // A run cutoff's time is when that run stopped, which is when its session ended.
-        var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, run?.OpenedBy ?? time.GetUtcNow(), HostedAgent.FromEnvironment());
+        var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
         var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
         // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:

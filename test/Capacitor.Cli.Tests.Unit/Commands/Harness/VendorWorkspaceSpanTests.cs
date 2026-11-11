@@ -243,21 +243,6 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
     }
 
-    /// <summary>A watcher's own end is stamped with the moment its run stopped, not with however long the stop wait and the
-    /// drain took after it.</summary>
-    [Test]
-    public async Task A_Copilot_watchers_end_carries_the_time_its_run_stopped() {
-        var stoppedAt = _time.GetUtcNow();
-        _time.Advance(TimeSpan.FromMinutes(1));
-
-        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited",
-            new WorkspaceRunCutoff(null, stoppedAt));
-
-        var end = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/session-end/copilot").RequestMessage.Body!;
-        await Assert.That(DateTimeOffset.Parse(JsonNode.Parse(end)!["ended_at"]!.GetValue<string>(), System.Globalization.CultureInfo.InvariantCulture))
-            .IsEqualTo(stoppedAt);
-    }
-
     /// <summary>Recording turned off while the watcher stopped: its end, which names the session's paths, is not sent.</summary>
     [Test]
     public async Task A_Copilot_watchers_end_is_not_sent_for_a_session_disabled_meanwhile() {
