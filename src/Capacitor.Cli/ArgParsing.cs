@@ -14,7 +14,8 @@ static class ArgParsing {
         PositionalSessionId(args, skipCount, valueFlags) ?? ResolveSessionIdFromEnv();
 
     /// <summary>The positional session id alone, never the environment's: for a command where the
-    /// ambient session is the wrong default.</summary>
+    /// ambient session is the wrong default. Canonicalized as <see cref="SessionIds.Canonical"/> does, so the
+    /// dashed id a listing prints and the vendor's resume takes names the same session as its 32-hex form.</summary>
     internal static string? PositionalSessionId(string[] args, int skipCount = 1, string[]? valueFlags = null) {
         var knownValueFlags = valueFlags is null or { Length: 0 }
             ? null
@@ -30,7 +31,7 @@ static class ArgParsing {
                 continue;
             }
 
-            return token;
+            return SessionIds.Canonical(token);
         }
 
         return null;

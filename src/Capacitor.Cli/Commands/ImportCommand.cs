@@ -2862,6 +2862,10 @@ class ImportCommand(
         ) {
         if (sessionCwds.Count == 0) return;
 
+        // The home prefix shortens only on this spelling. The remapper treats both separators alike, so a rule
+        // printed from here still matches the raw cwd.
+        sessionCwds = sessionCwds.ToDictionary(kv => kv.Key, kv => ImportScope.WindowsSpelling(kv.Value), StringComparer.Ordinal);
+
         var uniqueCwds = sessionCwds.Values.Distinct(StringComparer.Ordinal).ToList();
         var missing    = uniqueCwds.Where(c => !Directory.Exists(c)).ToHashSet(StringComparer.Ordinal);
 
