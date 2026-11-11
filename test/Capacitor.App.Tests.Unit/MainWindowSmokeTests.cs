@@ -749,7 +749,7 @@ public class MainWindowSmokeTests {
         parts.SetValue(decorations, Enum.ToObject(parts.PropertyType, 0xFF));
         var host = new Panel();
         var window = new Window { Title = "kcap Desktop", Content = host };
-        ((Avalonia.LogicalTree.ISetLogicalParent)decorations).SetParent(window);
+        ((Avalonia.Controls.ISetLogicalParent)decorations).SetParent(window);
         typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetMethod("ApplyTemplate", Members)!.Invoke(decorations, null);
         host.Children.Add(decorations.Content!.Overlay!);
         try {
