@@ -254,8 +254,9 @@ class WatchCommand(
         // barriers in practice.
         var parentExited = 0;
         var stopRequested = 0;
-        // Where the transcript ended when a stop arrived; lines after it belong to whatever runs next.
+        // Where the transcript ended when a stop arrived, and when; what follows belongs to whatever runs next.
         long stopOffset = -1;
+        long stopTicks  = 0;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
@@ -306,6 +307,14 @@ class WatchCommand(
         void NoteStopRequest() {
             Interlocked.Exchange(ref stopRequested, 1);
             Interlocked.CompareExchange(ref stopOffset, TranscriptLength(recorder.TranscriptPath), -1);
+            Interlocked.CompareExchange(ref stopTicks, time.GetUtcNow().UtcTicks, 0);
+        }
+
+        // The end of this watcher's run: the stop request when one came, or else when the run was found over.
+        DateTimeOffset RunOpenedBy() {
+            var ticks = Interlocked.Read(ref stopTicks);
+
+            return ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow();
         }
 
         Console.CancelKeyPress += (_, e) => {
@@ -512,6 +521,7 @@ class WatchCommand(
         try {
             await recorder.RunAsync(cts.Token);
         } catch (OperationCanceledException) when (transport.StoppedBeforeConnect) {
+            var earlyRunOpenedBy = RunOpenedBy();
             await hubConnection.DisposeAsync();
 
             // A watcher stopped before it connected is still the one the Muse hook may have handed an
@@ -528,7 +538,7 @@ class WatchCommand(
 
             if (CopilotStopEndApplies() && await CopilotStopEndAsync(transcriptPath) is { } early) {
                 watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
-                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early);
+                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early, earlyRunOpenedBy);
             }
 
             await logWriter.DisposeAsync();
@@ -543,6 +553,9 @@ class WatchCommand(
             state.BufferedLines.Clear();
             state.BufferedLineNumbers.Clear();
         }
+
+        // Before the final drain and any post or wait, each of which a replacement run can start during.
+        var runOpenedBy = RunOpenedBy();
 
         await recorder.FinishAsync(CancellationToken.None);
 
@@ -617,7 +630,7 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
-                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason);
+                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason, runOpenedBy);
                     else await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
@@ -630,10 +643,13 @@ class WatchCommand(
 
     /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
     /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>
-    async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason) {
+    /// <param name="runOpenedBy">When this watcher's run stopped, taken before any wait or post: every span of the run was
+    /// opened by then, and a replacement run's are not this end's to close.</param>
+    internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, DateTimeOffset runOpenedBy) {
         await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
 
-        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason)) CopilotPendingEnd.Discard(_paths, sessionId);
+        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, runOpenedBy))
+            CopilotPendingEnd.Discard(_paths, sessionId);
     }
 
     static long TranscriptLength(string path) {
@@ -674,7 +690,8 @@ class WatchCommand(
             string?            cwd,
             string             vendor,
             RepositoryPayload? repository,
-            string             reason = "parent_exited"
+            string             reason      = "parent_exited",
+            DateTimeOffset?    runOpenedBy = null
         ) {
         if (!KnownVendors.Contains(vendor)) {
             Log(time, $"Parent-exit session-end skipped: unknown vendor '{vendor}'");
@@ -764,7 +781,11 @@ class WatchCommand(
         // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:
         // a vendor without turn hooks opened its span at SessionStart, and one with them may have died mid-turn.
         // Its drain is bounded, and is the last chance a session with no other hook gets.
-        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
+        // A run cutoff keeps this end to its own run's spans, should a later run already have opened one.
+        if (posted) {
+            var spans = new WorkspaceSpanHook(config, profiles, http, time);
+            await (runOpenedBy is { } cutoff ? spans.EndRunAsync(sessionId, cutoff, WorkspaceEndCap) : spans.EndAsync(sessionId, WorkspaceEndCap));
+        }
 
         return posted;
     }

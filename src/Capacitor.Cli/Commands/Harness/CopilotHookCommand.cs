@@ -237,7 +237,6 @@ sealed class CopilotHookCommand(
             HookBudget budget
         ) {
         // A new run: the held end of the one before it, and the span close that end owed, would close this one.
-        var afterAnEnd = CopilotSpanClose.Exists(WatcherPaths.FromEnvironment(config), sessionId);
         CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
         CopilotSpanClose.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
@@ -293,8 +292,8 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time)
-            .OpenAsync(sessionId, cwd, afterAnEnd ? WorkspaceOpen.Run : WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+        // Copilot fires sessionStart once per run, at its start or resume, so a baseline found here is an earlier run's.
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Run, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the

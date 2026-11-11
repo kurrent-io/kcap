@@ -222,6 +222,49 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
     }
 
+    /// <summary>A watcher's own end closes only the spans of the run it watched: one a replacement run opened after the stop
+    /// is that run's.</summary>
+    [Test]
+    public async Task A_Copilot_watchers_end_leaves_a_span_a_replacement_run_opened() {
+        var stoppedAt = _time.GetUtcNow();
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var watch    = new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(), TestWatchers.For(Config.Root, profiles, http),
+            new GitProviderRouter(), _time, TestAccounts.None, Home, new(_server.Url, Config.Root, profiles));
+
+        await watch.PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited", stoppedAt);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>Copilot fires sessionStart once per run, so a baseline an earlier run's close could not end is replaced at
+    /// the start rather than carried into the new run.</summary>
+    [Test]
+    public async Task A_Copilot_sessionStart_starts_a_fresh_baseline_over_a_surviving_one() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("earlier.txt", "x");
+        _time.Advance(TimeSpan.FromMinutes(1));
+
+        var spool   = new WorkspaceSpool(Config.Root, _server.Url, _time);
+        Directory.CreateDirectory(spool.DirectoryPath);
+        var blocker = Path.Combine(spool.DirectoryPath, Session.Replace("-", ""));
+        File.WriteAllText(blocker, "");
+        await CopilotAsync("sessionStart");
+        File.Delete(blocker);
+
+        var baselines = Directory.EnumerateFiles(Config.Root.Path(WorkspaceSpanStore.DirectoryName), "*.json", SearchOption.AllDirectories)
+            .Select(file => JsonSerializer.Deserialize(File.ReadAllText(file), WorkspaceJsonContext.Default.WorkspaceSpan)!)
+            .ToList();
+
+        await Assert.That(baselines).HasSingleItem();
+        await Assert.That(baselines[0].OpenedAt).IsEqualTo(_time.GetUtcNow());
+    }
+
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
     [Test]
     public async Task The_Copilot_finalizer_closes_an_owed_span() {

@@ -68,9 +68,6 @@ public static class CopilotSpanClose {
         }
     }
 
-    /// <summary>Whether the session owes a close: an earlier run of it has ended.</summary>
-    public static bool Exists(WatcherPaths paths, string sessionId) => File.Exists(FileFor(paths, sessionId));
-
     public static bool IsDelivered(WatcherPaths paths, string sessionId) => Read(paths, sessionId)?["delivered"]?.GetValue<bool>() == true;
 
     /// <summary>The sessions owed a close on <paramref name="server"/>.</summary>
