@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Text;
+using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Pty.Unix;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
@@ -71,6 +72,38 @@ public class UnixPtyReaderThreadTests {
             await stop.CancelAsync();
             await reader.Stopped;
             await writing;
+        }
+    }
+
+    /// <summary>Output the child left before exiting is all read however slowly the consumer takes it: the drain
+    /// after the exit bounds reading, not the wait for the consumer. The output spans several chunks, and the
+    /// consumer takes longer than the drain limit over each.</summary>
+    [Test]
+    public async Task A_slow_consumer_still_gets_all_the_output_left_at_the_exit() {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+
+        using var pipe    = new AnonymousPipeServerStream(PipeDirection.In);
+        var       readFd  = (int)pipe.SafePipeHandle.DangerousGetHandle();
+        var       writeFd = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
+        var       left    = new byte[5 * 4096];
+        Array.Fill(left, (byte)'x');
+        await Assert.That((int)UnixPtyInterop.write(writeFd, left, left.Length)).IsEqualTo(left.Length);
+
+        using var stop   = new CancellationTokenSource();
+        var       reader = new UnixPtyReaderThread(readFd, 0, () => true, TimeProvider.System, stop.Token);
+
+        try {
+            using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var       read  = 0;
+            while (await reader.ReadAsync(bound.Token) is { } chunk) {
+                read += chunk.Length;
+                await Task.Delay(PtyExitWatch.DrainLimit + TimeSpan.FromMilliseconds(300));
+            }
+
+            await Assert.That(read).IsEqualTo(left.Length);
+        } finally {
+            await stop.CancelAsync();
+            await reader.Stopped;
         }
     }
 }

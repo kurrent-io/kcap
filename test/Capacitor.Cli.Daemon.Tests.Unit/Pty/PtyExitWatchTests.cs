@@ -48,4 +48,21 @@ public class PtyExitWatchTests {
         time.Advance(TimeSpan.FromMilliseconds(1));
         await Assert.That(watch.DrainOver).IsTrue();
     }
+
+    /// Time spent handing a chunk to a slow consumer does not count against the drain, only time spent reading.
+    [Test]
+    public async Task Waiting_on_the_consumer_does_not_use_up_the_drain() {
+        var time  = new FakeTimeProvider();
+        var watch = new PtyExitWatch(() => true, time);
+
+        watch.Check();
+        time.Advance(PtyExitWatch.DrainLimit / 2);
+        watch.Handing();
+        time.Advance(PtyExitWatch.DrainLimit * 3);
+        watch.Reading();
+        await Assert.That(watch.DrainOver).IsFalse();
+
+        time.Advance(PtyExitWatch.DrainLimit / 2);
+        await Assert.That(watch.DrainOver).IsTrue();
+    }
 }

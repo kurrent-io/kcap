@@ -28,7 +28,7 @@ sealed class UnixPtyReaderThread {
     readonly object _creditGate = new();
     bool            _credit     = true;
 
-    /// <param name="childExited">Reaps the child if it has exited: a descendant that inherited the terminal
+    /// <param name="childExited">Whether the child has exited: a descendant that inherited the terminal
     /// keeps it open after the child dies, so no hangup comes.</param>
     public UnixPtyReaderThread(int masterFd, int pid, Func<bool> childExited, TimeProvider time, CancellationToken stop) {
         _masterFd = masterFd;
@@ -64,7 +64,9 @@ sealed class UnixPtyReaderThread {
             var buf = new byte[ChunkSize];
 
             while (TakeCredit()) {
+                _exit.Reading();
                 var bytesRead = ReadChunk(buf);
+                _exit.Handing();
                 if (bytesRead <= 0) break;
 
                 _chunks.Writer.TryWrite(buf.AsSpan(0, bytesRead).ToArray());
