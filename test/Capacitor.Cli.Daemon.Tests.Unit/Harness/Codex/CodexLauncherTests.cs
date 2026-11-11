@@ -643,7 +643,7 @@ public class CodexLauncherTests {
         // The key is written in Codex's own normalised form (absolute, lowercased on
         // Windows — see CodexPaths.NormalizeProjectKey), not the raw worktree path. The TOML
         // writer then emits it as a basic (double-quoted) key, so backslashes are escaped
-        // per spec (\ → \\); match the escaped form so this holds on Windows too (both are
+        //  (\ → \\); match the escaped form so this holds on Windows too (both are
         // no-ops on POSIX paths).
         var escapedWorktree = CodexPaths.NormalizeProjectKey(worktree).Replace("\\", "\\\\");
         await Assert.That(configToml).Contains($"\"{escapedWorktree}\"");
@@ -849,7 +849,7 @@ public class CodexLauncherTests {
         await Assert.That(argsEmpty).IsEquivalentTo(argsNull, CollectionOrdering.Matching);
     }
 
-    // === Phase A: read-only sandbox for a borrowed reviewer ===
+    // ===: read-only sandbox for a borrowed reviewer ===
 
     [Test]
     public async Task BuildArgs_borrowed_cwd_uses_read_only_sandbox() {

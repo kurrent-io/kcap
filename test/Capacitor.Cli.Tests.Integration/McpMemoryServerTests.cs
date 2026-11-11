@@ -8,11 +8,8 @@ using WireMock.Server;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// End-to-end stdio JSON-RPC handshake tests for <c>kcap mcp memory</c>. Memory previously had
-/// only unit coverage of its URL/body builders (<c>McpMemoryServerTests</c> in the unit project);
-/// this adds a spawned-process handshake so the server-level <c>instructions</c> preamble
-/// and the <c>search_memories</c> routing cue can't be silently dropped. Mirrors the sessions
-/// integration harness.
+/// The spawned memory server's JSON-RPC handshake must expose its instructions preamble and
+/// search_memories routing cue; URL/body builder tests cannot establish that runtime contract.
 /// </summary>
 public class McpMemoryServerTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }

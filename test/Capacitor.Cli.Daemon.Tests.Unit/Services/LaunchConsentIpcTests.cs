@@ -213,14 +213,8 @@ public class LaunchConsentIpcTests {
     public async Task Subscribe_receives_pending_and_Resolve_unblocks_the_gate() {
         await RunAsync("test-consent-subscribe", LaunchConsentDefault.Prompt, 30, async (h, ct) => {
             await using var subscriber = await ConnectAsync(h.SockPath, ct);
-            // Subscribe FIRST and wait for it to actually land server-side before starting the
-            // background decide. The gate no longer short-circuits synchronously on HasSubscriber —
-            // DecideAsync now runs a bounded grace wait (WaitForSubscriberAsync) that would tolerate
-            // a subscriber arriving a little late — but this test still wants the subscription
-            // GUARANTEED live up front, both to stay deterministic and to avoid burning part of that
-            // grace window. Writing the frame only queues it; the daemon-side broker.Subscribe() call
-            // (what actually flips HasSubscriber) happens asynchronously once the accept loop reads
-            // it off the socket.
+            // Wait for the subscription to land server-side before deciding. Writing the socket frame only
+            // queues it; broker.Subscribe runs asynchronously. This keeps the test independent of the grace window.
             await FrameCodec.WriteAsync(subscriber, new LocalFrame(FrameType.ConsentSubscribe), ct);
             await SpinUntilSubscribedAsync(h.Broker, ct);
 
@@ -496,8 +490,8 @@ public class LaunchConsentIpcTests {
             var decideTask = h.Gate.DecideAsync("a1", input, ct);
 
             var dto = await FirstPendingFrom(subscriber, ct);
-            // Assert against the broker's own ground-truth request, not just a non-null check —
-            // this is the pin for ToDto's stamping (previously untested).
+            // Compare the stamped DTO to the broker's ground-truth request; non-null alone cannot establish
+            // that the request identity and fields survived projection.
             var live = h.Broker.PendingSnapshot().Single(p => p.RequestId == "a1");
             await Assert.That(dto.PromptId).IsEqualTo(live.PromptId);
             await Assert.That(dto.RequesterDisplay).IsEqualTo(live.RequesterDisplay);

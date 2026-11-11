@@ -216,23 +216,14 @@ public sealed class ConPtyProcess : IPtyProcess {
         CloseHandle(ptyInputRead);
         CloseHandle(ptyOutputWrite);
 
-        // OWNERSHIP / CLEANUP SCOPE: hPC (the pseudoconsole) and the two parent-side pipe ends
-        // (ptyInputWrite, ptyOutputRead) belong to THIS method until the success path transfers
-        // them into the returned ConPtyProcess — hPC into the object, and the pipe ends into its
-        // stdio FileStreams (via SafeFileHandles). Every fail-closed exit AFTER CreatePseudoConsole
-        // used to leak all three: each throw path disposed the JOB handle but never released the
-        // pseudoconsole or the pipe ends. Because a CreateProcessW failure is a NORMAL fail-closed
-        // outcome (bad path / blocked nesting / the fail-closed UI-restricted-job case exercised by
-        // the W5 test), repeated failed launches leaked one pseudoconsole + two kernel handles each.
-        // The outer catch below releases them on ANY failure; `committed` flips true only once
-        // ownership has been handed to the returned object, so the success path never double-closes
-        // a now-owned handle. The raw pipe locals are additionally zeroed the instant their
-        // SafeFileHandles take ownership, so even a throw in the final wiring can't close a handle a
-        // SafeFileHandle already owns (the outer catch skips any zeroed handle).
+        // This method owns the pseudoconsole and parent pipe ends until construction commits.
+        // Every failure releases uncommitted handles; success transfers them to the returned object.
+        // Zero each raw pipe local when its SafeFileHandle takes ownership so a later wiring failure
+        // cannot close a handle already owned by the stream.
         var committed = false;
 
         try {
-            // §4.1: bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
+            // bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
             // PROC_THREAD_ATTRIBUTE_JOB_LIST attribute below), not by AssignProcessToJobObject
             // after the fact — there is no window where the child exists uncontained.
             var hJob = CreateJobObjectW(IntPtr.Zero, null);

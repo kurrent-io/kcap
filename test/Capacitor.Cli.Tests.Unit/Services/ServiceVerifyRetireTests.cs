@@ -156,7 +156,7 @@ public class ServiceVerifyRetireTests {
             endDaemon: endDaemon);
 
     /// <summary>Same drive loop as ServiceVerifyInstallTests: Task.Delay(interval, time, ct)'s
-    /// continuation resumes synchronously inside Advance(), so a tight Advance-loop reliably steps
+    /// Continuation resumes synchronously inside Advance(), so a tight Advance()-loop reliably steps
     /// a multi-iteration poll to completion without any real waiting.</summary>
     static async Task<int> Drive(Task<int> task, FakeTimeProvider time, TimeSpan step) {
         var guard = 0;

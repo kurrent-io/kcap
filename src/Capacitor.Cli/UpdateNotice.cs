@@ -88,9 +88,8 @@ internal static class UpdateNotice {
             var profile = profiles.Effective;
             if (profile?.UpdateCheck == false) return;
 
-            // Re-read when the startup resolution named no server: this runs at exit, and `kcap
-            // setup` points a previously-unconfigured machine at its first one. Capping against
-            // nothing would recommend a CLI newer than the server the user just connected to.
+            // Setup can establish the first server during this command. Re-read at exit when startup had
+            // none, or the update check could recommend a CLI beyond that newly connected server's cap.
             var serverUrl = profiles.Resolution.ServerUrl ?? await CurrentServerUrlAsync(config, profiles.Name);
             var endpoint  = localRoot is null ? profiles.Resolution.Endpoint : LocalEndpoints.Read(localRoot).Classify(serverUrl);
 

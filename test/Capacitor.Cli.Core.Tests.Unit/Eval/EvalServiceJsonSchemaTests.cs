@@ -114,7 +114,7 @@ public class EvalServiceJsonSchemaTests {
         await Assert.That(maxItems).IsEqualTo(5);
     }
 
-    // ── VerdictJsonSchema (D13) ──────────────────────────────────────────────
+    // ── VerdictJsonSchema ──────────────────────────────────────────────
 
     static JsonElement VerdictSchemaRoot() =>
         JsonDocument.Parse(EvalService.GetVerdictJsonSchema()).RootElement.Clone();

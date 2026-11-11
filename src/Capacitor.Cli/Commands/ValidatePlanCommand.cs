@@ -136,7 +136,7 @@ class ValidatePlanCommand(ISessionsApi sessionsApi) {
             }
 
             // "truncated" with null Content is treated like "unavailable" (review
-            // finding 2): the server contract pairs content_state=="truncated" with non-null
+            // ): the server contract pairs content_state=="truncated" with non-null
             // Content, but a malformed/edge response with Content == null must not render the
             // nonsensical "first 0 of ... bytes" — fall through to the unavailable placeholder.
             var effectiveState = artifact.ContentState == "truncated" && artifact.Content is null

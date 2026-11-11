@@ -288,10 +288,8 @@ public class OpenCodeImportSourceImportTests : IDisposable {
 
     [Test]
     public async Task ImportSession_posts_session_end_even_when_a_descendant_subagent_start_fails() {
-        // D3 item 4 (finally-style re-close): a subagent-start posted against this
-        // root may reactivate it if it was already Ended — so the session-end re-assertion
-        // must run regardless of a descendant lifecycle failure. Previously OpenCode's early
-        // `Failed` return here bailed before ever posting session-end.
+        // Posting subagent-start can reactivate an ended root, so reassert session-end even when a
+        // descendant lifecycle fails.
         _fix.AddSession("ses_root", null, "/work/a", "Root", 100);
         _fix.AddMessageWithText("ses_root", "msg_p", "root says hi", 110);
         _fix.AddSession("ses_child", "ses_root", "/work/a", "Child", 120);
@@ -487,14 +485,9 @@ public class OpenCodeImportSourceImportTests : IDisposable {
 
     [Test]
     public async Task ImportSession_propagates_cancellation_arriving_during_title_cleanup_and_never_marks_ledger_complete() {
-        // the round-1 fix (above) only recorded a cancellation THROWN
-        // BY ImportDescendantsAsync. A cancellation arriving AFTER descendants finish — while
-        // step 4's PostSetTitleAsync is awaited, which swallows OperationCanceledException
-        // internally — used to be silently lost: session-end always runs with
-        // CancellationToken.None, and nothing downstream re-checked `ct`, so the import reported
-        // success and marked the ledger complete even though the caller's cancellation was never
-        // honored. No descendants here, isolating the bug to the title/cleanup window: cancel
-        // right after the parent transcript lands (before the title POST).
+        // Cancel during the title POST after parent upload, with no descendants to supply a different
+        // cancellation path. The title helper can swallow cancellation; cleanup must still post session-end
+        // but the import must not report success or mark the ledger complete.
         _fix.AddSession("ses_root", null, "/work/a", "Root", 100);
         _fix.AddMessageWithText("ses_root", "msg_p", "root says hi", 110);
 
@@ -542,10 +535,8 @@ public class OpenCodeImportSourceImportTests : IDisposable {
 
     [Test]
     public async Task new_depth_9_descendant_invalidates_the_fingerprint_and_reimports_with_omitted_warning() {
-        // the completeness fingerprint used to hash only the IN-CAP
-        // descendant list, so a descendant added BELOW the depth cap (which never changes the
-        // in-cap set) left the fingerprint unchanged and the ledger stuck AlreadyLoaded forever
-        // — even though the new descendant should at least be surfaced via descendants_omitted.
+        // Adding a descendant below the import-depth cap must change the completeness fingerprint so an
+        // AlreadyLoaded ledger entry cannot conceal updated descendants_omitted diagnostics.
         _fix.AddSession("ses_root", null, "/work/a", "Root", 100);
         _fix.AddMessageWithText("ses_root", "msg_root", "root says hi", 100);
 

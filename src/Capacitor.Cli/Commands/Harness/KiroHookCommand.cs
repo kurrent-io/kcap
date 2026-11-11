@@ -243,8 +243,6 @@ sealed class KiroHookCommand(
         // disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) return 0;
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
         var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");

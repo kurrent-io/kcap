@@ -18,8 +18,8 @@ EXTENSIONS = {
     ".sh", ".yml", ".yaml", ".py",
 }
 RULES = {
-    "spec-coordinate": r"§\s*\d|\b(?:Task|Finding|Decision)\s+\d+\b|\bPhase\s+[A-D0-9]\b|\(D\d+[a-z]?\)",
-    "review-artifact": r"\b(?:Qodo|Bugbot|CodeRabbit|Codex review)\b|\bround[- ]?\d+\s+(?:review|fix|finding)\b|\bBLOCKER-?\d",
+    "spec-coordinate": r"§\s*\d|\b(?:Task|Finding|Decision)\s+#?[A-D]?\d+[a-z]?\b|\bPhase[- ]+(?:[A-D](?:\d+(?:-[a-z])?)?|\d+)\b|\(D\d+[a-z]?\)",
+    "review-artifact": r"\b(?:Qodo|Bugbot|CodeRabbit|Codex review)\b|\bround[- ]?\d+\s+(?:follow-up\s+(?:review|fix|findings?)|review|fix|finding)\b|\bcode[- ]review\s+r\d+\b|\bBLOCKER-?\d|\b(?:review fix|Fix)\s+#?\d+\b|\b(?:PR|GH|GitHub)\s+#\d+\s+(?:review|finding)\b",
     "change-narration": r"\bpre-fix\b|\ban earlier (?:revision|version|draft)\b",
 }
 RULES = {name: re.compile(pattern, re.IGNORECASE) for name, pattern in RULES.items()}

@@ -268,37 +268,12 @@ internal sealed partial class CodexLauncher(
     }
 
     /// <summary>
-    /// Real, fail-closed MCP isolation for a review-flow reviewer: disables EVERY server the
-    /// reviewer would otherwise inherit — from the user's <c>$CODEX_HOME/config.toml</c> AND from
-    /// active native plugins (both reported by <see cref="ReadInheritedMcpServers"/> via
-    /// <c>codex mcp list --json</c>) — so only the servers we explicitly whitelist afterwards load.
-    ///
-    /// All disables go in ONE <c>-c mcp_servers={ … }</c> TOML-value override rather than per-server
-    /// dotted keys, because:
-    /// <list type="bullet">
-    ///   <item>A dotted/quoted server name (e.g. <c>"corp.flows"</c>) cannot be expressed in Codex's
-    ///     <c>-c</c> dotted-KEY path — it mis-splits and fails config load. A TOML-quoted key inside
-    ///     the VALUE (<c>mcp_servers={"corp.flows"={…}}</c>) targets it exactly, so a dotted flow
-    ///     server is disabled, not skipped (the pre-hardening code logged and LEFT it — the guard
-    ///     bypass this fix closes).</item>
-    ///   <item>A plugin-provided server has no transport at the config layer, so a bare
-    ///     <c>enabled=false</c> fails config load with "invalid transport"; stamping the inert
-    ///     <see cref="DisabledServerSentinelCommand"/> transport satisfies the validator while the
-    ///     server stays off. A URL-BASED server must NOT get that sentinel: the deep-merge would
-    ///     leave it with both <c>url</c> and <c>command</c>, which fails config load with "url is
-    ///     not supported for stdio" — its override re-states the enumerated <c>url</c> as
-    ///     the transport instead, which is valid whether the server came from config.toml (merges
-    ///     onto the identical url) or a plugin (the config-layer entry then carries its own
-    ///     transport).</item>
-    ///   <item>Multiple separate <c>-c mcp_servers={…}</c> overrides do NOT accumulate (last wins),
-    ///     whereas a single one deep-merges cleanly over the base file and composes with the dotted
-    ///     whitelist ENABLE overrides added afterwards (all verified against Codex 0.144.3).</item>
-    /// </list>
-    ///
-    /// Fail-closed: <see cref="ReadInheritedMcpServers"/> throws
-    /// <see cref="CodexReviewerMcpIsolationException"/> when the inherited set cannot be
-    /// authoritatively enumerated; that propagates out of <see cref="BuildArgs"/> and the
-    /// orchestrator rejects the launch — we never proceed having disabled nothing.
+    /// Enumerate and disable inherited servers from config and native plugins before enabling the allowlist;
+    /// if enumeration fails, reject the launch. A single mcp_servers TOML-value override preserves dotted
+    /// server names and deep-merges with subsequent allowlist entries; repeated whole-table overrides lose
+    /// all but the last value. Dotted CLI key paths cannot represent a quoted dotted server name.
+    /// Plugin servers need an inert transport even while disabled. URL servers must retain their URL:
+    /// adding a command would leave an invalid URL-plus-stdio configuration after the deep merge.
     /// </summary>
     void DisableInheritedMcpServers(List<string> args, LauncherContext ctx) {
         var whitelisted = WhitelistedServerNames(ctx);

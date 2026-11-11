@@ -32,49 +32,13 @@ internal sealed record ElicitationClassification(
     );
 
 /// <summary>
-/// Pure classifier for stabilized ACP elicitation schemas (agent-client-protocol #1779,
-/// `schema/v1/schema.json` `ElicitationSchema`/`ElicitationPropertySchema`/
-/// `MultiSelectPropertySchema`) onto the daemon's single-question subset. No I/O, no logging —
-/// the caller owns observability. Validation is a strictly ordered pipeline; the FIRST failing
-/// stage's reason wins, and within a stage the first failing check wins, so every input has
-/// exactly one deterministic reason:
-///
-///   stage 0  raw-size gate (`schema_too_large`) — nothing else is inspected past the cap
-///   stage 1  root shape (`malformed_schema`)
-///   stage 2  properties container (`malformed_schema`)
-///   stage 3  property COUNT (`multi_property`) — before inspecting any child, so a
-///            multi-property schema with malformed children still reports the count
-///   stage 4  the single property's shape/type (`malformed_schema` / `unsupported_type`)
-///   stage 5  selectors: dual-selector (`unsupported_selector_combination`), kind/emptiness
-///            (`malformed_schema` for wrong kinds; `empty_selector_unsupported` for EMPTY
-///            selector arrays on both variants — the union's reserved-variant tolerance makes a
-///            zero-option frame protocol-tolerated, so it is declined by name, a deliberate
-///            post-review refinement of the original malformed classification), entry-count cap
-///            (`too_many_options`, before per-entry validation), then per-entry in array order,
-///            shape before length (`malformed_schema` / `option_too_long`)
-///   stage 6  `required` (`malformed_schema` typing / `unsupported_required` foreign names)
-///   stage 7  bounds, array variant only, lexeme-first (`malformed_schema` / `bounds_too_large`)
-///   stage 8  bounds sanity (`empty_selection_unsupported` / `unsatisfiable_bounds`)
-///
-/// Null-equivalence is scoped to the members the pinned schema declares nullable (the string
-/// property's `enum`/`oneOf`, `required`, `minItems`/`maxItems`, `title`/`description`): JSON
-/// null there is treated exactly like an absent member. The multi-select items selectors
-/// (`items.enum`/`items.anyOf`) are REQUIRED non-nullable members, so null there is
-/// `malformed_schema`. Non-string property `title`/`description` are treated as absent —
-/// mirroring the schema's own `x-deserialize-default-on-error` annotation — never an error.
-///
-/// Caps (UTF-16 code units, resource bounds — not wire-byte bounds): raw schema 32 Ki, selector
-/// entries 32, option id/label 1024 each. With those, the produced <see cref="AcpInteractionOption"/>
-/// payload is a fixed, bounded function of the caps regardless of the raw schema's content.
-///
-/// On JSON access style: the validation stages below branch on <see cref="JsonElement.ValueKind"/>
-/// DIRECTLY and deliberately do not go through the shared <c>JsonElementExtensions</c> helpers.
-/// Those helpers implement a wrong-typed-reads-as-absent convenience contract, which is the exact
-/// opposite of what a validator needs — this pipeline must DISTINGUISH missing/JSON-null (absent,
-/// scoped null-equivalence) from a present wrong-typed value (`malformed_schema`, with a
-/// deterministic stage-ordered reason) — so routing through them would silently reclassify
-/// malformed frames as renderable. The one place the helper contract genuinely matches — the
-/// display-metadata reads, where wrong-typed IS treated as absent — uses <c>Str</c>.
+/// Validation order determines the rejection reason when a frame has several defects.
+/// Distinguish absent or schema-nullable members from present values with the wrong JSON type;
+/// the shared wrong-type-as-absent helpers would accept malformed schemas here.
+/// Null selectors in multi-select items are malformed; empty selectors are explicitly unsupported.
+/// Display title/description are the exception: wrong types are ignored as the schema specifies.
+/// Validate bound lexemes before numeric limits, and option count before individual entries.
+/// Caps are UTF-16 resource limits: raw schema 32 Ki, 32 options, and 1024 units per id or label.
 /// </summary>
 internal static class ElicitationSchemaClassifier {
     const int MaxSchemaCodeUnits = 32 * 1024;

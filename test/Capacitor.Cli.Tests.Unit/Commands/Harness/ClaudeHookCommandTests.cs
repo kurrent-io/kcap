@@ -2303,7 +2303,7 @@ public class ClaudeHookCommandTests {
         await Assert.That(all).Contains("\"route\":\"subagent-stop\"");
     }
 
-    // Task 12 / BLOCKER-1+3 regression: the centralized ordered drain (now running on every
+    // / +3 regression: the centralized ordered drain (now running on every
     // non-Codex hook, incl. --claude) can WITHHOLD a spooled session-end in the ".ordered-*" temp
     // namespace pending the transcript tail. ClaudeHookCommand.CurrentSessionHasBacklog must see that
     // withheld terminal (it now delegates to HookSpool.HasBacklog, which covers ".ordered-*") so a

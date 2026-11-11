@@ -1,14 +1,9 @@
 namespace Capacitor.Cli.Core.Auth;
 
 /// <summary>
-/// Canonical identity for a Capacitor server URL — the comparison used to decide whether a
-/// stored token may be presented to a given server.
-///
-/// Whole-string comparison is not safe here: <c>https://x</c> and <c>https://x:443</c> are the
-/// same server, host casing is irrelevant, but a path IS significant (path-routed deployments)
-/// and is case-sensitive per HTTP. A configured server URL is a request base, so userinfo,
-/// query and fragment are rejected outright rather than silently dropped — dropping them would
-/// make <c>https://host/base?tenant=a</c> and <c>?tenant=b</c> compare equal.
+/// Default ports and host casing do not distinguish servers, but HTTP path casing does.
+/// Reject userinfo, query, and fragment rather than dropping them: otherwise tenant-specific
+/// request bases could compare equal and receive each other's stored token.
 /// </summary>
 public static class ServerIdentity {
     /// <summary>

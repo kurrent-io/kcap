@@ -78,7 +78,7 @@ public sealed class RepoPathStore(ConfigRoot config, TimeProvider time) {
         }
     }
 
-    /// Worktree entries written before AddAsync resolved them (GH #655) collapse on read into
+    /// Worktree entries written before AddAsync resolved them  collapse on read into
     /// their main repository, newest last_used winning — so historical pollution disappears from
     /// every consumer without a migration, and the next write persists the cleaned list.
     static RepoEntry[] Collapse(RepoEntry[] entries) {
@@ -100,7 +100,7 @@ public sealed class RepoPathStore(ConfigRoot config, TimeProvider time) {
     public Task AddAsync(string path) {
         // A linked worktree registers as its main repository: user-facing repo lists show actual
         // repositories, and review flows launching into a requester's worktree must not mint a
-        // "known repo" out of it (GH #655).
+        // "known repo" out of it.
         var normalized = NormalizePath(GitRepository.ResolveMainRepoRoot(path));
 
         return WriteLocked(entries => {

@@ -173,16 +173,9 @@ internal static class KiroReviewerHome {
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     /// <summary>
-    /// Creates a directory that is owner-only FROM ITS FIRST INSTANT, and verifies it.
-    ///
-    /// <para>Not create-then-chmod: that leaves a window in which the directory exists at the default
-    /// umask, and the thing written into it is review context. .NET's mode-carrying overload closes
-    /// the window at the syscall.</para>
-    ///
-    /// <para>And not best-effort. An earlier revision swallowed every mode failure, on the LaunchConsentStore
-    /// precedent — but that store degrades to a safe default, whereas here the mode IS the protection.
-    /// A POSIX host where it cannot be achieved must not run a reviewer at all, so this throws and the
-    /// launch fails.</para>
+    /// Create owner-only permissions in the directory-creation syscall, not create-then-chmod:
+    /// review context must never exist under the default umask. Permission failures must fail the
+    /// launch because the mode supplies the protection, rather than merely improving diagnostics.
     /// </summary>
     static void CreateOwnerOnly(string path) {
         if (OperatingSystem.IsWindows()) {

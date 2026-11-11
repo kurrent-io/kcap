@@ -235,7 +235,7 @@ public class HookSpoolTests {
         await Assert.That(seen).Contains("""{"n":"newlive"}""");
     }
 
-    // Task 12 / BLOCKER-1: the ordered drain (LifecycleSpoolDrain / DrainRoutesAsync) uses a
+    // / the ordered drain (LifecycleSpoolDrain / DrainRoutesAsync) uses a
     // distinct ".ordered-*" temp namespace precisely so it can deliberately WITHHOLD a phase's
     // remainder mid-pass (e.g. a session-end held back until the transcript tail is done) without
     // the unrelated route-agnostic FIFO drain (DrainAllAsync, still used by Claude/Cursor) sweeping

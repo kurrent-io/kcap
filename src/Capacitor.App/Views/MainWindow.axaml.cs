@@ -177,7 +177,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         MinHeight = minimum.Height;
     }
 
-    /// Call before the first Show(): sizes setup to the work area of the screen it opens on and centres it there.
+    // Call before the first Show(): sizes setup to the work area of the screen it opens on and centres it there.
     public void PlaceOnboarding() {
         var scale = _contentScale?.Current ?? _scale;
         if ((Screens?.ScreenFromWindow(this) ?? Screens?.Primary) is not { } screen) {

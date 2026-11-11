@@ -1,14 +1,12 @@
 namespace Capacitor.Cli.Daemon.Acp;
 
 /// <summary>
-/// Everything an <c>AcpHostedAgentRuntime</c> needs to attempt crash reconnect/resume, supplied by
-/// <c>AcpHostedAgentRuntimeFactory</c> ONLY for an eligible launch (probe-verified vendor,
-/// interactive, kill switch off — reconnect spec §4). A runtime constructed without one of these
-/// keeps today's behavior byte-for-byte: child death → read loop ends → finalize.
+/// Provide reconnect support only for a verified vendor on an interactive launch with reconnect
+/// enabled. Without it, child death ends the read stream and finalizes the runtime.
 /// </summary>
 internal sealed class AcpReconnectSupport {
     /// <summary>
-    /// The pure spawn closure (spec §6.2): constructs a fresh child process + stdio streams for the
+    /// The pure spawn closure: constructs a fresh child process + stdio streams for the
     /// SAME launch shape as the original (binary, argv, env, cwd) and nothing else — no agent
     /// registration, no forwarder, no slot accounting. The factory closes this over the launch's
     /// <c>RuntimeStartContext</c> and its own connection source, so candidates and the original
@@ -21,32 +19,26 @@ internal sealed class AcpReconnectSupport {
     public required TimeProvider TimeProvider { get; init; }
 
     /// <summary>
-    /// The durable PID-record callbacks, published as ONE immutable bundle (code-review r2: two
-    /// independently-settable callbacks had a partial-wiring window — real recorder installed,
-    /// clearer still absent — in which a failed attempt could persist a candidate record it could
-    /// never clear). <c>Record</c> runs at candidate spawn, before any handshake, and MUST throw on
-    /// failure — an unrecorded child may never proceed, or daemon-death leak containment is
-    /// fiction; the runtime treats a throw as the attempt failing and disposes the candidate.
-    /// <c>Clear</c> runs after a failed candidate's disposal and at incident terminalization,
-    /// bounding the window in which a stale record names a dead pid. The FACTORY installs a
-    /// fail-closed default (throwing Record, no-op Clear); the orchestrator replaces the whole
-    /// bundle in one atomic reference assignment after registration. Tests install their own.
+    /// Publish Record and Clear as one immutable bundle so cleanup cannot observe partial wiring.
+    /// Record must succeed before any candidate handshake; failure tears the child down. Clear after
+    /// candidate disposal or terminalization through the same bundle that recorded it. The factory's
+    /// unwired default throws on Record and ignores Clear; registration replaces both atomically.
     /// </summary>
     public AcpPidRecordCallbacks PidCallbacks { get; set; } = AcpPidRecordCallbacks.Unwired;
 
-    /// <summary>Delays BETWEEN the up-to-3 candidate spawns of one incident (spec §6: t=0, +1s, +4s).</summary>
+    //<summary>Delays BETWEEN the up-to-3 candidate spawns of one incident (t=0, +1s, +4s).</summary>
     public IReadOnlyList<TimeSpan> AttemptDelays { get; init; } = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
 
     /// <summary>Bounded wait for the old process tree's CONFIRMED exit during corpse retirement
-    /// (spec §6.1 — unconfirmed exit is terminal for the incident, never shrugged past).</summary>
+    /// (unconfirmed exit is terminal for the incident, never shrugged past).</summary>
     public TimeSpan RetirementWait { get; init; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>Bounded wait for the incident turn's settlement after commit (spec §6.4). Generous —
+    /// <summary>Bounded wait for the incident turn's settlement after commit. Generous —
     /// the faulted turn's awaits were already faulted, so completion is prompt; a pathological hang
     /// goes terminal rather than waiting forever.</summary>
     public TimeSpan SettlementWait { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Lifetime cap of COUNTED resumes per session (spec §6.4's success linearization: a
+    /// <summary>Lifetime cap of COUNTED resumes per session (a
     /// resume counts exactly when the atomic reopen commits). The next crash past the cap
     /// finalizes — a child that dies after every resume is a broken installation, not a transient.</summary>
     public int MaxResumesPerSession { get; init; } = 5;
@@ -56,9 +48,9 @@ internal sealed class AcpReconnectSupport {
 /// <see cref="AcpReconnectSupport.PidCallbacks"/> for the contract and why it is one reference,
 /// never two setters.</summary>
 internal sealed record AcpPidRecordCallbacks(Action<int> Record, Action Clear) {
-    /// <summary>The fail-closed pre-wiring state: recording throws (an attempt racing the
-    /// orchestrator's wiring window fails honestly, per §6.2's record-before-any-handshake MUST),
-    /// clearing is a no-op (there is no record to clear).</summary>
+    /// <summary>
+    /// Recording before the orchestrator wires PID callbacks must fail closed; clearing has nothing to remove.
+    /// </summary>
     public static readonly AcpPidRecordCallbacks Unwired = new(
         _ => throw new InvalidOperationException(
             "ACP reconnect: PID recorder not yet wired (crash raced launch registration)."),

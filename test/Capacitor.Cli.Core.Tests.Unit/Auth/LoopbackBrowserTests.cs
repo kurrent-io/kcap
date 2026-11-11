@@ -75,12 +75,8 @@ public class LoopbackBrowserTests {
         return (port, $"http://127.0.0.1:{port}/callback");
     }
 
-    // The loopback port is reachable by ANY local process, and a bare `/callback?code=junk` used to
-    // be answered with a page carrying the first-hop URL — join key and all. That made an
-    // unauthenticated request a key-disclosure oracle: read the key out of the HTML, then spend it on
-    // `/joined?j=<stolen>&w1=<attacker id>` before the real browser ever arrives, consuming the
-    // one-shot and merging attacker-chosen ids into this run's telemetry. The downstream CSRF check
-    // only makes AUTHENTICATION fail; it cannot un-disclose the key or un-merge the properties.
+    // An unauthenticated local callback must not disclose a join key. Later CSRF rejection cannot
+    // undo disclosure or a stolen key's one-shot consumption and telemetry merge.
     //
     // So the redirect is gated on the callback echoing the state from the authorize URL, which an
     // arbitrary local process cannot know. Ending the wait is deliberately NOT gated — that

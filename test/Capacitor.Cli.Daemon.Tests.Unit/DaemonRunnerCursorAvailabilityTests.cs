@@ -131,9 +131,8 @@ public class DaemonRunnerCursorAvailabilityTests {
 
     // === Withheld-vendor startup diagnostic ===
     //
-    // A vendor this daemon could host unattended but is refusing used to leave advertisement in silence:
-    // the refusal text existed, but only the launch path threw it, and advertisement is exactly what stops
-    // the launch from being attempted. Classification carries the reason out so startup can log it.
+    // Carry refusal reasons out of advertisement classification so startup can explain a withheld
+    // vendor even when no launch is attempted.
 
     /// <summary>Counts <see cref="IHostedAgentRuntimeFactory.DescribeUnattendedSupport"/> calls, because
     /// answering it spawns the vendor binary for the gated reviewers.</summary>

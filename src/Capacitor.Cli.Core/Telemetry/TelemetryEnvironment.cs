@@ -6,9 +6,8 @@ namespace Capacitor.Cli.Core.Telemetry;
 /// testable without mutating the real process environment.
 /// </summary>
 public static class TelemetryEnvironment {
-    // Presence-based providers. Jenkins, TeamCity and Azure Pipelines are the load-bearing
-    // entries: none of them exports the generic `CI`, so a run on any of them used to be
-    // indistinguishable from a human at a terminal.
+    // Jenkins, TeamCity, and Azure Pipelines do not export generic CI; check their own markers
+    // so automated runs are not classified as interactive terminals.
     static readonly string[] ProviderVariables = [
         "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "TRAVIS",
         "JENKINS_URL", "TEAMCITY_VERSION", "TF_BUILD", "APPVEYOR",

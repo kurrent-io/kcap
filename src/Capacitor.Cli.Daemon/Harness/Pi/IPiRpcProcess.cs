@@ -7,36 +7,10 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Harness.Pi;
 
 /// <summary>
-/// Minimal process-lifecycle abstraction for a hosted Pi <c>pi</c> child speaking the stdio JSONL
-/// RPC protocol (see <c>PiRpc</c>). Unlike <see cref="IAgyTurnProcess"/> — an exec-per-turn child
-/// whose stdin is closed the instant it is spawned — a Pi RPC child is LONG-LIVED: one process backs
-/// the whole hosted session, and its stdin stays open for that entire lifetime so the runtime can
-/// keep sending <c>prompt</c>/<c>abort</c>/<c>get_state</c>/<c>set_model</c> commands to it turn
-/// after turn. That is exactly the capability this interface adds over <see cref="IAgyTurnProcess"/>:
-/// <see cref="WriteLineAsync"/>.
-///
-/// <para>Exists so a Pi hosted-agent runtime is testable without spawning a real process; a later
-/// task's factory implements this over <see cref="System.Diagnostics.Process"/> (<see cref="PiRpcProcess"/>,
-/// this file).</para>
-///
-/// <para><b>Two contracts a real implementation must honor — copied verbatim from
-/// <see cref="IAgyTurnProcess"/>, because the same runtime shapes (a turn worker's own
-/// <c>finally</c> racing the runtime's own teardown) apply here too:</b></para>
-/// <para>0. <see cref="IAsyncDisposable.DisposeAsync"/> MAY terminate a still-running child, and an
-/// implementation over a real process does. It is therefore NOT a source of exit evidence: a caller
-/// that needs to know whether a child exited must terminate it explicitly and read
-/// <see cref="HasExited"/> while the handle is still valid, BEFORE disposing — a disposed process
-/// object reports exited whether or not it is.</para>
-/// <para>1. <see cref="IAsyncDisposable.DisposeAsync"/> MUST be idempotent. A second call on the same
-/// instance must be a safe no-op, never throw.</para>
-/// <para>2. <see cref="TerminateAsync"/> MUST be safe to call AFTER
-/// <see cref="IAsyncDisposable.DisposeAsync"/> has already run — this must degrade gracefully (a
-/// no-op, or a caught/logged failure internally), never throw an exception a caller doesn't already
-/// catch.</para>
-/// <para>3. <see cref="WriteLineAsync"/> calls MUST be serialized against each other so that two
-/// concurrent writers can never interleave partial lines on the child's stdin — a torn line is
-/// unparseable JSON on the other end, and unlike a read race (which just ends the enumerable early),
-/// a write race corrupts the wire for every command after it.</para>
+/// One long-lived child and open stdin serve the whole session; <see cref="IAgyTurnProcess"/> closes stdin per turn.
+/// Serialize WriteLineAsync calls: interleaved partial lines corrupt the JSON command stream.
+/// DisposeAsync can terminate the child and must be idempotent; it is not evidence of exit.
+/// Read HasExited before disposal, and tolerate TerminateAsync racing with an already disposed child.
 /// </summary>
 internal interface IPiRpcProcess : IAsyncDisposable {
     /// <summary>OS process id of the hosted <c>pi</c> child.</summary>

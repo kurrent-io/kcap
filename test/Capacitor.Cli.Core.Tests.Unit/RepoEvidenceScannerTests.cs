@@ -69,7 +69,7 @@ public class RepoEvidenceScannerTests {
         var s = NewScanner();
         await s.OnLineAsync("claude", Line("Edit", "file_path", "/home/u/dev/repo-a/x.cs"));
         var again = await s.OnLineAsync("claude", Line("Edit", "file_path", "/home/u/dev/repo-b/q.cs"));
-        await Assert.That(again).IsNull(); // no post-attribution hunting (spec D2)
+        await Assert.That(again).IsNull(); // no post-attribution hunting
     }
 
     [Test]
@@ -83,7 +83,7 @@ public class RepoEvidenceScannerTests {
 
     [Test]
     public async Task Mutation_with_failed_tool_result_still_counts() {
-        // Evidence is the INPUT (spec D5); tool results are never consulted, so
+        // Evidence is the INPUT; tool results are never consulted, so
         // there is nothing on the line that could veto it.
         var s          = NewScanner();
         var attributed = await s.OnLineAsync("claude", Line("NotebookEdit", "notebook_path", "/home/u/dev/repo-a/n.ipynb"));
@@ -129,7 +129,7 @@ public class RepoEvidenceScannerTests {
         }
     }
 
-    // qodo #3 / Windows CI: a Windows-absolute path must attribute exactly like a Unix one — the
+    // a Windows-absolute path must attribute exactly like a Unix one — the
     // gate and the parent-dir derivation both have to be OS-independent (this suite runs on
     // ubuntu-latest AND windows-latest), not just accept whatever the running OS calls "absolute".
     // Line() splices `path` straight into JSON text (no JSON-escaping), so a Windows path's
@@ -158,7 +158,7 @@ public class RepoEvidenceScannerTests {
         await Assert.That(got[0].Path).IsEqualTo(WindowsPath);
     }
 
-    // qodo #2: a tool_use block can sit at the event's TOP-LEVEL content, not only nested under
+    // a tool_use block can sit at the event's TOP-LEVEL content, not only nested under
     // message.content — both shapes occur in real Claude transcripts.
     [Test]
     public async Task ExtractClaudePaths_reads_top_level_content_too() {

@@ -17,7 +17,7 @@ sealed record PlanTaskState(string TaskId, int Ordinal, string? Title, string St
     };
 
     /// <summary>The task a ledger label names: by title first, since plans usually title their tasks
-    /// "Task 3: …", then by ordinal.</summary>
+    /// ": …", then by ordinal.</summary>
     public static PlanTaskState? Find(IReadOnlyList<PlanTaskState> plan, string label) {
         var prefix = $"Task {label}";
         var byTitle = plan.FirstOrDefault(t => t.Title is { } title

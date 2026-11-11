@@ -34,7 +34,7 @@ public class ResolvedCandidatesLedgerTests {
         await Assert.That(reopened.Upsert("a2", "e0", null, null).Generation).IsEqualTo(2L);
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): Upsert must be transactional with its durable write.
+    // Upsert must be transactional with its durable write.
     // If the atomic write fails, the in-memory entry AND the generation counter must roll back so memory
     // never leads disk — otherwise the next sweep's idempotent short-circuit returns the unpersisted entry
     // without persisting, and the caller then deletes the durable source (violating append-before-delete).
@@ -56,7 +56,7 @@ public class ResolvedCandidatesLedgerTests {
         await Assert.That(reopened.Snapshot().Single().AgentId).IsEqualTo("a1");
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): the daemon-lifetime monotonic high-water — 0 before
+    // the daemon-lifetime monotonic high-water — 0 before
     // any mint, N after N distinct Upserts — and unchanged by an Ack that prunes entries (so once sparse
     // acks prune the ledger the server still learns the generation frontier). Survives restart because
     // _nextGeneration is never decremented and Load restores it.

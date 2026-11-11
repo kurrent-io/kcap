@@ -60,7 +60,7 @@ public static class KcapCliCompatibility {
         return true;
     }
 
-    // Build identifiers, unlike prerelease ones, allow leading zeros (SemVer §10).
+    // Build identifiers, unlike prerelease ones, allow leading zeros under SemVer.
     static bool IsValidBuild(string value) {
         if (value.Length == 0) return false;
         var identifiers = value.Split('.');

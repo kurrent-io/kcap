@@ -4,8 +4,8 @@ using System.Globalization;
 namespace Capacitor.Tests.Helpers;
 
 /// <summary>
-/// Phase B: a real, isolated child process a test fully owns — the ONLY thing the D4 reap
-/// tests ever signal (spec §2/§8: no live daemon, no live flows). Sleeps for a while so the test can
+/// a real, isolated child process a test fully owns — the ONLY thing the process reap
+/// tests ever signal (spec /: no live daemon, no live flows). Sleeps for a while so the test can
 /// probe/kill it, and can carry custom <c>KCAP_*</c> env markers for the env-based reap paths.
 /// </summary>
 public sealed class DummyProcess : IDisposable {

@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// The permission-graph counterpart of <see cref="DaemonStatusWiringTests"/>: LocalPermissionBridge's
 /// and AgentOrchestrator's trailing optional <c>PermissionPromptBroker?</c> parameters, and
 /// PermissionIpc's required one, are resolved to the ONE registered singleton only because
-/// DaemonRunner's registrations for all three are bare <c>AddSingleton&lt;T&gt;()</c> — no factory
+/// DaemonRunner's registrations for all three are bare <c>AddSingleton&lt;T&gt;</c> — no factory
 /// delegate. A future change to a factory registration that omits the broker would silently split
 /// the permission graph into disconnected brokers, with no other test noticing: the bridge's
 /// HandleAsync, PermissionIpc's subscribe/resolve frames, and the orchestrator's

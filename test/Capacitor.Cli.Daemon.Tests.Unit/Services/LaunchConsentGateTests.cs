@@ -138,7 +138,7 @@ public class LaunchConsentGateTests {
         await Assert.That(parsed.RootElement.GetProperty("requester_display").GetString()).IsEqualTo("Mathias");
     }
 
-    // ══ Deadline discipline (spec §3.2) — grace + monotonic deadline + TimeProvider plumbing.
+    // ══ Deadline discipline — grace + monotonic deadline + TimeProvider plumbing.
     // All timing driven by FakeTimeProvider; no real sleeps stand in for timeout semantics. ═══
 
     /// Drives the two ILaunchConsentPrompter members via caller-supplied callbacks, so a test can
@@ -166,11 +166,11 @@ public class LaunchConsentGateTests {
         }
     }
 
-    /// Wraps a FakeTimeProvider so that the FIRST GetTimestamp() call (the gate's deadline anchor,
-    /// `start = time.GetTimestamp()`) returns the pre-jitter instant but then advances the
+    // Wraps a FakeTimeProvider so that the FIRST GetTimestamp() call (the gate's deadline anchor,
+    //`start = time.GetTimestamp()`) returns the pre-jitter instant but then advances the
     /// underlying fake clock by `jitter` as a side effect — simulating real elapsed time (e.g.
     /// scheduling delay) between the deadline being anchored and the very next time-derived
-    /// computation (the grace wait's `Remaining()`), without needing a genuine concurrent race.
+    // Computation (the grace wait's `Remaining()`), without needing a genuine concurrent race.
     sealed class JitterTimeProvider(FakeTimeProvider inner, TimeSpan jitter) : TimeProvider {
         bool _jittered;
         public override long GetTimestamp() {

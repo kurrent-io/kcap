@@ -7,7 +7,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D1 + D4 §6.4(2a)): the single-flight teardown and the kill-quarantine.
+/// the single-flight teardown and the kill-quarantine.
 /// <list type="bullet">
 /// <item>A post-insert launch failure (e.g. a throwing RegisterAgentAsync) routes through the same
 /// <c>CleanupAgentAsync</c> teardown, so it can never strand an agent whose child is still live.</item>
@@ -25,7 +25,7 @@ public class LaunchCleanupTests {
         using var repoPath = GitRepo.CreateWithCommit();
 
         // AgentRegisteredAsync throws on the launch's RegisterAgentAsync call, AFTER the agent was
-        // inserted into _agents — the exact post-insert failure the D1 routing must catch.
+        // inserted into _agents — the exact post-insert failure the failure routing must catch.
         var server     = new CaptureServerConnection { AgentRegisteredFailTimes = 1 };
         var ptyFactory = new SpyPtyProcessFactory();
 
@@ -103,7 +103,7 @@ public class LaunchCleanupTests {
             AgentId: "env-1", Prompt: "hi", Model: "opus", Effort: null,
             RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
 
-        // The OrphanReaper env-marker scan (D4 §6.4(3)) recognizes a recordless survivor by these
+        // The OrphanReaper env-marker scan recognizes a recordless survivor by these
         // three markers on the LIVE child's own env — so the spawn must stamp all three.
         await Assert.That(ptyFactory.LastEnv).IsNotNull();
         await Assert.That(ptyFactory.LastEnv!["KCAP_AGENT_ID"]).IsEqualTo("env-1");

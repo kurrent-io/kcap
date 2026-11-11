@@ -126,21 +126,8 @@ public static partial class EvalService {
         }.ToJsonString();
 
     /// <summary>
-    /// Resolves the path to the <c>kcap</c> executable used to launch the
-    /// session-scoped MCP judge subprocess (<c>kcap mcp judge</c>).
-    ///
-    /// <para>
-    /// The CLI host (<c>kcap eval</c>) is already the <c>kcap</c> binary, so
-    /// its <see cref="Environment.ProcessPath"/> is correct. The daemon host,
-    /// however, is a separate <c>kcap-daemon</c> binary that has no
-    /// <c>mcp judge</c> subcommand — invoking <c>kcap-daemon mcp judge</c>
-    /// just tries (and fails, "already running") to start a second daemon, so
-    /// the judge's MCP server never comes up and every tool call is dead. The
-    /// two binaries ship side-by-side in the same directory, so when the host
-    /// is <c>kcap-daemon</c> we remap to the sibling <c>kcap</c> (preserving any
-    /// executable extension, e.g. <c>.exe</c>), falling back to the original
-    /// path if the sibling isn't found.
-    /// </para>
+    /// The daemon host is kcap-daemon, which has no mcp judge command. Resolve the sibling kcap
+    /// executable, preserving its platform extension, so hosted judge subprocesses reach the CLI.
     /// </summary>
     internal static string ResolveJudgeCommandPath(string? processPath, Func<string, bool> fileExists) {
         if (string.IsNullOrEmpty(processPath)) return "kcap";
@@ -326,7 +313,7 @@ public static partial class EvalService {
         }
     }
 
-    // ── Phase 1: Prepare ───────────────────────────────────────────────────
+    // ── Prepare ───────────────────────────────────────────────────
 
     public static async Task<EvalContext?> PrepareAsync(
             string                         baseUrl,
@@ -440,7 +427,7 @@ public static partial class EvalService {
         // "stable" trends). FactsUsed snapshots persist as empty for new
         // evals; the read-side projection + UI panel stay in place so
         // historical eval audit views keep working.
-        // Phase 3 — reconcile the run question list FROM the catalog (rendered
+        // Reconcile the run question list from the catalog (rendered
         // prompts + raw text + versions). The text path uses each question's rendered
         // Prompt directly; the tools path keeps the embedded wrapper + raw text.
         var selectedIds = questions.Select(q => q.Id).ToList();
@@ -471,7 +458,7 @@ public static partial class EvalService {
         );
     }
 
-    // ── Phase 2: RunQuestion ───────────────────────────────────────────────
+    // ── RunQuestion ───────────────────────────────────────────────
 
     public static async Task<QuestionRunResult> RunQuestionAsync(
             EvalContext        ctx,
@@ -650,7 +637,7 @@ public static partial class EvalService {
     internal static EvalEvidenceCoverage? ReconcileEvidenceCoverage(string? outcome, EvalEvidenceCoverage? coverage) =>
         outcome == EvalOutcomes.InsufficientEvidence && coverage is { IsComplete: true } ? null : coverage;
 
-    // ── Phase 3: Finalize ──────────────────────────────────────────────────
+    // ── Finalize ──────────────────────────────────────────────────
 
     /// <summary>Legacy verdict-list finalize, kept for a protocol-1 daemon RPC (an old server that
     /// only speaks <c>FinalizeEval</c>): aggregates as V3 and persists through
@@ -673,7 +660,7 @@ public static partial class EvalService {
             return null;
         }
 
-        // 4. Aggregate per-category + overall scores. Phase 3: V3 payload —
+        // 4. Aggregate per-category + overall scores. V3 payload —
         //    each verdict is stamped with its catalog prompt version; the
         //    retrospective prompt version is stamped below from ctx.
         var aggregate = Aggregate(verdicts, ctx.EvalRunId, model, ctx.Questions);
@@ -711,7 +698,7 @@ public static partial class EvalService {
         );
         aggregate = aggregate with { Retrospective = retrospective };
 
-        // Phase 3 — stamp the catalog retrospective prompt version.
+        // stamp the catalog retrospective prompt version.
         aggregate = aggregate with { RetrospectivePromptVersion = ctx.RetrospectivePromptVersion };
 
         // 6. Persist the aggregate to the server via the V3 route.
@@ -890,7 +877,7 @@ public static partial class EvalService {
 
     /// <summary>
     /// Persists a V3 aggregate to <c>POST /api/sessions/{id}/evals/v3</c>
-    /// (Phase 3 — carries per-question + retrospective prompt versions).
+    /// (carries per-question + retrospective prompt versions).
     /// Public seam for the daemon's wire-format contract test, mirroring
     /// <see cref="PersistAggregateV2Async"/>.
     /// </summary>
@@ -1053,7 +1040,7 @@ public static partial class EvalService {
 
     /// <summary>
     /// Builds the retrospective synthesis prompt from the catalog-rendered
-    /// template (Phase 3 — was a static embedded field) and the
+    /// template  and the
     /// placeholders the judge needs: session metadata, per-question verdicts,
     /// retained patterns from prior evals in this repo, and the compacted trace.
     ///
@@ -1066,7 +1053,7 @@ public static partial class EvalService {
     /// </para>
     /// </summary>
     public static string BuildRetrospectivePrompt(
-            string template,           // Phase 3 — from catalog (was static embedded field)
+            string template,           // from catalog
             string sessionMeta,
             string verdictsJson,
             string knownPatterns,
@@ -1411,7 +1398,7 @@ public static partial class EvalService {
             string                             model,
             IReadOnlyList<EvalQuestionDto>     questions
         ) {
-        // Phase 3 — stamp each verdict with its catalog prompt version
+        // stamp each verdict with its catalog prompt version
         // (from the reconciled questions) before grouping, so the V3 payload
         // carries per-question prompt provenance.
         var versionByQuestion = questions
@@ -1604,7 +1591,7 @@ public static partial class EvalService {
         // Soft-drop of {KNOWN_PATTERNS}: template no longer has the
         // placeholder, so the retrospective prompt builder receives an
         // empty knownPatterns string and the replace becomes a no-op.
-        // Phase 3: template comes from the catalog and {TRACE_JSON} is
+        // template comes from the catalog and {TRACE_JSON} is
         // filled with the daemon's already-fetched trace (SF#1).
         var prompt = BuildRetrospectivePrompt(
             retrospectivePrompt, sessionMeta, verdictsJson, knownPatterns: "", traceJson);

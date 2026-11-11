@@ -101,9 +101,7 @@ public class KiroUsageTests {
 
     [Test]
     public async Task anchor_map_tolerates_non_string_model_id() {
-        // Review finding: a malformed/variant model_id (present but not a JSON string)
-        // must NOT abort the whole anchor map — usage enrichment is best-effort. Here the
-        // turn's credits/context% must still be captured.
+        // A present nonstring model_id must not discard the turn's other usage and context metadata.
         const string metaBadModel = """
             {"session_state":{
               "rts_model_state":{"model_info":{"model_id":12345}},

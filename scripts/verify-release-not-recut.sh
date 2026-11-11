@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
-# Decides whether a release build should proceed, given the commit this
-# build is for, the commit npm already has on record for the exact
-# version being released (empty string if the version has never been
-# published), and whether that npm lookup itself was trustworthy. Pure
-# decision logic only — network/registry lookups, retries, and any
-# CI-specific error formatting live in the caller (release.yml).
-#
-# Exit 0 + "ok"        -> version never published, proceed.
-# Exit 1 + "republish" -> already published from the SAME commit: npm
-#                         forbids republishing a version even unchanged.
-# Exit 1 + "moved"     -> already published from a DIFFERENT commit: the
-#                         release tag was moved/re-cut after that version's
-#                         npm artifact was published — refuse.
-# Exit 1 + "error"     -> the npm lookup did not complete successfully
-#                         (network/registry/auth error, or anything the
-#                         caller couldn't positively classify as a real
-#                         "not found") — this guard's whole purpose is to
-#                         refuse a moved/re-cut tag, so an inconclusive
-#                         lookup must NEVER be treated as "brand new
-#                         version". Fail closed instead.
+# Compare this release commit with npm's record; the caller owns registry queries.
+# Exit 0 + ok: no published version, so publishing may proceed.
+# Exit 1 + republish: the same commit is published; npm versions are immutable.
+# Exit 1 + moved: another commit is published; refuse a moved or re-cut tag.
+# Exit 1 + error: the lookup is inconclusive; never treat a query error as absence.
 set -euo pipefail
 this_sha="${1:?usage: verify-release-not-recut.sh <this-sha> <published-sha-or-empty> [query-status: ok|error]}"
 published_sha="${2:-}"

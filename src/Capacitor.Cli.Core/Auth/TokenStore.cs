@@ -294,11 +294,8 @@ public sealed class TokenStore(
 
     // ── Legacy (profile-resolving) overloads ────────────────────────────────
 
-    // Read a profile's token file, falling back to the legacy single-file tokens.json ONLY when the
-    // per-profile file is genuinely absent (a pre-upgrade install). A present-but-corrupt active
-    // file is "not authenticated" — do NOT resurrect stale credentials from a legacy file whose
-    // best-effort deletion previously failed. Shared by LoadAsync() and RefreshIfExpiringAsync so
-    // both get the legacy fallback without re-resolving the active profile.
+    // Fall back to the legacy single-file tokens.json only when the per-profile file is absent.
+    // A present but corrupt profile must not resurrect credentials retained in a legacy file.
     //
     // The legacy file is a single global credential belonging to whichever profile was active
     // before the per-profile store existed — its migration owner. Now that lookup follows the

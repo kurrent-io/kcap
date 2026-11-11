@@ -131,7 +131,7 @@ public class RegistrationGateTests {
         await Assert.That(gate.IsReady(HubConnectionState.Connected)).IsFalse();
     }
 
-    // Settlement lost-ack redelivery (D1): postRegister runs AFTER MarkRegistered, so a throw there
+    // Settlement lost-ack redelivery: postRegister runs AFTER MarkRegistered, so a throw there
     // (including from a throwing ILogger inside the hook's own error handling — a supported input) must
     // be contained: RunRegistrationAsync must not fault the reconnect path, and readiness stays set.
     [Test]

@@ -55,7 +55,7 @@ public class DaemonMutationLaneTests {
 
     /// Drives a suspended poll loop by repeatedly advancing a FakeTimeProvider until the task
     /// settles — Task.Delay(interval, time, ct)'s continuation resumes synchronously inside
-    /// Advance(), so no real waiting is needed.
+    // Advance(), so no real waiting is needed.
     static async Task<MutationOutcome> Drive(Task<MutationOutcome> task, FakeTimeProvider time, TimeSpan step) {
         var guard = 0;
         while (!task.IsCompleted && guard++ < 500) time.Advance(step);

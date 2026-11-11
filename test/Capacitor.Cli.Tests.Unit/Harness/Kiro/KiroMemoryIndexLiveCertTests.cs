@@ -3,28 +3,10 @@ using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
 
 /// <summary>
-/// Env-gated certification that the SessionStart memory index actually reaches the model on Kiro CLI.
-/// The raw-stdout contract and the lease dedupe are covered against fakes by
-/// <c>KiroSessionStartMemoryTests</c> and the Kiro_* cases in <c>SessionStartMemoryFoundationTests</c>;
-/// this is the only place asserting the end-to-end claims.
-///
-/// <para><b>The once-per-session dedupe is NOT certifiable through this CLI, and there is
-/// deliberately no cert for it here.</b> The adapter's load-bearing property is that
-/// <c>agentSpawn</c> fires per PROMPT within one session and the lease suppresses re-injection. The
-/// obvious probe — <c>kiro-cli chat --resume</c> for a second turn — does NOT test that. Measured
-/// 2026-07-30: a resumed invocation carries a DIFFERENT hook <c>session_id</c> than the turn it
-/// resumes, even though Kiro's own chat SessionId is unchanged and the conversation genuinely
-/// continues (2 msgs to 4). Two lease records were written five seconds apart, one per invocation.</para>
-///
-/// <para>So a resumed turn is a NEW session to kcap and re-injecting there is correct — a cert
-/// asserting absence would have been asserting a bug, and an earlier draft of this file did exactly
-/// that and "passed" only because its probe shared a prefix with the first turn's nonce. Two separate
-/// processes are not two prompts in one session. Certifying the real property needs several prompts
-/// inside ONE interactive process (PTY automation), which this suite does not do; the lease stays
-/// covered by the <c>Kiro_*</c> cases in <c>SessionStartMemoryFoundationTests</c>.</para>
-///
-/// <para>Both tests are <c>[NotInParallel]</c>: the negative control mutates the REAL
-/// process-global <c>disable_memory_index</c> config.</para>
+/// Certify that Kiro receives the injected memory index, but do not infer once-per-session dedupe
+/// from two CLI resume invocations: hook session_id changes even when the chat SessionId stays fixed.
+/// A real dedupe certification needs multiple prompts in one interactive process; foundation tests
+/// cover the lease separately. These tests mutate real process-global config and require exclusion.
 /// </summary>
 public class KiroMemoryIndexLiveCertTests {
     const string LiveGateEnvVar = "KCAP_KIRO_MEMORY_LIVE";

@@ -30,8 +30,8 @@ less distinctive historical language. Keep a comment only when it states a curre
 that readers cannot infer from the code. Preserve that constraint when removing a historical
 reference; do not remove useful compatibility or concurrency explanations.
 
-`scripts/comment-rules-baseline.json` records existing debt by path, rule, comment text, and
-occurrence count. Line movement is harmless; additional occurrences and changed text are new
+`scripts/comment-rules-baseline.json` is empty after the cleanup. Its format records debt by
+path, rule, comment text, and occurrence count. Line movement is harmless; additional occurrences and changed text are new
 violations. Rewrite a flagged comment to its current constraint instead of adding an exception.
 When cleaning up baseline entries, run:
 

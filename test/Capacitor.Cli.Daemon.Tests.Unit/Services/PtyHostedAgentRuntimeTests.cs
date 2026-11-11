@@ -44,7 +44,7 @@ public class PtyHostedAgentRuntimeTests {
 
         // Approvals disabled → one bracketed-paste block then the CR spray (one CR per
         // SubmitCarriageReturnSchedule step) so at least one lands past codex's Enter-suppression
-        // window (GitHub #349).
+        // window.
         var expectedCrs = PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length;
         await Assert.That(pty.StringWrites.Count).IsEqualTo(1 + expectedCrs);
         await Assert.That(pty.StringWrites[0]).IsEqualTo("\x1b[200~hello world\x1b[201~");
@@ -58,8 +58,7 @@ public class PtyHostedAgentRuntimeTests {
 
         await runtime.RequestGracefulStopAsync();
 
-        // "/exit" submits via the same CR spray (a single CR failed to submit it — the
-        // SIGTERM-fallback half of GitHub #349).
+        // Graceful /exit uses the same timed CR submission strategy as ordinary input.
         var expectedCrs = PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length;
         await Assert.That(pty.StringWrites.Count).IsEqualTo(1 + expectedCrs);
         await Assert.That(pty.StringWrites[0]).IsEqualTo("/exit");
@@ -213,7 +212,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task SubmitAsync_swallows_a_pipe_closed_write_and_stops() {
         // The race where HasExited hasn't flipped yet but the reviewer's pipe is already closing:
         // the CR write throws a pipe-closed IOException. SendUserInputAsync must NOT propagate it
-        // (a benign post-exit write) and must send no further CRs (GitHub #349, Qodo finding #2).
+        // (a benign post-exit write) and must send no further CRs.
         var pty     = new ClosablePty(throwOnCrIndex: 0);
         var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
 
@@ -226,7 +225,7 @@ public class PtyHostedAgentRuntimeTests {
     [Test]
     public async Task SendUserInput_sends_a_single_CR_when_approvals_are_enabled() {
         // Interactive session (approvals enabled → a prompt is possible): submit with ONE CR so a
-        // stray Enter can't accept a live approval dialog — never the multi-CR spray (Qodo review).
+        // stray Enter can't accept a live approval dialog — never the multi-CR spray ( review).
         var pty     = new RecordingPty();
         var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: false);
 

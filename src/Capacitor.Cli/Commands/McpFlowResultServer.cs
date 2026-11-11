@@ -107,7 +107,7 @@ sealed class McpFlowResultServer(
                 // Params extraction stays INSIDE the guard: a malformed tools/call (params
                 // not an object, name not a string) must yield a JSON-RPC error, not throw
                 // past the loop and kill the reviewer's only result-submission tool
-                // (Qodo review on #240; matches McpFlowsServer/McpReviewServer structure).
+                //
                 JsonObject? paramsNode;
                 string?     toolName;
                 JsonObject? arguments;
@@ -326,7 +326,7 @@ sealed class McpFlowResultServer(
         ) {
         // Type-safe extraction: a non-string `text` (number/object/array) must yield this clean
         // validation error, not throw into the dispatch guard's generic "internal error"
-        // (Qodo review on #278; same JsonValue.TryGetValue pattern as ParseAsyncArg).
+        //
         if (arguments?["text"] is not JsonValue textValue ||
             !textValue.TryGetValue<string>(out var text) ||
             string.IsNullOrWhiteSpace(text))

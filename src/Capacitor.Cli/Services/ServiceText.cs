@@ -16,20 +16,9 @@ static class ServiceText {
     public static string CmdValue(string value) => value.Replace("%", "%%");
 
     /// <summary>
-    /// Escape a systemd <c>Environment=</c>/<c>Description=</c> value: literal percent signs doubled.
-    ///
-    /// <para><b>Why the doubling.</b> systemd expands <i>specifiers</i> — <c>%n</c>, <c>%h</c>, <c>%i</c> and
-    /// friends — in both of those directives, so a value carrying a literal <c>%</c> does not survive: a
-    /// <c>PATH</c> containing <c>%n</c> silently becomes the unit name, and a percent sequence systemd does
-    /// not recognise makes it refuse to load the unit at all. <c>%%</c> is systemd's own escape for one
-    /// literal percent, so this is a faithful round-trip rather than a mangling.</para>
-    ///
-    /// <para>This is the same primitive <see cref="CmdValue"/> applies for cmd.exe, for the same reason, and
-    /// it was missing here while present there — the asymmetry is what review caught.</para>
-    ///
-    /// <para>It no longer normalises CR/LF to spaces: <see cref="RequireNoControlCharacters"/> refuses them
-    /// at the sink first, so the replacement was unreachable — and silently rewriting a caller's value was
-    /// the wrong behaviour anyway.</para>
+    /// Systemd expands percent specifiers in Environment and Description, including PATH values.
+    /// Double literal percent signs for round-trip fidelity; reject control characters at the sink
+    /// rather than rewriting caller-supplied line breaks.
     /// </summary>
     public static string SystemdValue(string value) => value.Replace("%", "%%");
 
@@ -47,14 +36,9 @@ static class ServiceText {
     /// names the variable; failing at load time produces a service that silently does not exist.</para>
     /// </summary>
     public static void RequireXmlRepresentableValue(string name, string value) {
-        // The predicate is XmlConvert's, not char.IsControl — the two are NOT equivalent, and review caught
-        // both directions of the gap. char.IsControl accepts U+FFFE, U+FFFF and lone surrogates, none of
-        // which XML can carry (a lone surrogate is not even a scalar value, so the encoder either throws or
-        // substitutes), and it rejects U+007F–U+009F, which XML 1.0 permits. Deferring to the platform
-        // predicate makes the code match the doc comment above instead of approximating it.
-        //
-        // Scanned by index rather than foreach so a valid surrogate PAIR can be recognised as the one
-        // supplementary character it encodes; checking `char` in isolation would reject every emoji.
+        // Use XmlConvert's predicate: char.IsControl accepts invalid XML values such as U+FFFE and lone
+        // surrogates while rejecting permitted controls. Scan surrogate pairs together so valid emoji are
+        // not rejected merely because either UTF-16 code unit is not a standalone character.
         for (var i = 0; i < value.Length; i++) {
             var c = value[i];
 
@@ -107,20 +91,10 @@ static class ServiceText {
     }
 
     /// <summary>
-    /// Rejects a value carrying a C0 control character or DEL, for the systemd writer.
-    ///
-    /// <para>Quoting does not make a raw control byte valid unit syntax, and this writer has no encoder for
-    /// one: <see cref="SystemdValue"/> handles expansion, <c>Esc</c> handles the backslash and the double
-    /// quote, and neither touches U+0001, a backspace or a vertical tab — all of which a POSIX environment
-    /// value, a filename or an argv string may legally contain. systemd does document C-style and hex
-    /// escapes, but this code has no way to exercise a real systemd parser, so it refuses the input rather
-    /// than shipping an escape whose behaviour it has only read about. That is the same call already made for
-    /// the bare <c>;</c> separator, and the same reason.</para>
-    ///
-    /// <para>CR and LF are included, which supersedes the old newline-to-space normalisation in
-    /// <see cref="SystemdValue"/>: silently rewriting a value the caller supplied is worse than declining to
-    /// write it, because a service that runs with a value nobody chose is harder to diagnose than an install
-    /// that failed and said which variable was at fault.</para>
+    /// Reject C0 controls and DEL rather than silently changing caller-supplied values. Quoting alone
+    /// does not make them valid systemd syntax, and this writer has no verified control-byte encoder.
+    /// SystemdValue handles expansion while Esc handles backslashes and double quotes; neither makes
+    /// raw CR, LF, backspace or vertical tab safe.
     /// </summary>
     public static void RequireNoControlCharacters(string name, string value) {
         foreach (var c in value) {

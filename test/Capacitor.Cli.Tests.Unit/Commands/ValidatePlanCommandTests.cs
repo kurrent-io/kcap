@@ -381,13 +381,13 @@ public class ValidatePlanCommandTests : IDisposable {
 
         await Assert.That(stdout).Contains("[plan content unavailable due to size bounds]");
         await Assert.That(stdout).Contains("Validation is not possible");
-        // review finding 3: distinguishable from success (0) and from a generic error (1).
+        // review: distinguishable from success (0) and from a generic error (1).
         await Assert.That(exitCode).IsEqualTo(2);
     }
 
     [Test, NotInParallel]
     public async Task Truncated_primary_with_null_original_bytes_falls_back_to_unknown_total_marker() {
-        // review finding 2: OriginalBytes is nullable — a malformed/edge response could
+        // review: OriginalBytes is nullable — a malformed/edge response could
         // omit it even on a "truncated" artifact. The marker must stay well-formed ("of ? bytes"),
         // never "of  bytes".
         const string content = "Truncated prefix with no known original size...";
@@ -434,7 +434,7 @@ public class ValidatePlanCommandTests : IDisposable {
 
     [Test, NotInParallel]
     public async Task Truncated_primary_with_null_content_renders_like_unavailable() {
-        // review finding 2: content_state=="truncated" with Content == null is an edge
+        // review: content_state=="truncated" with Content == null is an edge
         // shape the server contract doesn't normally produce, but the CLI must not print
         // "first 0 of {n} bytes" — treat it like "unavailable" (placeholder + exit 2 since this
         // is the primary).

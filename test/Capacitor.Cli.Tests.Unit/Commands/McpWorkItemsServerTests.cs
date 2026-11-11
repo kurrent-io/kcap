@@ -609,8 +609,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task Breakdown_body_rejects_an_explicit_null_part_ids() {
-        // A PRESENT null is a wrong shape, not absence. An earlier revision's `is { } node` form read
-        // it as absence and silently omitted the field (review finding).
+        // A present JSON null is the wrong shape, not an absent optional field.
         var ex = Assert.Throws<ArgumentException>(
             () => McpWorkItemsServer.BuildBreakdownBody(Args("""{"parent_id":"p1","part_ids":null}""")));
 
@@ -657,9 +656,7 @@ public class McpWorkItemsServerTests {
             await Assert.That(ex!.Message).Contains("parent_id").Because($"id {id} must be rejected");
         }
 
-        // And ONLY those two (review correction — an earlier revision rejected any all-dot id, and
-        // this test pinned that over-broad behaviour). "..." is an ordinary path segment, not a dot
-        // segment, so refusing it would reject an id the server might accept.
+        // Only dot and dot-dot are dot segments; three dots is an ordinary id the server may accept.
         var threeDots = McpWorkItemsServer.ItemUrl("http://x", Args("""{"parent_id":"..."}"""), "parent_id", "breakdown");
         await Assert.That(threeDots).IsEqualTo("http://x/api/work-items/.../breakdown");
 
@@ -681,10 +678,8 @@ public class McpWorkItemsServerTests {
     // ── dispatch: the route/method/body pairing itself ────────────────────────
 
     /// <summary>
-    /// Review finding: the helper tests above verify URL and body construction INDEPENDENTLY, so none
-    /// of them would catch a switch entry that used GET instead of POST, picked the wrong suffix, or
-    /// paired a route with the wrong body builder. These drive the real dispatch through a fake
-    /// transport and assert what would actually go on the wire.
+    /// Drive real dispatch through the fake transport: independent URL and body helper tests cannot
+    /// catch a switch pairing the wrong verb, route, or body builder.
     /// </summary>
     sealed class CapturingHandler : HttpMessageHandler {
         public HttpMethod? Method  { get; private set; }
@@ -1180,13 +1175,8 @@ public class McpWorkItemsServerTests {
 
     // ── telemetry: a real dispatch failure must read back as ok=false ─────────────────────────
     //
-    // Regression coverage for the systematic MCP telemetry bug: every server's TimedDispatchToolCallAsync
-    // used to set ok=true merely because DispatchToolCallAsync returned a string, even when that
-    // string was a JSON-RPC result carrying isError:true (HandleToolCallAsync catches its own
-    // exceptions and returns such a result rather than throwing). This drives a REAL failure
-    // through the actual dispatch method — an unrecognized tool name, which never reaches the
-    // network — and feeds its actual output into McpTelemetry.ResponseOk, the same function the
-    // wrapper now calls, so a reversion of either half would fail this test.
+    // A returned JSON-RPC string can still carry isError:true. Drive an unknown tool through actual
+    // dispatch and classify its returned result so telemetry cannot mark a nonthrowing error as success.
     [Test]
     public async Task ResponseOk_reads_false_from_an_unknown_tool_dispatch_error() {
         using var client = new HttpClient(new CapturingHandler());

@@ -270,9 +270,8 @@ public class MemoryIndexLiveCertHarnessTests {
         await Assert.That(body).DoesNotContain("return null;");
     }
 
-    // A discarded exit code here makes a negative control pass vacuously (injection was never actually
-    // disabled) or leaves the real profile disabled after the run. The pre-existing Claude cert asserts
-    // it; an earlier draft of this shared harness dropped that guard.
+    // Assert the config subprocess exit code: a discarded failure can invalidate the negative
+    // control or leave the operator's real profile disabled after the run.
     [Test]
     public async Task Setting_the_real_flag_fails_loudly_rather_than_discarding_the_exit_code() {
         var source = await File.ReadAllTextAsync(HarnessSourcePath());

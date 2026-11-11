@@ -74,7 +74,7 @@ public class ConsentPromptCoordinatorTests {
 
     /// Closing without deciding is an explicit defer: the queue is untouched and the tray keeps
     /// its attention state. A later ShowPromptWindow (the tray menu item) builds a fresh window —
-    /// Avalonia refuses to Show() a closed one — over the same, still-pending queue.
+    // Avalonia refuses to Show() a closed one — over the same, still-pending queue.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Close_is_defer_reopen_via_show() {
@@ -180,7 +180,7 @@ public class ConsentPromptCoordinatorTests {
 
     /// The window's own close: an advance that finds nothing left. Proves the
     /// ViewModel→window wiring, and that the coordinator releases the instance so the next
-    /// arrival raises a fresh one rather than trying to Show() a closed window.
+    // Arrival raises a fresh one rather than trying to Show() a closed window.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Window_closes_itself_when_the_queue_empties() {

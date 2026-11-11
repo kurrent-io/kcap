@@ -5,12 +5,8 @@ using Tomlyn.Model;
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Codex;
 
 /// <summary>
-/// Covers the <c>[projects."…"]</c> pre-trust key form. Codex normalises the path before it
-/// looks the entry up — on Windows to lowercase, drive letter included — and TOML keys are
-/// case-sensitive, so a raw mixed-case worktree path is a *different* key. The write then has
-/// no effect and Codex parks on its directory-trust prompt: the hosted agent never starts a
-/// session and the dashboard sits on "Waiting for session to start…" with an empty terminal.
-/// Same failure PR #265 fixed for Claude's <c>~/.claude.json</c> trust key.
+/// Codex normalizes the project path before TOML lookup, including lowercase drive/path on Windows.
+/// TOML keys are case-sensitive, so a raw mixed-case key can leave trust ineffective and stall launch.
 /// </summary>
 public class CodexProjectKeyTests {
     [Test]

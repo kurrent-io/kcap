@@ -46,97 +46,15 @@ enum ClaudeCliFailure {
 
 static class ClaudeCliRunner {
     /// <summary>
-    /// Runs <c>claude -p &lt;prompt&gt; --output-format json --max-turns &lt;N&gt; --model &lt;model&gt;</c>
-    /// with no tools, and parses the JSON response. Returns null on failure
-    /// (timeout, bad exit code, parse error). When the CLI returns an empty
-    /// <c>result</c> field (known bug with extended thinking), falls back to
-    /// reading the assistant response from the session transcript file. Logs
-    /// are written via <paramref name="log"/>.
-    ///
-    /// <para>
-    /// <paramref name="model"/> defaults to <c>haiku</c> (suitable for cheap
-    /// summarization like title generation). For judgment tasks like the
-    /// eval command, pass a stronger model (e.g. <c>sonnet</c>).
-    /// </para>
-    ///
-    /// <para>
-    /// When <paramref name="promptViaStdin"/> is true, the prompt is streamed
-    /// to the <c>claude</c> process via stdin instead of being passed as a
-    /// command-line argument — required for prompts that would otherwise
-    /// exceed OS argv limits (notably 32K on Windows), such as the eval
-    /// command's embedded session trace.
-    /// </para>
-    ///
-    /// <para>
-    /// <paramref name="ct"/> cancels the invocation cooperatively: stdin
-    /// writes, stdout/stderr reads, and <see cref="Process.WaitForExitAsync"/>
-    /// all observe a token linked with the internal timeout. On external
-    /// cancellation the subprocess is killed (not just awaited-off) and
-    /// <see cref="OperationCanceledException"/> propagates to the caller so
-    /// it can distinguish shutdown from the internal timeout (which is
-    /// swallowed and surfaces as a null result, same as before).
-    /// </para>
-    ///
-    /// <para>
-    /// When <paramref name="jsonSchema"/> is supplied, the CLI is asked to
-    /// constrain output against the schema via <c>--json-schema</c>. The
-    /// model then satisfies the response through the synthetic
-    /// <c>StructuredOutput</c> tool — this adds one required turn on top of
-    /// whatever the real work needs, so callers using a schema should bump
-    /// <paramref name="maxTurns"/> accordingly (typically +1). The matched
-    /// object is returned under the top-level <c>structured_output</c> field
-    /// and surfaces here as the <see cref="ClaudeCliResult.Result"/> string
-    /// (re-serialised), so downstream parsers see the same shape they would
-    /// from a free-form JSON reply.
-    /// </para>
-    ///
-    /// <para>
-    /// <paramref name="mcpConfigJson"/> and <paramref name="allowedTools"/>
-    /// are opt-in for callers that need the model to reach for MCP tools
-    /// during the run (today: the DEV-1484 retrospective judge, which
-    /// pulls session details via <c>kcap mcp judge</c> instead of
-    /// having the full trace embedded in its prompt). When
-    /// <paramref name="mcpConfigJson"/> is supplied, the runner loads the
-    /// caller-supplied MCP config via <c>--mcp-config</c> and permits exactly
-    /// <paramref name="allowedTools"/> via <c>--allowedTools</c> — layered on
-    /// top of the same built-in tool lockdown the text-only path uses (empty
-    /// <c>--tools</c> / <c>--disallowedTools LSP</c>), which stays on in BOTH
-    /// modes. The lockdown is required even with an allowlist because
-    /// <c>--allowedTools</c> alone does not stop claude exposing built-in tools
-    /// like <c>Agent</c> (subagents) to the model; the MCP tools are not part
-    /// of the built-in set, so <c>--tools ""</c> leaves them callable.
-    /// <c>--strict-mcp-config</c> and <c>--disable-slash-commands</c> also stay
-    /// on in both modes — strict-mcp-config is what keeps the user's global
-    /// or plugin MCP servers (e.g. <c>kcap-sessions</c> from the kcap Claude
-    /// Code plugin) from leaking in and getting permission-blocked under
-    /// the allowlist. Leaving both null preserves the text-only
-    /// behaviour every other caller relies on.
-    /// </para>
-    ///
-    /// <para>
-    /// <paramref name="maxBudgetUsd"/> caps the wall-clock spend of the
-    /// <c>claude</c> subprocess. When null (default) no cap is applied. The CLI
-    /// honours it via <c>--max-budget-usd</c> and will return with whatever
-    /// partial result it had when the cap was hit; downstream parsers treat a
-    /// missing <c>structured_output</c> field as a failed judge, which is the
-    /// intended "hit the ceiling" behaviour for DEV-1486's tools-enabled
-    /// questions.
-    /// </para>
-    ///
-    /// <para>
-    /// <paramref name="systemPrompt"/> REPLACES (not appends to) the default
-    /// Claude Code system prompt via <c>--system-prompt</c>. Text-only callers
-    /// (title generation, what's-done summaries) carry their full instructions
-    /// in the user prompt, so passing a tiny task-specific prompt here strips
-    /// the harness system-prompt overhead — measured at ~8.2K prompt tokens per
-    /// title call vs ~2.4K with a minimal replacement — on the subscription
-    /// path with no extra configuration. Null/blank leaves the flag off so the
-    /// CLI keeps its default behaviour (e.g. the eval judges).
-    /// </para>
+    /// The compatibility wrapper returns null for unsuccessful outcomes; use RunDetailedAsync when
+    /// failure kinds matter. Empty CLI result fields may require reading the persisted transcript.
+    /// Large prompts need stdin to avoid argv limits. StructuredOutput consumes an extra turn, so schema
+    /// callers must budget for it; a budget hit without structured output remains an unsuccessful result.
+    /// MCP mode requires an explicit allowed-tools list in addition to disabling built-in tools:
+    /// --allowedTools alone can leave built-ins exposed. Strict MCP config also excludes ambient servers.
+    /// A systemPrompt replaces the vendor default rather than appending to it. Null keeps that default;
+    /// minimal title prompts can avoid roughly 8.2K versus 2.4K input tokens of harness overhead.
     /// </summary>
-    /// <summary>Adapts <see cref="RunDetailedAsync"/> to the legacy null-on-any-failure contract
-    /// used by title generation, <c>whats-done</c> summaries and the retrospective judge, none of
-    /// which distinguish failure kinds.</summary>
     public static async Task<ClaudeCliResult?> RunAsync(
             string            prompt,
             TimeSpan          timeout,

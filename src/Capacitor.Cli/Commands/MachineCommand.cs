@@ -161,11 +161,8 @@ public sealed class MachineCommand(
 
         // ORDER MATTERS: disclose the secret BEFORE registering.
         //
-        // WorkOS discloses it exactly once. An earlier revision registered first and printed after, so
-        // any registration failure — server unreachable, feature disabled, caller not an admin —
-        // destroyed the secret permanently, and a retry could not recover it: the second provisioning
-        // call is an idempotent hit that returns no secret at all. The operator would be left with an
-        // unusable application occupying the name, and no way back.
+        // Print the one-time WorkOS secret before server registration. A failed registration is retryable,
+        // but repeated provisioning returns no secret, so registering first could permanently lose it.
         //
         // Printing first cannot lose anything. The worst case becomes an unregistered machine whose
         // credential the operator holds, which the failure path below tells them how to resolve.

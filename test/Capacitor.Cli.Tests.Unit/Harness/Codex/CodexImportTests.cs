@@ -58,7 +58,7 @@ public class CodexImportTests {
 
     [Test]
     public async Task ExtractCodexSessionMetadata_ignores_turn_context_before_session_meta() {
-        // Qodo regression (#52): the docstring resolves the model from the first
+        // regression: the docstring resolves the model from the first
         // turn_context AFTER session_meta. If the rollout header is truncated or
         // corrupt and a turn_context appears without a session_meta, its model
         // should NOT be picked up — meta.Model stays null so callers treat the

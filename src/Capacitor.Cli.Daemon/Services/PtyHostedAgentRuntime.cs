@@ -7,34 +7,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// <see cref="IHostedAgentRuntime"/> backed by an interactive PTY (Claude, Codex). Wraps an
-/// <see cref="IPtyProcess"/> and folds in the CLI-specific input semantics: bracketed-paste input,
-/// the <see cref="SpecialKeyMap"/> translation, and the graceful "/exit" stop.
-///
-/// <paramref name="approvalsDisabled"/> is set by the factory when the launch turned off interactive
-/// approval/permission prompts (codex <c>--ask-for-approval never</c> / claude
-/// <c>--permission-mode bypassPermissions</c>), so no dialog an Enter could accept can appear. It
-/// gates the submit strategy — see <see cref="SubmitAsync"/>. Defaults to <c>false</c> (assume a
-/// prompt could be present), the fail-safe choice for interactive/local launches.
-///
-/// Input writes take the input lane, so a paste and its submit are never interleaved by another
-/// writer; the graceful stop only tries for it (see <see cref="RequestGracefulStopAsync"/>).
-///
-/// <paramref name="readyOnBracketedPaste"/> makes the launch prompt wait for the TUI to enable
-/// bracketed paste rather than for any output. The factory sets it on Windows, where ConPTY writes
-/// its own preamble before the agent starts; see <see cref="DeliverLaunchPrompt"/>.
-///
-/// <paramref name="bracketedPasteMeansComposerUp"/> is set when the vendor turns bracketed paste on
-/// only while a text input is mounted, so that mode is the readiness signal and no quiet window is
-/// waited out after it.
-///
-/// <paramref name="awaitsSessionStart"/> is set when the vendor fires SessionStart only once its
-/// composer is up and that hook reaches this daemon (<see cref="NoteSessionStarted"/>), so the launch
-/// prompt waits for it.
-///
-/// <paramref name="confirmsLaunchPrompt"/> is set when the agent's hooks report its turns to this
-/// daemon (<see cref="NoteTurnRelayed"/>), so the launch prompt is not counted as delivered until
-/// one does, and any message whose turn is not reported gets its submit Enter once more.
+/// Keep paste and submit on one input lane; graceful stop only attempts bounded acquisition.
+/// Assume an approval prompt can be present unless approvalsDisabled explicitly rules one out.
+/// ConPTY preamble is not composer readiness: readyOnBracketedPaste waits for the agent's mode change.
+/// Only vendors that enable paste with a mounted composer may use bracketedPasteMeansComposerUp.
+/// awaitsSessionStart holds the prompt until the hook proves the composer is ready; confirmation
+/// uses relayed turns as delivery evidence and may retry Enter for a message without a reported turn.
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,

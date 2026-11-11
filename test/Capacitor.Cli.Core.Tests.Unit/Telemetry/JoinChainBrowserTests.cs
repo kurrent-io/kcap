@@ -6,34 +6,11 @@ using Duende.IdentityModel.OidcClient.Browser;
 namespace Capacitor.Cli.Core.Tests.Unit.Telemetry;
 
 /// <summary>
-/// The chain driven by a REAL BROWSER, which is the one thing
-/// <see cref="JoinChainLiveTests"/> cannot do.
-///
-/// <para><b>Why this exists.</b> That test drives the chain with <c>HttpClient</c> and a
-/// <c>CookieContainer</c>. Two of this feature's load-bearing claims are invisible to it:</para>
-/// <list type="number">
-/// <item><c>HttpClient</c> does not implement <c>SameSite</c> AT ALL, so "a top-level GET navigation
-/// is what makes <c>SameSite=Lax</c> cookies travel" — the reason the closing page navigates rather
-/// than firing a beacon — was asserted in comments and executed by nothing. If it is wrong the join
-/// silently returns no identity: no error, no red test, just permanently unjoined events.</item>
-/// <item>Nothing ran the closing page's <c>location.replace</c>. The other test regex-extracts the
-/// URL out of the HTML and follows it by hand, so the emitted script was never proven to navigate.
-/// </item>
-/// </list>
-///
-/// <para><b>Gated</b> behind <c>KCAP_JOIN_BROWSER_E2E=&lt;base url&gt;</c> plus
-/// <c>KCAP_JOIN_BROWSER_HANDSHAKE=&lt;path&gt;</c>. It cannot drive the browser itself — a browser
-/// is not something a unit-test host should own — so it publishes the callback URL to the handshake
-/// path and waits. Whoever runs it (an agent with browser automation, or a human with the URL in
-/// their clipboard) navigates to that URL, and the assertions below check what came back.</para>
-///
-/// <para>127.0.0.1 and localhost are DIFFERENT SITES to a browser, so the hop out of the closing
-/// page is a genuine cross-site top-level navigation — exactly the case <c>SameSite=Lax</c> governs,
-/// and exactly what needed proving.</para>
-///
-/// <para><b>Fires no analytics event.</b> The web route captures <c>cli_auth_return</c> only when the
-/// analytics cookie carries a <c>distinct_id</c>; the cookie the driver sets has <c>$device_id</c>
-/// ONLY. The device id is what crosses back, so the merge is still fully exercised.</para>
+/// A real browser must execute location.replace and send SameSite=Lax cookies across the
+/// 127.0.0.1-to-localhost navigation; HttpClient cannot verify either behavior.
+/// KCAP_JOIN_BROWSER_E2E and KCAP_JOIN_BROWSER_HANDSHAKE opt in: the driver publishes a URL and
+/// waits for an external browser to visit it. The cookie carries $device_id without distinct_id
+/// so identity merging is exercised without emitting an analytics event.
 /// </summary>
 public class JoinChainBrowserTests {
     [TempDir] public required TempDir Tmp { get; init; }

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Task 13 (liveness-supervision spec §1 "ACP launch handshake" / "Immediate stage-advance
+/// (liveness-supervision spec "ACP launch handshake" / "Immediate stage-advance
 /// reports"): before this, <c>AcpHostedAgentRuntimeFactory.StartAsync</c>'s spawn + <c>initialize</c>
 /// / <c>session/new</c> / model-selection handshake had NO launch-level timeout at all —
 /// <c>AcpConnection.RequestAsync</c> has no timer of its own, so only daemon shutdown could ever
@@ -78,7 +78,7 @@ public class AcpLaunchStageTests {
 
         /// <summary>Every <see cref="AgentActivityClock.LaunchStage"/> value observed via
         /// <see cref="AgentActivityClock.OnLaunchStageChanged"/>, in transition order — mirrors how
-        /// Task 11's real production hook (<c>AgentOrchestrator.CreateActivityClock</c>) observes
+        /// The production hook (<c>AgentOrchestrator.CreateActivityClock</c>) observes
         /// stage advances, without needing the full orchestrator.</summary>
         public List<string?> ObservedStages { get; } = [];
 
@@ -154,7 +154,7 @@ public class AcpLaunchStageTests {
         await Assert.That(h.Process.HasExited).IsTrue();
 
         // The "spawned" stamp still fired (it precedes any cap) — "initialized" never did. Seq
-        // starts at 1 (Task 10) and SetLaunchStage unconditionally advances it (Task 11), so >= 2
+        // starts at 1 and SetLaunchStage unconditionally advances it, so >= 2
         // is only reachable if the "spawned" SetLaunchStage call actually ran against THIS clock —
         // i.e. proves the factory wired ActivityClock onto the runtime before the handshake began.
         await Assert.That(h.Clock.ActivitySeq).IsGreaterThanOrEqualTo(2UL);
@@ -359,7 +359,7 @@ public class AcpLaunchStageTests {
 }
 
 /// <summary>
-/// Orchestrator-level integration for Task 13: reuses the shared
+/// Orchestrator-level integration for: reuses the shared
 /// <see cref="AgentOrchestratorHarness"/> (<c>BuildOrchestrator</c>, <c>CreateGitRepo</c>,
 /// <c>CaptureServerConnection</c>) to prove two things the factory-level <see cref="AcpLaunchStageTests"/>
 /// suite cannot reach on its own: (1) a stage timeout surfaces through
@@ -436,8 +436,8 @@ public class AcpLaunchStageOrchestratorTests {
         await Assert.That(server.LaunchFailedCalls[0].Reason).StartsWith("acp_launch_stage_timeout:initialized");
         await Assert.That(process.TerminateCalls).IsGreaterThanOrEqualTo(1);
 
-        // Never reached PublishAgent — the defect this task fixes is exactly that a wedged
-        // handshake used to be invisible to every reaper because it never got this far.
+        // Keep the handshake before PublishAgent so the test exercises launch-stage reaping while the
+        // agent is not yet in the running-agent registry.
         await Assert.That(orch.GetAgentForTest("agent-orch-wedge")).IsNull();
 
         fakeCts.Cancel();
@@ -503,7 +503,7 @@ public class AcpLaunchStageOrchestratorTests {
         await Assert.That(cursorFactory.StageRightAfterSet).IsEqualTo("model_set");
 
         // The SAME instance the factory wrote to is the one the orchestrator owns on AgentInstance
-        // — the Task 13 wiring-order fix (RuntimeStartContext.ActivityClock threaded to the
+        // the wiring-order fix (RuntimeStartContext.ActivityClock threaded to the
         // factory) is what makes this a single shared object, not two independent clocks.
         await Assert.That(ReferenceEquals(cursorFactory.ObservedClock, agent!.ActivityClock)).IsTrue();
 

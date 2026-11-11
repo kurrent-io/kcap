@@ -453,10 +453,7 @@ public class EvalServiceTests {
 
     // ── BuildTextQuestionPrompt ─────────────────────────────
     //
-    // The legacy embedded-template BuildQuestionPrompt was removed in Phase 3.
-    // The text path now uses the catalog's server-RENDERED prompt carried on
-    // the reconciled question's Prompt; BuildTextQuestionPrompt fills the
-    // runtime placeholders and strips any residual {CACHE_BOUNDARY}.
+    // Use the catalog's rendered prompt, substitute runtime placeholders, and remove CACHE_BOUNDARY.
 
     [Test]
     public async Task BuildTextQuestionPrompt_substitutes_all_placeholders() {
@@ -678,7 +675,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task BuildRetrospectivePrompt_substitutes_all_placeholders() {
-        // Phase 3: the template now comes from the catalog (passed in) and
+        // the template now comes from the catalog (passed in) and
         // carries a {TRACE_JSON} placeholder the daemon fills with its already-
         // fetched trace (SF#1).
         var template = "meta={SESSION_META} verdicts={VERDICTS_JSON} patterns={KNOWN_PATTERNS} trace={TRACE_JSON}";

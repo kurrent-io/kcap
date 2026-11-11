@@ -9,27 +9,9 @@ namespace Capacitor.Cli.Daemon.Harness.Cursor;
 internal sealed record CursorBorrowedReviewArtifact(string Version, string LauncherPath, string BundleDigest);
 
 /// <summary>
-/// A RECORD of the last Cursor build the maintainer validation workflow probed for borrowed-review
-/// behavior — reads, containment, and process boundary. <b>It gates nothing.</b> A non-match is the
-/// expected steady state (Cursor auto-updates) and is not an error: borrowed-review capability is
-/// advertised for whatever build is installed, and a borrowed launch spawns the ordinary configured
-/// binary. No caller may use <see cref="TryMatchValidatedBuild"/> to decide capability, to select a
-/// launcher path, or to derive any runtime state; its only production caller is the manually
-/// invoked maintainer validation workflow. See
-/// docs/superpowers/specs/2026-07-27-ai1528-trust-by-default-borrowed-review-design.md.
-///
-/// <para><b>Version form.</b> <see cref="Version"/> is the <i>version-directory name</i> the launcher
-/// resolves into (<c>~/.local/share/cursor-agent/versions/&lt;name&gt;/cursor-agent</c>) — that is
-/// what <see cref="TryMatchValidatedBuild"/> compares. Observed on the installed macOS build,
-/// <c>cursor-agent --version</c> prints exactly the same string (<c>2026.07.23-e383d2b</c>), so this
-/// form and the <c>CliVersion</c> the daemon probes and logs at startup agree today. They remain
-/// independent facts — a future Cursor release printing a bare semver would diverge from the
-/// directory name without anything being wrong, and nothing in production compares them.</para>
-///
-/// <para>Cursor auto-updated past this record on 2026-07-23, so the digests below describe an older
-/// build than the one most machines run. Under trust-by-default that is a stale note, not a fault —
-/// refresh it by re-running the maintainer probe suite against the installed build, never by
-/// recomputing the hashes alone (that would record a validation that never happened).</para>
+/// This is informational maintainer validation, never a runtime capability or launcher gate.
+/// Compare the resolved version-directory name, not the CLI's displayed version; those can differ.
+/// Refresh digests only after re-running the behavioral probe, not by hashing an unverified build.
 /// </summary>
 internal static class CursorBorrowedReviewValidation {
     internal const string Version = "2026.07.20-8cc9c0b";

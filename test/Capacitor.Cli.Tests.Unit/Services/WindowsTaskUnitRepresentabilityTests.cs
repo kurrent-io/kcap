@@ -44,9 +44,10 @@ public class WindowsTaskUnitRepresentabilityTests {
             .Throws<InvalidOperationException>();
     }
 
-    /// <summary>The KEY is interpolated into the same `set "K=V"` line, so it is exactly as dangerous as
-    /// the value. The first version checked only the value — review caught that the stated rationale
-    /// (callers add entries after Build, so the sink must validate) applies to both sides equally.</summary>
+    /// <summary>
+    /// Validate environment keys as well as values at the task sink: both are interpolated into
+    /// set "K=V", and callers can add entries after the initial builder returns.
+    /// </summary>
     [Test]
     [Arguments("BAD\"KEY")]
     [Arguments("BAD\r\nset FOO=bar")]

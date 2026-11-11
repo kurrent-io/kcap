@@ -201,8 +201,7 @@ public class BorrowedReviewContextTests {
         var snapshot = await manager.CreateBorrowedSnapshotAsync(
             repo.Path, "review", CancellationToken.None);
         try {
-            // A between-rounds refresh with a config grown past the cap must not fail — a
-            // throw here is what used to terminate a live reviewer mid-flow.
+            // A config exceeding the cap during between-round refresh must not terminate the live reviewer.
             await File.WriteAllBytesAsync(
                 repo.PathTo(".mcp.json"), new byte[256 * 1024 + 1]);
             repo.Do("add", ".mcp.json");

@@ -112,7 +112,7 @@ static int build_execpath_plan(const char *exe_abs_path, char *const orig_argv[]
     return 0;
 }
 
-// fd-bound privilege preflight (pinned, spec §4.2): the check and the exec share ONE open
+// fd-bound privilege preflight : the check and the exec share ONE open
 // file — never a path-based stat-then-execve (TOCTOU-broken). Only a clean "no bits, no
 // capability xattr" proves non-privileged; any other outcome (including a read/stat ERROR)
 // classifies uncontained — never a false proof.
@@ -151,7 +151,7 @@ static int build_execfd_plan(int fd, char *const argv[], int contained, pty_exec
 // NULL if not found. Sets *saw_relative_component whenever ANY field is empty (a leading/
 // trailing ':' or an internal '::' — POSIX treats an empty field as the current directory) or
 // relative (does not begin with '/'), so the caller can classify uncontained rather than risk
-// resolving against the wrong cwd (spec §4.2 risk #4).
+// resolving against the wrong cwd.
 //
 // Deliberately a MANUAL ':' scan, NOT strtok: strtok collapses adjacent/leading/trailing
 // delimiters, so it silently HIDES exactly the empty (cwd) field we must detect — and it is
@@ -258,7 +258,7 @@ static int build_shebang_plan(
 
         // Two-level (or deeper) script chain: the resolved interpreter is ITSELF a script (it
         // carries its own shebang). Only a single script→native-interpreter level is containable
-        // (spec §4.2 / §4.5) — a deeper chain would have the kernel re-resolve THAT script's
+        // a deeper chain would have the kernel re-resolve THAT script's
         // interpreter by pathname at runtime, which we do not preflight — so classify uncontained
         // and let the kernel resolve the whole chain natively from the original path.
         if (fd_starts_with_shebang(fd)) { close(fd); return build_execpath_plan(script_abs_path, orig_argv, 0, out_plan); }
@@ -366,14 +366,9 @@ int pty_preflight(const char *exe_abs_path, char *const orig_argv[], char *const
 
     int fd = open(exe_abs_path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
-        // EACCES/EPERM specifically: we can't READ the target to sniff a shebang or run the
-        // fd-bound privilege preflight — but that does NOT prove it's un-executable. An
-        // execute-only (e.g. mode 0111, no read bit) native ELF execs fine via execve on Linux
-        // without being readable, so degrade to an uncontained EXEC_PATH plan (the kernel
-        // resolves + execs the path natively; we simply forgo the fd-bound containment proof we
-        // cannot obtain, per the spec §4.2(a) "open EACCES ... degrades to EXEC_PATH-uncontained"
-        // rule). Any OTHER errno (ENOENT missing file, etc.) is a genuine "no plan can be built"
-        // failure → -1, matching the EXEC_PATH fallback's own execve, which would fail identically.
+        // Read permission is not executable permission: an execute-only ELF can still run by path.
+        // On EACCES/EPERM retain EXEC_PATH without claiming fd-bound containment; other open errors
+        // fail plan construction rather than pretending a valid fallback exists.
         if (errno == EACCES || errno == EPERM) {
             return build_execpath_plan(exe_abs_path, orig_argv, 0, out_plan);
         }
@@ -460,31 +455,11 @@ static int capture_lx_identity(pid_t pid, char *out, size_t outlen) {
 #include <sys/sysctl.h>
 #include <libproc.h>
 
-// PROC_PIDUNIQIDENTIFIERINFO (flavor 17) and its struct are #ifdef PRIVATE in the xnu source
-// and ABSENT from the shipped SDK's sys/proc_info.h entirely on this toolchain (grepping the
-// installed SDK header for "uniqidentifier"/"PIDUNIQIDENTIFIERINFO" finds nothing) —
-// proc_pidinfo() itself IS public, only the flavor constant and struct are undeclared.
-//
-// The struct's TOTAL size is not a stable, documented ABI, and differs from every commonly
-// cited historical layout: empirically probing THIS kernel's proc_pidinfo(pid, 17, buf, n)
-// directly (varying the requested buffer size, then comparing getpid() vs a freshly forked
-// child vs pid 1) shows (a) any requested size below 56 bytes is refused outright (returns 0,
-// never a truncated fill) while 56+ all return exactly 56, and (b) the leading 16 bytes look
-// like a per-process UUID, the next 8 bytes (offset 16) increment by exactly 1 from a live
-// process to its immediately-forked child (a monotonic unique-id counter), and the following
-// 8 bytes (offset 24) in the CHILD exactly equal the PARENT's offset-16 value — including the
-// pid-1 sentinel case (uniqueid=1, puniqueid=0). That is strong confirmation of the
-// historically-cited PREFIX layout (p_uuid[16], p_uniqueid, p_puniqueid) for the three fields
-// that matter, even though the trailing reserved region's exact size varies by OS version (a
-// hardcoded 40-byte total, as an earlier draft of this file assumed, made every call here
-// return 0/uncapturable — the kernel refuses anything under its actual current size). Rather
-// than assert an exact total size that has ALREADY been observed to vary, this reads only the
-// fixed-offset prefix out of a buffer sized generously larger than any known/plausible total,
-// so a future OS growing the reserved tail further keeps working without a code change.
-// Verified on this dev box (macOS, arm64) only — flagging to the requester that the exact
-// prefix offsets should be cross-checked against whatever OS version the release macOS
-// runner actually uses, since this call degrades to "uncapturable" (never a false proof) but
-// is not yet confirmed correct there.
+// PROC_PIDUNIQIDENTIFIERINFO is private to the kernel headers, but proc_pidinfo is exported.
+// The total struct size varies: undersized buffers can be refused instead of partially filled.
+// Request 256 bytes and require only the verified UUID[16], uniqueid[8], parent-uniqueid[8] prefix.
+// Keep this layout identical to ProcessStartToken's managed capture; otherwise spawn-time and
+// reap-time identities disagree for the same process. Short or missing results are uncapturable.
 #define PTY_PROC_PIDUNIQIDENTIFIERINFO 17
 #define PTY_UNIQIDENTIFIERINFO_BUFSIZE 256 // comfortably larger than any known/plausible layout
 
@@ -496,7 +471,7 @@ struct pty_proc_uniqidentifierinfo_prefix {
     // by OS version (see note above); we never read them, so their shape doesn't matter here.
 };
 
-// Spec §4.3: pin the vendored prefix's size/offset at COMPILE time. memcpy() below reads exactly
+// pin the vendored prefix's size/offset at COMPILE time. memcpy() below reads exactly
 // these bytes at these offsets out of the kernel's buffer, so any ABI drift (a padding change, a
 // field-order change) must fail the build here rather than silently mis-read the identity at
 // runtime. p_uuid[16] + p_uniqueid(8) + p_puniqueid(8) = 32, with p_uniqueid at offset 16.

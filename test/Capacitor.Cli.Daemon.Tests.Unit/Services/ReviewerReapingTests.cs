@@ -57,10 +57,10 @@ public class ReviewerReapingTests {
         await Assert.That(orch.FindReviewersToReap().Select(r => r.Id)).DoesNotContain("between-rounds");
     }
 
-    /// <summary>The other half of the ownership split: a bound being present must not DISABLE the legacy
-    /// backstop either (the pre-fix code returned early on any bound, so a bound-carrying reviewer was
-    /// never TTL- or idle-checked at all). Both legacy rules fire here on bound-carrying agents, and each
-    /// reason is asserted individually so the two remain independently load-bearing.</summary>
+    /// <summary>
+    /// A server round bound must not disable the daemon's independent lifetime and idle backstops.
+    /// Assert each reason separately on bound-carrying agents so one rule cannot cover for the other.
+    /// </summary>
     [Test]
     public async Task Legacy_ttl_and_idle_still_fire_for_a_bound_carrying_reviewer() {
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
@@ -272,7 +272,7 @@ public class ReviewerReapingTests {
 
     }
 
-    // ── The atomic reap claim (round-dispatch grace §3) ──────────────────────────────────────
+    // ── The atomic reap claim (round-dispatch grace ) ──────────────────────────────────────
     //
     // Everything above judges SELECTION. These judge the CLAIM, which is the actual decision:
     // FindReviewersToReap reads a snapshot and the teardown happens later, so a reviewer that
@@ -589,26 +589,13 @@ public class ReviewerReapingTests {
         await delivery.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>The un-sectioned claim does not only race WEDGED deliveries — and this is the case that
-    /// makes the pre-write re-read of the claim latch load-bearing rather than defensive.
-    ///
-    /// <para>A borrowed delivery legitimately spends up to <c>BorrowedSnapshotRefreshTimeout</c> (30s)
-    /// inside the section refreshing its snapshot, which is LONGER than the claim's gate wait. So the
-    /// absolute-lifetime claim fires against a perfectly healthy in-flight delivery with nothing parked
-    /// anywhere. Checking the latch only on entry to the section would let that delivery finish into an
-    /// agent already condemned: write the round, advance the activity clock, emit a delivered-input
-    /// report — precisely what the refusal exists to prevent, and worse than the wedged case because
-    /// nothing fails to make it visible.</para>
-    ///
-    /// <para>The window is entered through <c>SendInputBeforeWriteHookForTest</c> rather than by
-    /// parking the refresh itself. That is not a shortcut — an earlier revision of this test DID park
-    /// a borrowed refresh, and it passed with the re-read deleted: without a real borrowed checkout the
-    /// refresh's own authorisation fails on release, so <c>HandleSendInput</c> returned at the
-    /// refresh's error path and never reached the write it was supposed to be proving something about.
-    /// The seam enters the genuine window instead of a vacuous one.</para>
-    ///
-    /// <para>Mutation anchor: removing the pre-write re-read (keeping only the entry check) fails on
-    /// all three of the write, the seq and the report below.</para></summary>
+    /// <summary>
+    /// An absolute-lifetime claim can overtake a healthy borrowed refresh whose bounded work outlasts
+    /// the claim's gate wait. Re-read the claim immediately before writing so that condemned agent gets
+    /// no new input, activity advance, or delivered-input report.
+    /// Pause at the pre-write seam: a borrowed fixture failing its own authorization could otherwise
+    /// return early and never exercise the write this test is meant to fence.
+    /// </summary>
     [Test]
     public async Task Healthy_in_section_delivery_refuses_after_a_claim_lands_mid_flight() {
         var server = new CaptureServerConnection();

@@ -30,10 +30,10 @@ namespace Capacitor.App.ViewModels;
 /// * Attempt lifecycle (_attemptGeneration): every attach/reattach bumps it; a completion whose
 ///   captured generation no longer matches the current one is a retired attempt and mutates
 ///   nothing (silent, not an error). _attachLane (SemaphoreSlim(1,1), TRY-entered via Wait(0) --
-///   never awaited) single-flights the swap: two ReattachCommand.Execute() calls issued before the
+/// Never awaited) single-flights the swap: two ReattachCommand.Execute() calls issued before the
 ///   first has reached its own await point collapse to exactly one new client, because
-///   ReactiveCommand.Execute() invokes its Func&lt;Task&gt; eagerly, without consulting
-///   CanExecute/IsExecuting, so a queueing WaitAsync() here would let a double-click spawn two
+/// ReactiveCommand.Execute() invokes its Func&lt;Task&gt; eagerly, without consulting
+/// CanExecute/IsExecuting, so a queueing WaitAsync() here would let a double-click spawn two
 ///   real clients.
 ///   A call that loses the try-enter is a clean no-op, not a queued retry.
 /// * Send gate (_openingToken): who may accept composer text. BeginAttempt and Invalidate are its

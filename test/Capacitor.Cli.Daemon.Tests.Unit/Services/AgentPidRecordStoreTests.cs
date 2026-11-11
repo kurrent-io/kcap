@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(2)): <see cref="AgentPidRecordStore"/> — atomic write/read/delete round-trip
+/// <see cref="AgentPidRecordStore"/> — atomic write/read/delete round-trip
 /// (exact identity preserved) and corrupt-record quarantine.
 /// </summary>
 public class AgentPidRecordStoreTests {
@@ -123,7 +123,7 @@ public class AgentPidRecordStoreTests {
 
         // Build the JSON via the REAL serializer first (so this test can't drift from the actual
         // schema/casing), then surgically remove the identity_kind member — this produces the
-        // EXACT old-shape JSON a pre-M1-A daemon actually wrote, not a hand-typed guess at the
+        // EXACT old-shape JSON a daemon writing legacy tk: identities actually wrote, not a hand-typed guess at the
         // property's wire name/casing.
         var current = new AgentPidRecord("legacy1", 999, "tk:123456789", PidIdentityKind.Present,
             "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
@@ -185,12 +185,9 @@ public class AgentPidRecordStoreTests {
         var store = new AgentPidRecordStore(tmp.Path, NullLogger.Instance);
         var agentsDir = tmp.CreateDir("agents");
 
-        // A parseable record whose start_identity is JSON null — System.Text.Json binds null to
-        // the non-nullable positional string parameter, so ReadAll used to NRE on the subsequent
-        // .Length check and abort the WHOLE sweep (OrphanReaper enumerates ReadAll() directly).
-        // Build it from the real serializer, then null the token, so this can't drift from the
-        // wire name/casing. AgentId stays non-empty and IdentityKind Present so the ONLY defect
-        // is the null token.
+        // System.Text.Json can bind null to a non-nullable positional string. Null only start_identity
+        // in a real serialized record so wire casing stays accurate and identity nullability is the sole
+        // defect; one malformed record must not abort the entire orphan sweep.
         var current = new AgentPidRecord("nulltoken1", 5, "lx:boot:1", PidIdentityKind.Present,
             "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
         var json = System.Text.Json.JsonSerializer.Serialize(current, CapacitorJsonContext.Default.AgentPidRecord);

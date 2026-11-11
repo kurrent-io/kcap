@@ -37,9 +37,8 @@ public class SessionImporterScanTests {
 
     [Test]
     public async Task ScanAgentLifecycle_AgentSeenFirstInAgentProgress_StillResolvesTypeFromLaterInvocation() {
-        // Regression: when agent_progress for an agentId arrives before the assistant
-        // tool_use + async_launched pair, the early-return on FirstLineByAgent.ContainsKey
-        // used to prevent subagent_type from being copied into AgentTypeByAgent. (Qodo#29)
+        // An early agent_progress reference must not prevent a later tool invocation from supplying
+        // subagent_type for the same agent id.
         var transcript = """
                          {"type":"progress","data":{"type":"agent_progress","agentId":"agent-abc"}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{"subagent_type":"code-reviewer"}}]}}

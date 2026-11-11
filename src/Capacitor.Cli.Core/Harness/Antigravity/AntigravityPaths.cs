@@ -3,23 +3,10 @@ using Capacitor.Cli.Core.Harness.Gemini;
 namespace Capacitor.Cli.Core.Harness.Antigravity;
 
 /// <summary>
-/// Filesystem layout for Google Antigravity. Antigravity is a
-/// GUI IDE (VS Code fork, Windsurf/Codeium lineage) whose agent state lives under
-/// the SHARED <c>~/.gemini</c> home in an <c>antigravity</c> subdir (so every path here hangs off
-/// the injected <see cref="GeminiPaths"/>, GEMINI_CLI_HOME included). Each conversation
-/// has a per-conversation JSONL transcript under <c>brain/&lt;id&gt;/…/logs/</c> and a
-/// SQLite <c>conversations/&lt;id&gt;.db</c> (token/model in its protobuf <c>gen_metadata</c>).
-///
-/// kcap ships as an Antigravity <b>plugin</b>: a directory under the GUI config root
-/// (<c>~/.gemini/config/plugins/kcap/</c>) holding a required <c>plugin.json</c> marker
-/// (without it the GUI never loads the dir) plus a <c>hooks.json</c> that registers the
-/// kcap control hooks. Per-workspace installs live under <c>&lt;root&gt;/.agents/plugins/kcap/</c>.
-/// ⚠️ The <c>~/.gemini/antigravity-cli/</c> dir is the <c>agy</c> CLI's config root — the
-/// GUI does NOT read it, so installing hooks there (as #256 originally did) is invisible
-/// to the running IDE (GUI re-test).
-///
-/// ⚠️ <c>~/.gemini</c> is shared with the Gemini CLI, so Gemini's install signal must require a
-/// Gemini-specific marker or an Antigravity-only home reads as a Gemini install.
+/// The GUI plugin root and agy CLI settings root differ even though both share ~/.gemini.
+/// GUI hooks require config/plugins/kcap/plugin.json plus hooks.json; antigravity-cli settings are
+/// not read by the GUI. Require a Gemini-specific install marker so an Antigravity-only shared
+/// home cannot be misclassified as a Gemini CLI install. All paths honor the injected Gemini root.
 /// </summary>
 public sealed class AntigravityPaths(GeminiPaths gemini) {
     public AntigravityPaths(UserHome home, string? geminiCliHome) : this(new GeminiPaths(home, geminiCliHome)) { }

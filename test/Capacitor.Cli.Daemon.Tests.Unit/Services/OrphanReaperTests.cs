@@ -6,10 +6,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(3)): <see cref="OrphanReaper"/> — reaps hosted-agent children that outlived
+/// <see cref="OrphanReaper"/> — reaps hosted-agent children that outlived
 /// a prior daemon run. Acts only on test-owned <see cref="DummyProcess"/> instances. OS-aware: the
 /// RECORD pass confirms-and-kills on a proven exact (pid, start-identity) match on every platform
-/// (macOS uses the exact <c>mac:{bootsessionuuid}:{p_uniqueid}</c> incarnation identity — M1-A;
+/// (macOS uses the exact <c>mac:{bootsessionuuid}:{p_uniqueid}</c> incarnation identity;
 /// Linux additionally requires the readable <c>KCAP_AGENT_ID</c> env as defense-in-depth). The
 /// separate ENV-MARKER scan still SPARES on macOS 26 (other processes' env is redacted — the scan
 /// finds nothing; ambiguity never kills). The epoch-guard and gone-process paths are OS-independent.
@@ -42,7 +42,7 @@ public class OrphanReaperTests {
         // Record-pass kills once ownership is provable: a proven exact (pid, start-identity) match is
         // sufficient authorization on EVERY platform. Linux additionally confirms via the KCAP_AGENT_ID
         // env (defense-in-depth); macOS relies on the exact mac:{bootsessionuuid}:{p_uniqueid} identity
-        // alone (env is redacted there — requiring it would defeat M1-A leader recovery); Windows has no
+        // alone (env is redacted there — requiring it would defeat macOS leader recovery); Windows has no
         // Unix env guard. Either way the survivor is REAPED (killed) on the first pass.
         dummy.WaitForExit(TimeSpan.FromSeconds(8));
         await Assert.That(dummy.HasExited).IsTrue();
@@ -256,7 +256,7 @@ public class OrphanReaperTests {
     public async Task Macos_legacy_tk_record_is_legacy_unresolvable_spared_every_pass_until_manual_kill() {
         if (!OperatingSystem.IsMacOS()) return;
 
-        // A pre-M1-A tk: record compared against the now-mac:-producing live process is
+        // A legacy tk: record compared against the now-mac:-producing live process is
         // cross-scheme → Ambiguous → spared, every pass, forever — until the operator manually
         // kills it, at which point Classify's Dead branch (which runs BEFORE any token
         // comparison) confirms death regardless of scheme and the record is deleted normally.

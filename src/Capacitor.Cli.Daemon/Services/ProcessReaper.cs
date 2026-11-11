@@ -5,11 +5,11 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4): the shared "reap by exact identity" primitive used by the
+/// the shared "reap by exact identity" primitive used by the
 /// <c>HandleStopAgent</c> PID-record fallback (T7), the kill-quarantine retry (T8), and the startup
 /// <c>OrphanReaper</c> (T9). Kills a leftover child ONLY when its identity is proven — never on
 /// ambiguity — and reports whether death is CONFIRMED (so the caller deletes the record / drains the
-/// quarantine only then, per spec §6.4(2)).
+/// quarantine only then, ).
 /// <para><b>Tri-state identity (fail-closed).</b> The leader pid is classified against its expected
 /// start token as one of: <c>Dead</c> (pid gone — or a Linux zombie, treated as gone), <c>Ours</c>
 /// (alive, exact match), <c>Recycled</c> (alive, CONCLUSIVELY a different incarnation — same scheme,
@@ -71,7 +71,7 @@ internal static class ProcessReaper {
         // live child and drop its durable tracking). We deliberately do NOT apply this env guard on
         // macOS: macOS redacts other processes' env, so requiring it would ALWAYS spare and defeat the
         // exact mac:{bootsessionuuid}:{p_uniqueid} incarnation identity that is the whole point of the
-        // macOS record kill (M1-A eventual leader recovery). Windows has no scan path either. The safety
+        // macOS record kill (eventual leader recovery). Windows has no scan path either. The safety
         // invariant is unweakened: only a proven exact identity match reaches here (Ambiguous/null still
         // SPARES above); Dead / a conclusive token recycle return confirmed-gone above.
         if (OperatingSystem.IsLinux()) {
@@ -96,7 +96,7 @@ internal static class ProcessReaper {
             CancellationToken ct)
         => KillConfirmAsync(pid, expectedIdentity, agentId, logger, time, ct);
 
-    /// <summary>Kill-quarantine retry (spec §6.4(2a)): the entry is a KNOWN-ours process whose death
+    /// <summary>Kill-quarantine retry: the entry is a KNOWN-ours process whose death
     /// wasn't confirmed at teardown. Kill it by EXACT identity and report confirmed-gone (drain) vs
     /// still-alive/uncomparable (retain for the next tick).</summary>
     public static Task<bool> ReapByIdentityAsync(

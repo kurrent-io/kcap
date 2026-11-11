@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Daemon.Tests.Unit;
 
 /// <summary>
-/// Decision 6: a supervised daemon's deliberate refusal (local name-lock, server
+/// a supervised daemon's deliberate refusal (local name-lock, server
 /// <c>NameInUse</c>) exits 0 so <c>KeepAlive SuccessfulExit=false</c> doesn't respin it forever;
 /// a manual daemon keeps 2/3 for scripts. Covers the two pure exit-decision functions and the
 /// env-backed <see cref="DaemonRunner.IsSupervised"/> predicate they're driven by, which reads the

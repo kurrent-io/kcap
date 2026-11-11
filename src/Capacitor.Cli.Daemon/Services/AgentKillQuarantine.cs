@@ -5,14 +5,14 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(2a)): the in-memory kill-quarantine — agents whose death could NOT be
+/// the in-memory kill-quarantine — agents whose death could NOT be
 /// confirmed at teardown (kill failed / record write failed while the process is still alive). The
 /// heartbeat retries the kill until it confirms death. While an entry sits here it:
 /// <list type="bullet">
 /// <item>counts against the daemon's admission gate (<c>EffectiveCount = ActiveCount + Quarantined.Count</c>),
 /// so a persistent kill-failure mode FAILS CLOSED — it can never mint unbounded processes;</item>
 /// <item>is reported in <c>DaemonStatusReport.Quarantined</c> (its own field, excluded from
-/// <c>ActiveCount</c>) so the server can see WHY admission is blocked and (Phase B2) treat the id as
+/// <c>ActiveCount</c>) so the server can see WHY admission is blocked and treat the id as
 /// physically-live for heal/settlement.</item>
 /// </list>
 /// </summary>

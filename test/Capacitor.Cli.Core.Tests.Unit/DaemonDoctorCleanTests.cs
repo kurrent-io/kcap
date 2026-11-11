@@ -1,10 +1,8 @@
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// A cleaned stale entry must drop out of <see cref="DaemonStore.EnumerateNames"/>.
-/// The lock file is a flock mutex that <c>--clean</c> cannot safely delete, so the listing
-/// keys on the state markers: once they are gone the name disappears even though the inert
-/// lock lingers. Previously a lone lock kept re-surfacing the entry on every run.
+/// A flock mutex cannot be safely deleted by cleanup. Listing must depend on state markers so
+/// an inert retained lock does not keep a cleaned daemon visible.
 /// </summary>
 public class DaemonDoctorCleanTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }

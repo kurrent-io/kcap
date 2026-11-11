@@ -16,57 +16,13 @@ using Capacitor.Cli.Core.Workspace;
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
-/// Single-binary dispatcher for Google Gemini CLI hooks. Unlike
-/// Copilot, Gemini's command-hook stdin payload carries a uniform
-/// <c>hook_event_name</c> (PascalCase: <c>SessionStart</c> / <c>SessionEnd</c> /
-/// <c>Notification</c>), so this dispatcher self-routes on it like Claude — the
-/// installer registers a single <c>kcap hook --gemini</c> command per event.
+/// Gemini parses stdout.trim() or stderr.trim() as the hook result, so empty stdout can turn auth
+/// or HTTP diagnostics into a decision. Every recognized event must make exactly one output attempt:
+/// a memory envelope when present, otherwise an explicit nonblocking continue object.
+/// Claim the attempt even if writing throws; retrying could append an invalid second or partial object.
+/// Keep hook in CrashReporter.FailOpenCommands: nonzero exit codes outside Gemini's allowed band can
+/// make its plain-text fallback block a session. Unparseable event names alone remain silent.
 /// </summary>
-/// <remarks>
-/// Wire contract (Gemini event → server route):
-///   SessionStart → POST /hooks/session-start/gemini, then spawn the watcher
-///                  tailing the payload's <c>transcript_path</c>
-///                  (<c>~/.gemini/tmp/&lt;project&gt;/chats/session-*.jsonl</c>)
-///                  with vendor=gemini. Gemini re-fires with source:"resume" on
-///                  the same session id and appends to the same transcript file,
-///                  so the server's deterministic lifecycle ids make the re-POST
-///                  idempotent and the watcher resumes from the server watermark.
-///   SessionEnd   → kill watcher + capped inline drain (mirror of the Copilot /
-///                  Claude pre-drain cap), then POST /hooks/session-end/gemini.
-///   Notification → best-effort forward to the Claude-shaped /hooks/notification.
-/// KCAP'S STDERR IS PART OF GEMINI'S HOOK CONTRACT. Gemini treats hook stdout as a
-/// JSON decision channel and selects the text to parse as
-/// <c>stdout.trim() || stderr.trim()</c> — in a <c>child.on("close")</c> handler
-/// that never looks at the event name. So an EMPTY stdout on ANY event makes it
-/// parse this process's STDERR as the hook's result, and kcap writes failed-POST,
-/// unusable-URL and auth diagnostics there on every event.
-///
-/// Hence the invariant, enforced structurally by <see cref="Handle"/>'s
-/// <c>finally</c> rather than by each path remembering: a RECOGNISED hook firing
-/// makes exactly one write ATTEMPT — the memory envelope on SessionStart when there
-/// is one, else an explicit <c>{"continue":true}</c>. Only input with no parseable
-/// <c>hook_event_name</c> stays silent. Do not add a returning path that skips it,
-/// and do not "harmonise" the empty-fragment write away to match the other memory
-/// adapters: those harnesses have no such fallback.
-///
-/// ATTEMPT, not "exactly one object reaches stdout": a throwing writer still consumes
-/// the claim. See <see cref="HookResultWriter"/> for the two residues that leaves and
-/// why neither is worth retrying.
-///
-/// The second half of the contract is the EXIT CODE, which is easy to miss because
-/// nothing on this path mentions it. Gemini's plain-text fallback (what a stderr
-/// string degrades to) is not unconditionally benign: it maps exit 0 and 1 to
-/// <c>decision: "allow"</c> but ANY other code to <c>decision: "deny"</c>, which
-/// <c>isBlockingDecision()</c> honours — that is a BLOCKED session, not junk
-/// context. kcap stays out of that band only because <c>hook</c> is one of
-/// <c>CrashReporter.FailOpenCommands</c>, which is what makes every top-level
-/// handler in Program.cs return 0 for it. That set is load-bearing here;
-/// <c>GeminiHookOutputContractTests</c> pins it.
-///
-/// Behaviour above is measured on <c>gemini 0.53.0</c> — a version-specific
-/// observation, not a guarantee. The mitigation does not depend on it: emitting a
-/// valid non-blocking object is correct under any of these selection rules.
-/// </remarks>
 sealed class GeminiHookCommand(
         ConfigRoot config, ProfileContext profiles, HookClock clock, UserHome home,
         HarnessRegistry harnesses, HostedAgent hosted, ICapacitorHttpClient http, WatcherManager watchers,
@@ -270,8 +226,6 @@ sealed class GeminiHookCommand(
             return 0;
         }
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
         var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");

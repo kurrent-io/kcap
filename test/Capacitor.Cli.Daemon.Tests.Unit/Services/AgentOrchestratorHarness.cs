@@ -12,12 +12,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// <summary>
-/// Orchestrator construction for the AgentOrchestrator suite. These used to be merged into every
-/// test file by a 30-fragment <c>partial class AgentOrchestratorVendorTests</c>; they live here so
-/// each test file can declare a class named after itself. See also <see cref="GitRepo"/>
-/// and <see cref="WaitHarness"/>.
-/// </summary>
 internal static class AgentOrchestratorHarness {
     internal static AgentOrchestrator BuildOrchestrator(
             ServerConnection                                    server,
@@ -34,11 +28,11 @@ internal static class AgentOrchestratorHarness {
             // exercising a deny/prompt policy passes its own gate (e.g. built with a Deny-default
             // LaunchConsentStore) instead.
             LaunchConsentGate?                                  consentGate            = null,
-            // §3.3: defaults to the fixed never-cancels StubHostLifetime every pre-existing test relies
+            // defaults to the fixed never-cancels StubHostLifetime every pre-existing test relies
             // on. A test that needs to simulate shutdown firing mid-launch (e.g. a gate OCE parked on a
             // consent prompt) passes its own lifetime with a controllable ApplicationStopping token.
             IHostApplicationLifetime?                           lifetime               = null,
-            // §3.3: leaves the sequenced processor unpublished, so a test can drive the pre-settlement
+            // leaves the sequenced processor unpublished, so a test can drive the pre-settlement
             // inline arm and the publication barrier. Production never has that window.
             bool                                                deferProcessorPublication = false,
             // Defaults to the no-network stub. A test that exercises attachment downloads passes a

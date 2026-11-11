@@ -49,7 +49,7 @@ public sealed class DaemonClientService : IDaemonClientService, IAsyncDisposable
 
     public SourceCache<PendingLaunchDto, string> Pending { get; } = new(p => p.Id);
 
-    /// Begins the attach loop with the service-lifetime token. Fire-and-forget: Start() itself
+    // Begins the attach loop with the service-lifetime token. Fire-and-forget: Start() itself
     /// never blocks the caller (Avalonia startup) on the first attach cycle.
     public void Start() => _ = RestartLoopAsync();
 

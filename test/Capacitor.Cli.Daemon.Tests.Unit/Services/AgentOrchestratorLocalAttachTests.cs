@@ -17,7 +17,7 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// Local-attach (Phase 1) behaviours on AgentOrchestrator. Partial of
+/// Local-attach behaviours on AgentOrchestrator. Partial of
 /// AgentOrchestratorVendorTests to reuse its BuildOrchestrator + test doubles.
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorLocalAttachTests {
@@ -203,7 +203,7 @@ public class AgentOrchestratorLocalAttachTests {
 
         await Assert.That(server.Calls.Count).IsEqualTo(0);
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_URL")).IsTrue();            // records as a plain local session
-        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered in Phase 1 → no agent_host_id tag
+        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered in → no agent_host_id tag
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_RENDERED_AGENT")).IsFalse(); // native terminal permissions
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_DAEMON_URL")).IsFalse();
     }
@@ -1111,14 +1111,10 @@ public class AgentOrchestratorLocalAttachTests {
         public override void SetLength(long v) => throw new NotSupportedException();
     }
 
-    /// <summary>Every launch path must build its activity clock through the orchestrator's
-    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. The
-    /// local-spawn path used to construct its <c>AgentInstance</c> without one, taking the record's
-    /// hookless default: inert today (a local spawn is PTY-only, and nothing PTY stamps a launch
-    /// stage), but silently arming the exact "feature is wired everywhere except here" failure the
-    /// moment this path gains an ACP runtime — which is how the ACP handshake stamps went no-op once
-    /// already. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
-    /// the default clock is non-null too.</summary>
+    /// <summary>
+    /// Every launch path needs the clock's stage-report hook, not merely a non-null clock:
+    /// the record's default clock exists but cannot publish stage advancement.
+    /// </summary>
     [Test]
     public async Task Local_spawn_builds_its_activity_clock_through_the_shared_factory() {
         using var tmp = new TempDir();

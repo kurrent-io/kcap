@@ -1,35 +1,11 @@
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Retries a hub invocation across transient connection drops. Used by
-/// <see cref="ServerConnection.RequestPermissionAsync"/> so a SignalR blip
-/// during a (potentially hours-long) permission wait doesn't surface to the
-/// caller as a failure — and therefore doesn't get turned into a silent deny.
-///
-/// Every attempt — including the first — waits until the connection is ready
-/// (Connected AND re-registered) before invoking, so a request that arrives
-/// mid-reconnect can't fire against a connection the server hasn't registered.
-/// Because of that gating, a failure is a transient disconnect when it is an
-/// <see cref="OperationCanceledException"/> (SignalR cancels in-flight
-/// invocations when the transport drops) or an
-/// <see cref="InvalidOperationException"/> ("connection is not active" — the
-/// transport went down in the gap between the readiness check and the call).
-/// Both are retried. Every other exception — <c>HubException</c> (server
-/// rejected) or anything unrecognized — propagates to the caller (→ the bridge
-/// denies).
-///
-/// The transient-disconnect loop is bounded only by <c>ct</c> (daemon shutdown). The
-/// caller's shutdown token is excluded from the transient classification, so a
-/// shutdown <see cref="OperationCanceledException"/> propagates rather than
-/// being retried.
-///
-/// A caller may additionally supply <c>isRetriableServerError</c> +
-/// <c>maxServerErrorRetries</c> to retry a BOUNDED number of times on specific
-/// server-rejection exceptions (the "Caller is not the daemon owning session"
-/// <c>HubException</c> that can appear briefly after a reconnect, before per-agent
-/// re-registration has restored ownership — retrying past that window avoids a spurious deny).
-/// Unlike transient disconnects, these retries are capped so a genuinely-permanent server error
-/// still surfaces (→ deny) instead of looping forever.
+/// Wait for connection and re-registration before every attempt so a reconnect cannot cause a
+/// spurious permission denial. Transport cancellation and an inactive connection are retryable;
+/// caller shutdown cancellation propagates. Other failures propagate unless explicitly classified
+/// as bounded server-error retries. Transport retries last until shutdown, but server-error retries
+/// must be capped so permanent rejections cannot become an endless permission wait.
 /// </summary>
 internal static class ConnectionRetry {
     /// <summary>

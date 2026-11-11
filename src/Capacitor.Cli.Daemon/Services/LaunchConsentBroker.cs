@@ -29,7 +29,7 @@ namespace Capacitor.Cli.Daemon.Services;
 ///
 /// Delivery to each subscriber is exactly-once per request (replay xor broadcast, never both),
 /// enforced by the _deliveryGate lock. There is NO withdrawal push — subscribers learn of
-/// expiration only when TryResolve returns false (Task 7's consumer relies on this).
+/// expiration only when TryResolve returns false ('s consumer relies on this).
 internal sealed class LaunchConsentBroker : ILaunchConsentPrompter {
     sealed record Pending(LaunchConsentPromptRequest Request, TaskCompletionSource<bool> Tcs);
 
@@ -106,7 +106,7 @@ internal sealed class LaunchConsentBroker : ILaunchConsentPrompter {
             try {
                 // TimeProvider-aware: the same injected clock drives this wait as
                 // WaitForSubscriberAsync's, so a controlled provider deterministically drives
-                // every timeout on this path in tests (spec §3.2).
+                // every timeout on this path in tests.
                 return await tcs.Task.WaitAsync(timeout, time, ct);
             } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException) {
                 if (ex is OperationCanceledException && ct.IsCancellationRequested) {

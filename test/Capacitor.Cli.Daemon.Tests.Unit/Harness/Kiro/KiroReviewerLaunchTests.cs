@@ -177,13 +177,8 @@ public class KiroReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The gate must fire on an upgrade. Asserted with the operator flag ON, so this cannot pass for
-    /// the wrong reason (a disabled daemon refuses everything).
-    /// </summary>
-    /// <summary>
-    /// An UPGRADED kiro-cli launches, with no operator action. This test used to assert the opposite,
-    /// and inverting it is the point of the change: the recorded version is a minimum, so a routine
-    /// vendor release no longer takes the reviewer offline.
+    /// An upgraded build launches without operator action because the recorded version is a minimum.
+    /// Keep the enable flag on so the test cannot pass through an unrelated disabled-vendor refusal.
     /// </summary>
     [Test]
     public async Task AnUpgradedKiro_LaunchesWithoutAnyOperatorAction() {

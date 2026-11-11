@@ -107,7 +107,7 @@ public class MachineCommandTests {
     }
 
     /// <summary>
-    /// Qodo: a new user-facing CLI surface must be documented in README.md in the same PR. Pinned so
+    /// a new user-facing CLI surface must be documented in README.md in the same PR. Pinned so
     /// the README and the command cannot drift apart silently — the compiler reads neither.
     /// </summary>
     [Test]

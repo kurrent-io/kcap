@@ -92,46 +92,12 @@ internal static class PiRpc {
     }
 
     /// <summary>
-    /// Translates ONE event <paramref name="frame"/> into zero or more <see cref="AcpEventEnvelope"/>s.
-    /// A <see cref="PiRpcFrameKind.Response"/> or <see cref="PiRpcFrameKind.Unknown"/> frame always
-    /// yields <c>[]</c> — a response is command-correlation plumbing the runtime layer consumes
-    /// directly, not transcript content.
-    ///
-    /// <list type="bullet">
-    /// <item><description><c>message_end</c> with an assistant message maps each content item, IN
-    /// ORDER, to <c>assistant_text</c> / <c>assistant_thinking</c> / <c>tool_call</c>; a
-    /// <c>stopReason</c> of <c>"error"</c> then appends ONE <c>system_note</c> carrying the
-    /// message's <c>errorMessage</c> (capped at <see cref="ExtensionNoteTextCap"/>) — a failed turn
-    /// usually has EMPTY content, so this note is its only visible trace; finally, when the message
-    /// carries a <c>usage</c> block, a <c>usage</c> envelope and then a <c>token_usage</c> envelope,
-    /// the only way a hosted Pi session's token counts reach the server. Every envelope's
-    /// <see cref="AcpEventEnvelope.Model"/> is the message's own <c>"model"</c> field, else
-    /// <paramref name="fallbackModel"/>.</description></item>
-    /// <item><description><c>message_end</c> with a user message maps to ONE <c>user_message</c>
-    /// envelope carrying the concatenated text — content may be a plain string or a content-part
-    /// array (only <c>text</c> parts contribute; a user message has no thinking/toolCall parts).</description></item>
-    /// <item><description><c>tool_execution_end</c> maps to ONE <c>tool_result</c>. Upstream's
-    /// <c>result</c> is an OBJECT — <c>{"content":[{"type":"text","text":".."}],"details":{..}}</c> —
-    /// so the text is the concatenation of its <c>content[]</c> items' <c>text</c> fields (the same
-    /// content-part concatenation <see cref="TranslateUserMessage"/> uses). A plain string
-    /// <c>result</c> is used verbatim (schema drift, tolerated); anything else — an object with no
-    /// <c>content</c> array, or any other shape — falls back to <c>GetRawText()</c> rather than
-    /// dropping the result, so this never throws on an unexpected shape.</description></item>
-    /// <item><description><c>extension_error</c> maps to ONE <c>system_note</c>, its text capped at
-    /// <see cref="ExtensionNoteTextCap"/> characters.</description></item>
-    /// <item><description><c>extension_ui_request</c> with method <c>notify</c> maps to ONE
-    /// <c>system_note</c> carrying its message, capped at <see cref="ExtensionNoteTextCap"/>. A dialog
-    /// method is the runtime's to answer, and the remaining display-only methods have no transcript
-    /// meaning, so both yield <c>[]</c>.</description></item>
-    /// <item><description>Every other known event (<c>agent_start</c>/<c>agent_end</c>/
-    /// <c>agent_settled</c>/<c>turn_start</c>/<c>turn_end</c>/<c>message_start</c>/
-    /// <c>message_update</c>/<c>bash_execution_update</c>) and any unrecognized type yield
-    /// <c>[]</c> — deliberately no <c>system_note</c> spam for known-but-untranslated events, and no
-    /// debug logging either; the only place this protocol layer's caller logs anything is the read
-    /// pump, and only for a frame with no recognizable string <c>type</c> at all (see
-    /// <see cref="PiRpcFrameKind.Unknown"/>) — a known-or-unknown EVENT type that yields
-    /// <c>[]</c> here is silent by design.</description></item>
-    /// </list>
+    /// Preserve assistant content order, then append an error note even when failed-turn content is
+    /// empty; otherwise a failed turn has no visible trace. Usage emits both usage and token_usage.
+    /// Tool results normally contain a content-part array; tolerate string results and retain raw JSON
+    /// for unrecognized shapes rather than losing the result. Bound extension-generated note text.
+    /// Command responses and untranslated event kinds are intentionally silent, not transcript notes.
+    /// Dialog requests belong to the runtime; only notify requests become display notes.
     /// </summary>
     public static IReadOnlyList<AcpEventEnvelope> ToEnvelopes(PiRpcFrame frame, string? fallbackModel) {
         if (frame.Kind != PiRpcFrameKind.Event) return [];

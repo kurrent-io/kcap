@@ -125,7 +125,7 @@ public static class ConfigMigration {
 
     /// <summary>
     /// Reads a scalar straight off the raw node, falling back to <paramref name="fallback"/> when the
-    /// key is absent or null. <c>TryGetValue</c> rather than <c>GetValue&lt;T&gt;()</c> keeps the read
+    /// Key is absent or null. <c>TryGetValue</c> rather than <c>GetValue&lt;T&gt;</c> keeps the read
     /// total: a type mismatch already surfaces from the deserializer above as a JsonException the
     /// caller handles, and must not be re-raised here as an uncaught InvalidOperationException.
     /// </summary>

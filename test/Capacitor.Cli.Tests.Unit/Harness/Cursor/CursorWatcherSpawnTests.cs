@@ -293,7 +293,7 @@ public class CursorWatcherSpawnTests {
     }
 
     // A later nonterminal hook for a child WITHOUT the ack marker must still self-heal nothing —
-    // the existing no-ack gate (review fix #5's round-1 sibling) already returns before this
+    // the existing no-ack gate already returns before this
     // point, so the self-heal spawn never even gets a chance to run.
     [Test]
     public async Task Later_nonterminal_child_hook_does_not_spawn_when_never_acked() {

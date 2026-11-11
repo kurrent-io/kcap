@@ -10,7 +10,7 @@ public class LifecycleSpoolDrainTests {
 
     const string Sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-    // review fix #1/#8 — the HttpClient-backed RunAsync overload's transcript poster
+    // the HttpClient-backed RunAsync overload's transcript poster
     // (PostTranscript) must enforce the Cursor quarantine marker itself: a batch spooled BEFORE
     // a runtime rewrite-guard trip (or one that simply never got checked anywhere else) must
     // still never reach `/hooks/transcript` once its session is quarantined — this is the ONLY
@@ -202,11 +202,11 @@ public class LifecycleSpoolDrainTests {
         ]);
     }
 
-    // Task 12 / BLOCKER-3: session-start/subagent-stop/session-end now share one spool
+    // / session-start/subagent-stop/session-end now share one spool
     // file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
     // already delivered is reachable. Same-pass, DrainRoutesAsync's phase-mismatch break already
     // withholds it correctly — but a bare re-run of RunAsync on a FRESH file containing only that
-    // straggler would, without a durable "already ended" marker, treat it as an ordinary phase-1
+    // straggler would, without a durable "already ended" marker, treat it as an ordinary nonterminal
     // non-terminal entry and deliver it — a real cross-pass ordering violation (the server would
     // see activity for a session it already closed).
     [Test]
@@ -229,7 +229,7 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.IsMarkedEnded(Sid)).IsTrue();
 
         // A late straggler lands in a brand-new pass, with nothing else in its way — the only
-        // thing stopping it from looking like an ordinary phase-1 entry is the ended marker.
+        // thing stopping it from looking like an ordinary nonterminal entry is the ended marker.
         life.Append(Sid, "subagent-stop/kiro", """{"phase":"straggler"}""");
         order.Clear();
 

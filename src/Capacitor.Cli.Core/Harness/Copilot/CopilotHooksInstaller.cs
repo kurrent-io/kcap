@@ -13,10 +13,8 @@ public static class CopilotHooksInstaller {
     public const string MarkerFileName = ".kcap-hooks-version";
 
     /// <summary>
-    /// True when the user has previously installed Copilot hooks via setup or
-    /// <c>kcap plugin install --copilot</c>. Marker file presence OR an
-    /// existing <c>kcap hook --copilot</c> entry in kcap.json — the
-    /// hooks-json fallback covers pre-marker installs.
+    /// Refresh only an existing Copilot hook install, identified by its marker or owned hook entry.
+    /// The config-entry fallback keeps markerless installs refreshable.
     /// </summary>
     public static bool IsInstalled(string hooksPath) {
         var dir = Path.GetDirectoryName(hooksPath);

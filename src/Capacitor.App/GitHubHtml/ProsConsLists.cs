@@ -3,7 +3,7 @@ using Markdig.Syntax.Inlines;
 
 namespace Capacitor.App.GitHubHtml;
 
-/// Qodo's High-Level Assessment writes pros and cons as a bullet list whose items already open
+/// A High-Level Assessment writes pros and cons as a bullet list whose items already open
 /// with ➕ / ➖. Keeping the list marker stacks a second bullet beside those signs, and the emoji
 /// read faint on the dark canvas. When every item of an unordered list opens that way, the list
 /// becomes ordinary paragraphs led by a bold `+` / `-`.

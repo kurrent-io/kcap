@@ -23,7 +23,7 @@ static partial class UnixExecFixtures {
     }
 
     /// <summary>A copy of a real binary that is executable but NOT readable (chmod 0111) —
-    /// exercises the "EXEC_PATH plans need no readable fd" §5 case.</summary>
+    /// exercises the "EXEC_PATH plans need no readable fd" case.</summary>
     public static string ExecuteOnlyCopyOf(this TempDir dir, string sourceAbsPath) =>
         CopyWithMode(dir.PathTo("exec-only"), sourceAbsPath, 0b001_001_001 /* 0111 */);
 

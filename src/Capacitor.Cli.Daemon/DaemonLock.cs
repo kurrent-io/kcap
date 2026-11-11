@@ -56,12 +56,12 @@ internal sealed class DaemonLock : IDisposable {
     /// (empty file) or unreadable content. Unlike the PID file (deleted on clean
     /// shutdown), the lock file's InstanceId is the persistent per-boot nonce every
     /// shipped version rewrites at boot and never deletes, so it witnesses the
-    /// immediately-preceding boot even one by an unaware binary. Phase B2-b
-    /// (sequenced-settlement design) uses it as the coverage boot-chain's chain-check.
+    /// Immediately-preceding boot even one by an unaware binary.
+    /// Uses it as the coverage boot-chain's chain-check.
     /// </summary>
     public string? PriorInstanceId { get; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.3): true iff the lock file was NON-EMPTY
+    /// <summary>true iff the lock file was NON-EMPTY
     /// but its content could not be read into a prior InstanceId (a read fault, or blank/garbage
     /// content). Distinguishes an unreadable prior lock from a genuinely empty first-ever/genesis slot
     /// (where this is false and <see cref="PriorInstanceId"/> is null): the coverage boot-chain treats

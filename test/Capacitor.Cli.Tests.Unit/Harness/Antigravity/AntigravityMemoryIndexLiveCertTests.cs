@@ -3,40 +3,12 @@ using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 namespace Capacitor.Cli.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// Env-gated certification that the SessionStart memory index reaches the model on the Antigravity
-/// CLI (<c>agy</c>) in print mode. Interactive <c>agy</c> is certified by direct observation — a
-/// real 1.1.11 session on 2026-08-07 carried the injected index as its own transcript event — and
-/// print mode is certified HERE, now that the workspace fallback exists.
-///
-/// <para><b>The print-mode history, because it was misdiagnosed twice.</b> <c>agy -p</c> fires the
-/// <c>PreInvocation</c> hook and honours <c>injectSteps</c> (probe-verified: injected steps land in
-/// the print-mode transcript on every invocation) — but it sends <c>"workspacePaths": []</c> where
-/// interactive sends the launch directory. Our adapter deliberately refuses to fetch an index
-/// without a scope, so print mode got zero bytes and the failure read exactly like "agy discards
-/// injectSteps". The fix recovers the workspace from the <c>agy</c> process's own cwd when the
-/// payload omits it (<c>AntigravityHookCommand.AgentWorkspaceCwd</c>); the payload always wins, so
-/// a vendor release that populates <c>workspacePaths</c> takes over silently.</para>
-///
-/// <para><b>Run this under the OAuth login, never with <c>AGY_ADC_AUTH=1</c>.</b> Measured on
-/// 1.1.11: ADC/Vertex auth disables agy's plugin hooks outright — no capture, no injection, and a
-/// failure here that has nothing to do with what this cert certifies.</para>
-///
-/// <para><b>Do not "fix" a failure here by loosening the prompt.</b> The prompt forbids tools
-/// because every harness we inject into also has the <c>kcap-memory</c> MCP server registered: a
-/// model allowed tools will fetch a memory via <c>search_memories</c> and produce a convincing pass
-/// with zero injection (measured — a print-mode session named a real memory it had gone and
-/// fetched). The transcript, not the answer, is the authoritative record; the answer-based
-/// assertion here is only sound because tools are forbidden.</para>
-///
-/// <para>The Antigravity 2.0 GUI app shares the same plugin config and was certified separately
-/// by direct observation (2026-08-08): a real app conversation on the shipped build was captured
-/// and injected — the app populates <c>workspacePaths</c> itself, so it never needed the print-mode
-/// fallback. Nothing in this file observes the app.</para>
-///
-/// <para>Both tests are <c>[NotInParallel]</c>: the negative control mutates the REAL
-/// process-global <c>disable_memory_index</c> config. <c>[NotInParallel]</c> only prevents
-/// concurrency — it restores nothing — so every test snapshots before creating anything and
-/// restores in a <c>finally</c>, including the unset state.</para>
+/// Certify print-mode injection using the process cwd when workspacePaths is empty; a supplied
+/// payload path must still take precedence. Use OAuth: ADC authentication can disable plugin hooks.
+/// Forbid tools so a model cannot fetch the nonce through MCP and mimic successful injection.
+/// The transcript is authoritative; this suite does not certify the GUI app.
+/// Tests mutate real process-global config, so exclude concurrency and restore the complete prior
+/// state in finally, including absence of the setting.
 /// </summary>
 public class AntigravityMemoryIndexLiveCertTests {
     const string LiveGateEnvVar = "KCAP_ANTIGRAVITY_MEMORY_LIVE";

@@ -52,10 +52,8 @@ internal static class DaemonStatusValidator {
     }
 }
 
-/// Self-healing typed client for the daemon's local control socket: connect → hello gate →
-/// StatusSubscribe → snapshot stream, reconnecting with backoff. All failure is DATA (the
-/// event stream); only cancellation ends the enumeration. See the state machine and
-/// classification rules in the app-shell design spec §4 — every branch here is pinned there.
+/// Failures are events; only cancellation ends the subscription enumeration. Reconnect with
+/// backoff after the hello and first-snapshot gates rather than leaking transport exceptions to the app.
 public sealed class LocalControlClient(DaemonStore store, string daemonName, TimeProvider time) {
     readonly TimeProvider _time = time;
 
@@ -87,9 +85,8 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
     public async IAsyncEnumerable<LocalControlEvent> RunAsync([EnumeratorCancellation] CancellationToken ct) {
         yield return new LocalControlEvent.Connecting();
 
-        // transition-only: the last yielded Unreachable (reason, DaemonVersion) pair, cleared on
-        // Connected — a version change re-emits even when the reason stays the same (spec
-        // decision 6), so the dedupe key is the PAIR, not the reason alone.
+        // Deduplicate by both reason and daemon version, clearing on connection. A version change must
+        // emit a new failure event even when its reason is identical.
         (string Reason, string? DaemonVersion)? last = null;
         var attempt = 0;
 
@@ -128,7 +125,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
             }
 
             // The cycle SUCCEEDED only because the first VALID snapshot arrived — reset the
-            // backoff schedule and yield Connected carrying that very snapshot (§4.1/§4.3).
+            // backoff schedule and yield Connected carrying that very snapshot.
             last = null;
             attempt = 0;
 

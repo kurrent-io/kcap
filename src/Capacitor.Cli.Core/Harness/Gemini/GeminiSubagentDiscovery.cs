@@ -94,46 +94,12 @@ public static class GeminiSubagentDiscovery {
         int                           UnreadableDescendantDirs);
 
     /// <summary>
-    /// Recursively discovers every descendant subagent transcript under
-    /// <paramref name="rootTranscriptPath"/>: the root's own <c>chats/&lt;root&gt;/*.jsonl</c>,
-    /// then — for each discovered subagent — that subagent's OWN <c>chats/&lt;sub&gt;/*.jsonl</c>,
-    /// and so on. Child directories are always derived from the ROOT's <c>chats/</c> directory,
-    /// never relative to a nested dir. Deterministic BFS (files ordered by filename at each
-    /// level); a visited-id set guards against a reachable cycle (it simply stops re-descending,
-    /// terminating the walk). In-cap discovery (depth &lt;= <see cref="MaxDescendantDepth"/>) is
-    /// ALWAYS complete — never bounded by <see cref="MaxCountingNodes"/>. Depth &gt;
-    /// <see cref="MaxDescendantDepth"/> is never imported, but the walk still recurses into it
-    /// (same visited-set guard) purely to COUNT the whole omitted subtree accurately and surface
-    /// its identities — this below-cap-only counting/signature walk is what
-    /// <see cref="MaxCountingNodes"/> bounds; if it's hit,
-    /// <see cref="DescendantDiscoveryResult.CountTruncated"/> is set and the omitted count/ids
-    /// become a lower bound instead of silently under-reporting as complete. Import-only for now
-    /// (see <see cref="EnumerateSubagentFiles"/>).
-    ///
-    /// <para>The in-cap and below-cap walks run over two INDEPENDENT frontiers, mirroring
-    /// <c>OpenCodeDb.QueryDescendants</c>. A below-cap descendant's own descendants are always
-    /// below-cap too (depth only grows), so the split is safe and lets the below-cap walk be
-    /// abandoned the instant it truncates, without disturbing the in-cap walk's completeness
-    /// guarantee: once truncation is established, the below-cap frontier is dropped rather than
-    /// drained node-by-node.</para>
-    ///
-    /// <para>A below-cap parent's own directory read goes through a bounded enumerator capped to
-    /// (remaining counting capacity + 1 sentinel entry) rather than the unbounded, full-sort
-    /// enumerator used for in-cap parents — since a child is only ever enqueued onto the in-cap
-    /// frontier when its own depth is &lt;= <see cref="MaxDescendantDepth"/>, a dequeued node at
-    /// exactly that depth has children that are ALL necessarily below the cap, so a single parent
-    /// with an enormous below-cap fan-out can't force listing (and sorting) its entire directory
-    /// before truncation is even detectable.</para>
-    ///
-    /// <para>The bounded enumerator reports whether the RAW read actually reached <c>limit</c>
-    /// entries, not merely how many of them turned out to be well-formed/unvisited — a malformed
-    /// or already-visited entry landing inside the bounded window would otherwise consume the
-    /// sole sentinel slot without itself counting as omitted, letting a genuinely-omitted
-    /// descendant just past it go undetected. When the raw read hits the limit, truncation is
-    /// asserted regardless of how many entries turned out valid; only a raw count strictly below
-    /// the limit is definite EOF. This can over-report truncation in the rare case where a
-    /// directory holds exactly <c>limit</c> raw entries and no more — safe, since a truncated
-    /// result is already documented as a lower bound.</para>
+    /// Derive all child directories from the root chats directory, with deterministic traversal and
+    /// cycle detection. Keep in-cap import discovery independent from below-cap omission counting:
+    /// count truncation must never drop importable descendants. Once truncated, abandon that frontier.
+    /// Bound below-cap directory reads before sorting, at remaining capacity plus one sentinel.
+    /// The limit applies to raw entries before malformed-name filtering and deduplication; otherwise a
+    /// bad sentinel could conceal more descendants. A truncated omitted count is a lower bound.
     /// </summary>
     public static DescendantDiscoveryResult EnumerateDescendantFiles(string rootTranscriptPath) =>
         EnumerateDescendantFiles(rootTranscriptPath, onDequeueBelowCapNode: null);

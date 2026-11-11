@@ -6,15 +6,9 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Task 12 (unified reviewer reaping, liveness-supervision spec §0/§1): the NO-SERVER-BOUND legacy
-/// backstop — <see cref="AgentOrchestrator.FindReviewersToReap"/> reaps a Running ReviewFlow agent
-/// past its lifetime/idle bound and never an interactive agent. As of Task 12 both bounds are read off
-/// <see cref="AgentActivityClock"/>'s monotonic accessors (<c>AgeMs</c>/<c>IdleForMs</c>), not the
-/// wall-clock <c>CreatedAt</c>/<c>LastOutputAt</c> pair this test used pre-Task-12 — so each scenario
-/// below builds its own <see cref="FakeTimeProvider"/>-backed clock and passes it to
-/// <c>SeedAgentForTest</c>'s new <c>activityClock</c> parameter, rather than setting independent
-/// (and, under the new model, physically impossible — idle can never exceed age) wall-clock fields.
-/// Partial of <see cref="AgentOrchestratorVendorTests"/> to reuse its test doubles.
+/// Pin the daemon's lifetime and idle backstop for running ReviewFlow agents, excluding interactive agents.
+/// Use a FakeTimeProvider-backed AgentActivityClock: age and idle are monotonic, and idle cannot exceed age.
+/// Server round inactivity bounds do not govern this daemon-local backstop.
 /// </summary>
 public class ReviewerTtlTests {
     [Test]

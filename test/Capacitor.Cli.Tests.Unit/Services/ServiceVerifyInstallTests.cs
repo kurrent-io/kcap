@@ -91,7 +91,7 @@ public class ServiceVerifyInstallTests {
     }
 
     /// <summary>Same drive loop as ServiceVerifyStartTests: Task.Delay(interval, time, ct)'s
-    /// continuation resumes synchronously inside Advance(), so a tight Advance-loop reliably steps
+    /// Continuation resumes synchronously inside Advance(), so a tight Advance()-loop reliably steps
     /// a multi-iteration poll to completion without any real waiting.</summary>
     static async Task<int> Drive(Task<int> task, FakeTimeProvider time, TimeSpan step) {
         var guard = 0;
@@ -162,8 +162,7 @@ public class ServiceVerifyInstallTests {
     public async Task Happy_path_writes_marker_through_every_phase_then_commits_and_deletes() {
         var (dir, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
-        // Render viability now runs GenerateFiles BEFORE the first destructive step, so no marker
-        // exists yet when it fires (the old ordering wrote "captured" first — that was the bug).
+        // Render viability must run before any destructive step, so no recovery marker exists if generation fails.
         var markerExistsAtGenerateFiles = true;
         manager.OnGenerateFiles = id => markerExistsAtGenerateFiles = ServiceTxnMarker.Exists(Daemons.Store, id);
         var phaseAtWriteAndBootstrap = "";
@@ -338,7 +337,7 @@ public class ServiceVerifyInstallTests {
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
     }
 
-    /// <summary>Spec §3.4: install/replace validates the daemon NAME too — a well-formed, right-
+    /// <summary>Spec: install/replace validates the daemon NAME too — a well-formed, right-
     /// version hello answering under a different reported name means something else is on our
     /// socket, and that's just as much a rollback trigger as a version mismatch.</summary>
     [Test]
@@ -361,7 +360,7 @@ public class ServiceVerifyInstallTests {
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
     }
 
-    /// <summary>Spec §3.4: install/replace validates the hello's PROTOCOL version too — an
+    /// <summary>Spec: install/replace validates the hello's PROTOCOL version too — an
     /// otherwise-well-formed hello reporting a protocol this build doesn't speak is a deterministic
     /// incompatibility, not something a retry can fix.</summary>
     [Test]

@@ -17,25 +17,10 @@ public enum StoredCredentialState {
 }
 
 /// <summary>
-/// Builds the user-facing line for a request the server answered 401 AFTER the one-shot
-/// re-read-and-refresh recovery (<c>TokenStore.RecoverForServerAsync</c>) already ran.
-///
-/// <para>The MCP servers used to answer every such 401 with a flat
-/// "Not logged in. Run 'kcap login' on the host shell." — factually wrong in the incident
-/// that motivated this: a server-side signing-key rotation 401'd a token that
-/// <c>kcap status</c> concurrently (and correctly) reported as valid, so the user read the
-/// two surfaces as contradicting each other, concluded <c>kcap login</c> was ineffective,
-/// and reached for a daemon restart — which never helps, because every process re-reads the
-/// same token store. The message now says what is actually true for each store state; the
-/// legacy wording survives byte-identical for the genuinely-logged-out case.</para>
-///
-/// <para><b>Two renderings, one vocabulary.</b> <see cref="Render"/> is the MCP form: several
-/// sentences in a tool result the model reads. The recording hooks need the same distinctions in
-/// one line — a Claude <c>systemMessage</c> is a single transcript warning, and the other vendors
-/// get one stderr line — so <see cref="RecordingNotice"/> renders the same
-/// <see cref="StoredCredentialState"/> short. Sharing the enum rather than the prose is the point:
-/// the states are the thing that must not drift, and a five-sentence paragraph in a
-/// <c>systemMessage</c> would be unreadable.</para>
+/// A 401 after token recovery does not necessarily mean logged out: signing-key rejection can
+/// coexist with an unexpired token. Render the credential state accurately so a valid local store
+/// is not mistaken for a missing login. MCP results and recording notices share the state enum,
+/// but hooks need a single-line rendering rather than the MCP explanation.
 /// </summary>
 public static class AuthRejectionNotice {
     public const string NotLoggedIn = "Not logged in. Run 'kcap login' on the host shell.";

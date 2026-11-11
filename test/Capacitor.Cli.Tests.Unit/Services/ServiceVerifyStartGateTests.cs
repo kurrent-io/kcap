@@ -19,8 +19,7 @@ public class ServiceVerifyStartGateTests {
         await Assert.That(r).IsNull();
     }
 
-    // Exact-value contract (spec): an empty invoking directive is a deliberate refusal, not
-    // absence — only a truly-null env value passes the gate through untouched.
+    // An empty invoking directive is an explicit refusal; only null means absent.
     [Test]
     [Arguments("")]
     [Arguments("allow")]
@@ -113,7 +112,7 @@ public class ServiceVerifyStartGateTests {
         await Assert.That(r).IsEqualTo(StartGateReason.IdentityMismatch);
     }
 
-    // ── fail-closed on absent required identity evidence (spec §3.4(b)) ──
+    // ── fail-closed on absent required identity evidence ──
 
     [Test]
     public async Task Fully_matching_identity_passes() {

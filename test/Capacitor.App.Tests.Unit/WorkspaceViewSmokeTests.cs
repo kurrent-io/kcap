@@ -21,7 +21,7 @@ using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 namespace Capacitor.App.Tests.Unit;
 
 /// Headless rendering acceptance for the session workspace: WorkspaceView is a UserControl, so
-/// each test hosts it inside a plain Window purely to give headless something to Show(). This
+/// Each test hosts it inside a plain Window purely to give headless something to Show. This
 /// VIEW is
 /// normally handed its DataContext through MainWindow's ContentControl/DataTemplate swap
 /// (WorkspaceNavigationTests exercises that path); a smoke test instead sets DataContext directly,

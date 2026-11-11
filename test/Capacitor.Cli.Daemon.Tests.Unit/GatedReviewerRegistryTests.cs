@@ -3,13 +3,8 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Tests.Unit;
 
 /// <summary>
-/// The registry is the SINGLE list three surfaces derive from — the daemon's opt-out apply loop, the
-/// service-unit environment allowlist, and <c>daemon reviewer affirm</c>'s vendor resolution. These pin
-/// the properties that make deriving safer than listing, rather than merely tidier.
-///
-/// <para>The hazard is specific to these switches being opt-OUTs. A row that reaches one surface and
-/// not another used to mean a reviewer that could not be turned ON — safe. It now means one that cannot
-/// be turned OFF, which on a service-installed daemon leaves the operator no lever at all.</para>
+/// The daemon apply loop, service environment, and affirmation resolution must derive from one
+/// registry. An opt-out omitted from service forwarding leaves the operator unable to disable it.
 /// </summary>
 public class GatedReviewerRegistryTests {
     /// <summary>
@@ -33,11 +28,8 @@ public class GatedReviewerRegistryTests {
             // Resolving is half the assertion: an unmapped vendor throws NotSupportedException.
             DaemonRunner.ConsentApplier(config, reviewer.Vendor)(false);
 
-            // The other half is that it cleared THIS vendor's flag. Naming the expected property is
-            // what makes that real: an earlier version counted how many flags went false, which a
-            // copy-paste aliasing two vendors onto one property passes — a fresh config per iteration
-            // means exactly one flag clears either way. Verified by mutation; the count-based version
-            // survived pointing opencode at Kiro's property.
+            // Assert the specific vendor property, not the number of false flags: a fresh config would let
+            // two vendors alias one property while still clearing exactly one flag per case.
             var expected = ExpectedFlag(reviewer.Vendor);
 
             await Assert.That(expected(config)).IsFalse()

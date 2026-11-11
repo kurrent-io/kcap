@@ -274,7 +274,7 @@ public class AntigravityImportTests : IDisposable {
 
         // Parent (no agentId) fully ingested → AlreadyLoaded; the child (agentId=dashless Child)
         // was never imported (404), so the repair pass attempts to resend its content — but the
-        // server REJECTS that batch (500). Regression for a Qodo-flagged false positive:
+        // server REJECTS that batch (500). Regression for a flagged false positive:
         // SentChildContent must reflect only server-ACCEPTED batches (failOnError: true), so a
         // rejected batch must NOT flip the signal to true.
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").WithParam("agentId", Dashless(Child)).UsingGet())
@@ -322,7 +322,7 @@ public class AntigravityImportTests : IDisposable {
         await Assert.That(posts.Contains("/hooks/session-end/antigravity")).IsTrue();
 
         // A routed AlreadyLoaded+Skipped replay with a false signal is SUPPRESSED for counting,
-        // not reported as Loaded — the false-positive Qodo flagged.
+        // not reported as Loaded — the false-positive flagged.
         var isSuppressed = ImportCommand.IsLifecycleOnlyRoutedReplay(
             classified[0].Status, result.Outcome, result.SentChildContent);
         await Assert.That(isSuppressed).IsTrue();
@@ -403,9 +403,8 @@ public class AntigravityImportTests : IDisposable {
         WriteTranscript(Child, "sub task");
         WriteLinkage();
 
-        // Parent not yet imported (404) → New; child partially imported up to line 0 → resume from
-        // file line 1, numbered by TRUE position (1). The pre-fix code fed the HWM as
-        // lineNumberOffset and re-sent the whole file as [1,2].
+        // A partially imported child resumes at its true file position: after watermark zero, send file
+        // line one as line one rather than offsetting a full resend by the watermark.
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").WithParam("agentId", Dashless(Child)).UsingGet())
             .AtPriority(1)
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":0}"""));

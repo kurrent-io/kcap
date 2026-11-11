@@ -9,24 +9,9 @@ using static Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity.AntigravityRunt
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// Exercises <see cref="AntigravityHostedAgentRuntime"/>'s phase machine end-to-end against
-/// <see cref="FakeAgyTurnProcess"/> (in <c>AntigravityRuntimeFakes.cs</c>, shared with a sibling plan)
-/// — no real <c>agy</c> process is spawned. This is the highest-risk runtime in the daemon: unlike
-/// every other <c>IHostedAgentRuntime</c>, it has no long-lived child at all — each turn is its own
-/// <c>agy -p …</c> invocation, so "the process exited" and "the runtime is done" are NOT the same
-/// event, and getting that distinction wrong produces a silent hang rather than a failing test. See
-/// the class doc on <see cref="AntigravityHostedAgentRuntime"/> for the rules these tests pin.
-///
-/// <para><b>Why most tests await <see cref="AntigravityHostedAgentRuntime.WaitForConversationIdAsync"/>
-/// before <see cref="AntigravityHostedAgentRuntime.WaitForTurnIdleAsync"/>.</b>
-/// <see cref="AntigravityHostedAgentRuntime.SendUserInputAsync"/> returns as soon as a turn is
-/// enqueued — before the worker even dequeues it — and <c>WaitForTurnIdleAsync</c>'s
-/// acquire-then-release on a currently-FREE gate can complete synchronously, before the worker's own
-/// continuation is even scheduled to acquire it. Calling <c>WaitForTurnIdleAsync</c> right after
-/// <c>SendUserInputAsync</c> is therefore not a reliable "the turn ran" barrier — a review caught this
-/// after it let a comparison test pass on two empty strings without a single turn actually completing.
-/// <c>WaitForConversationIdAsync</c> only resolves once the worker has genuinely read a spawned turn's
-/// first line, so awaiting it first closes the gap.</para>
+/// An exec-per-turn runtime can remain alive without a child between turns.
+/// After enqueueing, WaitForTurnIdleAsync can beat the worker to a free gate and return before
+/// anything ran. Await the conversation-id barrier first to establish that a real turn has started.
 /// </summary>
 public class AntigravityRuntimeLifecycleTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);

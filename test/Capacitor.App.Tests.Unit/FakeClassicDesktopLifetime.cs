@@ -6,7 +6,7 @@ namespace Capacitor.App.Tests.Unit;
 
 /// Fake IClassicDesktopStyleApplicationLifetime for AppStartupTests' ShowStartupError coverage.
 ///
-/// Avalonia marks the interface [NotClientImplementable]: declaring `class X :
+/// Avalonia marks the interface [NotClientImplementable]: declaring `class X:
 /// IClassicDesktopStyleApplicationLifetime` directly fails to compile (CS0535 against a
 /// synthesized "not implementable by user code" member an Avalonia analyzer injects).
 /// DispatchProxy instead builds the implementation via runtime IL emission — it never goes

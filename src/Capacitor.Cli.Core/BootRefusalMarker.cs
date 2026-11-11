@@ -4,19 +4,9 @@ using System.Text.Json.Serialization;
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// The one owner of the boot-refusal marker: its name, its shape, its serializer, and every read and
-/// write of it.
-///
-/// <para>It lives in Core because the three processes that touch it cannot reference each other — the
-/// daemon writes it, the CLI reads it to attribute a service-verb readiness timeout, and the desktop
-/// app reads it to attribute a detached start. Each used to carry its own record, its own
-/// <c>JsonSerializerContext</c> and its own copy of the filename, and they had already drifted: the
-/// CLI's record omitted <c>schema</c>, so it could not make the schema check the app made.</para>
-///
-/// <para>Every entry point is contained. The daemon writes this from the pre-host boot-check block,
-/// before the logging pipeline or DI exist, and a boot refusal is itself an
-/// "unwritable/misconfigured state dir" kind of condition — so the writer must never throw on top of
-/// the refusal it is reporting.</para>
+/// Core owns this marker's shape because daemon, CLI, and app cannot reference each other.
+/// The writer runs before logging and DI, often while reporting an unwritable state directory;
+/// it must not throw on top of the boot refusal it is recording.
 /// </summary>
 public static partial class BootRefusalMarker {
     public const int CurrentSchema = 1;

@@ -25,62 +25,17 @@ internal interface IAgyTurnDiagnostics {
 }
 
 /// <summary>
-/// <see cref="IHostedAgentRuntimeFactory"/> for Antigravity's CLI (<c>agy</c>) — both an unattended
-/// review-flow reviewer and an interactive hosted agent — over the exec-per-turn
-/// <see cref="AntigravityHostedAgentRuntime"/>.
-///
-/// <para><b>The two launch shapes it SERVES differ in exactly two things:</b> one argument
-/// (<c>--dangerously-skip-permissions</c>, hosted only; see <see cref="BuildTurnPsi"/>) and the
-/// injected MCP surface (the <c>kcap-flow-result</c> channel plus the flow definition's allowlist,
-/// review only; see <see cref="BuildReviewFlowMcp"/>). In particular the per-launch isolated
-/// <c>HOME</c> is NOT reviewer-only: this runtime is itself the transcript source, so a launch under
-/// the operator's own home is captured a second time by the hook lane — isolation removes a duplicate
-/// rather than removing capture.</para>
-///
-/// <para><b>The context carries a THIRD, which this factory refuses.</b> <c>LaunchKind.Review</c> (a
-/// PR review, <c>ctx.IsReview</c>) is neither of the above and shares the hosted arm's
-/// <c>!IsReviewFlow</c> predicate, so it is rejected at the top of <see cref="StartAsync"/> with
-/// <c>antigravity_pr_review_unsupported</c> rather than served degraded — see the guard for why.</para>
-///
-/// <para><b>What this factory owns that the runtime deliberately does not:</b> the argv and
-/// environment of every turn child, the per-launch isolated <c>HOME</c> (and its removal), the
-/// absolute bound on the launch handshake, and the ordering the orchestrator depends on — that
-/// <see cref="StartAsync"/> does not return until turn 1's <c>init</c> has resolved the conversation
-/// id, because the orchestrator reads <c>transcript.AcpSessionId</c> synchronously the moment a
-/// launch returns and would otherwise bind the transcript to <c>""</c> forever.</para>
-///
-/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal(bool)"/>). Platform,
-/// binary presence and the recorded build minimum gate BOTH shapes — they protect the isolated
-/// <c>HOME</c> above, which is not reviewer-specific. Operator CONSENT
-/// (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER</c>) gates only a review, because only a review is
-/// cross-principal; hosted Antigravity ships on by default like the other hosted vendors. Advertisement
-/// keeps the full ladder, consent included — advertising IS the offer to review unattended.</para>
-///
-/// <para><b>Auth is deliberately not an advertisement gate</b> (owner decision). The factory
-/// advertises whenever consent is given and the binary resolves; an operator whose only auth is an
-/// interactive <c>agy</c> login gets a bounded, coded launch failure naming the ADC remedy, rather
-/// than a vendor that silently disappears from the list.</para>
-///
-/// <para><b>No borrowed lane</b> — no <c>sandbox-exec</c> substrate here, so
-/// <see cref="AcpVendorDescriptor.SupportsBorrowedReviewFlow"/> stays false and a borrowed request fails closed to an
-/// owned worktree, exactly as Kiro and Claude do.</para>
+/// Both hosted and review launches need an isolated HOME to prevent the hook lane duplicating
+/// this runtime's transcript capture. Only hosted launches bypass permissions; review launches inject
+/// the result channel and allowlisted MCP servers. PR-review and borrowed-workspace launches are refused.
+/// StartAsync must await the first init's conversation id before returning to the orchestrator,
+/// which binds the transcript synchronously on return.
+/// Platform, binary presence, and the recorded build floor gate both launch shapes. The operator
+/// consent flag gates reviews only, because hosted launches are requested by the daemon's owner.
+/// Authentication is checked at launch rather than advertisement, with a bounded failure and remedy.
+/// Optional process, platform, binary, and version delegates are test seams; production uses real
+/// spawn builders and probes, while the version floor always comes from the persisted record.
 /// </summary>
-/// <param name="turnSource">Test seam ONLY. Production passes null, which spawns the real
-/// <see cref="AgyTurnProcess"/> from the <see cref="ProcessStartInfo"/> <see cref="BuildTurnPsi"/>
-/// built — so the seam changes nothing about production behaviour, and the argv assertions run
-/// against the same builder a real launch uses.</param>
-/// <param name="binaryExists">Test seam ONLY, for the availability half of the gate. Production
-/// passes null, which resolves the real binary through <c>PATH</c>. A test pins it so the CONSENT
-/// half is assertable on a host that happens to have (or not have) <c>agy</c> installed — otherwise
-/// the tests pass for the wrong reason on one machine and fail on another.</param>
-/// <param name="resolveVersion">Test seam ONLY, for the installed-version half of the gate.
-/// Production passes null, which spawns the configured binary to read its own reported version — the
-/// same resolver every other gated reviewer uses. The MINIMUM it is compared against is never seamed:
-/// it is a real record on disk, so a test moves it by writing one.</param>
-/// <param name="windowsHost">Test seam ONLY, for the platform: the gate's Windows refusal and the
-/// platform-specific launch environment (see <see cref="BuildTurnPsi"/>). Production passes null, which
-/// reads the ambient OS. A parameter so every arm of the ladder, and both environments, are reachable
-/// from any host.</param>
 internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         DaemonConfig                                                     config,
         ILoggerFactory                                                   loggerFactory,
@@ -142,40 +97,13 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         return new(withheld is null, withheld, probeFailed);
     }
 
-    /// <summary>Why this daemon refuses to launch <c>agy</c> for a launch of the given shape, or null
-    /// when it does not. The ONE place the ladder is written — advertisement and the launch boundary
-    /// both read it, so a vendor cannot be dropped from advertisement and thereby never reach the path
-    /// that holds the explanation, and the recorded MINIMUM cannot be enforced at only one of the two
-    /// (an explicit <c>vendor: "antigravity"</c> request reaches a launch without consulting
-    /// advertisement).
-    ///
-    /// <para><b>The two launch shapes differ in ONE arm, and it is a parameter rather than a second
-    /// ladder</b> — two ladders that must agree is a shape this file has already paid for once.</para>
-    ///
-    /// <para>Every verdict and every text comes from <see cref="AntigravityReviewerCapability"/>; the
-    /// only arm written here is the one that decision cannot express — a binary that does not resolve
-    /// at all — placed BEFORE the probe so a daemon with no <c>agy</c> is told it is missing rather
-    /// than that its version could not be read.</para>
-    ///
-    /// <para>Deliberately not cached: a long-running daemon must re-judge a binary installed (or
-    /// removed) under it rather than read a startup snapshot — and, since the minimum is a record on
-    /// disk rather than configuration, an affirmation taken while this daemon runs is picked up on the
-    /// next decision.</para></summary>
-    /// <param name="reviewFlow">Whether this launch is an unattended review, which is the ONLY shape
-    /// the operator consent flag governs.
-    ///
-    /// <para><b>Consent is reviewer-only because its whole justification is cross-principal.</b> An
-    /// unattended reviewer runs under the daemon user's authority and returns what it read to whoever
-    /// requested the review — who need not be the operator. A hosted launch has no such exposure: the
-    /// server's daemon registry is keyed <c>(TeamId, OwnerUserId, Name)</c> and both daemon discovery
-    /// and the launch hub resolve a daemon with the CALLER's own normalized user id, so the launcher
-    /// IS the daemon's owner. Hosted Antigravity therefore ships on by default, like the other hosted
-    /// vendors, and a hosted launch on a consent-less daemon must not fail with a review complaint.
-    /// </para>
-    ///
-    /// <para><b>Every OTHER arm applies to both shapes</b> — platform, binary presence and the
-    /// recorded build minimum all exist to protect the per-launch isolated <c>HOME</c>, which a hosted
-    /// launch depends on exactly as a review does.</para></param>
+    /// <summary>
+    /// Advertisement and explicit launches must share this refusal ladder; a named launch can bypass
+    /// advertisement. Resolve binary presence before probing its version so a missing executable is
+    /// reported accurately. Re-evaluate each decision so installs, removals, and affirmations take effect.
+    /// Consent gates reviews only: hosted launchers are the daemon's owner. Platform, binary, and build
+    /// checks protect the isolated HOME required by both launch shapes.
+    /// </summary>
     internal string? LaunchRefusal(bool reviewFlow) => LaunchRefusal(reviewFlow, out _);
 
     string? LaunchRefusal(bool reviewFlow, out bool probeFailed) {
@@ -538,40 +466,12 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     static readonly string[] XdgBaseDirectoryVars = ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"];
 
     /// <summary>
-    /// PURE builder for ONE turn's spawn shape — no process, no filesystem side effects. The real
-    /// spawn path and the launch tests both go through it, so an assertion here certifies the vector
-    /// the OS actually receives rather than a re-derivation of it.
-    ///
-    /// <para><b>The one asymmetry between a hosted agent and a reviewer</b> is
-    /// <c>--dangerously-skip-permissions</c>, added on the hosted arm only. A hosted agent exists to DO
-    /// work, and without it agy's shell and out-of-workspace operations soft-deny while the run still
-    /// exits 0 — so the agent merely looks broken. <b>That flag is also the read boundary, and the
-    /// worktree is not:</b> measured on agy 1.1.10, with it an absolute <c>view_file</c> of a path
-    /// OUTSIDE the workspace succeeds, and without it the same read is refused with a typed
-    /// <c>tool_info.error</c>. Nothing here should be read as the daemon-owned worktree confining what
-    /// a hosted agent can see.</para>
-    ///
-    /// <para><b>Claude is a precedent for a single-axis no-prompt posture existing, NOT for which
-    /// launch kind gets it.</b> Codex is not the analogue — its posture is two axes
-    /// (<c>Sandbox</c> × <c>Approval</c>), so a no-prompt Codex still sits on a sandbox. But Claude's
-    /// own split runs the OTHER way: <c>ClaudeLauncher.BuildArgs</c> adds
-    /// <c>bypassPermissions</c> only under <c>ctx.IsReviewFlow</c>, because its reviewer writes into a
-    /// throwaway worktree while its interactive agent has a human to answer the dialog. This runtime
-    /// has neither property. Do not "align with the precedent" by moving this flag to the reviewer
-    /// arm — that is the direction the split exists to prevent.</para>
-    ///
-    /// <para><b>What is deliberately absent.</b> No <c>--dangerously-skip-permissions</c> for a
-    /// reviewer: it runs in a daemon-OWNED worktree and needs only to read it, which agy's headless
-    /// defaults already permit — its soft-deny of shell and out-of-workspace operations IS the desired
-    /// unattended posture, and widening it would grant a reviewer shell access it has no reason to
-    /// hold. No <c>--sandbox</c> on either arm: a vendor-side terminal restriction overlapping what
-    /// containment already provides, and unprobed.</para>
-    ///
-    /// <para><c>--print-timeout</c> is passed on EVERY invocation rather than relying on agy's own
-    /// <c>5m0s</c> default — a vendor change would otherwise silently move a bound we did not
-    /// choose.</para>
+    /// The spawn path and launch tests share this builder so assertions describe the actual OS vector.
+    /// Only hosted agents receive --dangerously-skip-permissions: reviewers need read access, while that
+    /// flag also enables shell and out-of-workspace reads. An owned worktree does not itself confine reads.
+    /// Do not add an unverified vendor sandbox flag on top of the containment policy.
+    /// Pass --print-timeout explicitly on every turn so a vendor default cannot move the chosen deadline.
     /// </summary>
-    /// <param name="windowsHost">Which platform's environment to build; null reads the ambient OS.</param>
     internal static ProcessStartInfo BuildTurnPsi(
             DaemonConfig config, RuntimeStartContext ctx, string prompt, string? conversationId, string home,
             bool? windowsHost = null) {

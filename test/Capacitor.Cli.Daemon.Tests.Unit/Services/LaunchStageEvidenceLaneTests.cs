@@ -5,27 +5,9 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// The launch-stage EVIDENCE lane, end to end: a stage stamped during the ACP handshake must reach
-/// the server in a <c>DaemonStatusReport</c> that actually CARRIES the agent being staged.
-///
-/// <para>The defect these tests fence: <c>PublishAgent</c> runs AFTER
-/// <c>runtimeFactory.StartAsync</c>, so for the entire handshake the agent was absent from
-/// <c>_agents</c> and <c>BuildLiveAgents</c> omitted it — every stage-triggered out-of-cycle report
-/// described a live-agent list without the agent it was reporting a stage for. By publish time an ACP
-/// runtime is flipped straight to Running with <c>ClearLaunchStage</c>, and <c>BuildLiveAgents</c>
-/// gates <c>LaunchStage</c> on <c>Status == "Starting"</c>. Net: <c>launch_stage</c> was NEVER non-null
-/// on the wire, the server's <c>EvidenceGeneration</c> stayed 0 through registration, and its rolling
-/// registration deadline could never extend — while the daemon's own 3x90s stage caps make a ~270s
-/// legitimate handshake representable. The spec's §5 window is sound only if these reports really fire,
-/// so "the four stamps produce reports carrying the agent" is the premise, not a nicety.</para>
-///
-/// <para>Vacuity note: asserting only the FINAL state (an agent that ends up Running with a null
-/// stage) passes under the pre-fix code too — that is exactly the trap this plan hit repeatedly. Every
-/// assertion below is therefore about reports observed DURING the handshake, or about the presence of
-/// an entry rather than its absence.</para>
-///
-/// Uses <see cref="AgentOrchestratorHarness"/> for BuildOrchestrator/CreateGitRepo/
-/// SeedAgentForTest/FakeAcpRuntime, same as AcpLaunchStageTests.cs and StatusReportActivityFieldsTests.cs.
+/// Observe reports during the ACP handshake, before PublishAgent. Every stage must reach the server
+/// on a report that actually includes the starting agent; otherwise rolling registration evidence
+/// cannot extend its deadline. Final Running state with a null stage cannot establish this ordering.
 /// </summary>
 public class LaunchStageEvidenceLaneTests {
     /// <summary>Stamps the four real ACP handshake stages, in order, from inside
@@ -68,9 +50,10 @@ public class LaunchStageEvidenceLaneTests {
         }
     }
 
-    /// <summary>Reduces a recorded report sequence to the launch stages this agent was seen carrying,
-    /// consecutive duplicates collapsed. Reports that do not carry the agent at all contribute
-    /// NOTHING — which is precisely why an empty result is the pre-fix signature.</summary>
+    /// <summary>
+    /// Only reports carrying this agent contribute stages; collapse consecutive duplicates without
+    /// inventing evidence for reports in which the agent is absent.
+    /// </summary>
     static List<string?> ObservedStages(IReadOnlyList<DaemonStatusReport> reports, string agentId) {
         var seen = new List<string?>();
 
@@ -84,10 +67,10 @@ public class LaunchStageEvidenceLaneTests {
         return seen;
     }
 
-    /// <summary>The headline proof: all four handshake stages reach the server, IN ORDER, on reports
-    /// that carry the agent — then <c>launch_stage</c> goes null once it is Running. Pre-fix,
-    /// <c>ObservedStages</c> comes back EMPTY (no report during the handshake carried the agent at
-    /// all), so the first assertion fails outright rather than merely differing.</summary>
+    /// <summary>
+    /// All four handshake stages must reach the server in order on reports carrying the agent,
+    /// then launch_stage must clear once it is Running.
+    /// </summary>
     [Test]
     public async Task Handshake_stage_stamps_reach_the_server_carrying_the_agent_then_clear_once_running() {
         using var repoPath = GitRepo.CreateWithCommit();

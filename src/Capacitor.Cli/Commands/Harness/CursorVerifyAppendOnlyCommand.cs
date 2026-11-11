@@ -4,20 +4,9 @@ using Capacitor.Cli.Recording.Harness.Cursor;
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
-/// hidden diagnostic: the phase-0 empirical verification harness. Samples
-/// <c>(length, sha256(prefix))</c> off a live Cursor transcript file at ~1s cadence for a bounded
-/// duration and checks every earlier/later sample pair with
-/// <see cref="CursorAppendOnlyProbe.PrefixStable"/>, printing a PASS/FAIL report.
-///
-/// This is the evidence gate for the rest of the CLI-side work (Tasks 8-12 per the plan's Task 7
-/// header): a Cursor session's transcript is run through this while it's actively being written
-/// to; a FAIL means Cursor rewrites its own transcript in place and the whole watcher-promotion
-/// design needs to be reconsidered before proceeding. The runtime <see cref="CursorRewriteGuard"/>
-/// ships regardless, as defence-in-depth.
-///
-/// Not listed in <c>help-usage.txt</c> — internal, run manually by whoever is gathering that
-/// evidence: <c>kcap cursor-verify-appendonly --path &lt;file&gt; [--duration-seconds 60] [--interval-seconds 1]</c>.
-/// AOT-safe: no reflection, no JSON — plain text sampling and reporting only.
+/// Sample live transcript lengths and prefix hashes over a bounded interval, then check every
+/// sample pair for rewriting. Keep this diagnostic internal; runtime rewrite protection remains
+/// necessary even when a sampled transcript appears append-only; <see cref="CursorRewriteGuard"/> enforces it.
 /// </summary>
 public static class CursorVerifyAppendOnlyCommand {
     public static async Task<int> RunAsync(string[] args, TimeProvider time, CancellationToken ct = default) {

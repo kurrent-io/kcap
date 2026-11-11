@@ -10,7 +10,7 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
 /// <summary>
-/// Vendor-bearing catalog start routing (B3 /v4 primary with /v2 fallback) plus the
+/// Vendor-bearing catalog start routing (/v4 primary with /v2 fallback) plus the
 /// requested/applied echo defense-in-depth check.
 /// </summary>
 public class McpFlowsServerVendorOverrideTests {
@@ -47,7 +47,7 @@ public class McpFlowsServerVendorOverrideTests {
 
     [Test]
     public async Task StartFlowAsync_with_vendor_posts_to_v4_with_protocol_4_and_carries_vendor() {
-        // §2.7 B3: a park-capable client routes every vendor-bearing catalog start to /v4
+        // A park-capable client routes every vendor-bearing catalog start to /v4
         // (protocol 4). A current server has the route, so a single POST lands on /v4 — no v2 hit.
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
@@ -72,7 +72,7 @@ public class McpFlowsServerVendorOverrideTests {
     [Test]
     public async Task StartFlowAsync_with_vendor_falls_back_to_v2_when_v4_is_absent() {
         // Cross-rollout safety: an older server lacks /v4 and 404s it. The client must fall back to
-        // the pre-B3 /v2 route (protocol 2) — two POSTs, /v4 then /v2 — and still succeed. On that
+        // the /v2 fallback route (protocol 2) — two POSTs, /v4 then /v2 — and still succeed. On that
         // path a resumable park later reports the legacy participant_stopped, which is still a
         // resubmit trigger, so a crossed round never stalls.
         using var server = WireMockServer.Start();

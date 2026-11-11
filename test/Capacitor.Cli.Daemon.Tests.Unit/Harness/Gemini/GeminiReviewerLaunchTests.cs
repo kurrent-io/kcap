@@ -106,10 +106,8 @@ public class GeminiReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task ReviewLaunch_AllowlistNamesExactlyTheInjectedResultChannel() {
-        // ONE context, so this proves the two consumers agree on the SAME identity instance rather than two
-        // fixtures that happen to hold equal GUIDs. Review caught the earlier version building each from its
-        // own Ctx() call: it stayed green even if production handed a different identity to each consumer,
-        // which is exactly the silent failure the type exists to prevent.
+        // Use one context so argv and injection consume the same identity instance, not independent
+        // fixtures whose generated values merely happen to compare equal.
         var ctx = Ctx(isReviewFlow: true);
 
         var argv = AcpHostedAgentRuntimeFactory.BuildProcessStartInfo(
@@ -181,7 +179,7 @@ public class GeminiReviewerLaunchTests {
     /// The gate must never admit a CANONICAL allowlist id: it is a fixed public literal the reviewed
     /// repository can declare its own <c>.gemini/settings.json</c> server under, and the vendor's gate is an
     /// exact-name match — admitting it would spawn that repo-authored process as the daemon user, the same
-    /// impersonation shape the result channel's per-launch alias closes (spec §2.3/§2.6).
+    /// impersonation shape the result channel's per-launch alias closes.
     /// </summary>
     [Test]
     public async Task ReviewLaunchWithAllowlist_AdmitsAliasedNames_NeverTheCanonicalId() {
@@ -193,10 +191,8 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>
-    /// Same guarantee on the direct-builder path with NO caller-supplied identity (review finding): the
-    /// builder's fallback identity must also be what the MCP-list builder reads, or the gate is computed
-    /// from a null identity's canonical fallbacks — repository-matchable names — while the argv
-    /// substitution uses the fresh identity. The checked value must BE the used value.
+    /// A direct builder creating a fallback identity must publish it for the MCP builder too.
+    /// Otherwise argv admits fresh aliases while the null context supplies repository-matchable names.
     /// </summary>
     [Test]
     public async Task ReviewLaunchWithoutACallerIdentity_StillGatesOnAliasedNames_NeverCanonical() {
@@ -292,9 +288,7 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The direction the minimum exists to allow: a build NEWER than the recorded one launches with no
-    /// operator action. `0.55.0` used to be an argument to the refusal case above — a vendor patch
-    /// release took the reviewer offline until someone re-affirmed, which is the treadmill removed here.
+    /// A build newer than the recorded minimum launches without another operator action.
     /// </summary>
     [Test]
     [Arguments("0.55.0")]
@@ -395,12 +389,8 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The canonical vectors must NOT throw — a guard that rejects everything is not a guard.
-    ///
-    /// <para>The vectors are written out INDEPENDENTLY rather than fetched from
-    /// <c>ExpectedGeminiArgv</c>. Review caught the earlier version feeding that helper straight back into an
-    /// assertion that derives its expectation from the same helper — tautological, and it would have passed
-    /// with the helper returning anything at all.</para>
+    /// Keep independent canonical argument vectors as positive controls. Comparing a helper to an
+    /// expectation derived from that same helper would pass even if it produced arbitrary values.
     /// </summary>
     [Test]
     public async Task TheCanonicalReviewVector_PassesTheAssertion() {

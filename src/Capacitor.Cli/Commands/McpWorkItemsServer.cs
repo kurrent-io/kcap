@@ -827,10 +827,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     internal static JsonObject BuildBreakdownBody(JsonObject? args) {
         var body = new JsonObject();
 
-        // Presence, not truthiness (review finding): `{"part_ids": null}` is a PRESENT wrong shape,
-        // and the `is { } node` form treated it as absence — silently omitting it and turning a
-        // malformed declare into a differently-shaped request. Explicit null now fails like any other
-        // wrong type.
+        // Present null is a wrong shape, not absence; reject it rather than omit part_ids from the request.
         if (args is not null && args.TryGetPropertyValue("part_ids", out var node)) {
             if (node is null) throw new ArgumentException("'part_ids' must be an array of strings, not null.");
 
@@ -843,12 +840,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     internal static JsonObject BuildRelationBody(JsonObject? args) {
         var body = new JsonObject();
 
-        // to_id and relation_kind are left to the server to require and to interpret: it owns the
-        // vocabulary and the structural rules, and a coded 400 naming the real reason beats a guess
-        // made here. Every SUPPLIED string is forwarded verbatim, including "" (review finding): the
-        // previous `is { Length: > 0 }` form dropped an explicit empty string, so the caller got the
-        // server's "required" error instead of its more useful "invalid value" one. Absence stays
-        // absence; a present non-string still fails locally, as shape validation should.
+        // Forward supplied strings verbatim, including empty strings. The server owns required-field and
+        // vocabulary checks; dropping an empty value would turn an invalid-value error into a missing-field
+        // error. Reject present nonstrings locally while preserving genuine absence.
         CopySuppliedString(args, "to_id", body);
         CopySuppliedString(args, "relation_kind", body);
 

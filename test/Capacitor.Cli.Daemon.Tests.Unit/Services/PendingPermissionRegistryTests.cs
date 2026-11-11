@@ -65,7 +65,7 @@ public class PendingPermissionRegistryTests {
         var registry = new PendingPermissionRegistry();
 
         // Push decisions for ids no one ever awaits (duplicate/late/unknown pushes). Without a
-        // bound these would accumulate forever (the qodo finding); the buffer must cap and evict
+        // bound these would accumulate forever (the finding); the buffer must cap and evict
         // oldest-first.
         const int flood = 4000;
 

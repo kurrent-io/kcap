@@ -88,7 +88,7 @@ public class GeminiStderrShadowedOnPostFailureTests : IDisposable {
             Profiles      = new() { ["work"] = new Profile { ServerUrl = _server.Url } }
         });
 
-    /// <summary>Gemini 0.53.0's <c>const textToParse = stdout.trim() || stderr.trim()</c>.</summary>
+    //<summary>Gemini 0.53.0's <c>const textToParse = stdout.trim() || stderr.trim()</c>.</summary>
     static string SelectedByGemini(string stdout, string stderr) =>
         stdout.Trim() is { Length: > 0 } o ? o : stderr.Trim();
 

@@ -95,9 +95,7 @@ public class AgentCommandRoutingTests {
 
     [Test]
     public async Task DaemonNameFrom_empty_string_value_is_an_error_not_a_silent_default() {
-        // An explicitly empty "--daemon" value used to escape validation (it's neither missing
-        // nor flag-shaped) and throw ArgumentException out of DaemonNameResolver.Resolve instead
-        // of printing this clean error.
+        // An explicitly empty --daemon value must produce the validation error, not throw from the name resolver.
         var (name, error) = AgentCommand.DaemonNameFrom(["ab12", "--daemon", ""]);
         await Assert.That(name).IsNull();
         await Assert.That(error).IsNotNull();

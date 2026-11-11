@@ -23,10 +23,7 @@ public class KiroReviewerCapabilityTests {
             .IsEqualTo(KiroReviewerDecision.Disabled);
 
     /// <summary>
-    /// The direction that matters, and it is now the opposite of what this gate used to do: a NEWER
-    /// build is ADMITTED. The record is a floor, not an affirmation of one specific build, because
-    /// refusing every vendor patch release was a treadmill with no safety payoff. If this ever
-    /// reverts to an equality compare, these arguments are what catch it.
+    /// Treat the record as a floor: newer builds are admitted without exact-version affirmation.
     /// </summary>
     [Test]
     [Arguments("2.17.0")]
@@ -91,10 +88,7 @@ public class KiroReviewerCapabilityTests {
     }
 
     /// <summary>
-    /// This arm is now reached only when an operator EXPLICITLY disabled the reviewer, so the text has a
-    /// different job than it used to: tell them how to undo it, and — because the obvious next question
-    /// is "was I protecting myself with that?" — say plainly that the switch does not narrow anything a
-    /// requester cannot route around by naming an ungated vendor.
+    /// An explicit opt-out refusal must identify the switch and explain how the operator can re-enable it.
     /// </summary>
     [Test]
     public async Task TheDisabledReason_SaysHowToUndoItAndThatItGuardsLittle() {
@@ -108,15 +102,8 @@ public class KiroReviewerCapabilityTests {
     }
 
     /// <summary>
-    /// The switch is an opt-OUT: unset means ENABLED, matching the never-gated
-    /// Claude/Codex/Cursor/Copilot reviewers.
-    ///
-    /// <para>An UNRECOGNISED value resolves to DISABLED, not to the default. That looks contradictory
-    /// until you notice that setting the variable at all is only ever an attempt to turn the reviewer
-    /// OFF — enabling requires no variable — so an unreadable value is a failed "off", and honouring the
-    /// evident intent means failing closed. Review corrected an earlier revision that failed open here
-    /// by borrowing the general "a typo must not take a feature offline" rule, which does not transfer
-    /// to a setting with only one use.</para>
+    /// Unset enables the reviewer. An unrecognized set value disables it because enabling needs no
+    /// variable; an unreadable value must not defeat the operator's attempt to opt out.
     /// </summary>
     [Test]
     [Arguments("1", true)]
@@ -132,9 +119,7 @@ public class KiroReviewerCapabilityTests {
     [Arguments("", true)]
     [Arguments("   ", true)]
     [Arguments(null, true)]
-    // Set-but-unrecognised is DISABLED, not enabled. Since unset already enables, the only reason to set
-    // this variable is to turn the reviewer off — so an unreadable value is a failed "off", and honouring
-    // that intent means failing closed. Review corrected an earlier revision that failed open here.
+    // An unrecognized set value must disable the reviewer; absence already expresses the enabled default.
     [Arguments("ture", false)]
     [Arguments("enabled", false)]
     [Arguments("2", false)]

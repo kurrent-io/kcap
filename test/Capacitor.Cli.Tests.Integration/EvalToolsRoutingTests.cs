@@ -45,7 +45,7 @@ public class EvalToolsRoutingTests {
             await Assert.That(rq.RawText).IsEqualTo($"RAW {id}");
 
             // Tools path substitutes the RAW text into the embedded {QUESTION_TEXT} (option (i)
-            // from Task 3 Step 4 — pass `q with { Prompt = q.RawText }` to BuildToolsQuestionPrompt).
+            // from Step 4 — pass `q with { Prompt = q.RawText }` to BuildToolsQuestionPrompt).
             var toolsPrompt = EvalService.BuildToolsQuestionPrompt(
                 "TOOLS WRAPPER: {QUESTION_TEXT} cat={CATEGORY}", "sess-1", "run-1",
                 rq with { Prompt = rq.RawText! }, knownPatterns: "");

@@ -8,12 +8,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 5 (the capstone) — GATED live E2E that drives a REAL TOOL-USING turn
+/// Option B (the capstone) — GATED live E2E that drives a REAL TOOL-USING turn
 /// against a REAL <c>cursor-agent acp</c> process, through the FULL daemon pipeline built by tasks
 /// 1–4: <see cref="AcpHostedAgentRuntimeFactory"/> (real process spawn, no <c>FakeAcpAgent</c>) →
-/// <see cref="AcpHostedAgentRuntime"/>'s ACP handshake + chunk aggregation (task 2) →
-/// <see cref="AcpEventTranslator"/> (task 1) → <see cref="IAcpTranscriptSource.Envelopes"/> (task
-/// 2/4's bind-handoff shape) — the same shape task 3/4's orchestrator wiring reads from, just read
+/// <see cref="AcpHostedAgentRuntime"/>'s ACP handshake + chunk aggregation →
+/// <see cref="AcpEventTranslator"/> → <see cref="IAcpTranscriptSource.Envelopes"/> (task
+/// 2/4's bind-handoff shape) — the same shape /4's orchestrator wiring reads from, just read
 /// directly here instead of through the (SignalR-backed) forwarder.
 ///
 /// Also exercises the permission bridge for real: the python probe backing
@@ -61,7 +61,7 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
                 $"options=[{string.Join(",", options.Select(o => $"{o.OptionId}:{o.Kind}"))}]");
 
             // Best-effort pick of a one-shot "allow" option — matches the real Cursor shape the
-            // task 5 probe observed ({optionId:"allow-once", kind:"allow_once"}, see the findings
+            // probe observed ({optionId:"allow-once", kind:"allow_once"}, see the findings
             // doc's "Tool-using turn" section) but doesn't hard-require that exact vocabulary, in
             // case a different tool call offers differently-worded options.
             var chosen = options.FirstOrDefault(o => string.Equals(o.Kind, "allow_once", StringComparison.OrdinalIgnoreCase));
@@ -111,7 +111,7 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
             loggerFactory: liveLoggerFactory,
             connection: connection,
             timeProvider: TimeProvider.System,
-            connectionSource: null // real cursor-agent acp spawn — gap 1/task 5's production path
+            connectionSource: null // real cursor-agent acp spawn — gap 1/'s production path
         );
 
         var ctx = new RuntimeStartContext(
@@ -137,9 +137,9 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
         var started = await factory.StartAsync(ctx, startCts.Token).WaitAsync(HandshakeTimeout);
 
         // AcpHostedAgentRuntimeFactory.StartAsync always sets HostedRuntimeStart.Transcript to
-        // the runtime itself for the "cursor" vendor (task 4's bind-handoff shape) — reading
+        // the runtime itself for the "cursor" vendor ('s bind-handoff shape) — reading
         // through this interface, rather than downcasting Runtime, exercises exactly the seam
-        // task 3/4's orchestrator wiring uses.
+        // /4's orchestrator wiring uses.
         var transcript = started.Transcript ?? throw new InvalidOperationException(
             "AcpHostedAgentRuntimeFactory.StartAsync did not set HostedRuntimeStart.Transcript — task 4's bind-handoff shape regressed.");
 

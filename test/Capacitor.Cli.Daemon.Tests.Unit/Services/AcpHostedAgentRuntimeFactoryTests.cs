@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Round-4 review finding 3: proves <see cref="AcpHostedAgentRuntimeFactory"/> — constructed for
+/// review: proves <see cref="AcpHostedAgentRuntimeFactory"/> — constructed for
 /// real, driven through its REAL <see cref="AcpHostedAgentRuntimeFactory.StartAsync"/> — actually
 /// wires the ACP interaction bridge into the runtime it produces, by observing an inbound
 /// <c>session/request_permission</c> genuinely dispatch to the injected <c>requestInteraction</c>
@@ -263,7 +263,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             await Task.Delay(10);
 
         // connection.RequestAcpInteractionAsync above returns a "cancel" decision — the bridge
-        // (Task B3) must map that to the well-formed ACP "cancelled" outcome, proving the FULL
+        // Must map that to the well-formed ACP "cancelled" outcome, proving the FULL
         // chain (factory → runtime → bridge → injected ServerConnection → back to the wire) works,
         // not just that SOME delegate got called.
         await Assert.That(fake.LastServerRequestResponse).IsNotNull();
@@ -326,8 +326,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// factory built with <c>connectionSource</c> returning a runtime whose <c>requestInteraction</c>
     /// is deliberately left <see langword="null"/> (simulating the pre-Finding-4 defect) answers the
     /// SAME inbound request with a JSON-RPC "Method not found" error, not a "cancelled" outcome —
-    /// demonstrating this test file's assertions are sensitive to the exact bug Finding 4 fixed and
-    /// Finding 3 makes verifiable end-to-end.
+    /// demonstrating this test file's assertions are sensitive to the exact bug fixed and
+    /// makes verifiable end-to-end.
     /// </summary>
     [Test]
     public async Task StartAsync_IfRequestInteractionWereNull_PermissionRequestWouldGetMethodNotFound() {
@@ -362,7 +362,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     // ── Payload-free "ACP hosted agent launch" Info logging ────────────────────────────────────
 
     /// <summary>Records every log call across every category (one instance shared by every
-    /// <c>CreateLogger&lt;T&gt;()</c> call) — mirrors <c>AcpTranscriptAggregationTests.CaptureLogger</c>'s
+    /// <c>CreateLogger&lt;T&gt;</c> call) — mirrors <c>AcpTranscriptAggregationTests.CaptureLogger</c>'s
     /// established pattern, wrapped in a minimal <see cref="ILoggerFactory"/> so it can be handed to
     /// the factory's real constructor.</summary>
     sealed class CaptureLogger : ILogger {
@@ -383,19 +383,11 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         public void    Dispose() { }
     }
 
-    /// <summary>An unattended reviewer's MCP surface is auditable after the fact, and the logged
-    /// names are the RESOLVED names — not the caller's raw allowlist.
-    ///
-    /// <para>The first version of this test was vacuous in the way that matters, and review caught it:
-    /// it fed the already-canonical <c>["kcap-review"]</c> and asserted with Contains/DoesNotContain,
-    /// so a build logging <c>ctx.McpAllowlist</c> verbatim — before canonicalisation, dedup, and
-    /// stripping of flow-STARTING servers — passed every assertion. Worse, the
-    /// <c>DoesNotContain("kcap-flows")</c> was meaningless because that value was never supplied.</para>
-    ///
-    /// <para>So the input is deliberately hostile: mixed case, surrounding whitespace, a duplicate, a
-    /// redundant explicit result channel, and <c>kcap-flows</c> itself — the one server that must never
-    /// survive. The assertion is then EXACT and ordered, because only an exact comparison can tell the
-    /// resolved surface from the requested one.</para></summary>
+    /// <summary>
+    /// Audit resolved server names rather than echo the requested allowlist. Supply mixed casing,
+    /// whitespace, duplicates, the reserved result channel, and a flow-starting server to distinguish
+    /// actual normalization and filtering; assert the exact ordered output.
+    /// </summary>
     [Test]
     public async Task StartAsync_ReviewFlow_LogsTheRESOLVEDReviewerMcpSurface_NotTheRawAllowlist() {
         var fake          = new FakeAcpAgent();
@@ -643,7 +635,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    // ── Test plan item 1: Cursor pin test (spec-review Finding 4) ──────────────────────────
+    // ── Test plan item 1: Cursor pin test ──────────────────────────
 
     /// <summary>
     /// (a) proves the actual PRODUCTION <see cref="AcpHostedAgentRuntimeFactory.BuildProcessStartInfo"/>
@@ -855,7 +847,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         ])).IsTrue();
     }
 
-    /// <summary>Qodo finding 3: defense-in-depth — even though the orchestrator's
+    /// <summary>defense-in-depth — even though the orchestrator's
     /// <c>UnattendedLaunchPolicy</c> is expected to reject a review-flow launch for a vendor that
     /// doesn't support it before the factory ever runs, <c>BuildProcessStartInfo</c> refuses to
     /// build review-flow argv for a <c>SupportsUnattended: false</c> descriptor rather than
@@ -921,7 +913,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>The exact regression Finding 1 flagged: an empty <c>Env</c> must still serialize as
+    /// <summary>The exact regression flagged: an empty <c>Env</c> must still serialize as
     /// <c>"env":[]</c>, NOT an omitted key and NOT <c>"env":null</c>.</summary>
     [Test]
     public async Task StartAsync_SupportsMcpServersTrue_EmptyEnv_SerializesAsEmptyArray_NotOmittedNotNull() {
@@ -1526,13 +1518,10 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             .IsEqualTo("agent-\"quoted\"\\line\nnext");
     }
 
-    /// <summary>Copilot, like Cursor, cannot run directly in the requester's borrowed checkout — the
-    /// orchestrator must materialize a daemon-owned snapshot first.
-    ///
-    /// <para>This replaces a test that asserted the opposite ("is allowed and still clamped"), whose
-    /// doc comment recorded the premise this issue disproves: that the available-tools clamp removing
-    /// every ambient shell/file tool made a raw borrowed checkout safe. It did make it safe — and
-    /// also unreadable, which is the defect.</para></summary>
+    /// <summary>
+    /// Copilot requires an independently materialized snapshot. Clamping away ambient tools in the
+    /// requester's checkout can prevent writes while also making the source unreadable to the reviewer.
+    /// </summary>
     [Test]
     public async Task BuildProcessStartInfo_Copilot_RawBorrowedReviewRequiresSnapshotMaterialization() {
         var ctx = ReviewContext(["kcap-review"]) with { Work = WorkLocation.BorrowedCwd };
@@ -2060,10 +2049,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     // ── Trust-by-default borrowed-snapshot launch ─────────────────────────────────────────────
     // docs/superpowers/specs/2026-07-27-ai1528-trust-by-default-borrowed-review-design.md
     //
-    // A borrowed-snapshot Cursor launch used to resolve its binary through — and be re-gated on — an
-    // exact-build record, so an ordinary Cursor auto-update turned the launch into a hard
-    // `cursor_borrowed_artifact_not_certified` throw. Capability is now advertised for whatever
-    // build is installed, and the launch path must agree with that advertisement.
+    // Borrowed snapshot launch must agree with advertised containment capability across installed
+    // vendor builds; an exact-build record must not silently withdraw that capability after auto-update.
 
     /// <summary>A snapshot-materialized borrowed review flow: <c>Work</c> is the daemon-owned
     /// snapshot worktree (what the orchestrator hands the factory) with the borrowed-snapshot
@@ -2138,14 +2125,11 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>The gate that REMAINS: a snapshot-materialized launch handed to a vendor that does
-    /// not declare independent-snapshot containment is a wiring bug, and still fails before spawn.
-    ///
-    /// <para>Copilot used to be the subject here, because its descriptor declared native-tool-clamp.
-    /// It no longer is: on a verified platform Copilot resolves to independent-snapshot, so pointing
-    /// this test at Copilot would assert the mismatch on an unverified host and DEADLOCK on a real
-    /// handshake on a verified one — a host-dependent test either way. A synthetic descriptor that
-    /// declares the mismatch outright keeps the gate covered on every platform.</para></summary>
+    /// <summary>
+    /// Reject a snapshot launch whose descriptor lacks independent-snapshot containment before spawn.
+    /// Use a synthetic descriptor so platform-dependent Copilot support cannot turn this refusal test
+    /// into a real handshake or select a different reason on another host.
+    /// </summary>
     [Test]
     public async Task ReviewFlow_BorrowedSnapshot_ContainmentMismatch_StillThrowsBeforeSpawn() {
         var mismatched = SyntheticDescriptor(
@@ -2373,10 +2357,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// </summary>
     [Test]
     public async Task Gemini_ADisabledDaemon_DoesNotAdvertiseUnattendedSupport() {
-        // The version resolver is PINNED and the enabled config carries a MATCHING affirmation, so the only
-        // thing that can make this false is the operator flag. Review caught the earlier version leaving it
-        // unpinned: on a host with no gemini the version is unknown, so the test passed for that reason and
-        // would have kept passing if advertisement stopped honouring the flag entirely.
+        // Pin a known version and matching affirmation so only the operator flag can withhold the vendor.
+        // An unknown ambient version could otherwise make this test pass without exercising the flag.
         IHostedAgentRuntimeFactory disabled = new AcpHostedAgentRuntimeFactory(
             AcpVendorDescriptors.Gemini, BareConfig(), NullLoggerFactory.Instance,
             new CaptureServerConnection(), TimeProvider.System, resolveVendorVersion: _ => GeminiBuild);
@@ -2392,13 +2374,10 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             .Because("the positive control: without it, an advertisement that always said false would pass");
     }
 
-    /// <summary>An enabled daemon whose installed build is BELOW the recorded minimum still does not
-    /// advertise — the two halves of the gate are independent.
-    ///
-    /// <para>The version this test uses is now HIGHER than the installed build, not lower. It previously
-    /// recorded <c>0.53.0</c> against an installed <c>0.54.0</c> and asserted no advertisement, i.e. that
-    /// a vendor UPGRADE trips the gate. That is the behaviour the minimum deliberately removes, so the
-    /// arm being pinned here is a downgrade instead.</para></summary>
+    /// <summary>
+    /// A build below the recorded minimum must not advertise. Keep the opt-out enabled so the
+    /// version and consent gates are tested independently.
+    /// </summary>
     [Test]
     public async Task Gemini_AnEnabledDaemonBelowTheMinimum_DoesNotAdvertise() {
         IHostedAgentRuntimeFactory factory = new AcpHostedAgentRuntimeFactory(
@@ -2467,9 +2446,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(reason ?? "").DoesNotContain("unattended_reviewer_disabled");
     }
 
-    /// <summary>A build NEWER than the recorded minimum is advertised, withholding nothing. This
-    /// previously asserted the opposite — an upgrade past the recorded version used to withhold the
-    /// vendor until an operator re-affirmed, which is the treadmill the minimum removes.</summary>
+    /// <summary>
+    /// A build newer than the recorded minimum is advertised without withholding the vendor.
+    /// </summary>
     [Test]
     public async Task Gemini_ABuildNewerThanTheMinimum_IsAdvertised() {
         IHostedAgentRuntimeFactory factory = new AcpHostedAgentRuntimeFactory(
@@ -2962,17 +2941,11 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>Race order (b), no-hook (cursor) shape — the regression this whole task exists to
-    /// close: pre-fix, DisposeAsync only looked at TakeReap() when `_onDisposed` was non-null, so a
-    /// cursor-shaped runtime's disposal could return (and the factory reclassify against a possibly
-    /// still-forming Verdict — or, worse on a slower machine, an unclaimed one) WITHOUT ever waiting
-    /// for an in-flight reap. <see cref="GatedAcpProcess.TerminateEntered"/> proves the reap's async
-    /// portion has genuinely started (so its synchronous claim + Verdict publish are already done)
-    /// before this asserts the overall launch task is STILL PENDING — deterministic on the "started"
-    /// half, then a short bounded wait (matching this project's established
-    /// "give a task a chance to (not) complete, then assert IsCompleted" idiom — see e.g.
-    /// AcpHostedAgentRuntimeTests.ReadOutputAsync_stays_open_until_the_process_exits) to let a
-    /// regressed implementation demonstrate completing prematurely if it would.</summary>
+    /// <summary>
+    /// A no-hook runtime must still await an in-flight reap during disposal. TerminateEntered proves
+    /// the asynchronous teardown has started after the synchronous verdict publication; the launch must
+    /// remain pending until that held teardown completes, not merely until a verdict becomes readable.
+    /// </summary>
     [Test]
     public async Task ReapLandsDuringDisposalAwait_CursorShape_NoHook_BlocksFactoryUntilReapCompletes() {
         var fake    = new FakeAcpAgent();
@@ -3026,10 +2999,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>Race order (b), WITH a disposal hook (OpenCode — also Fail policy, so the SAME
-    /// trigger mechanism as the cursor-shape sibling test applies; only the vendor's reviewer-launch
-    /// timeout — hence `onDisposed` wiring — differs). Proves the fix's unconditional move doesn't
-    /// regress the shape that ALREADY awaited the reap pre-fix.</summary>
+    /// <summary>
+    /// The disposal-hook shape must also await an in-flight reap before finishing the launch failure.
+    /// </summary>
     [Test]
     public async Task ReapLandsDuringDisposalAwait_WithDisposalHook_BlocksFactoryUntilReapCompletes() {
         // POSIX-only — see ReapDuringInitialize_WithDisposalHook_ for the full reason: this launches the
@@ -3087,7 +3059,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>Mutation guard (design spec §3.2): with no reap ever claimed, there is no verdict to
+    /// <summary>Mutation guard: with no reap ever claimed, there is no verdict to
     /// reclassify against, so the composed message — auth hint included — must stay exactly what
     /// StartAsync produced before AcpHandshakeFailedException/AcpReviewerReapedException existed.
     /// Also pins the new exception's shape: TransportMessage holds the SANITIZED cause alone, with
@@ -3185,7 +3157,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// <summary>
     /// No production step between a successful spawn (_connectionSource returning) and
     /// runtime.StartAsync is reachable-by-test to organically throw with any normal input today — so
-    /// this exercises the extracted disposal unit directly. Design spec §3.2's fix ("a
+    /// this exercises the extracted disposal unit directly. fix ("a
     /// post-spawn/pre-protected-region construction failure currently leaks the child") is about
     /// WHATEVER this launch already obtained getting torn down even when no runtime was ever built
     /// to own it — exactly what <see cref="AcpHostedAgentRuntimeFactory.DisposeUnclaimedSpawnAsync"/>
@@ -3204,10 +3176,10 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    /// <summary>§3.5's non-empty-reason fallback: Task 4's orchestrator mapping owns applying it, but
-    /// a pre-StartAsync factory failure — no runtime ever wired, so no verdict — is exactly the case
-    /// that formula exists to cover, and this pins the shared formula plus that the factory itself
-    /// propagates such a failure byte-identically (untouched by this task's reclassification).</summary>
+    /// <summary>
+    /// Pre-StartAsync failures have no runtime verdict. Pin the shared nonempty-reason fallback and
+    /// verify the factory propagates the original failure unchanged for orchestrator reporting.
+    /// </summary>
     [Test]
     public async Task Whitespace_prespawn_exception_yields_typed_fallback() {
         var factory = new AcpHostedAgentRuntimeFactory(
@@ -3225,12 +3197,12 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             .IsEqualTo($"launch_failed:{nameof(InvalidOperationException)} — see daemon log");
     }
 
-    // ── Finding 3: a disposal fault must not bypass verdict reclassification ─────────────────────
+    // ── a disposal fault must not bypass verdict reclassification ─────────────────────
 
-    /// <summary>An <see cref="IAcpProcess"/> that terminates instantly (so the reap completes) but
-    /// FAULTS on <see cref="DisposeAsync"/> — the connection/process disposal fault the runtime's own
-    /// DisposeAsync propagates. Pre-fix, that fault escapes the factory's launch-failure catch BEFORE
-    /// <c>ReclassifyIfReaped</c> runs, replacing the coded verdict with a teardown exception.</summary>
+    /// <summary>
+    /// Termination succeeds but disposal throws, so failure handling must preserve the published
+    /// coded verdict while containing a subsequent process-disposal fault.
+    /// </summary>
     sealed class ThrowingDisposeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int  Pid       { get; init; } = 4545;
@@ -3241,10 +3213,10 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         public ValueTask DisposeAsync() => throw new InvalidOperationException("teardown-fault: process disposal");
     }
 
-    /// <summary>A reap during <c>initialize</c> whose runtime disposal then FAULTS must still be
-    /// reclassified to the coded verdict — the disposal fault is contained and logged, never allowed
-    /// to become the launch failure's headline. Pre-fix, <c>await runtime.DisposeAsync()</c> throws
-    /// out of the catch before reclassification and the teardown exception surfaces instead.</summary>
+    /// <summary>
+    /// A reap during initialize retains its coded verdict even if runtime disposal throws;
+    /// cleanup failure must not replace the launch failure's reported reason.
+    /// </summary>
     [Test]
     public async Task ReapDuringInitialize_ThrowingDisposal_StillReclassifiesToVerdict() {
         var fake = new FakeAcpAgent();
@@ -3281,7 +3253,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await fake.DisposeAsync();
     }
 
-    // ── Finding 4: DisposeUnclaimedSpawnAsync must not leak or mask on a cleanup fault ───────────
+    // ── DisposeUnclaimedSpawnAsync must not leak or mask on a cleanup fault ───────────
 
     /// <summary>A <see cref="Stream"/> whose disposal FAULTS — makes <c>AcpConnection.DisposeAsync</c>
     /// throw, standing in for a throwing stream disposal.</summary>
@@ -3316,10 +3288,10 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         public ValueTask DisposeAsync() { DisposeCalls++; return ValueTask.CompletedTask; }
     }
 
-    /// <summary>A throwing connection disposal must neither skip the process disposal below it nor
-    /// escape to mask the construction failure that brought us here (the "best-effort throughout"
-    /// contract). Pre-fix, <c>connection.DisposeAsync</c> is awaited with no guard, so its fault
-    /// propagates out — the process is left undisposed and the launch's real error is masked.</summary>
+    /// <summary>
+    /// A connection-disposal fault must neither skip process disposal nor replace the construction
+    /// failure that triggered cleanup.
+    /// </summary>
     [Test]
     public async Task DisposeUnclaimedSpawn_ConnectionDisposalFault_StillDisposesProcess_AndDoesNotThrow() {
         var connection = new AcpConnection(new ThrowOnDisposeStream(), new MemoryStream(), NullLogger.Instance);
@@ -3332,7 +3304,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(process.DisposeCalls).IsGreaterThan(0); // ran despite the connection fault
     }
 
-    // ── Finding 5: the §3.5 fallback format string has a single owner ────────────────────────────
+    // ── the fallback format string has a single owner ────────────────────────────
 
     /// <summary>The exception-backed (factory <c>DescribeLaunchFailure</c>) and reason-backed
     /// (orchestrator <c>MapLaunchFailureReason</c>) fallback paths route through ONE formatter, so

@@ -578,10 +578,8 @@ public class OnboardingFacadeTests {
     }
 
     /// <summary>
-    /// The call site the headless work exists for. Bare `kcap setup` over SSH lands on org-less
-    /// discovery, not on the named-server path, and that lambda used to call the loopback browser
-    /// unconditionally with no way to ask for anything else. Threading forceDevice only through
-    /// WorkOSTokensForServerAsync would have left this exactly as it was.
+    /// Bare setup over SSH reaches org-less discovery. That call site must receive forceDevice as
+    /// well as the named-server path so it cannot launch a loopback browser in a headless session.
     /// </summary>
     [Test]
     public async Task DiscoverAsync_workos_force_device_signs_in_through_the_device_grant() {

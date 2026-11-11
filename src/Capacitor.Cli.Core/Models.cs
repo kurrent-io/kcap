@@ -29,10 +29,8 @@ public record TranscriptBatch {
     [JsonPropertyName("repository")]
     public RepositoryPayload? Repository { get; init; }
 
-    // Routes the server's INormalizerSelector to CodexNormalizer when "codex".
-    // Null/absent → server treats the batch as Claude (default). Omitted on the
-    // wire when null so older servers (pre-#576) keep deserialising the batch
-    // unchanged — the server-side record had no vendor field before that PR.
+    // Omit a null vendor so servers whose batch DTO lacks this field still deserialize it.
+    // Null or absent identifies the Claude normalizer; an explicit codex selects Codex normalization.
     [JsonPropertyName("vendor")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Vendor { get; init; }
@@ -261,7 +259,7 @@ public class WatchState {
     // until its link POST succeeds, so a failed POST retries on the next scan (fail-open).
     public HashSet<string> PostedSubagentLinks { get; } = new(StringComparer.Ordinal);
 
-    // Task 10: Kiro turn anchors (the turn's final message_id) already streamed as a
+    // Kiro turn anchors (the turn's final message_id) already streamed as a
     // synthetic KiroUsageBackfilled line, so a later drain never re-emits the same anchor. Mirrors
     // LastAntigravityGenIdx above, but keyed on the anchor string rather than a row index because
     // Kiro's sidecar has no stable ordinal — committed ONLY after a successful send (see
@@ -274,7 +272,7 @@ public class WatchState {
     // re-staged) fresh on the next drain, so nothing is lost.
     public List<string> KiroUsagePendingAnchors { get; } = [];
 
-    // Task 11 (D0/D3) — byte offset (end of the last batch the runtime rewrite guard
+    // byte offset (end of the last batch the runtime rewrite guard
     // verified and the server acked) the Cursor watcher's guard checks resume from each poll.
     // Distinct from LinesProcessed (a LINE-number cursor set from the server's acked frontier,
     // which can differ from the raw count of lines sent when a line was disposed differently
@@ -520,7 +518,7 @@ public record EvalQuestionDto {
 /// with raw text + server-rendered prompt + per-question prompt version +
 /// needs_tools. There is NO top-level question template — the daemon uses each
 /// question's rendered <c>Prompt</c> directly. The daemon fetches this once per
-/// run and reconciles its run question list from it. Mirrors the server's Phase-2
+/// run and reconciles its run question list from it. Mirrors the server's catalog
 /// EvalCatalogResponse shape (the CLI cannot reference the server library — shape
 /// is duplicated).
 /// </summary>
@@ -559,10 +557,8 @@ public record EvalCatalogQuestionDto {
     [JsonPropertyName("prompt_version")]
     public required string PromptVersion { get; init; }
 
-    // SHOULD-FIX (round 2): `required` so a Phase-2 response that OMITS needs_tools
-    // fails deserialization loudly rather than silently defaulting false (which would
-    // route a tools question to the text path). System.Text.Json enforces `required`
-    // members — a missing `needs_tools` throws JsonException. See the missing-field test.
+    // Require needs_tools on catalog responses: silently defaulting an omitted value to false would
+    // route a tools question onto the text-only path.
     [JsonPropertyName("needs_tools")]
     public required bool NeedsTools { get; init; }
 
@@ -605,7 +601,7 @@ public record EvalQuestionVerdict {
     [JsonPropertyName("tools_used")]
     public int? ToolsUsed { get; init; }
 
-    // Phase 3 — catalog prompt version stamped at aggregation time before
+    // catalog prompt version stamped at aggregation time before
     // POSTing the V3 payload. Null until Aggregate fills it from the catalog.
     [JsonPropertyName("prompt_version")]
     public string? PromptVersion { get; init; }
@@ -839,7 +835,7 @@ public static partial class GitUrlParser {
     }
 
     // owner is greedy (`.+`) so a nested GitLab namespace (group/subgroup/...) is
-    // captured whole, with repo as the final path segment. / §6b.
+    // captured whole, with repo as the final path segment.
     [GeneratedRegex(@"https?://[^/]+/(?<owner>.+)/(?<repo>[^/]+?)(?:\.git)?$")]
     internal static partial Regex HttpsRegex();
 
@@ -1181,7 +1177,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.HarnessInventory))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.HarnessInventoryEntry))]
 [JsonSerializable(typeof(Dictionary<string, Capacitor.Cli.Core.Setup.HarnessInventoryEntry>))]
-// Phase B2-b (sequenced-settlement design): report / connect side wire DTOs.
+// Report / connect side wire DTOs.
 [JsonSerializable(typeof(ResolvedStartupCandidate))]
 [JsonSerializable(typeof(ResolvedStartupCandidate[]))]
 [JsonSerializable(typeof(UnresolvedStartupCandidate))]
@@ -1189,7 +1185,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(StartupCandidateUnresolvedReason))]
 [JsonSerializable(typeof(StartupDiscovery))]
 [JsonSerializable(typeof(MarkerScanState))]
-// Phase B2-b (sequenced-settlement design): command / ack side wire DTOs.
+// Command / ack side wire DTOs.
 [JsonSerializable(typeof(StopAgentV2))]
 [JsonSerializable(typeof(CommandAck))]
 [JsonSerializable(typeof(CommandAckState))]
@@ -1373,14 +1369,8 @@ public readonly record struct PermissionResolution(
     );
 
 /// <summary>
-/// Single-argument payload for the <c>AcpRequestInteraction</c> hub invocation. Mirrors
-/// the server-side record of the same name in <c>Capacitor.Server.Core</c> (<c>src/Capacitor.Server.Core/AcpInteraction.cs</c>);
-/// property names must stay in sync (snake_case on the wire via this context's naming policy).
-/// <b>Spec-review Finding 1:</b> <see cref="RequestedSchema"/> is a new OPTIONAL trailing field,
-/// mirroring the server-side <c>AcpInteractionRequest.RequestedSchema</c> exactly (same name,
-/// position, and nullability) — kept in lockstep across the wire boundary the same way every other
-/// field on this type already is (see Task A2's Interfaces note for the "server `record` / daemon
-/// `readonly record struct`, same JSON shape" convention this type follows).
+/// Wire mirror of the server's AcpInteractionRequest: names, order and nullability must stay in sync.
+/// Keep RequestedSchema optional and trailing so clients without elicitation schemas remain compatible.
 /// </summary>
 public readonly record struct AcpInteractionRequest(
         string                 AgentId,
@@ -1401,16 +1391,14 @@ public readonly record struct AcpInteractionRequest(
     );
 
 /// <summary>
-/// One selectable option for an ACP permission or elicitation interaction. Spec-review
-/// Finding 6: <see cref="OptionId"/> is the stable resolution key (mirrors
-/// <c>Acp.PermissionOptionDto.OptionId</c>) — <see cref="Label"/> is display-only.
+/// Resolve options by stable OptionId; Label is display-only and cannot identify a decision.
 /// </summary>
 public readonly record struct AcpInteractionOption(string OptionId, string Label, string? Description, string? Kind = null);
 
 /// <summary>
 /// Decision for an ACP interaction, pushed from the server. Mirrors the server-side
-/// record of the same name. Spec-review Finding 6: <see cref="SelectedOptionId"/> is what
-/// <c>AcpInteractionBridge.MapPermissionDecision</c> (Task B3) matches against — never
+/// record of the same name. <see cref="SelectedOptionId"/> is what
+/// <c>AcpInteractionBridge.MapPermissionDecision</c> matches against — never
 /// <see cref="SelectedOptionLabel"/>, which is retained for display/attribution only.
 /// </summary>
 public readonly record struct AcpInteractionDecision(
@@ -1654,25 +1642,14 @@ public readonly record struct AcpSourceClaimOutcome(AcpBindOutcome Outcome, long
 public enum AcpLaunchConfirmOutcome { Confirmed = 0, AlreadyConfirmed = 1, Superseded = 2, NotFound = 3 }
 
 /// <summary>
-/// §2.7 B6 reply to the server's <c>ReportParticipantParked</c> hub method — a
-/// field-for-field mirror of the server-side <c>Capacitor.Events.ParkParticipantOutcome</c>.
-/// <see cref="Parked"/> (including an idempotent re-park) means the daemon may complete its local
-/// park teardown while suppressing the hosted session-end, since the app-server thread survives for
-/// a later resume; <see cref="Rejected"/> is a DEFINITE refusal (wrong reason string, not the owning
-/// connection, an ownership-claim miss, a ledger CAS refusal, or a malformed canonical id) — the
-/// daemon falls back to the normal end path instead of parking. There is no third wire value: an
-/// AMBIGUOUS outcome (a transient transport error or timeout) is the
-/// ABSENCE of a reply — never encoded here. <c>ServerConnection.ReportParticipantParkedAsync</c> is
-/// what folds that absence into the daemon-local <c>ParkAck.Ambiguous</c>. A pre-B1 server with no
-/// <c>ReportParticipantParked</c> handler at all is a separate, PERMANENT case that same method also
-/// handles: it recognizes the resulting "unknown hub method" <c>HubException</c> specifically and maps
-/// it to the daemon-local <c>ParkAck.Rejected</c> instead of Ambiguous, so a permanently-old server
-/// degrades to the normal reap rather than retrying the park forever.
+/// Mirrors the server's ParkParticipantOutcome. Parked permits teardown without ending the retained
+/// Codex thread; Rejected requires normal session-end. Missing replies map locally to Ambiguous,
+/// while an unknown ReportParticipantParked method maps to Rejected so retry cannot hang forever.
 /// </summary>
 public enum ParkParticipantOutcome { Parked, Rejected }
 
 /// <summary>
-/// Ack returned from the server's <c>SendTranscriptBatchAcked</c> hub method (D3).
+/// Ack returned from the server's <c>SendTranscriptBatchAcked</c> hub method.
 /// Field-for-field mirror of the server-side <c>Capacitor.TranscriptBatchAck</c> record.
 /// <see cref="NextLineNumber"/> is the source-acknowledgement frontier — the first line number
 /// the server has NOT fully disposed of (emitted or deliberately ignored). The Cursor watcher
@@ -1702,7 +1679,7 @@ public readonly record struct LaunchAgentCommand(
         // last as an optional field so the SignalR positional binding stays wire-compatible with
         // older daemons/servers.
         string[]?         McpAllowlist = null,
-        // Phase A: launch against the user's own checkout instead of a fresh daemon-owned
+        // launch against the user's own checkout instead of a fresh daemon-owned
         // worktree. A bool on the wire (not the WorkLocation enum) — WorkLocation's numeric values
         // are BorrowedCwd=0/OwnedWorktree=1, the reverse of what you'd guess, so a raw enum int
         // would be a footgun; the daemon maps Borrowed -> WorkLocation internally. BorrowCwd is the
@@ -1710,13 +1687,13 @@ public readonly record struct LaunchAgentCommand(
         // fields above.
         bool               Borrowed = false,
         string?            BorrowCwd = null,
-        // Phase B (D2): flow identity for a ReviewFlow launch, so the daemon can store it on
+        // flow identity for a ReviewFlow launch, so the daemon can store it on
         // the AgentInstance and report it in LiveAgents / DaemonStatusReport (lets a restarted server
         // associate a surviving unassigned reviewer with its role). Appended last, same wire-compat
         // rule as the fields above — old daemons ignore them, old servers never set them.
         string?            FlowRunId = null,
         string?            FlowRole  = null,
-        // Phase B2-b (sequenced-settlement design): additive per-command sequencing fields. Present
+        // Additive per-command sequencing fields. Present
         // Epoch ⇒ the sequenced lane (the daemon serializes + watermarks against the shipped per-boot
         // _daemonEpoch); absent ⇒ the legacy unsequenced lane (never advances LastProcessedSeq).
         // CommandId is a GUID string. Appended last, same wire-compat rule as the fields above —
@@ -1727,7 +1704,7 @@ public readonly record struct LaunchAgentCommand(
         // The server's vendor-specific unattended-review certification expectation.
         // Kept additive and optional so older servers and non-review launches remain compatible.
         ReviewerCertificationRequirement? ReviewerCertification = null,
-        // Task 8: optional, versioned explicit reviewer-MODEL launch block. Non-null ONLY for a
+        // optional, versioned explicit reviewer-MODEL launch block. Non-null ONLY for a
         // protocol-v3 explicit-model reviewer launch the server drove through the daemon preflight;
         // null for every legacy/interactive launch (which keeps the ReportAgentResolvedModel path
         // unchanged). Appended last as an optional field so the SignalR positional/name binding stays
@@ -1743,7 +1720,7 @@ public readonly record struct LaunchAgentCommand(
         // the consent engine falls through rules to the configured default).
         string?           RequesterUserId       = null,
         bool?             RequesterIsOwner      = null,
-        // The review-flow inactivity bound in seconds (liveness-supervision spec §3). Received and
+        // The review-flow inactivity bound in seconds. Received and
         // stored ONLY so the daemon's wire contract matches the server's; the SERVER owns enforcement,
         // per round, via its own participant activity monitor.
         //
@@ -1755,7 +1732,7 @@ public readonly record struct LaunchAgentCommand(
         // Null for every non-review-flow launch and for a launch predating this field; an old daemon
         // ignores it.
         int?              InactivityBoundSeconds = null,
-        // The server-stamped human-readable name for RequesterUserId (issue #481). Display-only —
+        // The server-stamped human-readable name for RequesterUserId. Display-only —
         // NEVER used for consent matching, which stays on RequesterUserId. Appended last, same
         // wire-compat rule as the fields above — old daemons ignore it, old servers never set it.
         string?           RequesterDisplay = null,
@@ -1764,7 +1741,7 @@ public readonly record struct LaunchAgentCommand(
         // non-preset launch; the orchestrator's pre-flight AcpPermissionPresetPolicy fails closed on a
         // preset supplied for a review-flow / borrowed / non-ACP-routed launch.
         string?           AcpPermissionPreset = null,
-        // §2.7 B4: the hosted Codex thread to RESUME (via thread/resume, no second SessionStarted) instead
+        // The hosted Codex thread to RESUME (via thread/resume, no second SessionStarted) instead
         // of starting fresh — set by the server only for a parked-reviewer relaunch, else null. Appended
         // last so the SignalR positional binding stays wire-compatible with old daemons.
         string?           ResumeSessionId = null,
@@ -1813,7 +1790,7 @@ public sealed record ReviewerCertificationRequirement(
     string ExpectedDaemonConnectionId,
     string ExpectedCliVersion);
 
-/// <summary>Task 8: the server-pinned explicit reviewer-model launch parameters carried on
+/// <summary>the server-pinned explicit reviewer-model launch parameters carried on
 /// <see cref="LaunchAgentCommand.ExplicitReviewerModel"/>. <see cref="LaunchModel"/> is the EXACT model
 /// the daemon must launch the reviewer with (threaded through verbatim — never recanonicalized);
 /// <see cref="LaunchAttemptId"/> is the durable launch-attempt id the daemon must echo in its post-launch
@@ -1829,11 +1806,9 @@ public sealed record ExplicitReviewerModelLaunch(
     string EquivalenceKey,
     int    ReportProtocolVersion = 1);
 
-// ── Task 8: reviewer-model preflight RPC + resolved report wire DTOs ──────────────────────
-// These MATCH the server's DaemonCommands.cs shapes EXACTLY (field name/type/nullability) — the
-// System.Text.Json snake_case binding is name-based, so a rename on either side silently breaks the
-// wire. See kcap-server PR #1187 (Capacitor.Agents.ReviewerModelResolveRequestV1 / …ResponseV1 /
-// ExplicitReviewerModelResolvedV1).
+// ── Reviewer-model wire contracts ───────────────────────────────────────────────
+// Keep field names, types, and nullability aligned with the server's DaemonCommands DTOs:
+// System.Text.Json binds snake_case names, so an unmatched rename silently breaks the wire.
 
 /// <summary>Server → daemon: "would <see cref="RequestedModel"/> launch under <see cref="Vendor"/>'s
 /// current reviewer-model policy?" — a SIDE-EFFECT-FREE preflight (the daemon resolves, never spawns).
@@ -1906,15 +1881,15 @@ public enum LaunchKind {
     ReviewFlow = 2
 }
 
-// ── Phase B (D2): daemon self-report DTOs ────────────────────────────────────────────────
+// ── daemon self-report DTOs ────────────────────────────────────────────────
 
-/// <summary>Phase B (D2): one live hosted agent in the daemon's self-report. <see cref="Kind"/>
+/// <summary>one live hosted agent in the daemon's self-report. <see cref="Kind"/>
 /// is the <see cref="LaunchKind"/> name; <see cref="FlowRunId"/>/<see cref="FlowRole"/> are set only
 /// for a ReviewFlow launch. Carried additively on <see cref="DaemonConnect.LiveAgents"/> and in
 /// <see cref="DaemonStatusReport"/> so the server can associate a surviving unassigned reviewer with
 /// its role instead of a blind grace period. All-optional trailing fields keep it wire-compatible.
 ///
-/// <para>Liveness-supervision spec §0/§2: <see cref="ActivitySeq"/>/<see cref="IdleForMs"/>/
+/// <para><see cref="ActivitySeq"/>/<see cref="IdleForMs"/>/
 /// <see cref="TurnInFlight"/>/<see cref="LaunchStage"/> are this agent's daemon-local activity
 /// attestation, read from its <c>AgentActivityClock</c> (see <c>AgentOrchestrator.BuildLiveAgents</c>).
 /// Presence of ALL THREE steady-state fields (<see cref="ActivitySeq"/> + <see cref="IdleForMs"/> +
@@ -1939,7 +1914,7 @@ public readonly record struct LiveAgentInfo(
         string?        AccountLabel     = null
     );
 
-/// <summary>Phase B (D4 §6.4(2a)): an agent whose death could NOT be confirmed (record-write
+/// <summary>an agent whose death could NOT be confirmed (record-write
 /// or kill failure) and is being retried by the daemon heartbeat. Same shape as
 /// <see cref="LiveAgentInfo"/>; reported separately so the server can see it counts against admission
 /// (<c>EffectiveCount = ActiveCount + Quarantined.Count</c>) without changing <c>ActiveCount</c>'s
@@ -1952,7 +1927,7 @@ public readonly record struct QuarantinedAgentInfo(
         string?        FlowRole  = null
     );
 
-/// <summary>Phase B (D2): the periodic (60s) one-way daemon→server self-report. Sent via a
+/// <summary>the periodic (60s) one-way daemon→server self-report. Sent via a
 /// one-way <c>SendAsync</c> (never <c>InvokeAsync</c>) so an old server without the handler produces
 /// only a server-side log line, not a client fault. <see cref="ActiveCount"/> is exactly the daemon's
 /// Starting/Running agent count (its wire meaning never changes).</summary>
@@ -1960,7 +1935,7 @@ public readonly record struct DaemonStatusReport(
         int                  ActiveCount,
         LiveAgentInfo[]      LiveAgents,
         QuarantinedAgentInfo[] Quarantined,
-        // Phase B2-b (sequenced-settlement design): additive heal-barrier / startup-completeness
+        // Additive heal-barrier / startup-completeness
         // fields. All trailing/optional — an old server ignores them, an old daemon never sets them.
         // Epoch is the shipped per-boot _daemonEpoch (reused, never a second epoch concept).
         string?                       Epoch                         = null,
@@ -1970,7 +1945,7 @@ public readonly record struct DaemonStatusReport(
         ResolvedStartupCandidate[]?   ResolvedStartupCandidates     = null,
         UnresolvedStartupCandidate[]? UnresolvedStartupCandidates   = null,
         StartupDiscovery?             StartupDiscovery              = null,
-        // Phase B2-b (sequenced-settlement design §5.5): the daemon-lifetime monotonic high-water of the
+        // the daemon-lifetime monotonic high-water of the
         // resolved-candidates ledger, advertised alongside ResolvedStartupCandidates so that once sparse
         // acks prune entries the server still knows the generation frontier. Additive/optional.
         long?                         HighestResolutionGeneration   = null,
@@ -1991,9 +1966,9 @@ public readonly record struct DaemonStatusReport(
 /// The daemon answers with an ordinary <see cref="DaemonStatusReport"/> echoing <see cref="Nonce"/>.</summary>
 public readonly record struct StatusReportRequest(string Nonce);
 
-// ── Phase B2-b (sequenced-settlement design): startup-completeness / heal-barrier report DTOs ──
+// ── startup-completeness / heal-barrier report DTOs ──
 
-/// <summary>Phase B2-b (sequenced-settlement design): positive per-id death evidence for a
+/// <summary>Positive per-id death evidence for a
 /// prior-incarnation startup candidate. <see cref="Generation"/> is a daemon-lifetime monotonic
 /// ack/ordering id; <c>(AgentId, OldEpoch)</c> is the crash-reconciliation + server-upsert identity.
 /// Flow fields come ONLY from a trusted record-tracked resolved entry — never from a recordless
@@ -2006,7 +1981,7 @@ public readonly record struct ResolvedStartupCandidate(
         string? FlowRole  = null
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): why a known-id prior-incarnation candidate is
+/// <summary>Why a known-id prior-incarnation candidate is
 /// still blocked (keeps <c>StartupReapComplete</c> false). The zero value <see cref="PendingMarker"/>
 /// is the conservative default.</summary>
 public enum StartupCandidateUnresolvedReason {
@@ -2015,7 +1990,7 @@ public enum StartupCandidateUnresolvedReason {
     [JsonStringEnumMemberName("identity_unresolvable")] IdentityUnresolvable = 2,
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): a known-id prior-incarnation candidate that is
+/// <summary>A known-id prior-incarnation candidate that is
 /// blocked (keeps <c>StartupReapComplete</c> false).</summary>
 public readonly record struct UnresolvedStartupCandidate(
         string                           AgentId,
@@ -2024,7 +1999,7 @@ public readonly record struct UnresolvedStartupCandidate(
         string?                          FlowRole  = null
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): recordless-survivor marker-scan status. The
+/// <summary>Recordless-survivor marker-scan status. The
 /// zero value <see cref="Pending"/> is the conservative default — a missing field or an intermediate
 /// daemon reads as <see cref="Pending"/> (never <see cref="Complete"/>).</summary>
 public enum MarkerScanState {
@@ -2034,16 +2009,16 @@ public enum MarkerScanState {
     [JsonStringEnumMemberName("not_applicable")] NotApplicable = 3, // Windows (no scan) / macOS (env redacted)
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): recordless-survivor discovery status; lets the
+/// <summary>Recordless-survivor discovery status; lets the
 /// server render WHY <c>StartupReapComplete</c> is false.</summary>
 public readonly record struct StartupDiscovery(
         MarkerScanState MarkerScanState,
         DateTimeOffset? LastSuccessfulScanAt = null
     );
 
-// ── Phase B2-b (sequenced-settlement design): command / ack side wire DTOs ──
+// ── command / ack side wire DTOs ──
 
-/// <summary>Phase B2-b (sequenced-settlement design): the sequenced stop primitive. A capability
+/// <summary>The sequenced stop primitive. A capability
 /// daemon receives this instead of the legacy <c>StopAgent</c>; <see cref="Epoch"/> is the shipped
 /// per-boot <c>_daemonEpoch</c>, <see cref="Seq"/> the lane sequence number, <see cref="CommandId"/>
 /// a GUID string.</summary>
@@ -2054,7 +2029,7 @@ public readonly record struct StopAgentV2(
         string CommandId
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): ack lifecycle state. The zero value
+/// <summary>Ack lifecycle state. The zero value
 /// <see cref="Accepted"/> is the conservative default (accepted, not yet terminally processed);
 /// <see cref="Processed"/> is terminal and carries <c>OutcomeKind</c> + <c>CurrentState</c>.</summary>
 public enum CommandAckState {
@@ -2062,7 +2037,7 @@ public enum CommandAckState {
     [JsonStringEnumMemberName("processed")] Processed = 1, // terminal; OutcomeKind + CurrentState set
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): terminal outcome of a processed sequenced
+/// <summary>Terminal outcome of a processed sequenced
 /// command. The zero value <see cref="LaunchExecuted"/> is the conservative default.</summary>
 public enum CommandOutcomeKind {
     [JsonStringEnumMemberName("launch_executed")]       LaunchExecuted      = 0,
@@ -2072,7 +2047,7 @@ public enum CommandOutcomeKind {
     [JsonStringEnumMemberName("internal_error")]        InternalError       = 4,
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): current liveness read live at ack time
+/// <summary>Current liveness read live at ack time
 /// (confirmed-death precedence Live &gt; Quarantined &gt; Dead). The zero value <see cref="Live"/> is
 /// the conservative default. <see cref="NotFound"/> is a defined wire value the daemon's liveness read
 /// collapses to <see cref="Dead"/>, but a future path may still emit distinctly.</summary>
@@ -2083,7 +2058,7 @@ public enum AgentLiveness {
     [JsonStringEnumMemberName("not_found")]   NotFound    = 3,
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): the daemon's answer to a sequenced command
+/// <summary>The daemon's answer to a sequenced command
 /// (including an exact-duplicate — NO re-execution). <c>OutcomeKind</c>/<c>CurrentState</c> are set
 /// iff <see cref="State"/> == <see cref="CommandAckState.Processed"/>.</summary>
 public readonly record struct CommandAck(
@@ -2098,7 +2073,7 @@ public readonly record struct CommandAck(
         string?             RejectionReason = null
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): why a sequenced command was terminally
+/// <summary>Why a sequenced command was terminally
 /// rejected (never advances the old epoch's watermark). The zero value <see cref="WrongNext"/> is
 /// the conservative default.</summary>
 public enum CommandRejectedReason {
@@ -2111,7 +2086,7 @@ public enum CommandRejectedReason {
     [JsonStringEnumMemberName("semantic")]             Semantic           = 6,
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design): terminal rejection of a sequenced command
+/// <summary>Terminal rejection of a sequenced command
 /// (never advances the old epoch's watermark).</summary>
 public readonly record struct CommandRejected(
         string                Epoch,
@@ -2121,14 +2096,14 @@ public readonly record struct CommandRejected(
         string?               AgentId = null
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): server→daemon retirement proof — the daemon
+/// <summary>Server→daemon retirement proof — the daemon
 /// may retire identity-cache entries &lt;= <see cref="UpToSeq"/> for <see cref="Epoch"/>.</summary>
 public readonly record struct AckProcessedPrefix(
         string Epoch,
         long   UpToSeq
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): one resolved-candidate ack entry (sparse,
+/// <summary>One resolved-candidate ack entry (sparse,
 /// per-entry prune — no head-of-line retention).</summary>
 public readonly record struct ResolvedCandidateAck(
         long   Generation,
@@ -2136,16 +2111,16 @@ public readonly record struct ResolvedCandidateAck(
         string OldEpoch
     );
 
-/// <summary>Phase B2-b (sequenced-settlement design): server→daemon prune of individual
+/// <summary>Server→daemon prune of individual
 /// resolved-candidate ledger entries.</summary>
 public readonly record struct AckResolvedCandidates(
         ResolvedCandidateAck[] Entries
     );
 
-/// <summary>M1-A (spec §4.3): distinguishes a record with a comparable start-identity
+/// <summary>Distinguishes a record with a comparable start-identity
 /// (<see cref="Present"/>) from one where native capture failed (<see cref="IdentityUnavailable"/>
 /// — <see cref="AgentPidRecord.StartIdentity"/> is <c>""</c>, a deliberate well-formed marker,
-/// not a launch failure). <see cref="Present"/> MUST be the zero value: a pre-M1-A record's
+/// not a launch failure). <see cref="Present"/> MUST be the zero value: a record without identity_kind's
 /// JSON has no <c>identity_kind</c> key at all, and System.Text.Json's constructor-based
 /// deserialization gives a missing value-type constructor parameter <c>default(T)</c> — this
 /// is precisely how the backward-compat rule ("missing identity_kind + nonempty start_identity
@@ -2155,7 +2130,7 @@ public enum PidIdentityKind {
     IdentityUnavailable = 1,
 }
 
-/// <summary>Phase B (D4 §6.4(2)): the durable per-agent PID record written atomically at spawn
+/// <summary>the durable per-agent PID record written atomically at spawn
 /// to <c>&lt;state-dir&gt;/agents/{agentId}.json</c>, so a restarted daemon can reap a surviving child
 /// by EXACT identity. <see cref="StartIdentity"/> is the <c>ProcessStartToken</c> string
 /// (kernel starttime / absolute start ticks / macOS incarnation id — exact, no tolerance), or
@@ -2199,12 +2174,8 @@ public readonly record struct FindRepoForRemoteRequest(
     );
 
 /// <summary>
-/// Daemon reply to the server's <c>ProbeBorrowSource</c> client-result invocation (Phase A,
-/// task A3): "can you borrow this path?". <see cref="CanBorrow"/> mirrors
-/// <c>BorrowAuthResult.Allowed</c>; <see cref="CanonicalCwd"/>/<see cref="CanonicalGitRoot"/> are the
-/// daemon-computed canonical paths (non-null only when the path exists), and <see cref="Reason"/>
-/// carries the rejection reason (<c>path_absent</c> / <c>not_allowed</c>) when not borrowable. Wire
-/// keys (snake_case): <c>can_borrow</c>, <c>canonical_cwd</c>, <c>canonical_git_root</c>, <c>reason</c>.
+/// Mirrors the server's ProbeBorrowSource reply. Canonical paths are present only for existing paths;
+/// Reason distinguishes path_absent from not_allowed when CanBorrow is false.
 /// </summary>
 public record BorrowProbeResult(
         bool    CanBorrow,
@@ -2268,7 +2239,7 @@ public readonly record struct DaemonConnect(
         string?   Version          = null,
         string[]? SupportedVendors = null,
         string?   MachineId        = null,
-        // Phase B (D2): richer live-agent metadata alongside the existing LiveAgentIds
+        // richer live-agent metadata alongside the existing LiveAgentIds
         // (kept for back-compat). Trailing/optional — old servers ignore it, old daemons never set it.
         LiveAgentInfo[]? LiveAgents = null,
         // Reviewer vendor override support: vendor tokens this daemon can run fully UNATTENDED (a
@@ -2276,7 +2247,7 @@ public readonly record struct DaemonConnect(
         // build that predates this field — that daemon is simply not an override-eligible target for
         // ANY vendor. There is deliberately no fallback that widens a null to anything non-null.
         string[]? UnattendedVendors = null,
-        // Phase B2-b (sequenced-settlement design): additive startup-completeness / heal-barrier
+        // Additive startup-completeness / heal-barrier
         // capability payload. All trailing/optional — old servers ignore it, old daemons never set
         // it. Advertised-but-inert until the paired server PR consumes it (gated on
         // SupportsSequencedCommands). Epoch is the shipped per-boot _daemonEpoch (reused).
@@ -2290,7 +2261,7 @@ public readonly record struct DaemonConnect(
         StartupDiscovery?             StartupDiscovery              = null,
         bool?                         RecordlessSurvivorsImpossible = null, // absent/false ⇒ has a recordless class
         bool                          SupportsSequencedCommands     = false, // THE capability gate
-        // Phase B2-b (sequenced-settlement design §5.5): the daemon-lifetime monotonic high-water of the
+        // the daemon-lifetime monotonic high-water of the
         // resolved-candidates ledger, advertised alongside ResolvedStartupCandidates so that once sparse
         // acks prune entries the server still knows the generation frontier. Additive/optional.
         long?                         HighestResolutionGeneration   = null,

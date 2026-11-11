@@ -487,43 +487,11 @@ class ImportCommand(
     }
 
     /// <summary>
-    /// A routed-phase
-    /// <c>AlreadyLoaded</c> classification (Cursor) is included in `routed` solely so its
-    /// <c>ImportSessionAsync</c> call can re-assert lifecycle hooks and backfill the
-    /// <c>repository</c> node on an already-fully-ingested session (the C2 suppressed-repo-import
-    /// contract), or — for a correlated nested child — because its parent needs it present in
-    /// `routed` to import it inline; neither case is "new work" on its own. Because nothing past
-    /// the parent's own watermark exists, its own call still returns <see cref="ImportOutcome.Loaded"/>
-    /// or <see cref="ImportOutcome.Resumed"/> (no line 0 to distinguish "nothing sent" from "brand
-    /// new"), and a nested child's own call always short-circuits to <see cref="ImportOutcome.Skipped"/>
-    /// (its content is sent inline by the parent, not by its own call). Without this check either
-    /// success would double-count on top of the classify-time <c>AlreadyLoaded</c> bucket the same
-    /// session already contributes to (as both Loaded/Already-loaded, or as both Excluded/Already-
-    /// loaded), and a parent replay would wrongly join <c>importedSessionIds</c> so a later
-    /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
-    ///
-    /// <para>
-    /// Round-2 finding 1: an <c>AlreadyLoaded</c> parent can still ship brand-new content by
-    /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
-    /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
-    /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
-    /// two: only a replay that sent no child content either is truly lifecycle-only.
-    /// </para>
-    ///
-    /// <para>
-    /// This gate is vendor-NEUTRAL: <c>sentChildContent</c> carries a real signal for Cursor,
-    /// Antigravity, and Gemini alike (Copilot/Kiro/Pi/OpenCode permanently default it
-    /// <c>false</c>, which is already correct for their no-op replay shape).
-    /// </para>
-    ///
-    /// <para>
-    /// This gate alone only decides whether a replay is suppressed — it does NOT decide which
-    /// bucket a non-suppressed call lands in for counting. See
-    /// <see cref="IsSkippedChildContentOverride"/> and <see cref="ResolveRoutedOutcomeForCounting"/>
-    /// for the central aggregation boundary that fixes the case this gate can't: a <c>Skipped</c>
-    /// <c>AlreadyLoaded</c> call (e.g. Antigravity's) that attached genuinely-new nested-child
-    /// content must count as Loaded, even though its own raw outcome is <c>Skipped</c>.
-    /// </para>
+    /// A fully loaded parent may replay only lifecycle hooks, which must not count as a second import
+    /// or join the later privatization pass. A replay that attaches new child content is real work even
+    /// when the parent's own watermark and outcome are unchanged. SentChildContent supplies that signal
+    /// across vendors; a skipped call with new child content must count as Loaded through the shared
+    /// aggregation boundary, not as another AlreadyLoaded or Excluded session.
     /// </summary>
     internal static bool IsLifecycleOnlyRoutedReplay(
             ClassificationStatus  status,
@@ -1346,7 +1314,6 @@ class ImportCommand(
             }
         }
 
-        // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
         RefreshClassifiedCwds(classifications);
 
@@ -2132,7 +2099,6 @@ class ImportCommand(
 
                                 break;
                             case null when outcome is ImportOutcome.Skipped:
-                                // See the Tty branch above.
                                 display.Line($"Already loaded {SessionIds.Display(c.SessionId)} (no new content)");
 
                                 break;
@@ -2351,16 +2317,9 @@ class ImportCommand(
     }
 
     /// <summary>
-    /// Timestamp used to order a continuation chain. Prefers the transcript's first
-    /// observed message timestamp; falls back to the file's last-write mtime when
-    /// the transcript has no parseable timestamp in its first 50 lines (best-effort
-    /// `ExtractSessionMetadata` leaves `FirstTimestamp` null in that case).
-    /// <br/>
-    /// Without this fallback, timestamp-less transcripts would all sort at
-    /// `DateTimeOffset.MinValue` and could displace real predecessors — corrupting
-    /// `previous_session_id` links in the session-start hook. The mtime lookup is
-    /// wrapped so a file deleted between discovery and chain building can't crash
-    /// the whole import run; ordering is best-effort.
+    /// Continuation ordering needs a meaningful timestamp: use the first message timestamp, then file
+    /// mtime when the first 50 lines supply none. MinValue would displace genuine predecessors and
+    /// corrupt previous_session_id links. A file disappearing during the mtime lookup must not abort import.
     /// </summary>
     internal static DateTimeOffset ChainTimestamp(SessionClassification c) {
         if (c.Meta.FirstTimestamp is { } ts) return ts;
@@ -2441,21 +2400,16 @@ class ImportCommand(
                     var doc  = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    // Skip file-history-snapshot entries
                     if (root.Str("type") == "file-history-snapshot") {
                         continue;
                     }
 
-                    // Extract cwd from metadata
                     meta.Cwd ??= root.Str("cwd");
 
-                    // Extract model from assistant message
                     meta.Model ??= root.Obj("message")?.Str("model");
 
-                    // Extract slug from metadata
                     meta.Slug ??= root.Str("slug");
 
-                    // Extract sessionId
                     meta.SessionId ??= root.Str("sessionId");
 
                     // Detached HEAD is recorded as "HEAD", which names no branch.
@@ -2469,7 +2423,6 @@ class ImportCommand(
                         meta.FirstTimestamp = ts;
                     }
 
-                    // Stop early once we have all metadata
                     if (meta.Cwd is not null && meta.Model is not null && meta.Slug is not null && meta.GitBranch is not null) {
                         break;
                     }
@@ -2496,7 +2449,6 @@ class ImportCommand(
             // If we seeked mid-file, skip the first partial line
             if (offset > 0) reader.ReadLine();
 
-            // Collect the last 50 non-empty lines
             var tail = new List<string>(50);
 
             while (reader.ReadLine() is { } line) {
@@ -2507,16 +2459,8 @@ class ImportCommand(
                 }
             }
 
-            // Scan from the end. Confirmed that Codex rollout
-            // records also key their per-record timestamp under root-level
-            // "timestamp" (same envelope shape session_meta/response_item/
-            // event_msg all share) — verified against
-            // test/data/codex/sessions/2026/05/07/rollout-...019e0228-....jsonl
-            // and .../2026/07/11/rollout-2026-07-11-update-plan-fixture.jsonl
-            // in the kcap-server repo, and against CodexImportSource /
-            // ImportCommand.ExtractCwdFromTranscript(codex: true) which reads
-            // the sibling "payload" envelope at the same root level. No second
-            // probe is needed.
+            // Codex rollout timestamps live at the JSONL root, beside payload rather than inside it.
+            // Scan backward for the most recent timestamp without requiring another transcript probe.
             for (var i = tail.Count - 1; i >= 0; i--) {
                 try {
                     using var doc  = JsonDocument.Parse(tail[i]);
@@ -2763,7 +2707,7 @@ class ImportCommand(
     /// then promotes the read fallback if no mutation ever attributed. Import has no live tail
     /// to keep scanning, so — unlike the watcher's one-shot prefix scan — this always runs to
     /// end of file. <paramref name="findRoot"/>/<paramref name="detect"/> are injected so the
-    /// D1 gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
+    /// Repository-membership gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
     /// </summary>
     internal static async Task<JsonObject?> TryBuildEvidenceRepositoryNodeAsync(
             string                                 vendor,
@@ -3016,10 +2960,8 @@ class ImportCommand(
         && (path.Length == ancestor.Length || CwdRemapper.IsSeparator(path[ancestor.Length]));
 
     /// <summary>
-    /// Drop any path from <paramref name="paths"/> whose parent (at any depth)
-    /// is also in the set. Used to collapse worktree-style descendants like
-    /// <c>/repo/.claude/worktrees/agent-X</c> under their already-missing
-    /// parent <c>/repo</c> for a less noisy report.
+    /// A missing parent already explains missing worktree descendants; collapse them to keep the
+    /// report actionable rather than listing every path under the same absent repository.
     /// </summary>
     internal static HashSet<string> CollapseDescendants(IReadOnlySet<string> paths) {
         var roots = new HashSet<string>(StringComparer.Ordinal);
@@ -3053,7 +2995,6 @@ class ImportCommand(
     internal static string? TrimLastSegment(string p) {
         var i = p.Length - 1;
 
-        // Skip trailing separators (e.g. a stray "/a/b/").
         while (i >= 0 && CwdRemapper.IsSeparator(p[i])) i--;
 
         // Find the separator that ends the parent segment.
@@ -3656,7 +3597,7 @@ class ImportCommand(
             }
         }
 
-        // D1: the cwd itself isn't inside any git repo (or is missing entirely), so neither
+        // The cwd itself isn't inside any git repo (or is missing entirely), so neither
         // workspace_root above nor the cwd-based repository detection could find anything —
         // fall back to scanning the transcript's own tool-use paths for a resolvable git root,
         // same evidence rule the live watcher applies for sessions launched outside a repo.

@@ -4,7 +4,7 @@ using Capacitor.Cli.Daemon.Services;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Test double for the Task 10 runtime-selection seam: records that <see cref="StartAsync"/>
+/// Test double for the runtime-selection seam: records that <see cref="StartAsync"/>
 /// was called (and with what agent id) and returns a no-op <see cref="FakeHostedAgentRuntime"/>,
 /// without ever spawning a real process — proves the orchestrator routes a launch to the correct
 /// <see cref="IHostedAgentRuntimeFactory"/> by vendor.
@@ -21,7 +21,7 @@ sealed class SpyHostedAgentRuntimeFactory(string vendor) : IHostedAgentRuntimeFa
     /// declaration, and a test that could only set it alongside a borrow would prove nothing.</summary>
     public bool   ReviewFlowRedirectsHome { get; init; }
 
-    /// <summary>Task 8: lets a test give this factory a reviewer-model resolver so the
+    /// <summary>lets a test give this factory a reviewer-model resolver so the
     /// orchestrator's ResolveReviewerModel preflight handler can resolve against it.</summary>
     public IReviewerModelResolver? ReviewerModelResolver { get; init; }
 

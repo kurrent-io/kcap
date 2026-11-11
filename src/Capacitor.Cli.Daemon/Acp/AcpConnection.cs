@@ -27,7 +27,7 @@ internal sealed class AcpRpcException : Exception {
 /// Owns framing (one JSON object per line, UTF-8), outbound request/response correlation, and
 /// routing of inbound notifications and server→client requests. Decoupled from <see cref="System.Diagnostics.Process"/>
 /// — the ctor takes plain <see cref="Stream"/>s so tests can drive it over in-memory pipes; the
-/// real caller (<c>AcpHostedAgentRuntime</c>, Task 9) passes the child process's stdin/stdout.
+/// real caller (<c>AcpHostedAgentRuntime</c>) passes the child process's stdin/stdout.
 ///
 /// Concurrency model:
 /// - Outbound id allocation is an <see cref="Interlocked"/> counter.
@@ -126,7 +126,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// successful EMPTY result must return an explicit <see cref="JsonElement"/> (e.g. an empty
     /// object via <see cref="JsonSerializer.SerializeToElement{T}(T, System.Text.Json.Serialization.Metadata.JsonTypeInfo{T})"/>), never <see langword="null"/>.
     ///
-    /// Typed <see cref="JsonElement"/>? rather than <c>object?</c> (PR #244 review, Fix #3): the
+    /// Typed <see cref="JsonElement"/>? rather than <c>object?</c>: the
     /// old <c>object?</c> contract let a handler return an un-serialized CLR object that
     /// <see cref="WriteServerResponseAsync"/> could only reject with a thrown
     /// <see cref="InvalidOperationException"/> — which happened OUTSIDE any try/catch here, so it
@@ -208,7 +208,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
         } finally {
             // Latch + pre-fault hook run BEFORE pending requests fault: the runtime must observe
             // "reconnecting" before the faulted prompt's continuation (and its finally-flush) can
-            // run, or the two race (design-of-record C6.2; reconnect spec §5.2).
+            // Run, or the two race.
             MarkTransportEnded();
             FaultAllPending(new ObjectDisposedException(nameof(AcpConnection), "ACP connection read loop ended with requests still pending."));
         }
@@ -302,7 +302,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
             // GetInt32()/GetString() accessors here, and DispatchLineAsync's broad catch would
             // log+skip the frame — leaving this TCS orphaned and its caller hanging until the
             // connection disposed. Every read below is TryGetProperty + ValueKind-gated so this
-            // block can never throw (PR #244 review, Fix D).
+            // block can never throw.
             var code = error.ValueKind == JsonValueKind.Object
                     && error.TryGetProperty("code", out var codeEl)
                     && codeEl.ValueKind == JsonValueKind.Number
@@ -332,7 +332,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// <summary>
     /// Handles one inbound agent→client request. MUST write exactly one response frame for
     /// <paramref name="idElement"/> no matter what happens — a missing response wedges the agent's
-    /// wait on this id forever (PR #244 review, Fix #3). The handler-invoke try/catch (existing)
+    /// wait on this id forever. The handler-invoke try/catch (existing)
     /// and the outer try/catch around response serialization+write (new) together guarantee this:
     /// any failure — a thrown handler, or a result that fails to serialize/write — falls back to a
     /// JSON-RPC "Internal error" response keyed on the ORIGINAL request id, rather than letting the
@@ -381,21 +381,8 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
         }
 
         try {
-            // the final response write deliberately uses CancellationToken.None, not `ct` —
-            // this method's own doc comment guarantees exactly one response frame is written "no
-            // matter what happens", and `ct` is the SAME token AcpHostedAgentRuntime.DisposeAsync
-            // cancels to unblock a pending OnServerRequest handler (e.g. AcpInteractionBridge
-            // resolving to a well-formed `cancelled` result on disconnect — Task B3/B4). Gating the
-            // WRITE itself on that already-cancelled token would make WriteLineAsync's write-gate
-            // wait (`_writeGate.WaitAsync(ct)`) throw OperationCanceledException before a single byte
-            // goes out, silently violating the "always exactly one response frame" invariant (the
-            // exception propagates through this method's `when (ex is not OperationCanceledException)`
-            // guard, then DispatchLineAsync's identical guard, and is swallowed by RunAsync's
-            // "normal shutdown" catch) — the agent would see NO response at all instead of the
-            // well-formed cancelled/error result the handler already computed. The write is a single
-            // best-effort attempt against a stream that may itself be torn down (e.g. the process
-            // already exited) — that failure mode is unrelated to `ct` and is exactly what the
-            // fallback below still handles.
+            // Final response writes use CancellationToken.None: disposal cancels the handler's token, but the
+            // peer still needs its cancelled result. Reusing that token would abort before writing a response.
             await WriteServerResponseAsync(idClone, result, error, CancellationToken.None).ConfigureAwait(false);
         } catch (Exception ex) {
             // Serializing/writing the chosen response itself failed (e.g. a malformed JsonElement,
@@ -424,7 +411,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// <summary>
     /// Writes the JSON-RPC response for one inbound server request. <paramref name="result"/> is
     /// already a <see cref="JsonElement"/>? by construction (the <see cref="OnServerRequest"/>
-    /// delegate is typed <c>Task&lt;JsonElement?&gt;</c> — PR #244 review, Fix #3 — so there is no
+    /// delegate is typed <c>Task&lt;JsonElement?&gt;</c> so there is no
     /// runtime shape to validate here, only to serialize+write; the caller
     /// (<see cref="HandleServerRequestAsync"/>) wraps this call so a failure here still yields an
     /// internal-error fallback response rather than none at all).
@@ -474,14 +461,9 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
                 await _writeStream.WriteAsync(bytes, ct).ConfigureAwait(false);
                 await _writeStream.FlushAsync(ct).ConfigureAwait(false);
             } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
-                // A failure of the stream write/flush ITSELF is transport evidence (broken pipe /
-                // torn-down stream) and triggers the reconnect pre-fault path. Deliberately narrow
-                // on the exclusion side too: only a cancellation the CALLER actually requested is a
-                // local (non-transport) outcome — a stream throwing OperationCanceledException while
-                // ct is un-cancelled is a dying transport wearing the wrong exception type
-                // (code-review r1) and must latch like any other write failure. Gate-acquisition
-                // cancellation and anything before this inner try (serialization happens in the
-                // caller) never reach here.
+                // Only a cancellation requested by the caller is local. An OperationCanceledException from a
+                // stream while ct is uncancelled is transport evidence and must trigger the reconnect latch.
+                // Gate acquisition and serialization happen outside this try and do not imply transport failure.
                 MarkTransportEnded();
                 throw;
             }

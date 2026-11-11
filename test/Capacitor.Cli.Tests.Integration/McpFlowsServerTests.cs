@@ -609,7 +609,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
 
     /// <summary>
     /// A non-boolean JSON "async" (e.g. an LLM caller passing the string "yes") must NOT crash
-    /// the request with an uncaught GetValue&lt;bool&gt;() exception — it must surface as a clean
+    /// The request with an uncaught GetValue&lt;bool&gt; exception — it must surface as a clean
     /// isError:true tool result, and the stdio loop must stay alive for the next request. No
     /// WireMock stub is needed: the bad arg is rejected before any HTTP call is made, mirroring
     /// Submit_review_round_without_flow_run_id_returns_error above.

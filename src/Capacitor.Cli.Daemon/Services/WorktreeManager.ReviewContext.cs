@@ -326,10 +326,8 @@ public partial class WorktreeManager {
             manifest.OmittedForCapacity is null)
             throw new InvalidOperationException(
                 "borrowed_snapshot_review_context_invalid_manifest");
-        // Exact membership in the set the classifier actually matched, each path at most once across
-        // BOTH lists — a path is shipped or declared omitted, never both and never twice. Strictly
-        // stronger than the count cap this replaces, which bounded how many entries there were but
-        // not which.
+        // Require exact membership in the classifier's matched set, at most once across both lists.
+        // A path is shipped or omitted, never both; a count cap alone does not enforce that partition.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         long total = 0;
         foreach (var entry in manifest.Entries) {

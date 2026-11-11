@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 public class ConsentDecisionLogReaderTests {
     const string DaemonName = "test-daemon";
 
-    // requesterDisplay: null omits the field entirely — the true old-format shape (spec §4.4's
+    // requesterDisplay: null omits the field entirely — the true old-format shape (spec 's
     // field predates requester_display), distinct from an explicit JSON null.
     static string Record(string decidedAt, string agentId = "agent-1", string? requesterDisplay = "Alexey") {
         var displayField = requesterDisplay is null ? "" : $",\"requester_display\":\"{requesterDisplay}\"";

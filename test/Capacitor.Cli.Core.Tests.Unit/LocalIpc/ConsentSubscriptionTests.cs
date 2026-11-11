@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.LocalIpc;
 namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
-/// ConsentSubscription.RunAsync over a REAL Unix socket driven by a scripted server (spec §4.2).
+/// ConsentSubscription.RunAsync over a REAL Unix socket driven by a scripted server.
 /// Harness conventions (Windows guard, per-test socket directory, the ScriptedOpsServer shape)
 /// are copied from <see cref="LocalControlOpsTests"/>.
 /// </summary>
@@ -48,7 +48,7 @@ public class ConsentSubscriptionTests {
     // ---- script building blocks ----
 
     /// Reads the ConsentSubscribeV2 frame then parks on an awaited TaskCompletionSource so no
-    /// reply EVER arrives — the empty-replay boundary (spec §4.2). Only server teardown (the
+    /// reply EVER arrives — the empty-replay boundary. Only server teardown (the
     /// script's own ct, cancelled by ScriptedOpsServer.DisposeAsync) unblocks this.
     static ConnScript SubscribeThenPark() => async (_, s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
@@ -73,8 +73,8 @@ public class ConsentSubscriptionTests {
     };
 
     /// A faithful v1 daemon: reads the raw 5-byte header, sees a type byte its codec has no case
-    /// for, and closes without writing ANY frame — never a routing-default Error reply (spec §4.1,
-    /// the V1CodecReject shape from Task 4). Header-only is the full frame here ONLY because
+    /// for, and closes without writing ANY frame — never a routing-default Error reply (spec,
+    /// the V1CodecReject shape from ). Header-only is the full frame here ONLY because
     /// ConsentSubscribeV2 carries an empty payload (len=0, see ConsentSubscription.RunAsync); a
     /// non-empty request would need the payload read too (see LocalControlOpsTests.V1CodecReject).
     static ConnScript V1CodecReject() => async (_, s, ct) => {

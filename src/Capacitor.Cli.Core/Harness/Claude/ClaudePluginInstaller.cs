@@ -34,14 +34,9 @@ public static class ClaudePluginInstaller {
     public const string SteeringMarkerFileName = ".kcap-steering-installed";
 
     /// <summary>
-    /// True when the user has previously installed the kcap Claude
-    /// plugin via setup or <c>kcap plugin install</c>. Detection is
-    /// marker OR any historical kcap entry in <paramref name="settingsPath"/>:
-    /// <c>enabledPlugins["kcap@kcap" | "kcap@kurrent" | "kapacitor@kapacitor" | "kapacitor@kurrent"]</c>,
-    /// or <c>extraKnownMarketplaces["kcap" | "kurrent" | "kapacitor"]</c>.
-    /// Recognising the legacy keys lets the postinstall refresh pick up
-    /// installs left by the pre-rename <c>kapacitor</c> CLI as well as
-    /// the interim <c>kurrent</c> marketplace shape.
+    /// Recognize markerless installs through enabledPlugins entries for kcap@kcap, kcap@kurrent,
+    /// kapacitor@kapacitor, or kapacitor@kurrent, and marketplace keys kcap, kurrent, or kapacitor.
+    /// These persisted config shapes must remain refreshable without performing a first install.
     /// </summary>
     public static bool IsInstalled(string settingsPath) {
         var dir = Path.GetDirectoryName(settingsPath);
@@ -96,22 +91,10 @@ public static class ClaudePluginInstaller {
         enabled[key] is JsonValue v && v.TryGetValue<bool>(out var on) && on;
 
     /// <summary>
-    /// True only when the plugin is CURRENTLY effective: an enabled plugin registration in
-    /// <paramref name="settingsPath"/> AND a resolvable INSTALLED payload. Distinct from
-    /// <see cref="IsInstalled"/>, which is the refresh gate ("previously installed → refresh
-    /// it") and accepts the version marker alone: a stale marker (manual removal, failed
-    /// refresh, npm re-layout) must never authorize a DESTRUCTIVE decision — doctor's
-    /// duplicate cleanup and the launcher's merge-skip both assume Claude will actually load
-    /// the plugin's servers in place of the entry being suppressed or removed.
-    ///
-    /// <para>The payload is resolved the way Claude loads it, not from a marketplace SOURCE
-    /// dir (whose content proves nothing about what is installed/active): the enabled key's
-    /// entry in <c>&lt;claude-home&gt;/plugins/installed_plugins.json</c> names the per-scope
-    /// <c>installPath</c> (the plugin cache). Directory-sourced marketplaces are the one
-    /// exception — Claude resolves those LIVE and their recorded cache path never
-    /// materializes (verified against Claude Code 2.x), so when no cache payload exists the
-    /// marketplace's <c>installLocation</c> in <c>known_marketplaces.json</c> is consulted.
-    /// Anything unresolvable → not effective (fail closed: no destructive action).</para>
+    /// A refresh marker alone must not authorize destructive duplicate cleanup or skipping a merge.
+    /// Require an enabled registration and payload Claude will actually load, resolved from the installed
+    /// plugin cache. Directory-sourced marketplaces load live, so their installLocation is the fallback
+    /// when no cached payload exists. An unresolved payload is ineffective and authorizes no removal.
     /// </summary>
     public static bool IsEffectivelyInstalled(string settingsPath) => EffectiveMcpJsonPath(settingsPath) is not null;
 

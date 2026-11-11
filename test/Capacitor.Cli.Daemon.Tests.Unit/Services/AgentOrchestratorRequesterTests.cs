@@ -5,10 +5,10 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Requester stamping (spec §4.3): AgentInstance.RequesterUserId is captured from
+/// Requester stamping: AgentInstance.RequesterUserId is captured from
 /// LaunchAgentCommand at construction — non-null when a new server sends it, null for
 /// old servers (field absent) — so the supervision payload can show who asked.
-/// RequesterDisplay (issue #481) is captured the same way, independently — a server may
+/// RequesterDisplay  is captured the same way, independently — a server may
 /// send the id without a display name (old server, or the server hasn't resolved one yet).
 /// </summary>
 public class AgentOrchestratorRequesterTests {

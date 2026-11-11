@@ -99,7 +99,7 @@ public class LaunchConsentBrokerTests {
         await Assert.That(await pending).IsFalse();
     }
 
-    // ══ WaitForSubscriberAsync — the generational waiter state machine (spec §3.2). All timing
+    // ══ WaitForSubscriberAsync — the generational waiter state machine. All timing
     // driven by FakeTimeProvider; no real sleeps stand in for timeout semantics. ═══════════════
 
     [Test]
@@ -213,7 +213,7 @@ public class LaunchConsentBrokerTests {
         await Assert.That(async () => await waiter).Throws<OperationCanceledException>();
     }
 
-    // ══ PromptAsync deadline discipline (spec §3.2) — TimeProvider-driven timeout mechanics
+    // ══ PromptAsync deadline discipline — TimeProvider-driven timeout mechanics
     // replacing the CancellationTokenSource.CancelAfter linked-CTS, plus the Cancellation
     // paragraph's external-ct-must-propagate contract. ═══════════════════════════════════════
 
@@ -233,7 +233,7 @@ public class LaunchConsentBrokerTests {
 
     [Test]
     public async Task PromptAsync_with_zero_timeout_settles_immediately_to_null() {
-        // Spec §3.2: zero remaining is not a special case — PromptAsync runs with a zero budget
+        // Spec: zero remaining is not a special case — PromptAsync runs with a zero budget
         // and settles as the standard timeout denial, no separate code path.
         var broker = new LaunchConsentBroker();
         broker.Subscribe();
@@ -257,7 +257,7 @@ public class LaunchConsentBrokerTests {
         await Assert.That(broker.TryResolve("a-external-cancel", allow: true)).IsFalse();
     }
 
-    // ══ TryResolve promptId-echo claim (spec §4.1) — the atomic identity-checked overload. ═════
+    // ══ TryResolve promptId-echo claim — the atomic identity-checked overload. ═════
 
     [Test]
     public async Task TryResolve_with_matching_echo_resolves_and_mismatch_leaves_pending_untouched() {

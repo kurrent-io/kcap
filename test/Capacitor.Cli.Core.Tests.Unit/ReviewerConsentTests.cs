@@ -2,7 +2,7 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
 /// The shared opt-out parser both the daemon (to build config) and the CLI's <c>daemon service
-/// install</c> notice (to describe a captured value) read. The install-output bug qodo found was
+/// install</c> notice (to describe a captured value) read. The install-output bug found was
 /// exactly a second reader disagreeing with this one: the notice said a captured value "enables" the
 /// reviewer regardless of what it was, so a captured <c>0</c> was reported as keeping the reviewer on
 /// while the daemon disabled it. These pin the classification that both surfaces now derive.

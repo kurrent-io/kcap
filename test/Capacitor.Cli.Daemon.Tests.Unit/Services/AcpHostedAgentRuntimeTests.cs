@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// <summary>
 /// Exercises <see cref="AcpHostedAgentRuntime"/> end-to-end against <see cref="FakeAcpAgent"/> — no
 /// real <c>cursor-agent</c> process is spawned; <see cref="FakeAcpProcess"/> stands in for the
-/// process-lifecycle side (Task 10's factory implements the real one over
+/// process-lifecycle side ('s factory implements the real one over
 /// <see cref="System.Diagnostics.Process"/>).
 /// </summary>
 public class AcpHostedAgentRuntimeTests {
@@ -231,7 +231,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(received.Title).IsNull();
     }
 
-    // ── Option B task 1: Reduce() tool-call/tool-result field capture ──────────────
+    // ── Option B: Reduce() tool-call/tool-result field capture ──────────────
 
     [Test]
     public async Task ToolCall_update_captures_ToolInputJson_from_rawInput() {
@@ -613,12 +613,8 @@ public class AcpHostedAgentRuntimeTests {
     // ── Test plan item 9: cancellation propagates out of StartAsync ───────────────────
 
     /// <summary>
-    /// A <c>ct</c> canceled WHILE <c>session/set_config_option</c> is in flight must abort
-    /// <c>StartAsync</c> via a propagated <see cref="OperationCanceledException"/> — the runtime
-    /// must never hand a live runtime back to a caller who already canceled the launch (spec-review
-    /// Finding 2). Contrasted against <see cref="AcpHostedAgentRuntimeModelSelectionTests.StartAsync_JsonRpcErrorFromSetConfigOption_IsNonFatal_PromptStillFires"/>,
-    /// which shares almost the same setup but asserts the opposite outcome for an RPC ERROR
-    /// response (as opposed to cancellation).
+    /// Cancellation during model selection must abort launch rather than return a live runtime.
+    /// Contrast RPC errors, which can be nonfatal; caller cancellation is not model-resolution failure.
     /// </summary>
     [Test]
     public async Task StartAsync_CanceledWhileSetConfigOptionInFlight_ThrowsOperationCanceled() {
@@ -725,7 +721,7 @@ public class AcpHostedAgentRuntimeTests {
     }
 
     /// <summary>Barrier contention: the winner is held inside its synchronous starter, so the claim
-    /// + window snapshot + verdict publish are all still inside _reapLock. A concurrent TakeReap()
+    /// Window snapshot + verdict publish are all still inside _reapLock. A concurrent TakeReap()
     /// (disposal's seam) and a concurrent second TryStartReap() call (the loser) must both block on
     /// that same lock — TakeReap can never observe a claim with no published verdict/task, and the
     /// loser can neither publish nor overwrite once it does get in.</summary>
@@ -770,7 +766,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(h.Runtime.Verdict!.Reason).IsEqualTo("winner-reason");
     }
 
-    /// <summary>Finding 2: DisposeAsync latches _disposed BEFORE its early cancellation phase, and
+    /// <summary>DisposeAsync latches _disposed BEFORE its early cancellation phase, and
     /// only reaches the reap wait + connection/process disposal much later. If a cancellation callback
     /// on _cts throws (cancellation callbacks can throw), the early phase must NOT abort teardown —
     /// the child/streams would leak with retry impossible (the latch is set). This registers a
@@ -787,15 +783,14 @@ public class AcpHostedAgentRuntimeTests {
         h.Runtime.TryStartReap("kiro_reviewer_mcp_surface_unexpected: violation", () => Task.CompletedTask);
         await Assert.That(h.Runtime.ReadVerdict()).IsNotNull(); // precondition: a verdict exists to preserve
 
-        // Pre-fix: the early fault aborts DisposeAsync before the guaranteed teardown, so the child is
-        // never disposed (DisposeCalls == 0). Post-fix the early phase is contained and teardown runs.
-        try { await h.Runtime.DisposeAsync(); } catch { /* pre-fix: the early fault propagates */ }
+        // An early cancellation fault must not skip guaranteed process teardown.
+        try { await h.Runtime.DisposeAsync(); } catch { /* Inspect cleanup even when disposal faults. */ }
 
         await Assert.That(h.Process.DisposeCalls).IsGreaterThan(0);  // child disposed despite the fault
         await Assert.That(h.Runtime.ReadVerdict()).IsNotNull();      // coded verdict still surfaces
     }
 
-    /// <summary>Finding 2 (round 3): the EARLY owner-cancel (`_ownerCts.Cancel()`) can throw too, and
+    /// <summary>(round 3): the EARLY owner-cancel (`_ownerCts.Cancel()`) can throw too, and
     /// it ran BEFORE the incarnation was captured under the lock and BEFORE the terminal/gate signals.
     /// If a reconnect commits a SUCCESSOR incarnation in the window before the lock, a throwing owner
     /// cancel left the STALE predecessor selected (successor leaked) and skipped the signals that
@@ -819,7 +814,7 @@ public class AcpHostedAgentRuntimeTests {
         h.Runtime.BeforeReconnectLockOnDisposeForTest =
             () => h.Runtime.CommitSuccessorIncarnationForTest(successorProcess);
 
-        try { await h.Runtime.DisposeAsync(); } catch { /* pre-fix: the owner-cancel fault propagates */ }
+        try { await h.Runtime.DisposeAsync(); } catch { /* Inspect cleanup even when disposal faults. */ }
 
         await Assert.That(successorProcess.DisposeCalls).IsGreaterThan(0);        // the LIVE successor disposed
         await Assert.That(h.Process.DisposeCalls).IsEqualTo(0);                   // the stale predecessor NOT disposed
@@ -846,9 +841,8 @@ public class AcpHostedAgentRuntimeTests {
 
         try { await h.Runtime.DisposeAsync(); } catch { /* the fault is contained either way */ }
 
-        // Pre-fix: the owner-cancel throw skips _cts.CancelAsync() + both channel completions, so the
-        // worker stays parked (IsCompleted == false). Post-fix each cancel is independently guarded, so
-        // the worker is signaled and DisposeAsync's bounded wait sees it exit.
+        // A throwing owner-cancel callback must not skip independent worker cancellation or channel
+        // completion; the parked worker must still exit within disposal's bounded wait.
         await Assert.That(h.Runtime.TurnWorkerTaskForTest.IsCompleted).IsTrue();
     }
 
@@ -871,7 +865,7 @@ public class AcpHostedAgentRuntimeTests {
     /// <summary>Reap reasons can embed agent-controlled text (e.g. a JSON-RPC method from an inbound
     /// frame), which may contain non-BMP characters — a raw UTF-16 code-unit slice at the cap can
     /// land between a surrogate pair's two halves, leaving a lone surrogate in the forwarded string
-    /// (design spec §3.1). Nine filler chars put "😀" (U+1F600, a high+low surrogate pair) exactly
+    /// Nine filler chars put "😀" (U+1F600, a high+low surrogate pair) exactly
     /// astride the cut: its high half at index maxLength-1, low half at index maxLength — precisely
     /// the boundary a naive <c>oneLine[..maxLength]</c> would slice through.</summary>
     [Test]
@@ -892,7 +886,7 @@ public class AcpHostedAgentRuntimeTests {
 
     /// <summary>Line breaks collapse to spaces (<c>ReplaceLineEndings</c>) before the cap is ever
     /// applied, so a coded reason's prefix — e.g. the <c>unattended_interaction_forbidden:{method}</c>
-    /// shape writers use (design spec §3.1) — survives at the front and no raw line-break character
+    /// shape writers use — survives at the front and no raw line-break character
     /// remains anywhere in the result.</summary>
     [Test]
     public async Task Sanitize_collapses_multiline_input_and_keeps_the_code_prefix() {
@@ -921,9 +915,9 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(result.Length).IsLessThanOrEqualTo(501); // default maxLength(500) + "…"
     }
 
-    /// <summary>The back-off reads <c>oneLine[maxLength - 1]</c> — guards against a non-positive cap
-    /// underflowing that index instead of just falling through to the pre-fix (already-safe)
-    /// substring behavior.</summary>
+    /// <summary>
+    /// A nonpositive truncation cap must not underflow the word-boundary index.
+    /// </summary>
     [Test]
     public async Task Sanitize_with_a_non_positive_cap_does_not_throw() {
         var result = AcpHostedAgentRuntime.SanitizeForForward("anything at all", maxLength: 0);

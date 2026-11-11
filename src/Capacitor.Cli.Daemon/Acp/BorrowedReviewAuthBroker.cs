@@ -35,16 +35,11 @@ internal static class BorrowedReviewAuthBroker {
     /// <see cref="BorrowedReviewTokenCommand"/>.</summary>
     internal const string CommandVariable = "KCAP_COPILOT_TOKEN_CMD";
 
-    /// <summary>Whether a token source is CONFIGURED, consumed at policy resolution so a daemon with no
-    /// source advertises no borrowed review instead of failing at spawn.
-    ///
-    /// <para>Deliberately passive — it does not run the command. An earlier revision probed by executing
-    /// it once at startup, to move a misconfigured command from a mid-launch failure to a
-    /// non-advertisement. That bought a better diagnostic by having the daemon mint a credential nobody
-    /// had asked for, on every start, even where borrowed review was never used — which is precisely the
-    /// posture this class exists to avoid. A command that is configured but broken now surfaces at spawn
-    /// as <c>borrowed_review_auth_unavailable</c>, the same coded, honest failure an unset variable
-    /// already produced.</para></summary>
+    /// <summary>
+    /// Availability checks inspect configuration only. Executing the command at startup would mint
+    /// a credential even if no borrowed launch is requested. A configured but broken source fails
+    /// at the launch boundary with borrowed_review_auth_unavailable.
+    /// </summary>
     internal static bool Available => IsConfigured(Environment.GetEnvironmentVariable);
 
     /// <summary>Whether any token source is configured, without consulting one.</summary>

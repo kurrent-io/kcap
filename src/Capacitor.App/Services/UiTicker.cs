@@ -4,14 +4,14 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.Services;
 
 public interface ITicker {
-    /// Shared 1 Hz heartbeat. HOT via Publish().RefCount(); ticks are delivered on the UI thread.
+    // Shared 1 Hz heartbeat. HOT via Publish.RefCount; ticks are delivered on the UI thread.
     /// Construct the production implementation ON the UI thread (App.StartAsync) — an off-UI-
     /// thread Observable.Interval subscription binds an orphan thread-local dispatcher that never
     /// ticks (see UiTicker's pipeline comment).
     IObservable<long> Ticks { get; }
 }
 
-/// ONE shared ticker for every row: Publish().RefCount() makes it HOT, so all rows
+// ONE shared ticker for every row: Publish.RefCount makes it HOT, so all rows
 /// observe the same Interval and tick in lockstep instead of each cold-subscribing its own.
 public sealed class UiTicker : ITicker {
     // SubscribeOn is load-bearing. Rows are built inside DynamicData's Transform, which runs on

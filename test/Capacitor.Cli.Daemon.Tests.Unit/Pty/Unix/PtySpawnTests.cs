@@ -4,8 +4,8 @@ using TUnit.Core.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 
 /// <summary>
-/// L1-shim(b) (spec §4.2(a)): pty_spawn — the actual fork/exec, run directly via P/Invoke
-/// (bypassing UnixPtyProcess/the spawner thread, which Task 4/5 layer on top). These tests
+/// L1-shim(b): pty_spawn — the actual fork/exec, run directly via P/Invoke
+/// (bypassing UnixPtyProcess/the spawner thread, which /5 layer on top). These tests
 /// exercise the raw native contract in isolation.
 /// </summary>
 public class PtySpawnTests {
@@ -153,7 +153,7 @@ public class PtySpawnTests {
 
     [Test, RunOn(OS.Linux | OS.MacOs)]
     public async Task Successful_spawn_marks_the_pty_master_fd_close_on_exec() {
-        // Regression (spec §3.0a): forkpty returns the master bare, so without an explicit
+        // Regression: forkpty returns the master bare, so without an explicit
         // FD_CLOEXEC on it every child the daemon spawns afterwards inherits a live read/write
         // descriptor onto this PTY agent's terminal — crossing an isolation boundary the daemon
         // draws deliberately. The master must therefore be close-on-exec, exactly as the error

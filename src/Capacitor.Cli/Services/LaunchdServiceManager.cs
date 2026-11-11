@@ -142,7 +142,7 @@ sealed partial class LaunchdServiceManager(
     /// <summary>Total plist-evidence read: <c>File.ReadAllText</c> + <see cref="LaunchdPrint.Binary"/>
     /// together, contained so that ANY failure — an I/O error, malformed XML, a duplicate
     /// <c>ProgramArguments</c> key — yields null rather than escaping. <see cref="Query(string)"/>
-    /// and <see cref="Status"/> are total, never-throwing probes; the gate's own contained Phase-A
+    /// and <see cref="Status"/> are total, never-throwing probes; the gate's own contained pre-mutation gate
     /// parse (<c>ServiceVerify</c>'s <c>_readPlist</c> path) remains the sole authority for coded
     /// evidence classification (malformed → <c>evidence_unreadable</c>).</summary>
     static string? ReadBinaryPathSafe(string path) {

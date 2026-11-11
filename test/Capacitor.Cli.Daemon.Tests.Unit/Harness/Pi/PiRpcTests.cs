@@ -287,8 +287,7 @@ public class PiRpcTests {
 
     [Test]
     public async Task Tool_execution_end_yields_tool_result_with_text_and_not_error() {
-        // Upstream's `result` is an OBJECT carrying a content array (rpc.md ~1003) — not the bare
-        // "stdout" shape an earlier revision of this test assumed.
+        // The wire result is an object containing content parts, not a bare stdout string.
         const string line = """
             {"type":"tool_execution_end","toolCallId":"call_123","toolName":"bash",
              "result":{"content":[{"type":"text","text":"total 48\ndrwxr-xr-x"}],"details":{"truncation":null}},

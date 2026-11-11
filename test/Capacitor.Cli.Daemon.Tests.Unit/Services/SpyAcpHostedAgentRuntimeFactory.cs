@@ -17,7 +17,7 @@ internal sealed class SpyAcpHostedAgentRuntimeFactory(string vendor = "cursor") 
     /// null stands in for a request that did not take (no match / agent rejected the option).</summary>
     public string? ResolvedModel { get; init; } = "gpt-x";
 
-    /// <summary>§2.5: when true the produced runtime holds its first turn (source-claim path).</summary>
+    /// <summary>when true the produced runtime holds its first turn (source-claim path).</summary>
     public bool       DeferFirstTurn      { get; init; }
     /// <summary>Threaded onto the produced runtime to model a first-turn dispatch failure.</summary>
     public Exception? BeginFirstTurnThrow { get; init; }

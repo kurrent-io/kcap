@@ -68,7 +68,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// it from the session list rather than treating this as a launch failure.
     public const string UnusableIdMessage = "Launched, but the session ID was unusable. Open it from the session list.";
 
-    /// StartAsync's own re-check refuses this even if a caller invoked ReactiveCommand.Execute()
+    // StartAsync's own re-check refuses this even if a caller invoked ReactiveCommand.Execute()
     /// straight past CanExecute — the wire request is never built for a machine that failed the
     /// ownership/connected check at the moment of launch, whatever the UI-affordance state said.
     public const string MachineUnavailableMessage = "This machine is no longer available. Choose a different one.";
@@ -1864,7 +1864,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         await RestoreRemoteChoicesAsync(HostedHarnessCatalog.Build(machine.SupportedVendors));
     }
 
-    /// Resets SelectedVendor to the first vendor Available in supportedVendors' Build() when the
+    // Resets SelectedVendor to the first vendor Available in supportedVendors' Build() when the
     /// current one isn't — shared so a machine's OWN advertised set is what a selection (either
     /// direction) is checked against, never whatever a PRIOR machine last set it to.
     void RevalidateVendorAgainst(string[]? supportedVendors) => RevalidateVendor(HostedHarnessCatalog.Build(supportedVendors));

@@ -7,34 +7,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// GATED live certification of the unattended Antigravity reviewer against a REAL <c>agy</c>.
-///
-/// <para><b>What this certifies.</b> The daemon half of a
-/// <c>start_review_flow(kind: "code-review", vendor: "antigravity")</c> — the reviewer launch the
-/// server drives — end to end: a real turn child spawns under the per-launch isolated
-/// <c>HOME</c>, authenticates from the daemon's own ADC environment, reports a conversation id, and
-/// completes its round with no human answering anything. The server-side half (the MCP call itself,
-/// and the result arriving over <c>kcap mcp flow-result</c>) needs a running tenant and a daemon
-/// that ADVERTISES antigravity, so it is deliberately not simulated here: a fake would certify
-/// nothing and would read as a green light nobody earned.</para>
-///
-/// <para><b>The second cert is the load-bearing one.</b> <c>agy</c> has no long-lived process —
-/// every round is its own <c>agy -p …</c> invocation, resumed with <c>--conversation &lt;id&gt;</c>.
-/// That exec-per-turn shape is invisible from a single round, and a regression in it is silent: the
-/// review still "works", it just lands as one kcap session PER ROUND instead of one session for the
-/// whole review, splitting the reviewer's history at exactly the point a re-review depends on it.
-/// <see cref="Cert2_EveryRoundOfAMultiRoundReviewLandsAsOneSession"/> pins all three observable
-/// halves of the claim — one stable conversation id, a distinct process per round, and the resume
-/// flag actually carrying that id.</para>
-///
-/// <para><b>Gated</b> behind <c>KCAP_ANTIGRAVITY_REVIEWER_LIVE=1</c>: CI has no <c>agy</c> binary and
-/// no Google account, and each case spends real model turns. Requires <c>agy</c> on <c>PATH</c> (or
-/// <c>KCAP_ANTIGRAVITY_PATH</c>) — the harness records that build as this daemon's minimum, exactly
-/// as enabling the reviewer does — plus the same durable ADC
-/// credentials a supervised daemon needs — <c>gcloud auth application-default login</c>,
-/// <c>GOOGLE_CLOUD_PROJECT</c> and <c>AGY_ADC_AUTH=1</c> — which the launch path deliberately
-/// INHERITS from this process's environment rather than re-stamping, exactly as it inherits them
-/// from the daemon's.</para>
+/// Certify the daemon-side launch against real agy with isolated HOME and inherited ADC credentials.
+/// Across rounds, require one stable conversation id, a distinct process per round, and --conversation
+/// carrying that id. One round alone cannot detect a history split at resume.
+/// KCAP_ANTIGRAVITY_REVIEWER_LIVE=1 opts in; require agy plus GOOGLE_CLOUD_PROJECT and AGY_ADC_AUTH=1.
+/// The server-side MCP result route requires a live tenant and is outside this daemon certification.
 /// </summary>
 public class AntigravityReviewerLiveCertTests {
     const string GateEnvVar = "KCAP_ANTIGRAVITY_REVIEWER_LIVE";

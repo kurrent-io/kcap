@@ -50,24 +50,9 @@ public partial class WorktreeManager {
         string[] SnapshotExclusions);
 
     /// <summary>
-    /// Reads the execution cwd's path as <b>git</b> spells it, relative to the work-tree top. Empty when
-    /// the cwd is the repository root.
-    ///
-    /// <para><b>Why git and not the filesystem.</b> A prefix taken from .NET is not in the same pathname
-    /// namespace as the paths <c>ls-files</c> reports, and concatenating one onto the other produces a
-    /// comparison that can silently fail to match: macOS reports NFD for a directory created as NFC (and
-    /// <see cref="NormalizeRelativePath"/> rejects non-NFC git paths, so only the prefix side could
-    /// diverge); <c>Path.GetRelativePath</c> returns a ROOTED path across Windows volumes; and separator
-    /// conventions differ. Reading it from git deletes all three classes rather than guarding them.</para>
-    ///
-    /// <para><b>The one prefix.</b> The value returned here locates the execution directory
-    /// (<c>ContainedPath(snapshot, prefix)</c>) as well as driving the plan. An earlier revision used the
-    /// filesystem spelling for the launch and this one for classification; two independent derivations can
-    /// disagree, and then an unexcluded path materialises the alternate-spelling directory itself — so the
-    /// vendor launches in a directory whose config was never excluded. Do not reintroduce a second
-    /// derivation.</para>
-    ///
-    /// <para><c>core.quotePath=false</c> is required, or non-ASCII components come back C-quoted.</para>
+    /// Use git's relative cwd spelling for both snapshot classification and the launch path.
+    /// Filesystem-derived prefixes can differ in Unicode normalization, separators, or Windows volumes
+    /// and silently bypass exclusions. core.quotePath=false keeps non-ASCII components unquoted.
     /// </summary>
     internal static async Task<string> ReadGitRelativeCwdAsync(
             string sourceRepoRoot, string sourceCwd, TimeProvider time, CancellationToken ct) {

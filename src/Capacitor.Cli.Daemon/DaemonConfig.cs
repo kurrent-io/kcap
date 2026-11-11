@@ -51,7 +51,7 @@ public class DaemonConfig {
     public string? KcapCliPath { get; set; } = Core.Mcp.KcapBinaryCommand.ResolveCliSibling();
 
     /// <summary>
-    /// Phase B (D3): backstop lifetime/idle bounds for a hosted review-flow reviewer, enforced
+    /// backstop lifetime/idle bounds for a hosted review-flow reviewer, enforced
     /// in the daemon heartbeat. A reviewer whose run went terminal on the server without the daemon
     /// hearing about it (or whose driver vanished) is reaped here so it can't hold a slot forever.
     /// Defaults 6h lifetime / 2h idle; <see cref="TimeSpan.Zero"/> disables that bound. Overridden at
@@ -62,7 +62,7 @@ public class DaemonConfig {
     public TimeSpan ReviewerMaxLifetime { get; set; } = TimeSpan.FromHours(6);
     public TimeSpan ReviewerIdleTimeout { get; set; } = TimeSpan.FromHours(2);
 
-    /// <summary>§2.7 B6 arm-A: how long a RESUMABLE hosted reviewer (app-server Codex) may sit idle
+    /// <summary>How long a RESUMABLE hosted reviewer (app-server Codex) may sit idle
     /// between rounds before the daemon PARKS it (freeing the slot, keeping the thread for resume) —
     /// distinct from and shorter than <see cref="ReviewerIdleTimeout"/> (arm-B, the 2h hard reap).</summary>
     public TimeSpan ReviewerResumableIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
@@ -74,7 +74,7 @@ public class DaemonConfig {
     /// <see cref="ReviewerMaxLifetime"/>/<see cref="ReviewerIdleTimeout"/> — the server-sent inactivity
     /// bound gates nothing here (see <c>AgentOrchestrator.FindReviewersToReap</c>).
     ///
-    /// <para>Deliberately NOT sent by the server (spec decision 6): its equivalent
+    /// <para>Deliberately NOT sent by the server: its equivalent
     /// <c>Flows:TurnWedgeCeilingSeconds</c> is independently defaulted on the same 60m (the
     /// <c>kcap watch</c> long-tool envelope) rather than plumbed onto the wire — this is a local safety
     /// net against an evidence-free held turn. <see cref="TimeSpan.Zero"/> disables it. Overridden at
@@ -118,16 +118,16 @@ public class DaemonConfig {
     /// <summary>Whether the resolved profile opted out of the update check; false when nothing was resolved.</summary>
     public bool UpdateCheckOff => _profiles?.Effective?.UpdateCheck == false;
 
-    /// <summary>Phase B (D4): a fresh per-boot epoch (GUID). Written into each spawned child's
+    /// <summary>a fresh per-boot epoch (GUID). Written into each spawned child's
     /// <c>KCAP_DAEMON_EPOCH</c> env marker; the startup env-marker scan kills same-daemon children
     /// whose epoch differs from the current one (i.e. survivors of a prior incarnation). Null → the
     /// orchestrator generates one at construction. <c>DaemonRunner</c> pins this before building
-    /// services (Phase B2-b) so the advertised connect epoch and the orchestrator's own boot epoch
+    /// Services so the advertised connect epoch and the orchestrator's own boot epoch
     /// agree.</summary>
     public string? DaemonEpoch { get; set; }
 
     /// <summary>
-    /// Phase B2-b (sequenced-settlement design §4.2.3): the durable coverage boot-chain verdict,
+    /// the durable coverage boot-chain verdict,
     /// folded by <c>CoverageJournal.RecordBoot</c> in <c>DaemonRunner</c> BEFORE any Connect/spawn and
     /// advertised on <c>DaemonConnect</c>. True only where OS containment leaves genuinely no recordless
     /// survivor class (the Windows Job Object); absent/false ⇒ "has a recordless class" (the server
@@ -383,25 +383,11 @@ public class DaemonConfig {
     public string? KiroModel { get; set; }
 
     /// <summary>
-    /// Whether THIS daemon may run Gemini as an unattended review-flow reviewer. **Default TRUE — the
-    /// variable is an opt-OUT.**
-    ///
-    /// <para>An unattended reviewer runs in a daemon-owned worktree with this daemon's own HOME, so
-    /// repository content that steers the model into tool use gets code execution with this user's full
-    /// authority — including the credentials in the token store, writes that reach other worktrees and the
-    /// installed CLI, and processes that outlive the review. That is a genuine risk and it is unchanged.
-    /// What changed is the recognition that a PER-VENDOR gate never addressed it: the reviewer vendor is
-    /// a caller-chosen parameter, and Claude, Codex, Cursor and Copilot have the same authority with no
-    /// gate at all, so anyone the gate excluded just asked for one of those.</para>
-    ///
-    /// <para>The build affirmation still applies: the reviewer's containment is the vendor's exact-name
-    /// MCP allowlist, a behaviour of the installed build, so a build BELOW this daemon's recorded floor
-    /// is refused. The floor is seeded automatically at startup so it never blocks a first launch —
-    /// see <c>GeminiReviewerCapability</c>.</para>
-    ///
-    /// <para>Set <c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c> in the DAEMON's environment to disable, which
-    /// for a supervised daemon means the service unit — <c>ServiceEnvironment</c> carries it there,
-    /// since a unit inherits nothing from the installing shell.</para>
+    /// The reviewer switch is an opt-out for cross-principal launches, which use the daemon user's
+    /// credentials and authority. Disabling one vendor does not restrict callers to that vendor.
+    /// The recorded build floor separately guards MCP allowlist behavior and seeds at startup.
+    /// For a supervised daemon, set KCAP_GEMINI_UNATTENDED_REVIEWER=0 in its service environment;
+    /// the service inherits nothing from the shell installing it.
     /// </summary>
     public bool GeminiUnattendedReviewerEnabled { get; set; } = true;
 
@@ -467,7 +453,7 @@ public class DaemonConfig {
     /// Optional daemon-wide default model for hosted OpenCode agents, resolved against
     /// <c>session/new</c>'s selectable-model list at launch time by <c>AcpModelResolver.Resolve</c>
     /// and applied via <c>session/set_config_option</c> — probe-verified at effect level
-    /// (<c>docs/probes/2026-08-07-opencode-acp/</c> §2: the model self-identified as the requested id).
+    /// (<c>docs/probes/2026-08-07-opencode-acp/</c>: the model self-identified as the requested id).
     /// Overridable via <c>KCAP_OPENCODE_MODEL</c>, mirroring <see cref="KiroModel"/>.
     ///
     /// <para>Ids are <c>provider/model</c> (e.g. <c>opencode/big-pickle</c>), and OpenCode publishes
@@ -578,7 +564,7 @@ public class DaemonConfig {
     /// session whose handshake didn't advertise <c>loadSession</c> — a child-process death keeps
     /// today's behavior byte-for-byte: the read loop ends and the agent finalizes. Deliberately the
     /// only knob: attempts, backoff, and the per-session resume cap are fixed constants
-    /// (reconnect spec §4).
+    ///
     /// </summary>
     public bool AcpReconnectEnabled { get; set; } = true;
 

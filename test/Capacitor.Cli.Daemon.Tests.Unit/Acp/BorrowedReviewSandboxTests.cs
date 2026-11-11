@@ -99,15 +99,11 @@ public class BorrowedReviewSandboxTests {
         await Assert.That(profile).DoesNotContain("(allow network*)");
     }
 
-    /// <summary>The profile emits no <c>mach-lookup</c> grant of its own.
-    ///
-    /// <para><b>This is a statement about the generated string, not about reachable IPC, and the
-    /// distinction is load-bearing.</b> The imported <c>system.sb</c> re-grants broad XPC lookup, so
-    /// removing our own literal grant does NOT make securityd unreachable — an earlier revision of this
-    /// test implied it did. Probed: adding <c>(deny mach-lookup)</c> after the import kills the process
-    /// before it emits a frame, so the import cannot simply be closed. What actually keeps the keychain
-    /// out of reach is that the Security APIs still have to open the keychain FILE, which is denied —
-    /// asserted for real by <see cref="Enforcement_a_keychain_secret_is_readable_outside_the_sandbox_and_not_inside"/>.</para></summary>
+    /// <summary>
+    /// This asserts the emitted profile only: imported system.sb still grants XPC lookup, and denying
+    /// all lookup prevents the process starting. Keychain confidentiality relies on denying its file,
+    /// which the separate enforcement test must establish.
+    /// </summary>
     [Test]
     public async Task The_profile_emits_no_mach_lookup_grant_of_its_own() {
         await Assert.That(Profile()).DoesNotContain("(allow mach-lookup)");
@@ -268,9 +264,10 @@ public class BorrowedReviewSandboxTests {
             RealisticProfileFor(tmp.Path), "/bin/cat", target, what);
     }
 
-    /// <summary>The runtime prefix's config and data trees. These are the reason the whole-prefix
-    /// grant was replaced by software subdirectories: on an ordinary developer machine
-    /// <c>var</c> holds service databases and logs and <c>etc</c> holds service configuration.</summary>
+    /// <summary>
+    /// Do not grant the runtime prefix's config and data directories: var can hold service databases
+    /// and logs, while etc can hold service credentials and configuration.
+    /// </summary>
     [Test]
     [Arguments("prefix config", "/opt/homebrew/etc")]
     [Arguments("prefix data",   "/opt/homebrew/var")]

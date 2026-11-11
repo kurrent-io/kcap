@@ -92,7 +92,7 @@ public class ConfigFileLockTests {
     }
 
     /// Attributed rather than guarded inline: CA1416's flow analysis does not follow an
-    /// OperatingSystem.IsWindows() guard across a lambda boundary.
+    // OperatingSystem.IsWindows() guard across a lambda boundary.
     [SupportedOSPlatform("windows")]
     static async Task AssertGlobalMutexDaclAsync() {
         using var tmp = TempDir.WithPathTo("config.json", out var path);

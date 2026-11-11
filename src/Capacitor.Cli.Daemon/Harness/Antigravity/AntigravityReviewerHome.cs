@@ -9,53 +9,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
 /// <summary>
-/// The per-launch isolated <c>HOME</c> for an unattended Antigravity (<c>agy</c>) reviewer.
-///
-/// <para><b>Four load-bearing jobs, not tidiness.</b></para>
-/// <para>1. <b>Capture stays single-lane.</b> A probe confirmed <c>agy -p</c> really does load and
-/// fire the kcap capture hooks it finds at <c>{HOME}/.gemini/config/plugins/kcap/hooks.json</c> — so
-/// pointing a reviewer at the operator's real <c>HOME</c> would spawn a second watcher against the
-/// SAME conversation the daemon is already recording, double-capturing it. This home never writes
-/// that plugin directory, so the hook has nothing to load.</para>
-/// <para>2. <b>No nested review flows.</b> Without a global <c>{HOME}/.gemini/config/mcp_config.json</c>,
-/// the operator's <c>kcap-flows</c> server is absent, so a reviewer cannot start its own review flow —
-/// the same reasoning <see cref="KiroReviewerHome"/> documents for Kiro's global <c>mcp.json</c>.</para>
-/// <para>3. <b>Isolation.</b> The reviewer's own conversation state — <c>brain/</c>, <c>conversations/*.db</c>,
-/// settings — lands under this HOME rather than the operator's real agy state.</para>
-/// <para>4. <b>No hook ⇒ no watcher ⇒ nothing to leak.</b> A fired capture hook spawns a <c>kcap watch</c>
-/// child; on an unfixed build that child inherits pipe descriptors and keeps the agent's OWN STDOUT
-/// open after the agent process exits — measured at 5s to files versus still hung at 10 minutes to a
-/// pipe. This runtime parses <c>agy</c>'s NDJSON from stdout once per turn, so that hang would block
-/// every turn forever. This is why "just reuse the operator's real HOME" is not an available
-/// simplification: an empty-of-hooks HOME is what keeps that failure mode structurally unreachable,
-/// not something a code fix in the descriptor-leak path alone would close for a reviewer launch.</para>
-///
-/// <para><b>Where this differs from Kiro's home.</b> <see cref="KiroReviewerHome"/> stays literally
-/// empty — Kiro reads its injected result-channel server off <c>session/new</c> directly. Antigravity
-/// does not: this home carries a WRITTEN <c>mcp_config.json</c> holding only the injected servers
-/// (in practice, the single <c>kcap-flow-result</c> submission channel) — job 2 above is what makes
-/// writing that file safe: it replaces the operator's global file rather than merging into it, so the
-/// reviewer's MCP surface is exactly the injected list, never the operator's own servers plus it. The
-/// plugin directory job 1 depends on must still never exist, and creation verifies that rather than
-/// assuming it.</para>
-///
-/// <para><b>And a review home carries a second file, for the same reason.</b> Kiro trusts its injected
-/// tools through launch argv (<see cref="KiroReviewerTrustList"/>); <c>agy</c> has no such flag, and
-/// <c>agy -p</c> auto-denies every tool confirmation it cannot prompt a human for — so a home that
-/// injects the result channel and grants nothing produces a reviewer that reads, reasons, and can never
-/// report. The <c>settings.json</c> written into <c>.gemini/antigravity-cli/</c> (a DIFFERENT file from
-/// the <c>mcp_config.json</c> above) carries the <c>permissions.allow</c> rules that close it; see
-/// <see cref="WriteSettings"/> and <see cref="AntigravityReviewerPermissions"/>.</para>
-///
-/// <para><b>Why disposal is a security requirement, not hygiene.</b> The reviewer's own conversation
-/// JSONL (<c>brain/&lt;id&gt;/.system_generated/logs/transcript_full.jsonl</c>, see
-/// <see cref="AntigravityPaths"/>) carries the caller's diff, source excerpts and findings. The home
-/// is read-EMPTY-of-operator-config but write-SENSITIVE, on a host that may serve several callers.</para>
-///
-/// <para><b>The root is per daemon, and that is load-bearing</b> — same reasoning as
-/// <see cref="KiroReviewerHome"/>: a shared root's "delete every home whose epoch is not mine" rule
-/// would delete a peer daemon's CURRENT, LIVE home, because a peer's epoch is never this daemon's.
-/// Per-daemon roots remove the question instead of adjudicating it.</para>
+/// Keep the capture plugin directory absent: its watcher would duplicate ingestion and can keep
+/// turn stdout open after the child exits. MCP config contains only injected servers, never a merge
+/// with the operator's global servers; settings explicitly permit the reviewer's result-channel tools.
+/// Conversation state and transcripts contain caller-sensitive data, so dispose the isolated HOME.
+/// Use a per-daemon root: cleanup by boot epoch in a shared root would delete a peer's live home.
 /// </summary>
 internal static class AntigravityReviewerHome {
     const string Prefix = "kcap-antigravity-reviewer-";

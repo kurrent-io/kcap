@@ -50,10 +50,8 @@ public static class OAuthLoginFlow {
         => forceDevice || isHeadless || !hasExchangeUrl ? GitHubFlow.Device : GitHubFlow.Browser;
 
     /// <summary>
-    /// Only an explicit request skips the browser. There is deliberately no environment heuristic
-    /// here: HeadlessEnvironment.IsHeadless() is true for every SSH session, including Remote-SSH and
-    /// `ssh -L` where loopback works perfectly, so selecting on it would demote the largest developer
-    /// population from "the browser opens" to "read a URL, type a code".
+    /// Only an explicit request skips the browser: HeadlessEnvironment.IsHeadless() is also true for
+    /// Remote-SSH and ssh -L sessions where loopback works, so it cannot select the device flow.
     /// </summary>
     internal static WorkOSFlow ChooseWorkOSFlow(bool forceDevice)
         => forceDevice ? WorkOSFlow.Device : WorkOSFlow.Browser;

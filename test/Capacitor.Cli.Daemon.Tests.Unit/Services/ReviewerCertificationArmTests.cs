@@ -58,9 +58,8 @@ public class ReviewerCertificationArmTests {
         await Assert.That(reason).Contains(">=2.0.0 <3.0.0");
     }
 
-    // Codex review P1 #2: a failed LAUNCH-time probe is not a swap. With a version advertised at
-    // registration and the launch probe timing out, the swap arm used to fire and tell the operator
-    // the CLI had changed and to restart -- when nothing changed and restarting repeats the failure.
+    // A timed-out launch probe is not evidence of a binary swap. Do not tell the operator a version
+    // changed merely because a version advertised at registration cannot be read during launch.
     [Test]
     [Arguments(null)]
     [Arguments("")]

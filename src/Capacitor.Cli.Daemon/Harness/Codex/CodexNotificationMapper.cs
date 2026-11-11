@@ -8,28 +8,11 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Harness.Codex;
 
 /// <summary>
-/// Translates codex app-server JSON-RPC notifications into the daemon-local wire
-/// <see cref="AcpEventEnvelope"/> vocabulary (§2.4 envelope transcript). Stateful — it composes the
-/// per-item <see cref="CodexEphemeralAccumulator"/> and the cumulative→delta
-/// <see cref="CodexUsageDeltaConverter"/> — so it is one-per-session and driven from the single
-/// notification-handling path (NOT thread-safe).
-///
-/// <para>Two lanes, per §2.4:</para>
-/// <list type="bullet">
-/// <item><description><b>Canonical</b>: only terminal facts become sequenced envelopes —
-/// <c>item/completed</c> snapshots (the one authoritative event for an item's content), the tool-call
-/// OPEN on <c>item/started</c> for executions, <c>turn/plan/updated</c> full snapshots, and the
-/// per-event token DELTA. Append-only: a completed item is the single event for its content, and its
-/// <see cref="AcpEventEnvelope.ItemId"/> lets a viewer finalize the item's transient ephemeral state.</description></item>
-/// <item><description><b>Ephemeral</b>: delta notifications become <see cref="AcpEventEnvelope.Ephemeral"/>
-/// envelopes carrying the item's ACCUMULATED content-so-far (idempotent replacement at the viewer; no
-/// seq, never persisted). A dropped/duplicated ephemeral is harmless and the completed snapshot converges
-/// the viewer.</description></item>
-/// </list>
-/// Every emitted envelope carries a placeholder <see cref="AcpEventEnvelope.Seq"/> of <c>0</c> — the
-/// forwarder assigns the real monotonic seq to canonical envelopes and leaves ephemeral ones unsequenced.
-/// An unrecognised item type surfaces as a generic-labeled tool call and bumps
-/// <see cref="UnmappedKindCount"/> so vocabulary drift is visible rather than silently dropped.
+/// One mapper per session, driven by the single notification reader; its accumulators are not thread-safe.
+/// Canonical envelopes carry terminal item snapshots, execution opens, plan snapshots and token deltas.
+/// Ephemeral envelopes carry accumulated content-so-far for idempotent replacement; completed snapshots
+/// converge a viewer after drops. The forwarder assigns canonical sequence numbers; placeholders are zero.
+/// Unknown item types surface as generic tools and increment UnmappedKindCount so drift remains visible.
 /// </summary>
 internal sealed partial class CodexNotificationMapper {
     static readonly IReadOnlyList<AcpEventEnvelope> None = [];

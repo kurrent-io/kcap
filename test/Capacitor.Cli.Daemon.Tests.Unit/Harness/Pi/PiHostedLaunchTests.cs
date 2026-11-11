@@ -393,7 +393,7 @@ public class PiHostedLaunchTests {
     }
 
     /// <summary>Records every log call across every category (one instance shared by every
-    /// <c>CreateLogger&lt;T&gt;()</c> call) — mirrors <c>AcpHostedAgentRuntimeFactoryTests.CaptureLogger</c>'s
+    /// <c>CreateLogger&lt;T&gt;</c> call) — mirrors <c>AcpHostedAgentRuntimeFactoryTests.CaptureLogger</c>'s
     /// established pattern, wrapped in a minimal <see cref="ILoggerFactory"/> so it can be handed to
     /// the factory's real constructor.</summary>
     sealed class CaptureLogger : ILogger {

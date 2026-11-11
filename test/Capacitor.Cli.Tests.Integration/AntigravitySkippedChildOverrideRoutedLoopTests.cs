@@ -11,52 +11,12 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Integration-level regression pinning the routed-loop aggregation boundary in
-/// <c>ImportCommand.HandleImport</c>'s "Importing N routed sessions" phase (the per-session
-/// switch on <see cref="ImportCommand.ResolveRoutedOutcomeForCounting"/>).
-///
-/// <para>
-/// The unit tests in <c>ImportDoneBreakdownTests</c> pin <c>ResolveRoutedOutcomeForCounting</c> /
-/// <c>IsSkippedChildContentOverride</c> in isolation, and separately compute the
-/// <c>importedSessionIds</c> membership expression (<c>resolved is not null &amp;&amp; outcome is
-/// Loaded or Resumed</c>) LOCALLY rather than observing it emerge from the real loop. That leaves
-/// a real regression window open: rewiring the loop's membership check to key off <c>resolved</c>
-/// instead of the raw <c>outcome</c> — or wiring routedLoaded / the Done sub-grid / the printed
-/// line back to the raw outcome instead of <c>resolved</c> — would leave every one of those unit
-/// tests green, because none of them drive <c>HandleImport</c> itself.
-/// </para>
-///
-/// <para>
-/// This test drives the exact "Antigravity shape" the unit tests' comments call out — an
-/// AlreadyLoaded root conversation whose own content is fully ingested, but which attaches a
-/// brand-new correlated child conversation inline during the routed-phase lifecycle repair
-/// (<c>ImportSessionResult(ImportOutcome.Skipped, SentChildContent: true)</c>) — through the REAL
-/// <see cref="ImportCommand.HandleImport"/> orchestrator end-to-end, and asserts all four required
-/// effects move together:
-/// </para>
-/// <list type="number">
-/// <item>Counted as Loaded, not Excluded (<c>routedLoaded</c>, via the "== Done ==" totals).</item>
-/// <item>The per-vendor Done sub-grid shows the "antigravity" row as Loaded, not Excluded (a
-/// second vendor — a Gemini session that hits a probe error — is added so the by-source grid
-/// actually has &gt;1 vendor key and renders at all).</item>
-/// <item>The printed per-session line is the "Loading …" line, not the "Already loaded … (no new
-/// content)" no-op line.</item>
-/// <item>Under <c>--private</c> the root gets exactly one <c>PUT .../visibility</c> — it is
-/// captured outcome-independently because Antigravity declares
-/// <see cref="IImportSource.AttachesChildContentOnReplay"/>. The nested child is not a routed
-/// classification of its own and contributes no PUT of its own.</item>
-/// </list>
-///
-/// <para>
-/// Effect 4 is NOT a guard on <c>importedSessionIds</c> membership, and must not be read as one.
-/// The privatize set is <c>HashSet(importedSessionIds) ∪ privateScopeSessionIds</c> and this root
-/// is already in the private scope, so rewiring membership to the resolved <c>Loaded</c> outcome
-/// would union the same single id and still emit exactly one PUT — verified by mutation. The
-/// Done-grid assertions do not expose it either (<c>ComputePerSourceFinalCounts</c> takes the
-/// routed early return and ignores its <c>imported</c> argument). That rule is pinned instead by
-/// <see cref="RoutedPrivatizeMembershipTests"/>, which uses a source outside the private scope so
-/// the union cannot absorb the difference.
-/// </para>
+/// Drive HandleImport for an AlreadyLoaded Antigravity root attaching new child content inline.
+/// The routed totals, per-vendor grid and printed line must all count that result as loaded.
+/// Include a second vendor so the per-vendor grid actually renders.
+/// The root receives one privacy PUT through IImportSource.AttachesChildContentOnReplay; this does
+/// not prove importedSessionIds membership because the private-scope union already contains it.
+/// RoutedPrivatizeMembershipTests uses a source outside that scope to pin the membership boundary.
 /// </summary>
 public class AntigravitySkippedChildOverrideRoutedLoopTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }

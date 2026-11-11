@@ -160,20 +160,10 @@ public class GeminiSessionStartMemoryTests {
     // ── source → lifecycle mapping ────────────────────────────────────────────
 
     /// <summary>
-    /// The adapter uses the SHARED <c>SessionStartMemoryHookSupport.ReasonFor</c>, not a local mapper.
-    ///
-    /// <para>An earlier revision hand-rolled one defaulting unrecognised sources to <c>New</c>. That is a
-    /// real bug, not a style point: the lifecycle policy decides eligibility from this reason, so
-    /// defaulting to <c>New</c> would inject on an unverified source AND spend the once-per-session lease
-    /// on it. The shared mapper returns <c>Unknown</c>, which the policy suppresses.</para>
-    ///
-    /// <para><c>clear</c> therefore lands on <c>Unknown</c> and is suppressed by the POLICY rather than by
-    /// the lease. Same observable outcome — no re-injection after a context reset — but suppressed
-    /// explicitly. Re-injection on clear is a known foundation-wide gap tracked separately; pinned here so
-    /// it stays deliberate and visible.</para>
+    /// Use the shared source-to-reason mapper. Unknown sources must remain Unknown so policy suppresses
+    /// injection without spending a once-per-session lease. In particular, clear is policy-suppressed.
+    /// Pass expected reasons by name because the public test signature cannot expose the internal enum.
     /// </summary>
-    // Expected value is passed by NAME: SessionLifecycleReason is internal, so a public test signature
-    // cannot mention it.
     [Test]
     [Arguments("startup", "New")]
     [Arguments("resume",  "Resume")]

@@ -81,8 +81,7 @@ public class GeminiHookOutputContractTests {
 
     [Test, NotInParallel]
     public async Task A_notification_missing_its_required_fields_still_emits_a_non_blocking_result() {
-        // The server's NotificationHook needs message + notification_type; without them the forward is
-        // abandoned. That abandonment used to return zero bytes.
+        // Missing notification fields may prevent forwarding, but the hook must still return its output contract.
         var stdout = await RunAsync($$"""
             {"hook_event_name":"Notification","session_id":"{{SessionId}}","cwd":"/tmp"}
             """);
@@ -140,9 +139,10 @@ public class GeminiHookOutputContractTests {
         await Assert.That(doc.RootElement.Obj("hookSpecificOutput")).IsNotNull();
     }
 
-    /// <summary>Writes <paramref name="charsBeforeThrowing"/> characters and THEN throws, so 0 exercises
-    /// "fails before any byte" and a positive value a genuine partial write. An earlier version of this
-    /// writer only ever threw before writing, leaving the advertised partial-write case untested.</summary>
+    /// <summary>
+    /// Zero charsBeforeThrowing exercises failure before any output; a positive value must really
+    /// write that prefix before throwing so partial-write handling is exercised.
+    /// </summary>
     sealed class ThrowingWriter(int charsBeforeThrowing) : StringWriter {
         public override void Write(string? value) {
             if (value is { Length: > 0 } && charsBeforeThrowing > 0)

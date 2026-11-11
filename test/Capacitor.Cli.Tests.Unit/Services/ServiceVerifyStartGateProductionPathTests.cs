@@ -13,7 +13,7 @@ public class ServiceVerifyStartGateProductionPathTests {
 
     // A duplicate top-level ProgramArguments key — never written by LaunchdUnit.Plist itself, so
     // this can only be a foreign/corrupt writer — with the gate's own consent directive baked so
-    // Phase A actually has evidence to re-parse.
+    // actually has evidence to re-parse.
     const string DuplicateKeyPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -108,10 +108,10 @@ public class ServiceVerifyStartGateProductionPathTests {
         }
     }
 
-    /// <summary>A DIRECTORY at the plist path is present by every real signal but unreadable as
-    /// content. <c>File.Exists</c> (which the presence check used to compose on) reads a
-    /// directory as ABSENT — it only follows through to files — so this must still classify
-    /// <c>evidence_unreadable</c>, never the takeover-safe <c>directive_missing</c>.</summary>
+    /// <summary>
+    /// A directory at the plist path is present but unreadable as evidence. File.Exists alone reads it
+    /// as absent and would incorrectly choose the takeover-safe directive_missing outcome.
+    /// </summary>
     [Test, NotInParallel]
     public async Task Directory_at_plist_path_is_evidence_unreadable_not_directive_missing() {
         Skip.When(OperatingSystem.IsWindows(), "launchd/HOME-based plist resolution is POSIX-only");

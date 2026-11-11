@@ -10,7 +10,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-// Spec §3.3 (ONE execution domain), orchestrator level: how the launch/stop HANDLERS route, what the pump
+// Spec (ONE execution domain), orchestrator level: how the launch/stop HANDLERS route, what the pump
 // is free to do while a launch parks on consent, the publication/transition barrier, the internal-reaping
 // bypass, and the shutdown teardown/handoff layers. The lane's own mechanics (coalescing, admission,
 // alarm, shutdown settlement) are pinned at the processor level in OneExecutionDomainProcessorTests.
@@ -158,7 +158,7 @@ public class OneExecutionDomainTests {
 
     // ══ Pump + lane contract ════════════════════════════════════════════════════════════════════════
 
-    // The core §3.3 liveness claim: with a SEQUENCED launch parked on a consent prompt, the pump keeps
+    // The core liveness claim: with a SEQUENCED launch parked on a consent prompt, the pump keeps
     // dispatching. A later sequenced stop's ACCEPTANCE is answered immediately while its EXECUTION queues,
     // and a status-report request (processor-independent) completes freely.
     [Test]
@@ -269,7 +269,7 @@ public class OneExecutionDomainTests {
         await Assert.That(claudeSpy.PrepareCalls).IsEqualTo(0);
     }
 
-    // Outcome (c) lane failure: the launch token cancelled while parked IS daemon shutdown (§1.11a), and the
+    // Outcome (c) lane failure: the launch token cancelled while parked IS daemon shutdown, and the
     // gate's OperationCanceledException must settle as InternalError + one terminal CommandRejected — never
     // a hang and never a double answer.
     [Test]
@@ -383,7 +383,7 @@ public class OneExecutionDomainTests {
 
     // Pre-settlement regression pin: with NO processor published, an un-seq'd launch executes INLINE and the
     // handler returns only after the core completes. The inline await IS the backpressure for that
-    // population; nothing about §3.3 may change it.
+    // population; nothing about may change it.
     [Test]
     public async Task With_no_processor_an_unsequenced_launch_executes_inline_before_the_handler_returns() {
         using var repoPath = GitRepo.CreateWithCommit();

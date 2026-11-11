@@ -5,7 +5,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-// Phase B2-b (sequenced-settlement design): the orchestrator now owns an epoch-scoped
+// The orchestrator now owns an epoch-scoped
 // SequencedCommandProcessor, advertises its Epoch/HighestAcceptedSeq/LastProcessedSeq counters on the
 // self-report + connect payload, and exposes the single confirmed-death-precedence liveness read
 // (ReadLiveness) the processor uses to answer duplicate CommandAcks. Reuses AgentOrchestratorHarness
@@ -32,7 +32,7 @@ public class HealBarrierReportTests {
 
     [Test]
     public async Task ReadLiveness_racing_transitions_never_yields_a_transient_false_dead() {
-        // Parent §8: CommandAck.CurrentState racing live->quarantine / quarantine->dead transitions must
+        // Parent: CommandAck.CurrentState racing live->quarantine / quarantine->dead transitions must
         // never surface a transient false Dead. Hammer ReadLiveness while the agent moves live -> quarantine
         // (teardown of a surviving child) -> dead (drain after the child exits). The shipped ordering
         // invariant (CleanupAgentAsync adds to _quarantine BEFORE removing from _agents) keeps the id
@@ -81,7 +81,7 @@ public class HealBarrierReportTests {
             RepoPath: "/tmp/does-not-matter", Tools: null, AttachmentIds: null, Vendor: "claude",
             Epoch: orch.DaemonEpochForTest, Seq: 1, CommandId: "cmd-1"));
 
-        // §3.3: HandleLaunchAgentForTest drains the lane again since the fix round (it now awaits
+        // HandleLaunchAgentForTest drains the lane again since the fix round (it now awaits
         // DrainLaneForTest after submitting), so the terminal rejection is already settled by the
         // time this returns — the poll below is redundant but harmless, kept as defense-in-depth
         // against a future regression reopening the async gap between acceptance and execution.
@@ -94,12 +94,12 @@ public class HealBarrierReportTests {
         await Assert.That(orch.BuildStatusReport().LastProcessedSeq).IsEqualTo(1L);
     }
 
-    // Phase B2-b (sequenced-settlement design §4.2.6): the daemon-side heal-barrier contract. A
+    // the daemon-side heal-barrier contract. A
     // StopAgentV2 at Seq = M that terminally processes advances LastProcessedSeq to M; once the agent's
     // death is confirmed it is absent from BOTH LiveAgents and Quarantined, so a later report PROVES the
     // id's absence at watermark M. The seeded agent uses NoopPtyProcess (pid 0 / not-alive), so
     // HandleStopAgent -> CleanupAgentAsync confirms death immediately (no quarantine), removing it from
-    // _agents. This is verification that Tasks 12–16 compose into the barrier obligation.
+    // _agents. This is verification that –16 compose into the barrier obligation.
     [Test]
     public async Task Stop_via_v2_advances_watermark_and_a_later_report_omits_the_confirmed_dead_id() {
         var server = new CaptureServerConnection();
@@ -116,7 +116,7 @@ public class HealBarrierReportTests {
         await Assert.That(report.Quarantined.Select(x => x.Id)).DoesNotContain("rev");
     }
 
-    // Phase B2-b (sequenced-settlement design §5): an un-Seq'd launch (old server) runs the legacy
+    // an un-Seq'd launch (old server) runs the legacy
     // unsequenced lane and must NEVER advance the sequenced watermark.
     [Test]
     public async Task Legacy_unsequenced_launch_never_advances_the_watermark() {
@@ -128,7 +128,7 @@ public class HealBarrierReportTests {
         await Assert.That(orch.BuildStatusReport().HighestAcceptedSeq).IsEqualTo(0L);
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): a PARTIAL sequencing tuple (some but not all of
+    // a PARTIAL sequencing tuple (some but not all of
     // Epoch/Seq/CommandId present) is a malformed sequenced command and must FAIL CLOSED (LaunchFailed) —
     // never fall through to the unwatermarked legacy lane, whose retry could be re-accepted on the
     // sequenced lane and double-create the generation (at-most-once-per-generation). It must not spawn and

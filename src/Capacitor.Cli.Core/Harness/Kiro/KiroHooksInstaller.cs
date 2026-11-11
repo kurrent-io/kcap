@@ -12,10 +12,8 @@ public static class KiroHooksInstaller {
     public const string MarkerFileName = ".kcap-hooks-version";
 
     /// <summary>
-    /// True when the user has previously installed Kiro hooks via setup or
-    /// <c>kcap plugin install --kiro</c>. Marker file presence OR an existing
-    /// <c>kcap hook --kiro</c> entry in the agent JSON — the hooks-json fallback
-    /// covers pre-marker installs.
+    /// Refresh only an existing Kiro hook install, identified by its marker or owned hook entry.
+    /// The config-entry fallback keeps markerless installs refreshable.
     /// </summary>
     public static bool IsInstalled(string agentJsonPath) {
         var dir = Path.GetDirectoryName(agentJsonPath);

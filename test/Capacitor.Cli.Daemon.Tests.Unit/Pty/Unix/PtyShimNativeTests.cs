@@ -5,9 +5,8 @@ using TUnit.Core.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 
 /// <summary>
-/// L1-shim(a) (spec §4.2(a)): the parent-side, pre-fork plan-construction contract —
-/// pty_probe_execveat / pty_preflight / pty_plan_contained / pty_plan_free. NEVER forks or
-/// execs (that's Task 3's pty_spawn); these tests only inspect the classification decision.
+/// Inspect parent-side, pre-fork plan construction through pty_probe_execveat, pty_preflight,
+/// pty_plan_contained and pty_plan_free. These tests must never fork or execute the candidate.
 /// </summary>
 [RunOn(OS.Linux)]
 public class PtyShimNativeTests {
@@ -133,9 +132,9 @@ public class PtyShimNativeTests {
         try {
             await Assert.That(UnixPtyInterop.pty_plan_contained(plan)).IsEqualTo(1);
             // The resolved inode must be the one under childDir, not daemonDir — asserted via
-            // PlanExecFdInodeMatches, a small test-only helper added in Task 3 once pty_spawn
+            // PlanExecFdInodeMatches, a small test-only helper added in once pty_spawn
             // exposes the exec'd fd's inode for comparison against /proc/self/fd bookkeeping.
-            // (Left as a forward reference: Task 3 Step 2 extends this exact test.)
+            // (Left as a forward reference: Step 2 extends this exact test.)
         } finally { Free(plan); }
     }
 
@@ -184,7 +183,7 @@ public class PtyShimNativeTests {
     [Test]
     public async Task Enoexec_shebangless_script_builds_a_plan_that_fails_at_exec_not_here() {
         // pty_preflight itself must NOT fail this (it has no shebang to parse and no reason to
-        // reject a plain file) — the ENOEXEC surfaces at exec time (Task 3's test, not here).
+        // reject a plain file) — the ENOEXEC surfaces at exec time ('s test, not here).
         using var tmp  = new TempDir();
         var       path = tmp.CreateFile("no-shebang", "not a script, no shebang\n");
         UnixExecFixtures.MakeExecutable(path);

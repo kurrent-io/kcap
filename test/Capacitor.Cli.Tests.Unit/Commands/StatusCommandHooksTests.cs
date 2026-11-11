@@ -85,7 +85,7 @@ public class StatusCommandHooksTests {
         await Assert.That(CodexHooksInstaller.ReferencesKcapHook(path)).IsFalse();
     }
 
-    // Fix #2: non-string command field should not throw — treated as not-installed.
+    // non-string command field should not throw — treated as not-installed.
     [Test]
     public async Task DetectsCodexHooks_returns_false_for_numeric_command_field() {
         using var tmp  = new TempDir();

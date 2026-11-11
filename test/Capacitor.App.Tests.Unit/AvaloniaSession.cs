@@ -103,7 +103,7 @@ internal static class AvaloniaSession {
             return true;
         });
 
-    /// What the OS does when another app takes focus; headless Show() leaves a window active. The
+    // What the OS does when another app takes focus; headless Show() leaves a window active. The
     /// platform layer's Deactivated hook is internal to Avalonia, so it is reached through the
     /// interface map by member name.
     public static void LoseKeyboardFocus(Avalonia.Controls.Window window) {

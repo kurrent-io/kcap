@@ -245,7 +245,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.DisposeAsync();
     }
 
-    // ── §2.7 B4: resume routing (thread/resume vs thread/start) ────────────────────────────────────
+    // ── resume routing (thread/resume vs thread/start) ────────────────────────────────────
 
     [Test]
     public async Task Resume_launch_issues_thread_resume_carrying_the_thread_id() {
@@ -300,7 +300,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
 
     [Test]
     public async Task Resume_with_blank_id_fails_the_launch_and_never_forks() {
-        // §2.7 B4 safety: a present-but-BLANK ResumeSessionId is resume INTENT with an invalid id — it must
+        // a present-but-BLANK ResumeSessionId is resume INTENT with an invalid id — it must
         // fail the launch, NOT silently fall back to thread/start (which would fork the transcript). Guards
         // a bad persisted/wire value against the no-silent-fork invariant.
         var fake = new FakeCodexAppServer();
@@ -318,10 +318,8 @@ public class CodexAppServerHostedAgentRuntimeTests {
 
     [Test]
     public async Task Resume_baselines_first_usage_then_emits_a_correct_incremental_delta() {
-        // On resume the runtime calls UsageBaselineOnNextNotification: the first post-resume usage snapshot
-        // (thread-CUMULATIVE, round 1 included) is consumed as the baseline and emits NO token_usage; the
-        // next snapshot yields the incremental delta. Pre-fix (no baseline on resume) the first snapshot
-        // would emit the whole cumulative total as a delta — a double-count of round 1.
+        // Consume the first post-resume cumulative usage snapshot as a baseline without emitting usage;
+        // only subsequent deltas are new, or the previous round's tokens would be counted twice.
         var fake = new FakeCodexAppServer { Model = "gpt-5.3-codex", EmitUsageOnTurn = (input: 120, output: 40, total: 160) };
         var (runtime, _, _) = Build(_ => fake, Launch(resumeSessionId: "thread-parked-1"), emitEnvelopes: true);
 

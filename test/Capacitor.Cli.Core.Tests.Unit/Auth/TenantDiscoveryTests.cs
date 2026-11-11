@@ -70,9 +70,8 @@ public class TenantDiscoveryTests {
         var outcome = await discovery.RunAsync("https://proxy", "gh");
 
         await Assert.That(outcome.ErrorMessage!).Contains("unreachable");
-        // A discovery-service failure ALSO returns zero tenants but must NOT be counted as
-        // "reached signup, has no tenant" — that was the bug: SetupCommand used to key off
-        // outcome.Tenants.Length == 0 alone, which conflated this with the genuine case above.
+        // Zero tenants after a discovery-service failure is not evidence that signup succeeded without
+        // a tenant. Classification must use the outcome, not just the returned array length.
         await Assert.That(outcome.NoTenantsFound).IsFalse();
     }
 

@@ -61,18 +61,9 @@ public class AntigravityReviewerReapingTests {
     }
 
     /// <summary>
-    /// The opposite direction, and the reason the flag cannot simply be pinned false: a turn that is
-    /// genuinely running SUPPRESSES the idle rule, so a long review round is not reaped out from under
-    /// itself. The settled twin is the control — identical elapsed time, opposite verdict, so neither
-    /// outcome can come from the elapsed time alone.
-    ///
-    /// <para>The wedge ceiling is disabled for this orchestrator deliberately. It is the one rule a
-    /// held turn leaves armed, so with it in force the mid-turn agent at 2h1m would be reaped as
-    /// <c>turn_wedged</c> — a different rule reaching the same verdict, which would prove nothing
-    /// about idle suppression. An earlier revision instead advanced the running clock only 30m, and a
-    /// mutation check showed that made the assertion vacuous: 30m is under the idle bound anyway, so
-    /// it passed with the flag never set at all. The wedge itself is covered by
-    /// <c>ReviewerReapingTests</c>.</para>
+    /// Use equal elapsed times for running and settled twins, beyond the idle bound, so turn state
+    /// must explain the opposite outcomes. Disable the independent wedge ceiling; otherwise it could
+    /// reap the running twin for a different reason and conceal whether idle suppression works.
     /// </summary>
     [Test]
     public async Task Antigravity_reviewer_mid_turn_is_not_idle_reaped_while_a_settled_one_is() {

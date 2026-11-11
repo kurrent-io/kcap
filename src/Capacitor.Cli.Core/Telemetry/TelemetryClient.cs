@@ -71,19 +71,12 @@ public sealed class TelemetryClient(
         }
     }
 
-    /// <summary>Ships queued + previously spooled events. Returns false when nothing reached
-    /// PostHog, in which case everything has been spooled for a later attempt.
-    ///
-    /// <paramref name="budget"/> bounds this WHOLE call, not just the HTTP phase: timing starts
-    /// here, before <see cref="TelemetrySpool.DrainAll"/> (disk I/O, up to 2000 spooled lines)
-    /// and <see cref="PostHogPayload.Build"/> (serializing the whole batch) — both of which run
-    /// synchronously on the caller's command path (<c>CliTelemetry.CaptureNow</c>, the
-    /// ProcessExit handler). Without that, a slow disk with a large spool could stall a command
-    /// well past the intended budget before the HTTP phase even started timing.
-    ///
-    /// Flushes run one at a time: each drains, appends to and clears the same spool, so an overlapping
-    /// one could clear events another had just spilled. Waiting for an earlier flush counts against
-    /// the budget, and a flush whose wait used it all spills its queue without draining the spool.</summary>
+    /// <summary>
+    /// The budget includes synchronous spool reads, serialization, and waiting for a concurrent flush,
+    /// not just HTTP. Otherwise slow disk work could stall a command beyond its deadline.
+    /// Serialize flushes because they drain and clear the same spool; a waiter that exhausts its budget
+    /// spills its queue without clearing another flush's events.
+    /// </summary>
     public Task<bool> FlushAsync(string distinctId, string? orgGroup, TimeSpan budget) {
         var start = _clock.GetTimestamp();
 

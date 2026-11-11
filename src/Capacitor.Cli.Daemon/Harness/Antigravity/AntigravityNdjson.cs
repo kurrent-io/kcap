@@ -63,7 +63,7 @@ internal sealed record AntigravityEvent(
 /// Pure translation from agy's NDJSON lines to the daemon's canonical <see cref="AcpEventEnvelope"/>
 /// transcript events — no processes, no I/O, no state beyond what a caller explicitly threads
 /// through <see cref="AntigravityStepAccumulator"/>. See
-/// <c>docs/superpowers/specs/2026-08-06-ai1414-agy-unattended-reviewer-design.md</c> §5.4.
+/// <c>docs/superpowers/specs/2026-08-06-ai1414-agy-unattended-reviewer-design.md</c>.
 ///
 /// Neither <see cref="TryParseLine"/> nor <see cref="ToEnvelopes"/> stamps
 /// <see cref="AcpEventEnvelope.Seq"/>/<see cref="AcpEventEnvelope.TimestampIso"/> — both are

@@ -38,31 +38,11 @@ internal sealed record ResolvedBorrowedReviewPolicy(
 }
 
 /// <summary>
-/// Which platforms Copilot's borrowed-review tool surface has actually been verified on, and the
-/// read tools that surface consists of.
-///
-/// <para><b>Why an exclusive allowlist rather than a deny-list.</b> Live probing of Copilot 1.0.75
-/// found that <c>--deny-tool=write</c> does NOT cover its file-create/edit tool. A direct write to an
-/// absolute path outside the snapshot was not denied — it raised an inbound
-/// <c>session/request_permission</c> ("Access paths outside trusted directories"), and this daemon's
-/// unattended interaction policy auto-approves exactly that shape. A deny-list therefore leaves the
-/// write path open while looking closed.</para>
-///
-/// <para>Keeping <c>--available-tools</c> EXCLUSIVE and widening it to the read tools makes WRITE
-/// containment structural instead: no write or exec tool is representable at all, so there is no
-/// permission request for anything to grant. READ containment is a separate problem and is NOT
-/// solved by the allowlist — see <see cref="BorrowedReviewSandbox"/>, which is why a supported entry
-/// requires an OS sandbox and a host that cannot provide one is unsupported. Verified live — with this allowlist Copilot reports
-/// <c>bash</c>, <c>create</c> and <c>edit</c> among its disabled tools, raises no permission request,
-/// and states plainly that it has no tool capable of writing.</para>
-///
-/// <para><b>Why the platform key.</b> The verification above was performed on one platform. Tool
-/// identifiers and path-trust semantics are the security boundary here, and nothing establishes they
-/// are identical elsewhere, so an unverified platform gets no entry and advertises no borrowed
-/// review. This is NOT the version-keyed certification that was removed — a vendor build
-/// auto-updates underneath a user and that gate died within days; an OS and architecture do not
-/// change under a running daemon, and this encodes a fact nobody has measured rather than
-/// re-deriving one that was deliberately trusted.</para>
+/// Use an exclusive available-tools list: a deny-write flag does not cover every create/edit tool,
+/// and an out-of-snapshot path request could otherwise reach an auto-approval policy.
+/// Read containment is separate and requires BorrowedReviewSandbox; a tool allowlist cannot bound paths.
+/// Only verified OS/architecture entries advertise borrowed review. A platform entry must establish
+/// both readable tools and working sandbox enforcement, not merely that the process starts.
 /// </summary>
 internal static class CopilotBorrowedReviewPolicy {
     /// <summary>The read/search tools a borrowed Copilot reviewer may use, on top of the flow-result

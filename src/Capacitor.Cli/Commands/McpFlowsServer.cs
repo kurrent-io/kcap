@@ -276,7 +276,7 @@ partial class McpFlowsServer(
                     _                     => await SendWithSettlementRetryAsync(client, apiRoot, (c, ct) => SubmitRoundAsync(c, apiRoot, arguments, contextArgName: "message", participant: GetRequiredArg(arguments, "participant"), async: ParseAsyncArg(arguments), ct: ct), clock, backoff, extraRetryableCode: ParticipantUnreachableCode, absoluteBudget: sendBudget)
                 };
 
-                // Settlement-admission design (§3.2 G): the elapsed deadline is mapped HERE, at the
+                // Settlement-admission design ( G): the elapsed deadline is mapped HERE, at the
                 // only place that builds tool results, into a normal MCP tool error carrying the last
                 // coded rejection plus attempt/elapsed diagnostics. It must never escape as an
                 // unhandled stdio fault, and must never turn a retryable busy into something a caller
@@ -610,8 +610,7 @@ partial class McpFlowsServer(
             }
 
             if (!httpResponse.IsSuccessStatusCode) {
-                // Decode coded envelopes here too (status/close previously printed the raw
-                // body) — FormatFlowStartError falls back to the raw HTTP line for uncoded bodies.
+                // Decode coded error envelopes; FormatFlowStartError retains the raw HTTP line for uncoded bodies.
                 return BuildToolResult(id, FormatFlowStartError((int)httpResponse.StatusCode, body, wasDynamicStart: false), isError: true);
             }
 
@@ -783,58 +782,14 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Bounded, code-aware auto-retry for the two settlement-layer coded 409s a start/round POST
-    /// can return: flow_settlement_busy (a settlement CAS append exhausted its own retry budget)
-    /// and reviewer_launch_incarnation_superseded (the launch's incarnation was superseded by a
-    /// concurrent settlement transition). Both are documented server-side as retryable: retrying
-    /// the originating request re-resolves against the settlement layer's current state.
-    ///
-    /// For start_review_flow/start_flow, retrying re-POSTs the start — which mints a FRESH
-    /// flow_run_id and abandons the superseded attempt (see StartFlowAsync), so it's
-    /// unconditionally safe. For submit_review_round/send_to_participant, the server invariant
-    /// that no path appends FlowRoleAgentAssigned/FlowRoundSubmitted/FlowIntentCompleted unless
-    /// IsCurrentSettlementCompletion is true means a coded rejection here never recorded a round
-    /// — so retrying the same flow_run_id can't double-submit.
-    ///
-    /// Only these two codes (via <see cref="TryParseCodedError"/>) trigger a retry, plus whatever
-    /// single code the caller names in <paramref name="extraRetryableCode"/> (today only
-    /// <see cref="ParticipantUnreachableCode"/>). Every other coded 4xx, and an uncoded failure,
-    /// passes through untouched — an older server that has never heard of the extra code simply
-    /// never sends it, so this is additive, not a capability negotiation.
-    ///
-    /// <para><see cref="ParticipantUnreachableCode"/> never carries a <c>last_processed_seq</c>, so
-    /// the rolling no-progress window never re-arms for it and it always exhausts at the flat
-    /// <see cref="SettlementElapsedDeadline"/> (3 minutes). That bound is load-bearing, not
-    /// redundant with a faster server-side signal: the incarnation-cleared append that would let a
-    /// retry succeed lands in the reviewer gateway / settlement service, not in the reconciler, so
-    /// 3 minutes is sized to give that reconcile sweep (<c>FlowReconcilerService.SweepInterval</c>)
-    /// one full cycle to prove the prior agent's absence.</para>
-    ///
-    /// <para>Bounded by <see cref="SettlementElapsedDeadline"/> rather than an attempt count, on the
-    /// <see cref="SettlementBackoff"/> schedule, with the deadline's remaining time propagated as a
-    /// per-request <see cref="CancellationToken"/> so a held POST is abandoned instead of
-    /// overshooting. Each retried POST re-enters a fresh server-side admission wait, which is what
-    /// lets a burst of concurrent launches against one daemon absorb serially.</para>
-    ///
-    /// <para>Returns a discriminated result: <c>Response</c> carries the live response (the caller
-    /// owns it, exactly as before); <c>DeadlineExhausted</c> carries only the last observed coded
-    /// error plus attempt/elapsed diagnostics — this helper disposes every superseded failing
-    /// response, so an exhausted result never carries a live one. The deadline CTS is linked to the
-    /// caller's token; in production that token is <see cref="CancellationToken.None"/> (the stdio
-    /// loop has none), and caller-token cancellation is rethrown untouched — only this helper's OWN
-    /// deadline firing produces <c>DeadlineExhausted</c>.</para>
-    ///
-    /// <para>Sits above the lane's own 401 recovery, which still applies on every attempt. All
-    /// timing is injectable so unit tests run instantly on a virtual clock.</para>
-    ///
-    /// <para><paramref name="budgetStartedAt"/> lets a caller that sends TWICE within one tool call
-    /// (the preference fallback: a refused vendor-less start, then one re-send naming the saved
-    /// vendor) share ONE elapsed budget instead of opening a second full one. Two independent
-    /// budgets would put the worst case at 3m + 3m of settlement plus the poll cap — past the
-    /// harness MCP tool timeout this deadline was sized to stay under, with the specific hazard that
-    /// the second POST succeeds (a run minted, a paid reviewer launched) after the harness has
-    /// already given up, and the driver starts the flow again. Omitted, the budget starts now, which
-    /// is every other caller's behavior unchanged.</para>
+    /// Retry only recognized settlement codes: their rejected attempts have not committed a round,
+    /// so retrying cannot double-submit. Leave other coded and uncoded failures untouched.
+    /// Use one elapsed deadline, including preference fallback posts and each request's timeout; separate
+    /// budgets could launch a paid reviewer after the harness has abandoned and retried the tool call.
+    /// Strict sequence progress re-arms the window; participant-unreachable has no watermark and keeps
+    /// the flat three-minute bound, allowing the reconciliation sweep to establish the prior agent's death.
+    /// Dispose superseded responses; only a successful response transfers ownership to the caller.
+    /// Rethrow caller cancellation, and classify only this helper's own timeout as DeadlineExhausted.
     /// </summary>
     internal static async Task<SettlementSendResult> SendWithSettlementRetryAsync(
             HttpClient                                                    client,
@@ -1161,7 +1116,7 @@ partial class McpFlowsServer(
                     ? (ReviewerModelProtocolRequiredMessage, true)
                     : null;
 
-            // Qodo #2: an UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+            // an UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
             // old-server signal — only a clean 404/405 is (handled above). Return null so the caller's
             // FormatFlowStartError surfaces the real status/body, instead of masking a genuine
             // failure as a protocol-version skew.
@@ -1253,12 +1208,12 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Routes a review-flow start to the versioned start endpoint. §2.7 B3: a vendor-bearing,
+    /// Routes a review-flow start to the versioned start endpoint. A vendor-bearing,
     /// non-dynamic start POSTs to /api/flows/review/start/v4 (protocol 4, the resumable-park tier),
     /// falling back on HTTP 404 (old server) to /v3 when a model was given else /v2; a vendor-less or
-    /// dynamic (definition_yaml) start keeps the pre-B3 route (/v2 or the legacy generic route). Shared
+    /// dynamic (definition_yaml) start keeps the v2/v3 route (/v2 or the legacy generic route). Shared
     /// by start_review_flow (reads the flow kind from the "kind" arg) and its generic alias start_flow
-    /// (reads it from "definition_id" — the server treats kind == definition id, phase C).
+    /// (reads it from "definition_id" — the server treats kind == definition id).
     /// start_flow additionally accepts an inline "definition_yaml" (dynamic flows): the MCP
     /// schema can't express the xor, so exactly-one is enforced here, BEFORE any HTTP call;
     /// start_review_flow stays catalog-only (kind remains required there). Internal (not private)
@@ -1324,7 +1279,7 @@ partial class McpFlowsServer(
                     "Pass the lowercase canonical vendor token (e.g. 'claude', 'codex') the model belongs to.");
         }
 
-        // B2: this machine's stable id, matched server-side against each connected daemon's
+        // This machine's stable id, matched server-side against each connected daemon's
         // registration id to prove the reviewer would run on the SAME host as this requester. Same
         // call the daemon reports at registration (ServerConnection), so the ids are identical — the
         // last piece that lets the server pick the borrow path instead of a mirrored worktree.
@@ -1360,9 +1315,9 @@ partial class McpFlowsServer(
             RequesterMachineId:   machineId,
             DefinitionYaml:       definitionYaml,
             Vendor:               vendor,
-            // The BASE-body protocol, used only on the pre-B3 fallback routes below: a reviewer-model
+            // The BASE-body protocol, used only on the v2/v3 fallback routes below: a reviewer-model
             // override is 3 (v3), every other catalog start is 2 (v2), a dynamic start sends none. The
-            // §2.7 B3 primary attempt overrides this to 4 for the /v4 route (see the routing below).
+            // The v4 primary attempt overrides this to 4 for the /v4 route (see the routing below).
             ClientFlowProtocolVersion: model is not null ? 3 : definitionYaml is null ? 2 : null,
             Model:                model,
             SessionTitle:         sessionTitle,
@@ -1378,24 +1333,24 @@ partial class McpFlowsServer(
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 5 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
 
-        // §2.7 B3: a participant_parked-capable client routes every non-dynamic, vendor-bearing
+        // A participant_parked-capable client routes every non-dynamic, vendor-bearing
         // start through /review/start/v4 (protocol 4), so the server returns the version-gated
         // `participant_parked` result when a resumable park crosses a round. An older server lacks the
-        // route and 404s it → fall back to the pre-B3 endpoint (protocol 3/2), where a park reports the
+        // route and 404s it → fall back to the v2/v3 endpoint (protocol 3/2), where a park reports the
         // legacy `participant_stopped`; both are resubmit triggers, so the crossed round never stalls
         // across the rollout. Only a 404 falls back — any other response (incl. a real 4xx) is returned
         // as-is, never a silent downgrade. A dynamic (definition_yaml) or vendor-less start keeps its
-        // pre-B3 route (v4 requires a vendor).
+        // v2/v3 route (v4 requires a vendor).
         if (vendor is not null && definitionYaml is null) {
             var v4Resp = await client.PostAsync(
                 $"{apiRoot}/api/flows/review/start/v4",
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 4 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
             if (v4Resp.StatusCode != System.Net.HttpStatusCode.NotFound) return v4Resp;
-            v4Resp.Dispose(); // old server without /v4 — fall through to the pre-B3 route below
+            v4Resp.Dispose(); // old server without /v4 — fall through to the v2/v3 route below
         }
 
-        // Pre-B3 route selection (and the /v4 fallback), the server-capability signal that fails closed:
+        // v2/v3 route selection (and the /v4 fallback), the server-capability signal that fails closed:
         //  - a reviewer-model override → POST /review/start/v3 (an old server 404s it — mapped to
         //    reviewer_model_protocol_required, never downgraded to v2);
         //  - every other catalog start → POST /review/start/v2 (protocol 2);
@@ -1667,12 +1622,12 @@ partial class McpFlowsServer(
     // Maximum consecutive transient failures (5xx / network / TLS) before giving up.
     const int MaxTransientRetries = 5;
 
-    /// <summary> E-c: a multi-participant start records the run only — no round exists to
+    /// <summary>E-c: a multi-participant start records the run only — no round exists to
     /// poll, so the old poll path must not run. Returns null unless the body is exactly that shape
     /// (round-full starts and old servers fall through to the existing logic unchanged). Today's
     /// server never puts pending_messages on a round-less start (a brand-new run has no
     /// participants), but the path renders + exposes them anyway so every returned response obeys
-    /// the same format-then-ack rule with no carve-outs (Qodo review on #278).</summary>
+    /// the same format-then-ack rule with no carve-outs.</summary>
     internal static string? TryFormatRoundlessStart(string postBody, out IReadOnlyList<string> pendingIds) {
         pendingIds = [];
 
@@ -1922,7 +1877,7 @@ partial class McpFlowsServer(
         var deadline              = toolCallStartedAt is { } anchor && anchor + ToolCallBudget < pollLaneDeadline
             ? anchor + ToolCallBudget
             : pollLaneDeadline;
-        // Fix #3: anchor the 404 grace window to poll start, not to first-seen-404.
+        // anchor the 404 grace window to poll start, not to first-seen-404.
         var notFoundGraceDeadline = pollStartedAt + NotFoundGrace;
         var consecutiveTransient  = 0;
         string? lastTransientError;
@@ -1937,7 +1892,7 @@ partial class McpFlowsServer(
             try {
                 resp = await client.GetAsync(url, getCts.Token);
             } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
-                // Fix #4: count network/TLS/timeout as transient; stop after budget.
+                // count network/TLS/timeout as transient; stop after budget.
                 consecutiveTransient++;
                 lastTransientError = ex.Message;
                 if (consecutiveTransient > MaxTransientRetries)
@@ -1947,7 +1902,7 @@ partial class McpFlowsServer(
 
             using (resp) {
                 if (resp.StatusCode == HttpStatusCode.NotFound) {
-                    // Fix #3: 404 only gets the grace window anchored to poll start.
+                    // 404 only gets the grace window anchored to poll start.
                     if (clock.UtcNow > notFoundGraceDeadline)
                         return new($"Error: flow_run_id {flowRunId} not found.", true);
                     await clock.DelayAsync(PollInterval); continue;
@@ -1956,7 +1911,7 @@ partial class McpFlowsServer(
                 if (resp.StatusCode == HttpStatusCode.Unauthorized)
                     return new(await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), true);
 
-                // Fix #4: non-transient 4xx (e.g. 400, 403, 409 budget_unverifiable) fail
+                // non-transient 4xx (e.g. 400, 403, 409 budget_unverifiable) fail
                 // immediately — coded bodies surface via FormatFlowStartError like the POST path.
                 var statusCode = (int)resp.StatusCode;
                 if (statusCode is >= 400 and < 500) {
@@ -1978,7 +1933,7 @@ partial class McpFlowsServer(
                     return new(FormatFlowStartError(statusCode, errBody, wasDynamicStart), true);
                 }
 
-                // Fix #4: 5xx / other non-success counts toward the transient budget.
+                // 5xx / other non-success counts toward the transient budget.
                 if (!resp.IsSuccessStatusCode) {
                     consecutiveTransient++;
                     lastTransientError = $"HTTP {statusCode}";
@@ -1998,7 +1953,7 @@ partial class McpFlowsServer(
                 var rs        = node?["round_status"]?.GetValue<string>();
                 var runStatus = node?["status"]?.GetValue<string>();
 
-                // Fix #1: run-level terminal stops the loop, but only return round result
+                // run-level terminal stops the loop, but only return round result
                 // when the projected round matches the one we submitted.
                 if (runStatus is "closed" or "failed") {
                     if (rn == roundNumber && rs is not null && TerminalRoundStatuses.Contains(rs)) {
@@ -2031,7 +1986,7 @@ partial class McpFlowsServer(
         );
     }
 
-    /// <summary>Implements `wait: true` on the two status tools (liveness design §6): repeated bounded
+    /// <summary>Implements `wait: true` on the two status tools (liveness design ): repeated bounded
     /// GETs against the SAME endpoint the plain call hits, sharing <see cref="PollUntilTerminalAsync"/>'s
     /// per-attempt timeout, cadence, transient budget and 409 backoff, until the run is terminal, the
     /// current round reaches a <see cref="TerminalRoundStatuses"/> value, or <see cref="PollCap"/> elapses.
@@ -2129,7 +2084,7 @@ partial class McpFlowsServer(
     internal static string FormatPolledRoundResult(JsonObject node, string flowRunId) =>
         FormatPolledRoundResult(node, flowRunId, out _);
 
-    /// <summary> E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
+    /// <summary>E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
     internal static string FormatPolledRoundResult(JsonObject node, string flowRunId, out IReadOnlyList<string> pendingIds) {
         var roundNumber = node["round_number"]?.GetValue<int>();
         var resultKind  = node["round_result_kind"]?.GetValue<string>() ?? node["round_status"]?.GetValue<string>() ?? "";
@@ -2167,7 +2122,7 @@ partial class McpFlowsServer(
     /// </summary>
     internal static string FormatRoundResponse(string body) => FormatRoundResponse(body, out _);
 
-    /// <summary> E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
+    /// <summary>E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
     internal static string FormatRoundResponse(string body, out IReadOnlyList<string> pendingIds) {
         try {
             var node = JsonNode.Parse(body)?.AsObject();
@@ -2210,7 +2165,7 @@ partial class McpFlowsServer(
 
     internal static string FormatStatusResponse(string body) => FormatStatusResponse(body, out _);
 
-    /// <summary> E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
+    /// <summary>E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
     internal static string FormatStatusResponse(string body, out IReadOnlyList<string> pendingIds) {
         try {
             var node = JsonNode.Parse(body)?.AsObject();
@@ -2335,7 +2290,7 @@ partial class McpFlowsServer(
     /// </summary>
     internal static string FormatCloseResponse(string body) => FormatCloseResponse(body, out _);
 
-    /// <summary> E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
+    /// <summary>E-c: id-exposing overload — see <see cref="AppendPendingMessages"/>.</summary>
     internal static string FormatCloseResponse(string body, out IReadOnlyList<string> pendingIds) {
         try {
             var node = JsonNode.Parse(body)?.AsObject();
@@ -2360,7 +2315,7 @@ partial class McpFlowsServer(
         }
     }
 
-    /// <summary> E-c: renders the fold-computed undelivered sidecar messages carried on a
+    /// <summary>E-c: renders the fold-computed undelivered sidecar messages carried on a
     /// status/round/close response. Returns the rendered ids so the caller can ack exactly what
     /// the driver will actually see (never more).</summary>
     internal static IReadOnlyList<string> AppendPendingMessages(StringBuilder sb, JsonObject node) {
@@ -2379,7 +2334,7 @@ partial class McpFlowsServer(
 
             // Type-safe extraction: a wrong-typed field degrades to "", never throws —
             // FormatPolledRoundResult has no exception boundary, so a throw here would turn a
-            // successful terminal poll into a generic internal error (Qodo review on #278).
+            // successful terminal poll into a generic internal error.
             var id   = StringField(o, "message_id");
             var from = StringField(o, "from_participant");
             var text = StringField(o, "text");
@@ -2501,7 +2456,7 @@ partial class McpFlowsServer(
         return true;
     }
 
-    /// <summary> E-c: deliver-once ack for pending messages. Callers must invoke this
+    /// <summary>E-c: deliver-once ack for pending messages. Callers must invoke this
     /// AFTER the response text has been fully formatted, passing only the ids that were actually
     /// rendered into that text — never before, never a superset. No-op (no HTTP call at all) when
     /// <paramref name="messageIds"/> is empty, which keeps this byte-compatible with servers that
@@ -2566,7 +2521,7 @@ partial class McpFlowsServer(
     /// "null" leaf type), so both default to true — matching submit_review_round's hardcoded
     /// Async: true. A JSON boolean is used as-is. Anything else (e.g. an LLM caller passing the
     /// string "yes") throws ArgumentException, which HandleToolCallAsync's catch turns into a
-    /// clean tool error instead of an uncaught GetValue&lt;bool&gt;() crash.
+    /// Clean tool error instead of an uncaught GetValue&lt;bool&gt; crash.
     /// </summary>
     static bool ParseAsyncArg(JsonObject? arguments) =>
         arguments?["async"] switch {
@@ -2576,7 +2531,7 @@ partial class McpFlowsServer(
         };
 
     /// <summary>
-    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status (§6 of the
+    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status ( of the
     /// liveness design). A missing key and an explicit JSON null both default to false — the
     /// single-GET behavior every existing caller already gets, unchanged. A JSON boolean is used
     /// as-is; anything else throws ArgumentException, turned into a clean tool error by

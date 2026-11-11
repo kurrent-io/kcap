@@ -3,16 +3,9 @@ using Capacitor.Cli.Core.Auth;
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
 
 /// <summary>
-/// Tests for TokenStore.RefreshWithCrossProcessLockAsync — the profile-scoped lock that both the
-/// reactive (GetValidTokensAsync) and proactive (RefreshIfExpiringAsync) paths refresh through.
-///
-/// Covers two review findings on the proactive-refresh PR:
-///   1. The refreshed token must be persisted under the SAME profile the lock was taken on, not
-///      the (possibly since-switched) active profile — the refresh delegates no longer self-save.
-///   2. A refresh that a peer already performed while we waited for the lock must NOT be repeated,
-///      even if the freshly-rotated token is still inside the proactive window (short-lived token).
-///
-/// A fake refresh delegate is injected so no network or real provider endpoint is touched.
+/// Persist refreshed tokens under the profile whose lock was acquired, even if active profile changes.
+/// Do not refresh again when a peer already rotated the token, including short-lived tokens still
+/// inside the proactive window. The injected refresh delegate keeps provider traffic out of these tests.
 /// </summary>
 public class CrossProcessRefreshTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }

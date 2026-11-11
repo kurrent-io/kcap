@@ -13,38 +13,10 @@ internal enum KiroReviewerDecision {
 }
 
 /// <summary>
-/// Whether THIS daemon may run Kiro as an unattended review-flow reviewer. Pure, so every arm is
-/// testable without a vendor or a process.
-///
-/// <para><b>ENABLED by default; the switch is an opt-OUT.</b> It shipped as an opt-in and that was
-/// wrong. The reviewer vendor is a caller-chosen parameter, and Claude, Codex, Cursor and Copilot have
-/// never been gated — each running with FULL tool access, including shell and write. So on any daemon
-/// that also ADVERTISES one of those, gating Kiro did not widen the capability class a requester could
-/// reach (they simply ask for an ungated vendor with more capability) while taxing the honest path with
-/// a service-unit edit and a restart. On a daemon advertising only gated vendors it did separate the
-/// hosted role from the unattended reviewer role, and the flip genuinely widens what a non-operator can
-/// cause to run with no human in the loop. It was also the wrong end of the risk
-/// scale: this reviewer's trust list is <c>fs_read</c> + <c>thinking</c>, never <c>fs_write</c>, never
-/// <c>execute_bash</c>.</para>
-///
-/// <para><b>The residual risk is real and unchanged, it just is not what a per-vendor gate addressed.</b>
-/// A trusted <c>fs_read</c> is measurably NOT path-scoped — a whole-filesystem read primitive under the
-/// daemon's uid — so a review can read every file this daemon user can, credentials included, and its
-/// findings text goes back to the requester. Equally true of the four never-gated vendors. The honest
-/// framing is that running ANY unattended reviewer is the decision, not running this one.</para>
-///
-/// <para><b>Why a version MINIMUM rather than a certified set or an exact affirmation.</b> Containment
-/// is source suppression — an empty per-launch <see cref="KiroReviewerHome"/> plus the worktree
-/// layer's removal of branch-authored config. The second is ours; the first is not, because Kiro
-/// honouring <c>KIRO_HOME</c> and reading no other global config source are behaviours of the build.
-/// A maintainer-curated certified set took the reviewer offline on every vendor release, recoverable
-/// only by a kcap release; an exact affirmation fixed the release-coupling but kept the treadmill,
-/// merely relocating it onto the operator. The recorded value is now the OLDEST build this daemon
-/// will run, so a vendor upgrade needs no action and a downgrade below it is refused. The trade — a
-/// future build that weakens its own containment is admitted silently — is accepted, and the affirm
-/// verb raises the floor past a build once found to be bad. Gemini uses the same model; the shared
-/// comparison lives in <see cref="Core.ReviewerVersionAffirmations"/> and the record in
-/// <see cref="Core.ReviewerVersionStore"/>.</para>
+/// Kiro's trusted fs_read is not path-scoped: reviews can read any file accessible to the daemon
+/// user and return findings to a different requester. The reviewer switch is an operator opt-out.
+/// Containment relies on Kiro honoring an isolated KIRO_HOME and on removing workspace config.
+/// The recorded build floor admits upgrades; raise it to exclude a build with broken suppression.
 /// </summary>
 internal static class KiroReviewerCapability {
     /// <summary>Production entry point: reads the host platform, then defers to the pure overload.</summary>
@@ -53,14 +25,8 @@ internal static class KiroReviewerCapability {
         Decide(!OperatingSystem.IsWindows(), operatorEnabled, installedVersion, minimumVersion);
 
     /// <summary>
-    /// The decision, with the platform passed IN rather than read from the ambient OS.
-    ///
-    /// <para>An earlier revision called <c>OperatingSystem.IsWindows()</c> inside this method while its
-    /// own summary claimed to be pure. It was not, and the cost was immediate: on the Windows CI leg
-    /// every non-platform arm short-circuited to <see cref="KiroReviewerDecision.UnsupportedPlatform"/>,
-    /// so a dozen tests asserting consent and version behaviour failed for a reason that had nothing to
-    /// do with what they were testing. Taking the platform as an argument makes every arm reachable
-    /// from any host — including the Windows arm itself, which was previously unassertable on POSIX.</para>
+    /// Take the platform as an input so consent and version branches remain reachable and testable
+    /// from every host, including hosts whose ambient platform would refuse the launch.
     /// </summary>
     internal static KiroReviewerDecision Decide(
             bool posixHost, bool operatorEnabled, string? installedVersion, string? minimumVersion) {

@@ -90,7 +90,7 @@ static class WindowsTaskUnit {
         // Every value on the exec line is guarded and quoted, not just the binary path.
         //
         // `%`-doubling alone is not enough and quoting-when-it-contains-a-space is not enough: cmd treats
-        // `& | < > ( ) ^` as live metacharacters OUTSIDE double quotes, so an argument like `foo&calc.exe`
+        // `& | < > ^` as live metacharacters OUTSIDE double quotes, so an argument like `foo&calc.exe`
         // contains neither a space nor a percent, renders bare, and cmd runs the tail as a second command —
         // in a file the OS executes at every logon. Inside double quotes cmd stops treating them as
         // metacharacters, so quoting unconditionally is what closes the class; `%` still expands inside

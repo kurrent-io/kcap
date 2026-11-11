@@ -2,18 +2,9 @@ namespace Capacitor.Cli;
 
 public static class TimeBudget {
     /// <summary>
-    /// Runs <paramref name="work"/> but returns after at most <paramref name="cap"/>.
-    /// Returns <c>true</c> when the work finished within the cap (its exception, if any, is
-    /// propagated), or <c>false</c> when the cap elapsed first and the work was abandoned
-    /// (left running, its later result/fault unobserved). The boolean lets callers log that
-    /// the work was cut short.
-    ///
-    /// Used to keep best-effort hook pre-work — killing the watcher and inline-draining the
-    /// transcript — from consuming the entire SessionEnd hook timeout. A slow or retrying
-    /// remote call here could otherwise burn the whole 15s budget (the retry helper alone
-    /// allows up to 30s) and starve the session-end POST, leaving the session stuck "Active"
-    /// forever. The server's own StopAndDrain plus the "kcap import" recovery hint cover
-    /// anything an abandoned drain didn't finish.
+    /// Bound best-effort hook pre-work so an abandoned drain cannot consume the entire SessionEnd
+    /// budget and starve its POST. Work left running after the cap must not control the returned result;
+    /// server stop-and-drain and import recovery cover unfinished capture.
     /// </summary>
     public static async Task<bool> RunCappedAsync(Func<Task> work, TimeSpan cap, TimeProvider time) {
         var workTask = work();

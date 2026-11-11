@@ -64,7 +64,7 @@ sealed class GatedReader {
 /// runs under AvaloniaSession (the real headless dispatcher) and awaits
 /// ActivityViewModel.PendingRefreshForTesting — the same completion the production single-flight
 /// guard watches — instead of guessing at a delay. A plain Subject-backed FakeTicker still delivers
-/// Tick() synchronously on the calling thread; only the VM's own work runs off-thread.
+// Tick() synchronously on the calling thread; only the VM's own work runs off-thread.
 public class ActivityViewModelTests {
     static ConsentDecisionRecord Rec(
             string decidedAt = "2026-08-08T12:00:00.0000000+00:00", string agentId = "a1", string? requester = "github:1",
@@ -426,7 +426,7 @@ public class ActivityViewModelTests {
     // ---- disposal releases the shared ticker ----
 
     /// The subscription is constructor-scoped (no WhenActivated), and the shared ticker is
-    /// Publish().RefCount() — an undisposed subscriber keeps its Interval, and this object,
+    /// Publish.RefCount — an undisposed subscriber keeps its Interval, and this object,
     /// running past app teardown.
     [Test]
     [NotInParallel("AvaloniaSession")]

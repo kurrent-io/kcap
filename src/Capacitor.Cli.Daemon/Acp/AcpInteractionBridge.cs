@@ -12,7 +12,7 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// capability-gated, defensive <c>elicitation/create</c>) to the Capacitor server's
 /// <c>AcpRequestInteraction</c> hub method, and maps the returned decision back to the
 /// ACP JSON-RPC result shape. Wired as (a closure over) <see cref="AcpConnection.OnServerRequest"/>
-/// by <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/> (Task B4).
+/// By <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/>.
 ///
 /// <paramref name="requestInteraction"/> is injected as a plain delegate — matching the shape of
 /// <see cref="Capacitor.Cli.Daemon.Services.ServerConnection.RequestAcpInteractionAsync(Capacitor.Cli.Core.AcpInteractionRequest, System.Threading.CancellationToken)"/> — rather
@@ -20,7 +20,7 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// without a real SignalR connection (see <c>AcpInteractionBridgeTests</c>).
 ///
 /// <paramref name="unexpectedUnattendedInteraction"/> fires on every reap this bridge triggers, and
-/// carries the CODED REASON (design spec §3.1) that <c>AcpHostedAgentRuntime</c> forwards verbatim
+/// carries the CODED REASON that <c>AcpHostedAgentRuntime</c> forwards verbatim
 /// into its reap claim — never the bare JSON-RPC method: an unadmittable frame codes its own logged
 /// <c>why</c> (<c>unattended_frame_unadmittable: …</c>), everything else codes the method
 /// (<c>unattended_interaction_forbidden:{method}</c>) via <see cref="ForbiddenInteractionReason"/>.
@@ -87,7 +87,7 @@ internal sealed partial class AcpInteractionBridge(
     ///
     /// Publishes the FRAME-UNADMITTABLE coding of this method's own logged <paramref name="why"/> —
     /// never the generic forbidden-method coding <see cref="ForbiddenInteractionReason"/> uses —
-    /// so a caller downstream (design spec §3.1) can tell "we couldn't even parse this" apart from
+    /// so a caller downstream can tell "we couldn't even parse this" apart from
     /// "we understood it and it wasn't allowed."
     /// </summary>
     JsonElement? UnadmittableFrame(AcpRequest request, string why) {
@@ -117,22 +117,9 @@ internal sealed partial class AcpInteractionBridge(
     }
 
     /// <summary>
-    /// Handles one inbound <see cref="AcpRequest"/>. Returns <see langword="null"/> for any method
-    /// this bridge doesn't recognize (letting <see cref="AcpConnection.HandleServerRequestAsync"/>'s
-    /// existing default-decline posture answer with a JSON-RPC "Method not found" error, unchanged
-    /// from the prior behavior for every method except the two this bridge now claims).
-    ///
-    /// <b>Qodo daemon-review Q2:</b> takes NO caller-supplied session id — the ACP session id used to
-    /// correlate this interaction server-side comes ONLY from the request's OWN
-    /// <c>params.sessionId</c> (<see cref="SessionRequestPermissionParams.SessionId"/> /
-    /// <see cref="ElicitationCreateParams.SessionId"/>), never from a runtime field closed over at
-    /// wiring time. The prior shape took an <c>acpSessionId</c> parameter that
-    /// <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/> supplied as
-    /// <c>_sessionId ?? ""</c> — a server→client request handled before <c>session/new</c>'s
-    /// response assigned <c>_sessionId</c> (the read loop can start before that completes) forwarded
-    /// an <see cref="AcpInteractionRequest"/> with <c>AcpSessionId == ""</c>, breaking server-side
-    /// correlation. Trusting the request's own params instead removes that whole class of bug: the
-    /// session id is authoritative and available at the exact moment the request itself exists.
+    /// Take the session id from the request's own params, not a runtime field: requests can arrive
+    /// before session/new has populated that field. Unknown methods return null so the connection's
+    /// default-decline path produces Method not found.
     /// </summary>
     public async Task<JsonElement?> HandleAsync(AcpRequest request, CancellationToken ct) {
         // Cursor review flows launch with Cursor's own no-prompt flags. Any server→client request
@@ -319,7 +306,7 @@ internal sealed partial class AcpInteractionBridge(
             return UnadmittableFrame(request, "malformed session/request_permission params");
         }
 
-        // Qodo daemon-review Q2: the request's OWN params are the sole source of truth for
+        // the request's OWN params are the sole source of truth for
         // correlation — no resolvable session id at all means the server has no way to correlate
         // this interaction, so fail safe rather than forwarding an empty/placeholder id.
         if (string.IsNullOrEmpty(parsed.SessionId)) {
@@ -328,18 +315,9 @@ internal sealed partial class AcpInteractionBridge(
             return UnadmittableFrame(request, "session/request_permission carried no sessionId");
         }
 
-        // Qodo daemon-review Q1 (fail-safe hole): System.Text.Json does NOT enforce
-        // SessionRequestPermissionParams.Options' non-nullable C# annotation — an omitted OR
-        // explicit-null `options` field on the wire (this shape is spec-derived, NOT
-        // probe-confirmed; see docs/acp-probe-findings.md) deserializes to `parsed.Options == null`,
-        // which used to NRE inside `.Select(...)` below and propagate all the way out to
-        // AcpConnection.HandleServerRequestAsync's generic catch-all (-32603) instead of this
-        // bridge's well-formed `cancelled`. Normalize once, up front, filtering out any null
-        // element too (an options ARRAY with a null entry is equally unenforceable on the wire) —
-        // the normalized array is used for BOTH the forwarded AcpInteractionRequest.Options and the
-        // later MapPermissionDecision call, so there is exactly one empty-options code path
-        // (MapPermissionDecision's existing `options.Count == 0 → cancelled` branch) rather than two
-        // separate null-checks that could drift.
+        // System.Text.Json does not enforce non-nullable annotations: options and array entries can be null.
+        // Normalize once for both forwarding and decision mapping so missing options consistently produce
+        // ACP cancelled rather than a generic JSON-RPC internal error.
         var options = parsed.Options?.Where(o => o is not null).ToArray() ?? [];
 
         // Tool-AWARE auto-approve: the launch's own injected tools are approved; anything else is
@@ -478,7 +456,7 @@ internal sealed partial class AcpInteractionBridge(
             AcpSessionId: parsed.SessionId,
             Kind: "permission",
             ToolName: TryGetToolTitle(parsed.ToolCall),
-            // Qodo daemon-review Q1: a default/undefined JsonElement (e.g. `toolCall` itself omitted
+            // a default/undefined JsonElement (e.g. `toolCall` itself omitted
             // from the wire frame — ToolCall is non-nullable on SessionRequestPermissionParams, but
             // again unenforced by System.Text.Json) must not be forwarded as a bare JsonElement,
             // which can throw when the caller later tries to serialize/inspect it. Undefined maps to
@@ -486,7 +464,7 @@ internal sealed partial class AcpInteractionBridge(
             ToolInput: parsed.ToolCall.ValueKind == JsonValueKind.Undefined ? null : parsed.ToolCall,
             ToolCallId: TryGetToolCallId(parsed.ToolCall),
             Prompt: null,
-            // Spec-review Finding 6: carry OptionId through to the server-facing DTO so a UI
+            // carry OptionId through to the server-facing DTO so a UI
             // decision can round-trip it back — Options: o.Name (Label) is now display-only.
             Options: options.Select(o => new AcpInteractionOption(o.OptionId, o.Name, null, o.Kind)).ToArray(),
             IsMultiSelect: false
@@ -504,18 +482,9 @@ internal sealed partial class AcpInteractionBridge(
         try {
             decision = await requestInteraction(interactionRequest, ct).ConfigureAwait(false);
         } catch (OperationCanceledException) {
-            // Spec-review Finding 3(b): connection-closed / runtime-disposing / CT-cancelled while
-            // this interaction is pending (AcpHostedAgentRuntime.DisposeAsync cancels its _cts,
-            // which is the SAME token flowing through AcpConnection's read loop → HandleServerRequestAsync
-            // → this bridge → RequestAcpInteractionAsync → PendingAcpInteractionRegistry.AwaitDecisionAsync,
-            // whose own ct.Register callback removes the pending entry and TrySetCanceled()s it —
-            // see Task B2). PRE-FIX, this exception type was explicitly excluded from the catch
-            // below and propagated uncaught, so AcpConnection.HandleServerRequestAsync's own
-            // catch-all converted it to a generic JSON-RPC "Internal error" (-32603) instead of the
-            // well-formed ACP `cancelled` outcome every OTHER failure path in this bridge produces.
-            // Best-effort: WriteServerResponseAsync may itself fail if the wire is already torn
-            // down (AcpConnection's own catch around the write handles that silently) — this
-            // bridge's only job is to make the ATTEMPTED response well-formed.
+            // Disposal, connection closure, and caller cancellation must produce the same ACP cancelled outcome
+            // as other interaction failures. Attempt a well-formed response even if the wire is already closing;
+            // the connection owns best-effort write failure handling.
             logger.LogDebug("ACP: session/request_permission cancelled (connection closing) for agent {AgentId}; defaulting to cancelled", agentId);
             LogInteractionResolved(agentId, "permission", "cancelled");
 
@@ -541,7 +510,7 @@ internal sealed partial class AcpInteractionBridge(
 
     /// <summary>
     /// Handles agent→client <c>elicitation/create</c> per the STABILIZED ACP protocol
-    /// (agent-client-protocol #1779): a strict gate pipeline — parse → message → scope → mode →
+    /// (ACP elicitation schema): a strict gate pipeline — parse → message → scope → mode →
     /// classify — where EVERY pre-routing cancel goes through <see cref="ElicitationCancel"/>
     /// (one reason log + one reason-tagged metric, and the server delegate is provably never
     /// invoked), and only a <see cref="ElicitationSchemaClassifier"/>-renderable single-question
@@ -553,7 +522,7 @@ internal sealed partial class AcpInteractionBridge(
     ///
     /// The daemon still never advertises the <c>elicitation</c> client capability (see
     /// <c>AcpHostedAgentRuntime.StartAsync</c>) — until the end-to-end multi-select work flips it,
-    /// this lane only ever answers unsolicited frames, now spec-correctly.
+    /// this lane only ever answers unsolicited frames, in the protocol-required shape.
     /// </summary>
     async Task<JsonElement?> HandleElicitationAsync(AcpRequest request, CancellationToken ct) {
         // Unattended review-flow reviewer: there is no human to answer an elicitation, and a
@@ -831,19 +800,8 @@ internal sealed partial class AcpInteractionBridge(
         if (!AffirmativeOutcomes.Contains(decision.Outcome))
             return CancelledResult()!.Value;
 
-        // Fresh-review fix: resolve by OptionId ONLY, and FAIL CLOSED with no first-option
-        // fallback for either "no id supplied" or "id supplied but unresolvable" — both map to
-        // cancelled. There is deliberately no `options[0]` anywhere in this method:
-        //   1. No SelectedOptionId supplied at all (null) → cancelled. An affirmative outcome with
-        //      no specific option chosen is NOT treated as "assume the first option" — that was
-        //      precisely the bug this fix closes (see the doc comment above).
-        //   2. SelectedOptionId supplied and it matches an offered option's OptionId → that option.
-        //   3. SelectedOptionId supplied but does NOT match any offered OptionId → treat as
-        //      cancelled. An id that was explicitly set but doesn't resolve indicates a correlation
-        //      bug or a stale/replayed decision — silently granting an unrelated option in that
-        //      case would be worse than failing safe.
-        // Cases 1 and 3 are DELIBERATELY THE SAME "cancelled" outcome, handled by the same
-        // fallthrough below — there is no `options[0]`/first-option branch anywhere in this method.
+        // Resolve by an explicit offered OptionId only. Missing or unresolvable ids both cancel;
+        // an affirmative outcome must never grant options[0] merely because a caller omitted its selection.
         if (decision.SelectedOptionId is not { } optionId)
             return CancelledResult()!.Value;
 

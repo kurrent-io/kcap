@@ -158,7 +158,7 @@ public class PluginCommandCodexTests {
         }
     }
 
-    // Fix #2: non-string `command` field should not throw — treated as non-match.
+    // non-string `command` field should not throw — treated as non-match.
 
     [Test]
     public async Task InstallCodexHooks_tolerates_numeric_command_field_in_existing_entry() {

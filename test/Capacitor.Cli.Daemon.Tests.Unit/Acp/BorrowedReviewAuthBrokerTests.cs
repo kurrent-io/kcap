@@ -220,9 +220,7 @@ public class BorrowedReviewAuthBrokerTests {
 
     // ── availability is PASSIVE ───────────────────────────────────────────────────────────────────
     //
-    // The daemon must not mint a credential nobody asked for. An earlier revision probed by RUNNING the
-    // command once at startup, which bought a better diagnostic by breaking exactly the invariant this
-    // class exists to state.
+    // Availability checks must not execute a credential command or mint a token without a launch request.
 
     [Test]
     public async Task Availability_is_true_for_a_configured_command_without_running_it() {

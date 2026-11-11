@@ -1,14 +1,14 @@
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// The recovery a failed daemon mutation offers its caller (spec §3/§4 pinned tables). Shared by the
+/// The recovery a failed daemon mutation offers its caller. Shared by the
 /// CLI's <c>daemon service ensure</c> ladder and the (retiring) desktop supervisor, so the pinned
 /// token→surface mapping has exactly one home.
 /// </summary>
 public enum RecoverySurface { Takeover, Reinstall, Attention, Storage, None }
 
 /// <summary>
-/// Maps a machine-readable reason token to a recovery surface (spec §3/§4 pinned tables); unknown
+/// Maps a machine-readable reason token to a recovery surface; unknown
 /// tokens fail closed to Attention — a newer CLI's reason must not be destructively interpreted by
 /// an older consumer.
 /// </summary>

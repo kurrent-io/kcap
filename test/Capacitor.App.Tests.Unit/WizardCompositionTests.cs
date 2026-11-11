@@ -415,7 +415,7 @@ public class WizardCompositionRelaunchTests {
 
         // Scripted rather than the full network-backed façade: this proves the RELAUNCH seam, not
         // the boundary itself (already pinned by WizardStartupTests' beforeCommit-wiring tests).
-        // The hook invoked here IS the composition's own WizardFacadeSpec.BeforeCommit.
+        // The hook invoked here IS the composition's own WizardFacadeBeforeCommit.
         harness.Operation = async (_, ct) => {
             await harness.Spec!.BeforeCommit([new AuthIdentity(profileName, canonicalServer)], ct);
             return new AuthResult.Committed(profileName, canonicalServer, AuthProvider.None, null, []);

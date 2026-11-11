@@ -10,7 +10,7 @@ switch (mode) {
     case "spawn-dummy": {
         // Exercises the REAL production entry point end-to-end (not a shortcut into pty_spawn
         // directly) so this proves the actual daemon spawn path, including the spawner thread
-        // Task 5 wires UnixPtyProcessFactory through.
+        // wires UnixPtyProcessFactory through.
         // No disposal of the spawner thread here — this whole process is a disposable one-shot
         // the outer test kills (SIGKILL) to observe PDEATHSIG, so a graceful Dispose() never runs
         // and never needs to.
@@ -33,14 +33,14 @@ switch (mode) {
         break;
     }
     case "mac-identity-smoke": {
-        // Runtime-capture smoke for the per-RID macOS packaging checks (design spec §4.3/§5,
+        // Runtime-capture smoke for the per-RID macOS packaging checks (design spec /,
         // L1-build): captures THIS process's OWN mac: identity (a direct pty_capture_mac_identity
         // call; we are not ourselves spawned via pty_spawn) and a spawned child's identity (read
         // back from IPtyProcess.StartIdentity, which pty_spawn already captures natively at spawn
         // time -- the SAME production capture path, not a re-implementation). Both must be
         // present (non-empty) and distinct: proves the real kernel primitive is available and
         // actually varies per-process on this RID, not a mock or a hardcoded stub. Distinct from
-        // Task 7's ProcessStartToken.ForPid mac: scheme tests, which exercise the separate C#
+        // ProcessStartToken.ForPid mac: scheme tests, which exercise the separate C#
         // duplication (see pty_shim.c's design note on why the capture exists in both places).
         if (!OperatingSystem.IsMacOS()) {
             Console.Error.WriteLine("mac-identity-smoke is macOS-only");

@@ -8,9 +8,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 
 /// <summary>
-/// Option B task 2: exercises <see cref="AcpHostedAgentRuntime"/>'s chunk aggregation +
+/// Option B: exercises <see cref="AcpHostedAgentRuntime"/>'s chunk aggregation +
 /// serialized single-flight prompt-turn worker end-to-end against <see cref="FakeAcpAgent"/>, via the
-/// ordered <see cref="AcpHostedAgentRuntime.Envelopes"/> transcript (§2.1 of
+/// ordered <see cref="AcpHostedAgentRuntime.Envelopes"/> transcript ( of
 /// <c>docs/ai688-option-b-canonical-surfacing-design.md</c>). Mirrors the
 /// <c>AcpHostedAgentRuntimeTests</c> harness pattern; no real <c>cursor-agent acp</c> process.
 /// </summary>
@@ -46,7 +46,7 @@ public class AcpTranscriptAggregationTests {
 
         Task _fakeRunTask = Task.CompletedTask;
 
-        /// <summary> reliability fix (Qodo #6): <paramref name="logger"/>/<paramref name="transcriptCapacity"/>
+        /// <summary>: <paramref name="logger"/>/<paramref name="transcriptCapacity"/>
         /// let the bounded-channel drop test inject a capturing logger and a tiny cap without every
         /// other <c>Harness()</c> call site having to care.</summary>
         public Harness(ILogger? logger = null, int? transcriptCapacity = null) {
@@ -103,7 +103,7 @@ public class AcpTranscriptAggregationTests {
         var assistantText = await ReadEnvelopeAsync(h.Runtime);
         await Assert.That(assistantText.Kind).IsEqualTo(AcpEventKind.AssistantText);
         await Assert.That(assistantText.Text).IsEqualTo("Hello world");
-        await Assert.That(assistantText.Seq).IsEqualTo(0); // task 3 assigns the real seq, not this task
+        await Assert.That(assistantText.Seq).IsEqualTo(0); // assigns the real seq, not this task
     }
 
     [Test]
@@ -396,7 +396,7 @@ public class AcpTranscriptAggregationTests {
         await Assert.That(e4.Text).IsEqualTo("second reply");
     }
 
-    // ── Serialization (round-2 finding) ─────────────────────────────────────────────────────────
+    // ── Serialization (finding) ─────────────────────────────────────────────────────────
 
     [Test]
     public async Task Overlapping_turns_are_serialized_so_each_stopReason_flushes_its_own_turns_buffer() {
@@ -424,7 +424,7 @@ public class AcpTranscriptAggregationTests {
 
         // THE serialization assertion (the round-2 Codex finding this task fixes): turn 2's
         // session/prompt must NOT have been sent yet — the worker is still awaiting turn 1's (held)
-        // response. Before task 2, both the initial prompt and SendUserInputAsync fired independent,
+        // response. Before, both the initial prompt and SendUserInputAsync fired independent,
         // untracked background turns (FireAndTrackPromptAsync) — under that shape this count would
         // already be 2 here, and turn 2's chunk could reach the aggregator while turn 1's buffer was
         // still open, corrupting both.
@@ -520,7 +520,7 @@ public class AcpTranscriptAggregationTests {
         h.Fake.HoldPromptResponses.TrySetResult();
     }
 
-    // ── Bounded transcript channel (PR #301 review, Qodo #6) ────────────────────────────
+    // ── Bounded transcript channel  ────────────────────────────
 
     /// <summary>Records every log call — mirrors <c>TokenRefreshLoopTests.CaptureLogger</c>'s
     /// established pattern for asserting on a warning without a real logging sink.</summary>
@@ -535,7 +535,7 @@ public class AcpTranscriptAggregationTests {
     }
 
     /// <summary>
-    /// Qodo #6: an unbounded transcript channel could grow without limit if the forwarder stalls
+    /// an unbounded transcript channel could grow without limit if the forwarder stalls
     /// (outage, blocked send) while the turn keeps producing envelopes. With a small test cap, a
     /// stalled reader (nobody drains <see cref="AcpHostedAgentRuntime.Envelopes"/> here, modelling a
     /// stuck forwarder) must not block/crash the aggregation path — it drops the OLDEST buffered

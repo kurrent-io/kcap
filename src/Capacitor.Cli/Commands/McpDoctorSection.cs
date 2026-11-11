@@ -24,7 +24,7 @@ namespace Capacitor.Cli.Commands;
 /// structural, never name-only (<see cref="McpRegistrationAudit"/>): only a semantically
 /// canonical copy is removable, a divergent same-name entry is reported and preserved.
 /// Read-only by default; <c>--clean</c> removes only the canonical duplicates.</item>
-/// <item><b>Stale absolute binary paths</b> — Phase-2 registrations point at the native binary,
+/// <item><b>Stale absolute binary paths</b> — Registrations with an absolute native path point at the native binary,
 /// and an npm re-layout can strand them. "Stale" is two-tier: the registered file no longer
 /// exists (broken — re-run <c>kcap setup</c>) vs. it differs from the current resolution
 /// (outdated — healed by the next <c>kcap setup</c>/<c>kcap update</c>). Only kcap-named

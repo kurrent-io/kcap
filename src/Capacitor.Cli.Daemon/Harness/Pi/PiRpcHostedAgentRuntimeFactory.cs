@@ -13,54 +13,14 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Harness.Pi;
 
 /// <summary>
-/// <see cref="IHostedAgentRuntimeFactory"/> for Pi's CLI (<c>pi --mode rpc</c>) over the LONG-LIVED
-/// <see cref="PiRpcHostedAgentRuntime"/>: both an interactive hosted agent and an unattended
-/// review-flow reviewer. A PR review (<c>ctx.IsReview</c>) and a borrowed workspace are refused.
-///
-/// <para><b>Not an ACP factory.</b> Pi speaks its own LF-framed JSONL-RPC over stdio for ONE
-/// long-lived child that backs the whole hosted session (see <see cref="IPiRpcProcess"/>'s class doc
-/// for the contrast with Antigravity's exec-per-turn shape), so this factory owns its own PSI builder
-/// and process seam rather than reusing <see cref="AcpHostedAgentRuntimeFactory"/>.</para>
-///
-/// <para><b>The dual-capture gate.</b> Every launch this factory serves carries
-/// <c>KCAP_PI_PURE=1</c> via <see cref="PiLaunchEnvironment.Apply"/> — see its class doc for why an
-/// unconditional gate (not a reviewer-only one) is required: kcap's global Pi extension
-/// (<c>~/.pi/agent/extensions/kcap.ts</c>) loads inside every <c>pi</c> process on the machine,
-/// hosted or not, and would otherwise start a SECOND capture of a session this runtime already
-/// records over the RPC wire.</para>
-///
-/// <para><b>No isolated <c>HOME</c>, unlike Antigravity/Kiro/Copilot.</b> An interactive launch
-/// inherits the daemon's own <c>HOME</c>; a reviewer runs in a per-launch owner-only directory that
-/// holds only its extension, manifest and session store, and still inherits the daemon's <c>HOME</c>
-/// — so its result channel authenticates from the daemon's own token store and needs no brokered
-/// delivery.</para>
-///
-/// <para><b>One gate ladder, read by advertisement and launch alike</b> (<see cref="ReviewerRefusal()"/>):
-/// consent, platform, binary presence and two version floors, so a daemon cannot advertise a reviewer
-/// it would refuse to launch. Consent gates the reviewer only; an interactive launch never consults it.
-/// A borrowed workspace fails closed to an owned worktree — there is no containment substrate here.</para>
+/// Set KCAP_PI_PURE for every launch so the global extension cannot duplicate RPC transcript capture.
+/// Reviewers isolate their extension and session store but inherit HOME for result-channel credentials.
+/// Advertisement and review launch share consent, platform, binary, and version checks; interactive
+/// launches do not consult reviewer consent. Borrowed workspaces and PR reviews are unsupported.
+/// The factory must await runtime readiness before returning to the orchestrator.
+/// Null requestInteraction cancels dialogs; null paths omits model-catalog fingerprint paths.
+/// Optional process and probe delegates are test seams; production uses the shared real spawn builder.
 /// </summary>
-/// <param name="processSource">Test seam ONLY. Production passes null, which spawns the real
-/// <see cref="PiRpcProcess"/> from the <see cref="ProcessStartInfo"/>
-/// <see cref="BuildPsi(DaemonConfig, RuntimeStartContext)"/> built — so the seam changes nothing about
-/// production behaviour, and the argv/env assertions run against the same builder a real launch
-/// uses.</param>
-/// <param name="binaryExists">Test seam ONLY, for <see cref="IsAvailable"/>. Production passes null,
-/// which resolves the real binary through the registry's search path via
-/// <see cref="Capacitor.Cli.Core.Setup.BinaryProbe.Finds"/>.</param>
-/// <param name="readyDeadline">Test seam ONLY, threaded verbatim into every
-/// <see cref="PiRpcHostedAgentRuntime"/> this factory constructs. Production passes null, which
-/// falls through to <see cref="PiRpcHostedAgentRuntime.DefaultReadyDeadline"/> — so a test can bound
-/// a silent-child launch to milliseconds instead of burning the real 30s default.</param>
-/// <param name="resolveVersion">Test seam ONLY, for the installed-version half of the reviewer gate.
-/// Production passes null, which spawns the configured binary to read its own reported version.</param>
-/// <param name="posixHost">Test seam ONLY, for the platform half of the reviewer gate. Production
-/// passes null, which reads the ambient OS. Taken as an argument so every arm of the ladder is
-/// reachable from any host — the Windows arm is otherwise unassertable on POSIX.</param>
-/// <param name="paths">Pi's layout as the entry point resolved it, whose auth and models files
-/// fingerprint the model catalog. Null publishes no fingerprint paths.</param>
-/// <param name="requestInteraction">Where an interactive launch asks its viewers a Pi dialog. Null
-/// cancels every dialog.</param>
 internal sealed partial class PiRpcHostedAgentRuntimeFactory(
         DaemonConfig                                                 config,
         ILoggerFactory                                                loggerFactory,

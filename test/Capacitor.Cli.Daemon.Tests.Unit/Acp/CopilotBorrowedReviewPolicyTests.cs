@@ -6,17 +6,8 @@ using Capacitor.Cli.Daemon.Services;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 
 /// <summary>
-/// The platform gate on Copilot's borrowed-review tool surface, and the property that makes it
-/// meaningful: advertisement and spawn resolve from the SAME entry.
-///
-/// <para><b>Why a platform gate at all.</b> The tool surface was verified live on one platform. Tool
-/// identifiers and path-trust semantics are the security boundary here, and nothing establishes they
-/// are identical elsewhere. An unverified platform therefore gets no entry and advertises no borrowed
-/// review — honest, and fail-closed.</para>
-///
-/// <para>This is NOT the version-keyed certification that was removed. That one keyed on a vendor
-/// build, which auto-updates underneath a user; it drifted by construction and died within days. OS
-/// and architecture do not change under a running daemon.</para>
+/// Advertisement and spawn must resolve the same verified platform entry. Unsupported hosts
+/// must advertise no borrowed review; readable tools and path trust cannot be inferred across OSes.
 /// </summary>
 public class CopilotBorrowedReviewPolicyTests {
     public static IEnumerable<Func<(OSPlatform Os, Architecture Arch)>> Unverified() {
@@ -121,18 +112,10 @@ public class CopilotBorrowedReviewPolicyTests {
         await Assert.That(advertised.ExtraBorrowedToolIds).IsEquivalentTo(host.ExtraBorrowedToolIds);
     }
 
-    /// <summary>What ships now: <c>Current</c> CONSULTS the table rather than being pinned unsupported.
-    ///
-    /// <para>This replaces the <c>No_platform_advertises_borrowed_review_yet</c> tripwire, which
-    /// existed because the profile still had to grant the vendor's state, the keychain,
-    /// <c>/Library</c> and the whole runtime prefix in order to start and authenticate. All four are
-    /// closed, so the tripwire is deleted rather than weakened — and the assertion that replaces it is
-    /// the one that still matters: whatever <c>Current</c> resolves to, it must be the SAME entry the
-    /// argv builder uses, and it must be one the table can actually produce.</para>
-    ///
-    /// <para>Deliberately not asserted as <c>Supported = true</c>: that would fail on any CI host
-    /// without <c>sandbox-exec</c> or without a brokerable credential, which are exactly the hosts the
-    /// fail-closed arms exist for.</para></summary>
+    /// <summary>
+    /// Current must return the same table entry used by the argv builder. Do not assert unconditional
+    /// support: missing sandbox-exec or brokerable credentials must still select a fail-closed result.
+    /// </summary>
     [Test]
     public async Task The_host_entry_is_resolved_from_the_table_not_pinned() {
         var current  = CopilotBorrowedReviewPolicy.Current;
@@ -206,15 +189,10 @@ public class CopilotBorrowedReviewPolicyTests {
         await Assert.That(ex.Message).Contains("owned worktree");
     }
 
-    /// <summary>Credential availability is not consulted at all on a host where borrowed review is
-    /// impossible.
-    ///
-    /// <para>The check is passive today, so this costs an environment read rather than anything dangerous.
-    /// It is asserted by call count anyway, as a regression barrier: an earlier revision of this change
-    /// made availability EXECUTE an operator-configured command, and with a plain <c>bool</c> argument
-    /// that ran at every daemon's startup on every platform, including ones that can never borrow.
-    /// Keeping the thunk and pinning the call count means a future implementation cannot quietly become
-    /// expensive or side-effecting on an unsupported host.</para></summary>
+    /// <summary>
+    /// Do not consult credential availability on an unsupported host. Pin the thunk's call count so
+    /// availability cannot acquire cost or side effects on a platform that cannot launch borrowed review.
+    /// </summary>
     [Test]
     [Arguments("linux",   false)]
     [Arguments("windows", false)]

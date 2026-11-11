@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
 /// LocalControlClient state machine over a REAL Unix socket driven by a scripted server
-/// (spec §4.4). All tests drive the internal seams with small REAL timeouts/backoff delays
+/// All tests drive the internal seams with small REAL timeouts/backoff delays
 /// (deterministic enough: the scripted peer answers or stalls instantly, so waits are bounded
 /// by generous polling deadlines rather than tight tolerances — see
 /// <see cref="Backoff_delay_advances_across_failures_and_resets_after_connected"/> for why a
@@ -81,7 +81,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);           // accept, never reply
     };
     /// Replies to Hello with a frame that decodes fine but isn't HelloReply — the "Error frame
-    /// or any unexpected frame type answering Hello" branch of §4.2.
+    /// or any unexpected frame type answering Hello" branch of.
     static ConnScript HelloWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
         if (f?.Type == FrameType.Hello)
@@ -128,7 +128,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);
     };
     /// Answers StatusSubscribe with a decodable but semantically wrong frame type — the
-    /// "or arriving on the subscribe connection" half of the same §4.2 branch as
+    /// "or arriving on the subscribe connection" half of the same branch as
     /// <see cref="HelloWrongFrameType"/>.
     static ConnScript SubscribeWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
@@ -237,7 +237,7 @@ public class LocalControlClientTests {
     // to daemon_unreachable via the same catch-all), so Missing_socket_classifies_as_unreachable
     // above already exercises that code path.
 
-    [Test] // "Error frame or any unexpected frame type answering Hello" (§4.2), both flavors
+    [Test] // "Error frame or any unexpected frame type answering Hello", both flavors
     public async Task Unexpected_and_undecodable_hello_replies_classify_as_incompatible() {
         var wrongType = await RunClientAsync(
             [HelloWrongFrameType()],
@@ -250,7 +250,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)undecodable[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // same §4.2 branch, but "arriving on the subscribe connection" instead of answering Hello
+    [Test] // same branch, but "arriving on the subscribe connection" instead of answering Hello
     public async Task Unexpected_frame_type_on_subscribe_connection_classifies_as_incompatible() {
         var events = await RunClientAsync(
             [HelloThen(GoodHello("status/1")), SubscribeWrongFrameType()],
@@ -259,7 +259,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)events[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // silent peers classify via deadlines instead of hanging (spec §4.1)
+    [Test] // silent peers classify via deadlines instead of hanging
     public async Task Silent_peers_classify_as_unreachable_via_phase_deadlines() {
         var helloStall = await RunClientAsync([HelloStall()],
             evs => evs.OfType<LocalControlEvent.Unreachable>().Any());
@@ -318,7 +318,7 @@ public class LocalControlClientTests {
         await Assert.That(reasons).IsEquivalentTo(new[] { "daemon_incompatible", "daemon_unreachable" }, CollectionOrdering.Matching);
     }
 
-    [Test] // spec decision 6: the hello reply's DaemonVersion propagates into the incompatible Unreachable
+    [Test] // spec: the hello reply's DaemonVersion propagates into the incompatible Unreachable
     public async Task Hello_reply_missing_status_cap_carries_daemon_version_into_incompatible() {
         var events = await RunClientAsync(
             [HelloThen(GoodHello("consent/1"))],              // DaemonVersion "1.0", no status/1

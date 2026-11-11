@@ -32,12 +32,10 @@ internal enum FakeTurn {
     /// one fixed <see cref="FakeTurn"/> for every spawn).</summary>
     ChangedConversationId,
 
-    /// <summary>Emits <c>init</c> with an EMPTY <c>conversation_id</c> (never the fixed one), then a
-    /// <c>result</c> with <c>status: SUCCESS</c> — a turn that settles cleanly to Idle, healthy, WITHOUT
-    /// the runtime ever resolving a conversation id. Exercises the second
-    /// <c>WaitForConversationIdAsync</c> fault call site (the clean-success tail of
-    /// <c>ProcessTurnAsync</c>, not <c>EnterTerminal</c>) — a review caught a first cut of rule (e)
-    /// missing exactly this path.</summary>
+    /// <summary>
+    /// A successful result can settle to Idle without a nonempty init identity. That clean-success
+    /// tail must fault the identity barrier even though EnterTerminal does not run.
+    /// </summary>
     NormalWithoutConversationId,
 }
 

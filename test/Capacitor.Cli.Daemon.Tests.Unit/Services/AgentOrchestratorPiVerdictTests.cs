@@ -189,10 +189,8 @@ public class AgentOrchestratorPiVerdictTests {
         server.VerdictCaptureRuntime = runtime;
 
         runtime.BeforeGatedSendHookForTest = () => {
-            // Dedicated thread, not the pool: the gate holds its lock across the check and the send's
-            // initiation, so this reap attempt (a leading "/" is Pi's own synchronous reap trigger)
-            // blocks on it post-fix and the Join times out with nothing published; pre-fix it
-            // publishes fast and the send follows publication.
+            // Use a dedicated thread so the synchronous Pi reap trigger actually blocks on the held gate;
+            // publication must not cross the check-and-send interval.
             var t = new Thread(() => {
                 try { runtime.SendUserInputAsync("/reap-me").GetAwaiter().GetResult(); }
                 catch (InvalidOperationException) { /* the guard's own synchronous rejection */ }

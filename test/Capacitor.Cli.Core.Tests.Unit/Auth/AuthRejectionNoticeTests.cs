@@ -3,14 +3,9 @@ using Capacitor.Cli.Core.Auth;
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
 
 /// <summary>
-/// The MCP servers used to answer EVERY post-recovery 401 with
-/// "Not logged in. Run 'kcap login' on the host shell." — including the incident shape where
-/// the stored token was re-read from disk, re-sent, and rejected by a server whose signing
-/// key had rotated. The user then saw `kcap status` report a valid login while the tools
-/// insisted they were logged out, concluded `kcap login` was ineffective, and restarted the
-/// daemon (which never helps — a fresh process reads the same store). These tests pin the
-/// truthful classification: the legacy message survives byte-identical for a genuinely
-/// missing login, and the other states say what is actually wrong.
+/// Post-recovery 401 messages must distinguish a missing login from an unexpired token rejected
+/// by the server. Local status and MCP failures can both be accurate; restarting a process does not
+/// repair the shared credential store.
 /// </summary>
 public class AuthRejectionNoticeTests {
     const string Target = "https://kurrent.kcap.ai";

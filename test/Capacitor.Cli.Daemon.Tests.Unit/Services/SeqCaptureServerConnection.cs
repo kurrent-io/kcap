@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// awaited SubmitAsync has already recorded them) and no-ops everything else the capacity-reject path
 /// touches. IsReady is forced true so the base sends aren't short-circuited before our override.
 ///
-/// <para>§3.3: also overrides <see cref="AgentRegisteredAsync"/> so a genuinely SUCCESSFUL
+/// <para>also overrides <see cref="AgentRegisteredAsync"/> so a genuinely SUCCESSFUL
 /// sequenced launch (one that reaches <c>RegisterAgentAsync</c>'s awaited, un-guarded
 /// <c>_server.AgentRegisteredAsync(...)</c> call) doesn't fault on the base implementation's
 /// <c>_hub.InvokeAsync</c> against a never-started HubConnection — no pre-Task-5 test ever drove a

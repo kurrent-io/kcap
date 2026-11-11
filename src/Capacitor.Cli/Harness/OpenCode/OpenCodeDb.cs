@@ -150,47 +150,11 @@ internal sealed class OpenCodeDb : IDisposable {
         bool                         CountTruncated);
 
     /// <summary>
-    /// Recursively walks <c>parent_id</c> edges from <paramref name="rootId"/> — per-level
-    /// <see cref="QueryChildren"/>, a visited-id set to guard a reachable cycle (traversal
-    /// simply stops re-descending, terminating the walk), IMPORT depth capped at
-    /// <see cref="MaxDescendantDepth"/>. In-cap discovery (depth &lt;=
-    /// <see cref="MaxDescendantDepth"/>) is ALWAYS complete — never bounded by
-    /// <see cref="MaxCountingNodes"/>. A descendant beyond the cap is never imported, but the
-    /// walk still recurses into it (same visited-set guard) purely to COUNT the whole omitted
-    /// subtree accurately and surface its identities — this below-cap-only counting/signature
-    /// walk is what <see cref="MaxCountingNodes"/> bounds; if it's hit,
-    /// <see cref="DescendantDiscoveryResult.CountTruncated"/> is set and the omitted count/ids
-    /// become a lower bound instead of silently under-reporting as complete.
-    ///
-    /// <para>The in-cap and below-cap walks run over two INDEPENDENT frontiers. A below-cap
-    /// descendant's own descendants are always below-cap too (depth only grows), so the split is
-    /// safe and lets the below-cap walk be abandoned the instant it truncates, without disturbing
-    /// the in-cap walk's completeness guarantee: once truncation is established, the below-cap
-    /// frontier is dropped rather than drained node-by-node.</para>
-    ///
-    /// <para>Because <see cref="MaxDescendantDepth"/> gates the in-cap frontier's own enqueue
-    /// (a child is only ever added to <c>inCapFrontier</c> when its depth is &lt;=
-    /// <see cref="MaxDescendantDepth"/>), every node dequeued from it has depth in
-    /// <c>0..MaxDescendantDepth</c> — so a node at exactly <see cref="MaxDescendantDepth"/> has
-    /// children that are ALL necessarily below the cap. That single call — where an unbounded
-    /// <see cref="QueryChildren"/> could still force reading and allocating an entire
-    /// (potentially enormous) child row set before truncation was even detectable — goes through
-    /// <see cref="QueryChildrenBounded"/> instead, capped to (remaining counting capacity + 1
-    /// sentinel row). An in-cap parent (depth &lt; <see cref="MaxDescendantDepth"/>) keeps the
-    /// unbounded <see cref="QueryChildren"/> — its children are always in-cap.</para>
-    ///
-    /// <para>A bounded fetch's <c>limit</c> caps RAW rows, but <see cref="QuerySessions"/>
-    /// filters malformed rows and this walk dedups already-visited ids AFTER the fetch — so a
-    /// malformed or duplicate row landing inside the bounded window could consume the sole
-    /// sentinel row without itself being counted as an omitted descendant, letting a
-    /// genuinely-omitted valid descendant just past it go undetected and the walk falsely
-    /// conclude <see cref="DescendantDiscoveryResult.CountTruncated"/> is <c>false</c>.
-    /// <see cref="QueryChildrenBounded"/> reports whether the RAW <c>LIMIT</c> was actually
-    /// exhausted (<c>HitLimit</c>); if so, truncation is asserted regardless of how many rows in
-    /// the batch turned out valid — the only case that can't prove otherwise is a raw count
-    /// strictly below the limit (definite EOF). This can over-report truncation in the rare case
-    /// where the directory holds exactly <c>limit</c> raw rows and no more (safe: the omitted
-    /// count/ids were already documented as a lower bound once truncated).</para>
+    /// Keep in-cap import traversal independent of bounded below-cap omission counting, with cycle
+    /// protection on both. After count truncation, abandon the omitted frontier without disturbing import.
+    /// Limit each below-cap query before row materialization to remaining capacity plus one sentinel.
+    /// Detect the raw SQL limit before filtering malformed or visited rows, or a rejected sentinel can
+    /// hide more children. A truncated omitted count is a lower bound, not a complete count.
     /// </summary>
     public DescendantDiscoveryResult QueryDescendants(string rootId) {
         var result         = new List<DescendantRow>();

@@ -303,11 +303,8 @@ public class AcpVendorDescriptorTests {
 
         // The option must be present EXACTLY once, and have a following value.
         //
-        // An earlier version read `argv[IndexOf(flag) + 1]` and asserted only "not the old sentinel". Two
-        // ways that was vacuous, both caught in review: with the option ABSENT, IndexOf returns -1 and the
-        // expression reads argv[0] — a non-empty string that differs from the sentinel, so the alleged
-        // coupling passed with no allowlist at all; and a SECOND occurrence, whose value may win at
-        // argument parsing, was invisible to it.
+        // Assert exactly one option before reading its value: an absent flag makes IndexOf return -1,
+        // and a duplicate can supply the parser's effective value while leaving the first occurrence intact.
         var occurrences = argv.Count(a => a == "--allowed-mcp-server-names");
         await Assert.That(occurrences).IsEqualTo(1);
 
@@ -395,10 +392,10 @@ public class AcpVendorDescriptorTests {
         )).Throws<ArgumentException>();
     }
 
-    /// <summary>Reconnect eligibility is a PROBE-VERIFIED per-vendor fact (the 2026-08-04 C0
-    /// re-probe, docs/probes/2026-08-04-acp-reconnect-c0/), never inferred from the advertised
-    /// loadSession capability — all four vendors advertise it, two measurably cannot honor it
-    /// across a crashed owner. Flipping Kiro or Gemini requires a passing probe re-run.</summary>
+    /// <summary>
+    /// Reconnect eligibility requires verified resume across a crashed owner, not advertised loadSession.
+    /// Keep Kiro and Gemini disabled until that behavior passes; graceful restart resume is a separate contract.
+    /// </summary>
     [Test]
     public async Task Reconnect_resume_is_probe_verified_per_vendor() {
         await Assert.That(AcpVendorDescriptors.Cursor.SupportsReconnectResume).IsTrue();
@@ -424,10 +421,8 @@ public class AcpVendorDescriptorTests {
     }
 
     /// <summary>
-    /// Kiro aliases (its MCP tripwire compares launch-unique names) but carries NO exact-name MCP
-    /// allowlist argv. One predicate used to gate both, so turning aliasing on for Kiro without this
-    /// split would run Gemini's placeholder substitution and canonical-argv assertion against a vendor
-    /// that has neither, and route it through Gemini's capability gate.
+    /// Kiro aliases injected names without an exact-name argv allowlist. Aliasing must not activate
+    /// Gemini-only placeholder substitution, argv assertions, or its capability gate.
     /// </summary>
     [Test]
     public async Task Kiro_AliasesItsResultChannel_ButCarriesNoMcpNameAllowlistArgv() {

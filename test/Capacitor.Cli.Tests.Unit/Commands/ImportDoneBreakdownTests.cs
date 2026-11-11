@@ -69,8 +69,7 @@ public class ImportDoneBreakdownTests {
 
     [Test]
     public async Task routed_vendor_with_all_skipped_has_zero_errored() {
-        // 5 sessions, all of which the server marked as "already current".
-        // Pre-fix bug: sub-grid would show Errored=5. Post-fix: Errored=0.
+        // Already-current sessions contribute to their own bucket, not the per-source error count.
         var classifications = Enumerable.Range(0, 5)
             .Select(i => Cls($"c{i}", HarnessId.Cursor, ImportCommand.ClassificationStatus.New))
             .ToArray();
@@ -209,25 +208,9 @@ public class ImportDoneBreakdownTests {
         await Assert.That(claudeRow.Errored + cursorRow.Errored).IsEqualTo(2);   // 1 + 1
     }
 
-    // --- IsLifecycleOnlyRoutedReplay (vendor-NEUTRAL — no per-vendor scoping) ---
-    //
-    // The routed-phase loop in HandleImport increments routedLoaded/importedSessionIds whenever
-    // ImportOutcome is Loaded/Resumed. For an AlreadyLoaded classification, ImportSessionAsync
-    // re-asserts lifecycle hooks (repository backfill, C2) rather than importing new content, but
-    // still returns Loaded/Resumed since there's nothing past the watermark to distinguish it by.
-    // IsLifecycleOnlyRoutedReplay is the gate that keeps that replay from being double-counted on
-    // top of the classify-time AlreadyLoaded bucket, and from joining importedSessionIds (which a
-    // later --private pass would wrongly apply to).
-    //
-    // Round-2 follow-up findings broadened the gate two ways:
-    //   (1) sentChildContent overrides the gate — an AlreadyLoaded parent that attached a
-    //       brand-new nested child DID do real work and must not be suppressed.
-    //   (2) AlreadyLoaded + Skipped (a correlated child whose own routed call short-circuits
-    //       to Skipped because its parent imports it inline) is now also recognized, so it
-    //       isn't double-counted as both Already-loaded and Excluded.
-    //
-    // Every routed vendor's lifecycle-only replay looks the same shape from here — there's no
-    // `vendor` parameter to scope by.
+    // Lifecycle-only replay must not double-count an AlreadyLoaded session or include it in --private
+    // mutation targets. A genuinely sent child overrides that exclusion. AlreadyLoaded + Skipped also
+    // represents lifecycle-only replay when the parent imported the child inline; apply this to every vendor.
 
     [Test]
     public async Task already_loaded_plus_loaded_outcome_is_a_lifecycle_only_replay() {
@@ -274,7 +257,7 @@ public class ImportDoneBreakdownTests {
         await Assert.That(result).IsFalse();
     }
 
-    // --- Round-2 finding 1: sentChildContent overrides the replay gate ---
+    // --- Round-2: sentChildContent overrides the replay gate ---
 
     [Test]
     public async Task already_loaded_plus_resumed_outcome_with_sent_child_content_is_not_a_lifecycle_only_replay() {
@@ -296,7 +279,7 @@ public class ImportDoneBreakdownTests {
         await Assert.That(result).IsFalse();
     }
 
-    // --- Round-2 finding 2: AlreadyLoaded + Skipped is now recognized ---
+    // --- Round-2: AlreadyLoaded + Skipped is now recognized ---
 
     [Test]
     public async Task already_loaded_plus_skipped_outcome_is_a_lifecycle_only_replay() {
@@ -333,7 +316,7 @@ public class ImportDoneBreakdownTests {
 
     [Test]
     public async Task already_loaded_skipped_with_sent_child_content_overrides_to_loaded() {
-        // The exact Antigravity shape: this is the case that was silently wrong before D2, and
+        // The exact Antigravity shape:
         // the one no per-vendor test alone would catch.
         var isOverride = ImportCommand.IsSkippedChildContentOverride(
             ImportCommand.ClassificationStatus.AlreadyLoaded, ImportOutcome.Skipped, sentChildContent: true);

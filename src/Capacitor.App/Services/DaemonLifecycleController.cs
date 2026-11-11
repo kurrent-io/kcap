@@ -213,7 +213,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// tasks (shim offer timing).
     public Task PhaseClosed => _phaseClosed.Task;
 
-    /// Cached once at Start(); null when the CLI is missing or --version failed.
+    // Cached once at Start(); null when the CLI is missing or --version failed.
     public string? CliVersion { get; private set; }
 
     /// The version of the daemon the last attach reached: its snapshot's while connected, the hello reply's after a

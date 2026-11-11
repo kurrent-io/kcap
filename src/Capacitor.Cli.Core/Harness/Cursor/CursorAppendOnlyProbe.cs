@@ -3,11 +3,8 @@ using System.Security.Cryptography;
 namespace Capacitor.Cli.Core.Harness.Cursor;
 
 /// <summary>
-/// D0. Pure prefix-hash comparison used by both the phase-0 empirical verification harness
-/// (<c>kcap cursor-verify-appendonly</c>) and the runtime two-zone rewrite guard
-/// (<c>Capacitor.Cli.Commands.CursorRewriteGuard</c>). Append-only ⇔ length is monotonically
-/// non-decreasing AND re-hashing the first L_earlier bytes at the later time reproduces the
-/// earlier hash.
+/// Append-only means length never decreases and rehashing the earlier byte prefix reproduces its
+/// hash. Share this predicate between empirical verification and the runtime two-zone rewrite guard.
 /// </summary>
 public static class CursorAppendOnlyProbe {
     public readonly record struct Sample(long Length, string PrefixSha256);

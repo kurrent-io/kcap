@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Config;
 namespace Capacitor.Cli.Core.Tests.Unit.Config;
 
 /// <summary>
-/// Tests for the <c>auth_provider</c> stamp (Task 14, Plan B — additive, read-only this plan;
+/// Tests for the <c>auth_provider</c> stamp (Plan B — additive, read-only this plan;
 /// nothing writes it yet). Pure in-memory serialization, no config.json I/O, so these don't need
 /// the <c>TempConfigRoot</c> isolation the disk-touching config tests use.
 /// </summary>

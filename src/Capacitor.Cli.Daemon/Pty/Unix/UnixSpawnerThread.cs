@@ -3,27 +3,12 @@ using System.Collections.Concurrent;
 namespace Capacitor.Cli.Daemon.Pty.Unix;
 
 /// <summary>
-/// L1-managed(a) (spec §4.2(b)): one dedicated, daemon-lifetime native thread that runs EVERY
-/// Unix <c>pty_spawn</c> call — never a thread-pool thread. <c>PR_SET_PDEATHSIG</c> fires when
-/// the CREATING THREAD's process dies, not the thread itself, but the safety net only works
-/// if that thread is never retired out from under a still-running agent: a pool thread that
-/// finishes and is reused/retired would (on the semantics PDEATHSIG advertises) SIGKILL every
-/// healthy agent it ever spawned, since the OS ties the signal to the thread's lifetime via the
-/// process's thread-group in a way this design deliberately never risks by using a pool thread
-/// at all. Unexpected termination of THIS thread therefore <see cref="Environment.FailFast(string?, Exception?)"/>s
-/// the whole daemon process — children then die WITH the daemon, which is exactly the
-/// semantic PDEATHSIG advertises, rather than leaving a half-broken daemon that silently
-/// stopped protecting agents it already spawned. macOS also routes through this same thread
-/// (no PDEATHSIG dependency there, but one native child-sequence code path on both Unixes is
-/// simpler than two).
+/// Use one dedicated daemon-lifetime thread for Unix spawns so pool retirement cannot trigger
+/// parent-death protection for healthy children. An unexpected spawner exit must fail the daemon
+/// rather than leave a live daemon with broken child protection. The thread is foreground and must
+/// be explicitly retired during shutdown. The type is public because the factory's public DI
+/// constructor exposes it; test-only members remain internal.
 /// </summary>
-/// <remarks>Public (not internal, despite Task 4's original design intent): <see cref="UnixPtyProcessFactory"/>'s
-/// constructor takes this type as a DI-injected dependency, and constructor-injection resolution
-/// (<c>Microsoft.Extensions.DependencyInjection</c>) only ever considers a PUBLIC constructor on
-/// the implementation type — which in turn (CS0051) requires every one of that constructor's
-/// parameter types to be at least as accessible as the constructor itself. Individual members
-/// (e.g. <see cref="CrashForTest"/>) stay <c>internal</c> — only the type itself needed to
-/// widen.</remarks>
 public sealed class UnixSpawnerThread : IDisposable {
     readonly BlockingCollection<SpawnRequest> _queue = new();
     readonly Thread                           _thread;
@@ -81,7 +66,7 @@ public sealed class UnixSpawnerThread : IDisposable {
 
                     request.Completion.SetResult(result);
                     _ = rc; // failure is reported INSIDE result (failed_step/err_no); the managed
-                            // caller (Task 5) inspects that, not the native return code directly.
+                            // caller inspects that, not the native return code directly.
                 } catch (Exception ex) {
                     request.Completion.SetException(ex);
                 }
@@ -136,7 +121,7 @@ public sealed class UnixSpawnerThread : IDisposable {
 
     // Nested (rather than a top-level `file`-scoped type): a file-local type cannot appear in
     // ANY member signature — including a private field's type — of a type that is itself not
-    // file-scoped (CS9051), and UnixSpawnerThread must stay `internal` (consumed by Task 5 and
+    // file-scoped (CS9051), and UnixSpawnerThread must stay `internal` (consumed by and
     // by tests via InternalsVisibleTo). Nesting keeps this an implementation detail without
     // hitting that restriction.
     sealed record SpawnRequest(

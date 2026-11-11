@@ -28,7 +28,7 @@ internal sealed record ReviewerModelResolution(
     string? EquivalenceKey          = null,
     string? DiagnosticCode          = null);
 
-/// <summary>The internal disposition set produced by a resolver / the cross-vendor coordinator. Task 8
+/// <summary>The internal disposition set produced by a resolver / the cross-vendor coordinator.
 /// maps these onto the server's <c>ResolveReviewerModel</c> RPC wire response (accepted / unavailable /
 /// invalid, plus the recognized-vendor field for a mismatch); this daemon-internal set stays clean and
 /// complete so that mapping is mechanical.</summary>

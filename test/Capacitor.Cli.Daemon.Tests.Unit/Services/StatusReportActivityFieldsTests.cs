@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Liveness-supervision spec §1/§2 (task 11): the daemon's per-agent activity attestation
+/// The daemon's per-agent activity attestation
 /// (<see cref="LiveAgentInfo.ActivitySeq"/>/<see cref="LiveAgentInfo.IdleForMs"/>/
 /// <see cref="LiveAgentInfo.TurnInFlight"/>/<see cref="LiveAgentInfo.LaunchStage"/>) lands on
 /// <see cref="AgentOrchestrator.BuildLiveAgents"/>'s entries, and a genuine
@@ -143,7 +143,7 @@ public class StatusReportActivityFieldsTests {
         long?                         HighestResolutionGeneration = null
     );
 
-    /// <summary>Compat is proven, not asserted (spec §2/backwards-compatibility section): a fully
+    /// <summary>Compat is proven, not asserted (spec /backwards-compatibility section): a fully
     /// populated CURRENT payload — produced through the exact production serializer
     /// (<see cref="CapacitorJsonContext"/>'s source-gen typed overload, same naming policy
     /// <c>ServerConnection</c> configures on the live hub) — is deserialized by a LOCALLY DECLARED

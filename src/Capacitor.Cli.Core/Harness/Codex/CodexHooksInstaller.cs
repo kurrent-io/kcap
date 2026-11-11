@@ -22,17 +22,9 @@ public static class CodexHooksInstaller {
     public const string MarkerFileName = ".kcap-hooks-version";
 
     /// <summary>
-    /// True when the user has previously installed Codex hooks via setup or
-    /// <c>kcap plugin install --codex</c>. The npm postinstall hook uses
-    /// this to decide whether to refresh on upgrade vs. leave the system alone.
+    /// Refresh existing Codex hooks without initializing a first installation.
+    /// Accept either the marker or an owned kcap codex-hook entry so markerless installs still refresh.
     /// </summary>
-    /// <remarks>
-    /// Detection is marker OR existing <c>kcap codex-hook</c> entry in
-    /// <paramref name="hooksPath"/>. The hooks-json fallback covers users
-    /// whose install predates the marker — without it, the first upgrade onto
-    /// a marker-aware build would no-op and leave stale command strings in
-    /// place forever.
-    /// </remarks>
     public static bool IsInstalled(string hooksPath) {
         var dir = Path.GetDirectoryName(hooksPath);
         if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;

@@ -53,10 +53,8 @@ internal sealed class AgentCommand(
     public async Task<int> HandleAsync(string[] args, string? baseUrl) {
         var (sub, rest) = SplitSubcommand([.. args.Where(a => !GlobalFlags.Contains(a))]);
 
-        // `agent` was the daemon verb before it was renamed to `daemon`. The two groups still
-        // share start/stop, so those dispatch below; the rest only ever meant the daemon, and
-        // answering them with a bare usage line is how a healthy daemon reads as dead
-        // mid-diagnosis.
+        // Keep legacy agent start/stop aliases dispatchable. Daemon-only verbs must direct callers to
+        // the daemon group; a bare usage error can make a healthy daemon look unavailable during diagnosis.
         if (DaemonOnlySubcommands.Contains(sub)) {
             await console.Error.WriteLineAsync($"kcap agent: unknown subcommand '{sub}'");
             await console.Error.WriteLineAsync($"`{sub}` manages the daemon — run `kcap daemon {sub}`.");
@@ -791,7 +789,7 @@ internal sealed class AgentCommand(
             p.Length > 7 ? p[7] : null);
     }
 
-    /// <summary>A full agent id as minted by `Guid.NewGuid().ToString("N")`.</summary>
+    //<summary>A full agent id as minted by `Guid.NewGuid.ToString("N")`.</summary>
     internal static bool IsFullAgentId(string s) => s.Length == 32 && s.All(char.IsAsciiHexDigit);
 
     /// <summary>

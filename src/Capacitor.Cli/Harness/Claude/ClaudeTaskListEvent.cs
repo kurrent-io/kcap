@@ -13,7 +13,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     public enum Moment { Created, Completed, PlanWritten }
 
     /// <summary>A task the agent's own record moved: <see cref="Task"/> is its label there ("3" for
-    /// "Task 3"), <see cref="Status"/> the kcap status it implies.</summary>
+    /// ""), <see cref="Status"/> the kcap status it implies.</summary>
     public sealed record TaskMove(string Task, string Status);
 
     /// <summary>Superpowers' executing-plans and subagent-driven-development keep their ledger under this
@@ -138,7 +138,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
         }
     }
 
-    /// <summary>The ledger's own entry form, "Task 3: dispatched …" or "Task 3: complete …"; a bare
+    /// <summary>The ledger's own entry form, ": dispatched …" or ": complete …"; a bare
     /// "complete" elsewhere in a command, such as a commit message, says nothing about a task.</summary>
     static List<TaskMove> LedgerMoves(string written) =>
         LedgerEntry().Matches(written)
@@ -156,7 +156,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     [GeneratedRegex(@"\bTask\s+([\w.-]+)\s*:\s*(dispatched|started|in[ _-]?progress|completed?|done)\b", RegexOptions.IgnoreCase)]
     private static partial Regex LedgerEntry();
 
-    /// <summary>Subagent-driven development describes each implementer dispatch as "Implement Task 3: …".</summary>
+    /// <summary>Subagent-driven development describes each implementer dispatch as "Implement: …".</summary>
     [GeneratedRegex(@"^Implement\s+Task\s+([\w.-]+?)\s*:", RegexOptions.IgnoreCase)]
     private static partial Regex DispatchedTask();
 

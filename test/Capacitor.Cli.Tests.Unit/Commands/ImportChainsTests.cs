@@ -153,7 +153,7 @@ public class ImportChainsTests : IDisposable {
 
     [Test]
     public async Task ImportChainsAsync_skips_line_precount_when_progress_disabled() {
-        // Perf gate (PR #186 review): when no live bar consumes the denominator
+        // Perf gate: when no live bar consumes the denominator
         // (non-TTY, TrackPerSessionProgress defaults false), the per-session
         // pre-count is skipped — OnSessionProgress still fires per batch but with
         // total == 0, so we never read the whole transcript just to throw it away.
@@ -220,10 +220,8 @@ public class ImportChainsTests : IDisposable {
 
     [Test]
     public async Task ImportChainsAsync_routes_codex_session_to_vendor_specific_url() {
-        // Regression: kcap import --codex used to POST to /hooks/session-start
-        // (no vendor in path), which routes to the {vendor=claude} default and
-        // wrote claude-tagged SessionStarted events for every codex rollout.
-        // Asserting on the URL path here keeps that bug from re-appearing.
+        // Codex imports must put the vendor in the hook URL; the vendorless route defaults to Claude
+        // and would tag every Codex SessionStarted incorrectly.
         StubAllHookEndpoints();
 
         var session = MakeNew("codex-routing", 10) with { Vendor = HarnessId.Codex };
@@ -316,13 +314,8 @@ public class ImportChainsTests : IDisposable {
 
     [Test]
     public async Task ImportChainsAsync_derives_workspace_root_from_the_remapped_cwd_not_the_raw_meta_cwd() {
-        // Regression: workspace_root discovery used to run
-        // GitRepository.FindRoot against the RAW transcript cwd (session.Meta.Cwd)
-        // instead of the already remap-/worktree-resolved path the import flow
-        // computes up front into sessionCwds. A historical transcript whose recorded
-        // cwd no longer exists (moved/renamed repo) would silently omit
-        // workspace_root even though the user had configured a cwd_remap that
-        // resolves to a real git working tree.
+        // Discover workspace_root from the remapped, worktree-resolved cwd. The raw historical path can
+        // be absent even when cwd_remap identifies a real git tree that should supply repository metadata.
         StubAllHookEndpoints();
 
         var resolvedRepoDir = Path.Combine(_tempDir, "resolved-repo");

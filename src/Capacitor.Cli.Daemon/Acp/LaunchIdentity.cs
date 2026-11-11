@@ -3,26 +3,10 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Acp;
 
 /// <summary>
-/// The per-launch generated names for ONE hosted-agent launch: values that must be identical everywhere
-/// they are consumed within that launch, and unguessable to the workspace the agent runs in.
-///
-/// <para><b>Why one type rather than values generated where needed.</b> Two independent derivations of the
-/// same name is the defect this exists to make unrepresentable. Each name has two consumers — the result
-/// channel's wire name is read by the injected MCP server spec AND by the vendor's allowlist argv; the
-/// unmatchable name is read by that argv AND by the launch assertion — so a design where each consumer
-/// generates its own can produce a launch whose allowlist does not admit its own result channel. That
-/// failure is silent: the agent starts normally and can never report.</para>
-///
-/// <para><b>Why unguessable.</b> A vendor whose MCP gate is a name allowlist matches names exactly, and the
-/// repository being worked in can declare MCP servers of its own. A predictable allowlisted name is
-/// therefore a repository-impersonation hole — a repository naming its server that gets a process spawned as
-/// the daemon user. Measured for Gemini; see the Gemini reviewer design spec §2.3 and §2.6/§2.7.</para>
-///
-/// <para><b>Vendor-neutral by shape, not by accident.</b> The two concepts — "the result channel's name on
-/// the wire" and "a name nothing can match" — belong to any vendor with a name-matched MCP gate. This also
-/// absorbs the per-launch deny-all name that was previously generated inline inside the argv substitution:
-/// that generator had exactly the two-derivations shape described above, since the value never left the
-/// substitution and nothing else could assert on it.</para>
+/// Generate each name once per launch and share it across MCP injection, argv, and assertions;
+/// independent derivations can silently exclude the reviewer's own result channel.
+/// Names must be unguessable because a repository can declare a server that impersonates any
+/// predictable allowlisted name and have it spawned under the daemon user.
 /// </summary>
 internal sealed record LaunchIdentity {
     /// <summary>What every reserved-name comparison sees — <c>KcapMcpRegistry</c>'s reservation check and
@@ -53,13 +37,9 @@ internal sealed record LaunchIdentity {
     }
 
     /// <summary>
-    /// The name an injected NON-result-channel review server (an allowlist server, or the borrowed-snapshot
-    /// review-context server) carries on the wire. For an aliasing vendor this is the canonical id plus the
-    /// launch's allowlist suffix — the vendor's MCP gate is an exact-name allowlist that must admit these
-    /// servers, and admitting the CANONICAL id would let the repository being worked in declare a server of
-    /// that fixed, public name and have it spawned as the daemon user (the same impersonation shape measured
-    /// for the result channel; see the Gemini reviewer design spec §2.3/§2.6). For every other vendor this
-    /// returns the input unchanged, keeping their wire behaviour byte-identical.
+    /// Aliasing vendors use the launch-specific suffix for both injected MCP names and the exact allowlist.
+    /// Admitting a canonical public name would let a repository impersonate a server spawned as the daemon user.
+    /// Other vendors retain the canonical name.
     /// </summary>
     public string AllowlistWireName(string canonicalId) =>
         _aliases ? $"{canonicalId}-{_allowlistSuffix:N}" : canonicalId;
@@ -76,9 +56,8 @@ internal sealed record LaunchIdentity {
         FromGuids(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), aliasResultChannel);
 
     /// <summary>
-    /// Test seam. Takes concrete <see cref="Guid"/> VALUES rather than a factory delegate: a delegate would
-    /// close over its caller's scope, which is how an earlier revision of this design left
-    /// derivation-from-launch-context legal while its tests still passed. A value cannot close over anything.
+    /// Use concrete Guid values for the test seam; a factory delegate could close over launch context
+    /// and conceal a second derivation of the names that must be shared.
     /// </summary>
     internal static LaunchIdentity FromGuids(Guid resultChannel, Guid unmatchable, Guid allowlistSuffix, bool aliasResultChannel) {
         // No fallback, predictable or otherwise. The security property is that these strings are unguessable

@@ -224,11 +224,11 @@ internal sealed record RuntimeStartContext(
         // the ACP factory resolves it (TryResolveReviewFlowAllowlist) into extra session/new
         // servers, admitted by an aliasing vendor's name gate under per-launch wire names.
         string[]?         McpAllowlist = null,
-        // Phase A: owned worktree (daemon-created) vs borrowed cwd (the user's own
+        // owned worktree (daemon-created) vs borrowed cwd (the user's own
         // checkout), carried from LaunchAgentCommand.Borrowed through to LauncherContext.Work.
         // Defaults to OwnedWorktree — today's only exercised path — unchanged.
         WorkLocation       Work = WorkLocation.OwnedWorktree,
-        // Phase B (D4 §6.4(3)): daemon-identity env markers stamped into the spawned child so a
+        // daemon-identity env markers stamped into the spawned child so a
         // RESTARTED daemon's OrphanReaper env-marker scan can recognize a recordless survivor as its
         // own (KCAP_DAEMON_ID == this daemon) from a PRIOR incarnation (KCAP_DAEMON_EPOCH != current)
         // and reap it. Empty when a test/legacy caller omits them — the markers are simply not written.

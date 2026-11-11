@@ -6,42 +6,12 @@ using Duende.IdentityModel.OidcClient.Browser;
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
 
 /// <summary>
-/// Who shuts the loopback listener down, and does every construction site wire up the join.
-///
-/// <para>Construction used to be free to inline as an argument, because <c>using var</c> inside the
-/// browser handled teardown. It no longer does — the listener outlives <c>InvokeAsync</c> for the
-/// return-hop wait — so an unnamed instance holds the port for the life of the process, and a site
-/// that omits the collaborator serves today's dead-end page with the whole feature silently absent.
-/// Neither failure throws or turns a test red.</para>
-///
-/// <para><b>Scope: every <c>.cs</c> file under <c>src/</c>.</b> An earlier version of this guard
-/// named the two files that happened to construct one, and went blind the moment the onboarding
-/// wizard added a third site in a new file — passing while scanning a file that no longer had a
-/// site at all. A guard whose whole purpose is to catch "someone added one of these somewhere"
-/// cannot encode today's file layout.</para>
-///
-/// <para>Guarded at source because the behavioural form would bind a port and launch a browser.
-/// <see cref="FindOwnershipViolations"/> takes its root as a parameter so the scanner self-tests
-/// below can prove it actually detects, against a synthetic fixture rather than real source.</para>
-///
-/// <para><b>Two checks, because pattern matching over source can always be out-spelled.</b> Three
-/// review rounds each out-spelled it once, so the patterns now ignore trivia — whitespace, line
-/// breaks, block comments — at EVERY junction (see <see cref="Trivia"/>), accept <c>global::</c> and
-/// dotted qualification, and resolve <c>using</c> aliases. The spellings that got through, all of
-/// which compile: <c>new LoopbackBrowser /* c */ (…)</c>, a line break before the paren, a
-/// <c>global::</c>-qualified name, <c>new LB(…)</c> behind an alias, and
-/// <c>using LB = …LoopbackBrowser /* c */;</c>.
-/// <see cref="Only_the_known_files_name_the_browser_type_at_all"/> additionally pins the set of files
-/// allowed to NAME the type at all, which catches a construction in a file nobody thought about.</para>
-///
-/// <para><b>What this still does not guarantee.</b> An earlier version of this comment claimed the
-/// file-set check was the backstop no spelling could slip past. That was wrong, and a reviewer
-/// disproved it with a two-line refactor: a <c>using</c> alias inside an ALREADY-allowlisted file
-/// leaves the file set unchanged while hiding the construction from a name-based pattern. Aliases are
-/// handled now, but the shape of that hole is general — a factory method, a generic
-/// <c>Activator</c>-style construction, or reflection inside an allowlisted file would each still be
-/// invisible. Nothing text-based closes that; only a semantic model would. This guard is a high-value
-/// tripwire for the mistakes people actually make, not a proof.</para>
+/// Every loopback-browser construction needs explicit teardown ownership and the join collaborator;
+/// the listener must survive InvokeAsync but must not remain bound for the process lifetime.
+/// Scan all source files, handling trivia, qualification, and using aliases rather than pinning a layout.
+/// The allowed-file check adds a tripwire for unexpected sites; this lexical guard is not a semantic
+/// proof against factories, reflection, or other constructions hidden inside an allowed file.
+/// Synthetic scanner fixtures exercise detection without opening ports or launching browsers.
 /// </summary>
 public class LoopbackOwnershipTests {
     // The code exchange rides the sign-in lane; against a stub, an unconfigured client is what
@@ -49,12 +19,8 @@ public class LoopbackOwnershipTests {
     static readonly GitHubOAuthClient Github = new(new PlainHttpClientFactory());
 
     /// <summary>
-    /// Whitespace, line breaks and block comments — what the compiler ignores between two tokens, and
-    /// therefore what this file's patterns must ignore too, at EVERY junction.
-    /// <para>Shared deliberately. The alias pattern below originally spelled its own trailing
-    /// separator as a bare <c>\s*</c> while the construction pattern tolerated comments, so
-    /// <c>using LB = …LoopbackBrowser /* c */;</c> compiled and defeated alias recognition. One
-    /// definition, used everywhere, is what stops the two drifting apart again.</para>
+    /// Every lexical junction must accept the same whitespace, line breaks, and block comments.
+    /// A separate alias separator can miss a valid construction while leaving the allowed-file check green.
     /// </summary>
     const string Trivia = @"\s*(?:/\*.*?\*/\s*)*";
 
@@ -463,9 +429,8 @@ public class LoopbackOwnershipTests {
         await Assert.That(FindOwnershipViolations(tmp.Path).Count).IsEqualTo(2);
     }
 
-    // Trivia at each junction of the alias declaration. All of these compile, and each one used to
-    // defeat alias recognition — which then defeated the file-set assertion too, since the alias line
-    // still names the type in a file that is already allowlisted.
+    // Alias recognition must tolerate trivia at every junction. An alias inside an already allowed
+    // file leaves the file-set check unchanged, so that check alone cannot detect a missed constructor.
     [Test]
     [Arguments("using LB = Capacitor.Cli.Core.Auth.LoopbackBrowser /* local alias */;")]
     [Arguments("using LB /* alias */ = Capacitor.Cli.Core.Auth.LoopbackBrowser;")]

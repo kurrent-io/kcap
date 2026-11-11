@@ -81,7 +81,6 @@ static class SessionImporter {
             spawnCalls     = scan.SpawnCallByAgent;
         }
 
-        // Track which agents were sent inline
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
         var totalSent  = 0;
@@ -126,7 +125,6 @@ static class SessionImporter {
 
         var completeLines = CompleteLines(stream, lineIndex);
 
-        // Flush remaining main transcript lines
         if (!batch.IsEmpty) await FlushAsync();
 
         // Send any agents that had transcript files but NO progress marker in the
@@ -339,7 +337,6 @@ static class SessionImporter {
                     break;
             }
         } catch (JsonException) {
-            // Skip malformed lines
         }
     }
 
@@ -371,7 +368,6 @@ static class SessionImporter {
             Dictionary<string, int>     toolUsePositions,
             Dictionary<string, string?> toolUseTypes
         ) {
-        // assistant events: root.message.content[] or root.content[]
         var content = root.Obj("message")?.Arr("content") ?? root.Arr("content");
 
         if (content is not { } arr)
@@ -513,7 +509,6 @@ static class SessionImporter {
         ) {
         var resolvedAgentType = agentType ?? "task";
 
-        // Start agent
         var agentStartHook = new JsonObject {
             ["session_id"]      = sessionId,
             ["transcript_path"] = sessionTranscriptPath,
@@ -538,7 +533,6 @@ static class SessionImporter {
             httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
-        // Stop agent
         var agentStopHook = new JsonObject {
             ["session_id"]             = sessionId,
             ["transcript_path"]        = sessionTranscriptPath,

@@ -334,10 +334,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     }
 
     async Task<int> InstallSkills(string[] args) {
-        // --if-installed: only refresh when a marker file shows the user has
-        // previously installed skills. Used by the npm postinstall hook to
-        // keep existing installs up to date without forcing skills onto users
-        // who haven't run `kcap setup` yet.
+        // The npm postinstall path refreshes an existing skills install only; setup owns first install.
         var refreshOnly = args.Contains("--if-installed");
 
         switch (refreshOnly) {

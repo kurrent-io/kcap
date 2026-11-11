@@ -7,10 +7,8 @@ using Capacitor.Cli.Core.Harness;
 
 namespace Capacitor.Cli.Core.Tests.Unit.FirstRun;
 
-// The wire shape the tenant is written against. Nothing else checks it — the flow's own tests run
-// over a fake channel, which is the client this replaces — and every way of getting it wrong is
-// silent: a mistyped path reads as "this tenant does not offer browser setup", and a mistyped field
-// as a malformed request the CLI reports as the server's fault.
+// Exercise the real channel's paths and field names. Fake-channel flow tests cannot detect a
+// mistyped endpoint appearing as unsupported browser setup or a mistyped field becoming a server error.
 public class FirstRunFlowClientTests {
     const string FlowId = "b7f3a1c2d4e5f607a1b2c3";
 

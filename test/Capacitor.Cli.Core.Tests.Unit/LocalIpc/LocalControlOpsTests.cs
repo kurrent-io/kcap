@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
 /// LocalControlOps one-shot stop/consent operations over a REAL Unix socket driven by a
-/// scripted server (design spec §10). Harness conventions (Windows guard, per-test socket
+/// scripted server. Harness conventions (Windows guard, per-test socket
 /// directory) are copied from <see cref="LocalControlClientTests"/> — this is a one-shot
 /// request/reply protocol rather than a long-lived subscribe stream, so <see cref="ConnScript"/>
 /// also hands scripts the raw accepted <see cref="Socket"/> (not just the wrapping
@@ -201,7 +201,7 @@ public class LocalControlOpsTests {
     /// unread in the kernel socket buffer; closing with unread bytes sends RST on Linux (not on
     /// macOS), so CI would observe ECONNRESET (daemon_unreachable) instead of the intended clean
     /// EOF (unexpected_reply) — this is the ubuntu-latest-only CI failure this script fixes. NOT a
-    /// routing-default Error reply — no deployed v1 daemon produces one for byte 18 (spec §4.1).
+    /// routing-default Error reply — no deployed v1 daemon produces one for byte 18.
     static ConnScript V1CodecReject() => async (_, s, ct) => {
         var head = new byte[5];
         var read = 0;
@@ -641,7 +641,7 @@ public class LocalControlOpsTests {
         });
     }
 
-    /// The incarnation-swap pin (spec §9/§10): a v1 daemon fails closed at its own codec rather
+    /// The incarnation-swap pin: a v1 daemon fails closed at its own codec rather
     /// than resolving by request id without the identity check, so the caller must see this as
     /// "nothing was resolved", never as a successful ack.
     [Test]
@@ -762,7 +762,7 @@ public class LocalControlOpsTests {
         });
     }
 
-    [Test] // design spec §10: "undecodable frame ... → unexpected_reply" — FrameCodec.ReadAsync's
+    [Test] // design spec: "undecodable frame... → unexpected_reply" — FrameCodec.ReadAsync's
            // own InvalidDataException path, distinct from EndOfStreamException (Truncated_frame)
     public async Task Undecodable_frame_type() {
         if (OperatingSystem.IsWindows()) return;

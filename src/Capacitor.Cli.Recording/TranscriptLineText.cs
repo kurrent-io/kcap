@@ -114,7 +114,6 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
-            // Ignore parse errors
         }
 
         return null;
@@ -351,7 +350,6 @@ public static partial class TranscriptLineText {
                     return text;
             }
         } catch {
-            // Ignore parse errors
         }
 
         return null;
@@ -424,7 +422,6 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
-            // Ignore parse errors
         }
 
         return null;
@@ -447,7 +444,6 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
-            // Ignore parse errors
         }
 
         return null;
@@ -462,7 +458,6 @@ public static partial class TranscriptLineText {
                 return null;
             }
 
-            // Skip system-injected meta messages (e.g. <local-command-caveat>)
             if (root.TryGetProperty("isMeta", out var metaProp) && metaProp.ValueKind == JsonValueKind.True) {
                 return null;
             }

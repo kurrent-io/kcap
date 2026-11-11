@@ -14,38 +14,11 @@ internal enum OpenCodeReviewerDecision {
 }
 
 /// <summary>
-/// Whether THIS daemon may run OpenCode as an unattended review-flow reviewer. Pure, so every arm is
-/// testable without a vendor or a process.
-///
-/// <para><b>ENABLED by default; the switch is an opt-OUT.</b> It shipped as an opt-in and that was
-/// wrong. The reviewer vendor is a caller-chosen parameter, and Claude, Codex, Cursor and Copilot have
-/// never been gated — each running with FULL tool access. So on any daemon that also ADVERTISES one of
-/// those, the gate did not widen the capability class a requester could reach (they ask for an ungated
-/// vendor with MORE capability) while taxing the honest path with a service-unit edit and a restart.
-/// On a daemon advertising only gated vendors it did separate the hosted role from the unattended
-/// reviewer role, and the flip genuinely widens what a non-operator can cause to run. It was
-/// also attached to the wrong end of the risk scale: this is the most contained reviewer of the eight —
-/// no shell, no write, no network, only <c>read</c>/<c>grep</c>/<c>glob</c>/<c>list</c> plus its own
-/// result channel, verified against a positive control.</para>
-///
-/// <para><b>The residual risk is real and unchanged, it just is not what a per-vendor gate addressed.</b>
-/// Those read tools are NOT path-scoped: they are whole-filesystem read primitives under the daemon's
-/// uid, so a review can read every file this daemon user can and its findings text goes back to the
-/// requester. That is equally true of the four never-gated vendors, which can additionally write and
-/// execute — so the honest framing is that running ANY unattended reviewer is the decision, not running
-/// this one.</para>
-///
-/// <para><b>Why a version MINIMUM rather than a certified set or an exact affirmation.</b> Same model
-/// as Kiro and Gemini, and for the same reason: containment here is source suppression plus a
-/// permission table, and both are behaviours of the installed build — OpenCode honouring
-/// <c>OPENCODE_CONFIG_DIR</c>, <c>OPENCODE_DISABLE_PROJECT_CONFIG</c> and <c>OPENCODE_PERMISSION</c>,
-/// and applying that table to flattened MCP tool names. A curated certified set takes the reviewer
-/// offline on every vendor release; an exact affirmation moves that treadmill onto the operator. The
-/// recorded value is the OLDEST build this daemon will run, so an upgrade needs no action and a
-/// downgrade below it is refused. The trade — a future build that weakens its own containment is
-/// admitted silently — is accepted, and <c>kcap daemon reviewer affirm --vendor opencode</c> raises the
-/// floor past a build once found to be bad. The shared comparison lives in
-/// <see cref="ReviewerVersionAffirmations"/> and the record in <see cref="ReviewerVersionStore"/>.</para>
+/// The reviewer switch is an opt-out. Read tools are not path-scoped, so findings can expose
+/// files accessible to the daemon user to a different requester.
+/// Containment depends on OPENCODE_CONFIG_DIR, OPENCODE_DISABLE_PROJECT_CONFIG, OPENCODE_PERMISSION,
+/// and permission matching for flattened MCP names. The operator-affirmed minimum admits upgrades;
+/// raise it to exclude a build that weakens any of those mechanisms.
 /// </summary>
 internal static class OpenCodeReviewerCapability {
     /// <summary>Production entry point: reads the host platform, then defers to the pure overload.</summary>

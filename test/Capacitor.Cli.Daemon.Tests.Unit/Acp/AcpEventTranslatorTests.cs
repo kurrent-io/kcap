@@ -6,11 +6,11 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 
 /// <summary>
-/// Option B task 1: pure unit tests for <see cref="AcpEventTranslator.Translate"/> and its
+/// Option B: pure unit tests for <see cref="AcpEventTranslator.Translate"/> and its
 /// synthesized-lifecycle builders — no ACP wire/process/runtime involved (see
 /// <see cref="AcpHostedAgentRuntimeTests"/> for the <see cref="AcpSessionUpdate"/> reduction this
 /// translator consumes). Every case is constructed directly against a hand-built
-/// <see cref="AcpSessionUpdate"/>, per §2.2 of <c>docs/ai688-option-b-canonical-surfacing-design.md</c>.
+/// <see cref="AcpSessionUpdate"/>, per of <c>docs/ai688-option-b-canonical-surfacing-design.md</c>.
 /// </summary>
 public class AcpEventTranslatorTests {
     const string TimestampIso = "2026-07-08T12:00:00Z";
@@ -97,7 +97,7 @@ public class AcpEventTranslatorTests {
 
     [Test]
     public async Task ToolCallUpdate_status_only_with_no_result_content_returns_null() {
-        // §2.2 footnote 2: a status-only tool_call_update (e.g. pending -> in_progress) must never
+        // footnote 2: a status-only tool_call_update (e.g. pending -> in_progress) must never
         // emit an empty ToolResultReceived.
         var pending = new AcpSessionUpdate(AcpUpdateKind.ToolCallUpdate, ToolCallId: "call-1", ToolStatus: "pending");
         var running = new AcpSessionUpdate(AcpUpdateKind.ToolCallUpdate, ToolCallId: "call-1", ToolStatus: "in_progress");

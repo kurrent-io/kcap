@@ -228,9 +228,9 @@ public class AntigravityReviewerCapabilityTests {
         await Assert.That(() => Reason(AntigravityReviewerDecision.Allowed, "1.1.10", Minimum))
             .Throws<ArgumentOutOfRangeException>();
 
-    /// <summary>No refusal may point an operator at a variable this vendor no longer reads. The floor
-    /// used to be configuration; it is now a daemon-owned record moved by the affirm verb, and a text
-    /// left behind would send an operator to a switch that does nothing.</summary>
+    /// <summary>
+    /// Refusal remedies must name the active affirmation mechanism rather than an unread config variable.
+    /// </summary>
     [Test]
     public async Task NoRefusalPointsAtTheRetiredConfigurationVariable() {
         foreach (var decision in Enum.GetValues<AntigravityReviewerDecision>()) {

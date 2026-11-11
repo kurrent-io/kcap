@@ -43,7 +43,7 @@ internal static class WaitHarness {
         if (!condition()) throw new TimeoutException("Condition was not met within the timeout.");
     }
 
-    /// <summary>Bound EVERY await a §3.3 regression could turn infinite. The pins here work by parking the
+    /// <summary>Bound EVERY await a regression could turn infinite. The pins here work by parking the
     /// lane and releasing it later in the same test, so a re-added execution await inside a handler would
     /// block before the release ever runs — and with no <c>[Timeout]</c> on these tests that is a suite hang,
     /// which is a far worse signal than a named failure. Every <c>Submit*ForTest</c> call (the seams that

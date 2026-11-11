@@ -2,7 +2,7 @@ using Capacitor.Cli.Commands;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
-// Covers Qodo PR #23 finding #1: distinguishing "flag absent" (null) from
+// Covers distinguishing "flag absent" (null) from
 // "flag present, empty value" (empty array). The latter must NOT silently
 // fall through to the full-catalog resolver path.
 public class EvalCommandParseTests {

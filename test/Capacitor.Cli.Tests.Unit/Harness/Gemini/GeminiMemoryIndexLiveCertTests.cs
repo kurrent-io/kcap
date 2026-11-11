@@ -108,35 +108,10 @@ public class GeminiMemoryIndexLiveCertTests {
     }
 
     /// <summary>
-    /// The third case §3.3 owes: a SessionStart whose lifecycle POST genuinely fails, so the hook exits
-    /// non-zero while still emitting <c>additionalContext</c> — does the model still receive it?
-    ///
-    /// <para>§3.3 chose "no commit gate" on a reading of Gemini's hook runner (<c>stdout.trim() ||
-    /// stderr.trim()</c>, parsed with no exit-code gate). That is a source reading, not a behavioural
-    /// one, and the spec's definition of done requires settling it live. This test is that settlement:
-    /// if Gemini ever did discard a failing hook's stdout, the lease would be spent on an injection the
-    /// model never saw, and the decision would have to flip to a commit gate.</para>
-    ///
-    /// <para>The failure is REAL, not simulated: a WireMock instance proxies the whole API to the
-    /// configured server and fails exactly <c>POST /hooks/session-start/gemini</c>. The index fetch on
-    /// the very same base URL is proxied through untouched, which is the only arrangement that produces
-    /// the shape under test — a hook that fetched a real index and then failed its POST.</para>
-    ///
-    /// <para><b>The claim is about ONE invocation, so every link is measured on that one invocation.</b>
-    /// A recording shim named <c>kcap</c> is prepended to the PATH Gemini inherits, capturing each hook
-    /// invocation's exit code, stdout and stderr. The test picks the invocation whose
-    /// <c>additionalContext</c> carried the nonce — the hook Gemini actually consumed — and asserts, of
-    /// that same invocation, that it exited non-zero and that its own stderr carries the failed-POST
-    /// diagnostic for the session-start route.</para>
-    ///
-    /// <para>Three weaker versions were tried and each was holed in review; they are worth naming
-    /// because each looks sufficient. (1) Proving the non-zero exit from a SEPARATE direct
-    /// <c>kcap hook --gemini</c> run is a substitution: Gemini's own hook could have returned 0 through
-    /// a session- or source-dependent branch. (2) "Some forced 400 happened during the turn" is
-    /// turn-global: one invocation could carry the nonce while a DIFFERENT one took the 400. (3)
-    /// Correlating those two on session id narrows it but does not close it, because a session id is
-    /// reused across invocations — <c>startup</c> and <c>resume</c> share one. Only per-invocation
-    /// evidence closes it.</para>
+    /// Fail only POST /hooks/session-start/gemini while proxying the memory index to the real server.
+    /// The same Gemini-consumed hook invocation must carry the nonce, exit nonzero, and log the failed POST.
+    /// Correlating by turn or session id is insufficient because startup and resume share a session id;
+    /// a separate direct hook run cannot prove what Gemini actually consumed.
     /// </summary>
     [Test, NotInParallel]
     [UnsupportedOSPlatform("windows")]

@@ -147,7 +147,7 @@ async def run(args):
     work = Path(tempfile.mkdtemp(prefix="kiro-trust-probe-worktree-"))
     (work / "README.md").write_text("# probe worktree\n")
 
-    # ---- Phase A: isolated KIRO_HOME, scoped trust ------------------------------------------
+    # ---- Isolated KIRO_HOME, scoped trust ------------------------------------------
     iso_home = Path(tempfile.mkdtemp(prefix="kiro-trust-probe-home-"))
     frames_a, phase_a = [], ["A-isolated"]
     mcp_log_a = outdir / "mcp-server-A.log"
@@ -167,7 +167,7 @@ async def run(args):
                              ((new_a.get("result") or {}).get("models") or {}).get("availableModels", [])],
     }
 
-    # ---- Phase B: POSITIVE CONTROL, real KIRO_HOME -------------------------------------------
+    # ---- Positive control with real KIRO_HOME -------------------------------------------
     frames_b, phase_b = [], ["B-control"]
     mcp_log_b = outdir / "mcp-server-B.log"
     client_b, new_b = await handshake(
@@ -185,7 +185,7 @@ async def run(args):
     except Exception:  # noqa: BLE001
         pass
 
-    # ---- Phase C: ONE billable turn on the isolated session ----------------------------------
+    # ---- One billable turn on the isolated session ----------------------------------
     if args.turn:
         phase_a[0] = "C-turn"
         session_id = summary["phases"]["A_isolated_scoped_trust"]["session_id"]

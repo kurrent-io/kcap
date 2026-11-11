@@ -37,8 +37,7 @@ public class EvalCatalogDtoSerializationTests {
 
     [Test]
     public async Task Catalog_question_missing_needs_tools_fails_deserialization() {
-        // SHOULD-FIX (round 2): needs_tools is `required` — a Phase-2 response that omits
-        // it must throw, not silently default false (which would mis-route a tools question).
+        // Missing needs_tools must fail deserialization rather than route a tools question down the text path.
         const string missingNeedsTools = """
             {"retrospective_prompt":"r","retrospective_prompt_version":"1",
              "questions":[{"category":"safety","id":"k1","title":"t","question_text":"raw",

@@ -6,58 +6,13 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Pumps an ACP runtime's aggregated
-/// <see cref="AcpEventEnvelope"/> transcript (<see cref="IAcpTranscriptSource.Envelopes"/>)
-/// to the server via a <c>SendAcpEventsAsync</c>-shaped delegate, assigning the real monotonic
-/// <see cref="AcpEventEnvelope.Seq"/> and driving the seq/ack state machine against the server's
-/// EXACT <c>CapacitorHub.AcpSessionEvents</c>/<c>AcpSessionRegistry</c> contract (read read-only from
-/// <c>Capacitor.Server.Sessions.CapacitorHub</c> in the server repo):
-///
-/// <list type="bullet">
-/// <item>
-/// the server processes a batch's envelopes in seq order; a seq already accepted (<c>≤ AcceptedSeq</c>)
-/// is silently skipped (dedup); a seq more than one past <c>AcceptedSeq</c> makes the server return
-/// immediately with <see cref="AcpBatchAck.ExpectedNextSeq"/> set to <c>AcceptedSeq + 1</c> and stop
-/// processing the REST of that batch (a gap) — <b>resend from <see cref="AcpBatchAck.ExpectedNextSeq"/></b>;
-/// </item>
-/// <item>
-/// once the binding is terminal (a <c>SessionEnded</c> already persisted, e.g. by
-/// <c>CapacitorHub.EndAgentSession</c>), a new envelope at exactly <c>AcceptedSeq + 1</c> is dropped
-/// WITHOUT advancing <c>AcceptedSeq</c> — so a batch that fully drains against a terminal binding
-/// completes with <see cref="AcpBatchAck.ExpectedNextSeq"/> <see langword="null"/> and
-/// <see cref="AcpBatchAck.AcceptedSeq"/> LOWER than the highest seq this forwarder has sent
-/// (a "terminal-drop"): <b>stop forwarding and clear the unacked buffer</b> — there is no seq the
-/// server will ever accept again for this binding;
-/// </item>
-/// <item>
-/// otherwise (<see cref="AcpBatchAck.ExpectedNextSeq"/> <see langword="null"/> and
-/// <see cref="AcpBatchAck.AcceptedSeq"/> caught up to the highest seq sent) it's a normal ack:
-/// <b>drop every buffered envelope with <c>Seq ≤ AcceptedSeq</c></b>.
-/// </item>
-/// </list>
-///
-/// <b>Known edge case (documented, not fully closed):</b> the "terminal-drop"
-/// signature above is unambiguous only when the FIRST envelope of a batch is the one silently
-/// dropped by an ALREADY-terminal binding and the batch has exactly one envelope, OR the binding
-/// turns terminal partway through the batch (e.g. this very batch's own <c>SessionEnded</c> mapping).
-/// If a binding was ALREADY terminal before a MULTI-envelope batch starts, the server's per-envelope
-/// loop drops the first (matching) envelope silently, then reports the SECOND envelope as a "gap"
-/// (<see cref="AcpBatchAck.ExpectedNextSeq"/> set to the very seq it just dropped) — indistinguishable
-/// on the wire from a genuine gap. Resending in that state would loop forever against a terminal
-/// binding — so a <b>hot-loop guard</b> caps consecutive same-<c>ExpectedNextSeq</c>
-/// resends that make no progress (with a small backoff) and, once the cap is hit, treats the binding
-/// as terminal (stop + clear + <see cref="IsTerminal"/>) rather than spinning. A legitimate gap
-/// advances its <c>ExpectedNextSeq</c> each round and so never trips the guard. Deeper reconnect
-/// resilience beyond this remains.
-///
-/// Out of scope here: building/emitting the <c>SessionStarted</c> envelope (a fresh session passes it
-/// in pre-built as <c>initialEnvelope</c>) or calling <c>AcpSessionStarted</c> — the bind
-/// always precedes starting this forwarder. This forwarder also never emits a <c>session_ended</c>
-/// envelope; the server's <c>EndAgentSession</c> is the sole <c>SessionEnded</c> owner.
-///
-/// <para>§2.7 B4 resume/rebind: a rebind passes null <c>initialEnvelope</c> and <c>resumeFromSeq</c> =
-/// the source-claim's canonical <c>AcceptedSeq</c> — the forwarder sends NO SessionStarted and numbers the
-/// first new event at <c>AcceptedSeq + 1</c>, so round-2 events aren't deduped (<c>≤ AcceptedSeq</c>) and lost.</para>
+/// Resend from ExpectedNextSeq on a gap; otherwise discard buffered envelopes through AcceptedSeq.
+/// A terminal binding drops new envelopes without advancing its cursor. A single-event drop is
+/// recognizable directly, but a multi-event batch can report the dropped sequence as a gap.
+/// Bound repeated no-progress resends so that ambiguous terminal state cannot loop forever.
+/// Registration and binding must precede forwarding. The server owns session-end events.
+/// A rebind supplies no SessionStarted and resumes numbering at the canonical AcceptedSeq + 1;
+/// starting at zero would silently deduplicate new events.
 /// </summary>
 internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
     static readonly TimeSpan DefaultInitialSendRetryDelay = TimeSpan.FromSeconds(1);
@@ -85,10 +40,8 @@ internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
     readonly Queue<AcpEventEnvelope> _pending = new();
 
     /// <summary>
-    /// Every sent-but-not-yet-acked envelope, keyed by seq, always in ascending order (a
-    /// <see cref="SortedDictionary{TKey,TValue}"/> — the design spec calls this "the unacked
-    /// buffer"). Entries are removed once <see cref="AcpBatchAck.AcceptedSeq"/> covers them, or the
-    /// whole buffer is cleared on a terminal-drop.
+    /// Retain every unacknowledged sequence until acceptance so retries can resend the exact same batch.
+    /// Sorted ordering keeps gap recovery deterministic.
     /// </summary>
     readonly SortedDictionary<long, AcpEventEnvelope> _unacked = new();
 
@@ -186,7 +139,7 @@ internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
     /// backoff without real sleeping.
     /// </summary>
     /// <param name="resumeFromSeq">
-    /// §2.7 B4 resume/rebind: the canonical AcceptedSeq this forwarder resumes from. When set, do NOT
+    /// The canonical AcceptedSeq this forwarder resumes from. When set, do NOT
     /// (re)send SessionStarted and number the first new event at <paramref name="resumeFromSeq"/>+1, so a
     /// resumed incarnation's events land at the next canonical sequence instead of being deduped against
     /// the prior incarnation's cursor. Null = a fresh session (SessionStarted@0, today's behaviour).
@@ -364,16 +317,8 @@ internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
     }
 
     /// <summary>
-    /// Blocks until at least one new envelope is available (or the channel completes), then drains
-    /// everything immediately available too — "batch opportunistically" per the design spec — and
-    /// stamps each CANONICAL envelope with the next monotonic seq. Returns <see langword="null"/> when
-    /// the channel has completed with nothing left to read.
-    ///
-    /// <para>Ephemeral envelopes consume NO sequence number: they ride the same batch in arrival order,
-    /// are excluded from the server's dup/gap logic, and never advance any cursor. Numbering them would
-    /// inflate this side's <c>_highestSent</c> past the <c>AcceptedSeq</c> the server can ever return
-    /// (it sequences canonical envelopes only), which the ack loop would read as a terminal-drop and
-    /// stop forwarding for the rest of the session.</para>
+    /// Batch currently available envelopes without waiting for a full batch; preserve sequence order
+    /// and the configured resource bounds.
     /// </summary>
     async Task<AcpEventEnvelope[]?> DrainNewEnvelopesAsync(CancellationToken ct) {
         if (!await _envelopes.WaitToReadAsync(ct).ConfigureAwait(false))
@@ -478,16 +423,9 @@ internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
         " !#$%()*,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_abcdefghijklmnopqrstuvwxyz{|}~");
 
     /// <summary>
-    /// Sends one batch, retrying indefinitely (bounded backoff, capped at
-    /// <see cref="_maxSendRetryDelay"/>) on ANY exception the send delegate throws that isn't driven
-    /// by <paramref name="ct"/> itself. The send delegate is expected to already be
-    /// <c>ConnectionRetry</c>/<c>IsReady</c>-gated (bound to <c>ServerConnection.SendAcpEventsAsync</c>
-    /// — see this class's remarks), so most transient connection drops are already resolved inside
-    /// it; this is a defensive outer layer for whatever still escapes (a non-transient
-    /// <c>HubException</c>, or a drop precisely at the gate/invoke boundary) — the design spec calls
-    /// this "send-retry ... after the connection is ready again". Retrying the SAME batch (never
-    /// advancing the seq cursor on a failed send) is what keeps this safe: the server dedups by seq,
-    /// so a resent already-persisted batch is a no-op there.
+    /// Retry the same batch on send failures without advancing its sequence cursor; server deduplication
+    /// makes an already persisted resend safe. The delegate handles connection readiness, while this outer
+    /// backoff covers faults escaping it. Caller cancellation alone terminates these retries.
     /// </summary>
     async Task<AcpBatchAck> SendWithRetryAsync(AcpEventEnvelope[] batch, CancellationToken ct) {
         var delay = _initialSendRetryDelay;

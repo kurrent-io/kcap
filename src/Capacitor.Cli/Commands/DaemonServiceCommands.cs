@@ -659,9 +659,8 @@ sealed class DaemonServiceCommands(
         var spec    = new ServiceSpec(id, daemonPath, logPath, env, extra);
 
         if (verify) {
-            // The CLI is the safety boundary for §4.1's precondition: prove the pinned profile resolves
-            // to a valid server URL here too, so the transaction never destroys a working unit only to
-            // install one whose daemon would exit config-invalid and never satisfy readiness.
+            // Validate the pinned profile's absolute server URL before the transaction can destroy a working
+            // unit. Otherwise the replacement daemon could exit config-invalid and never satisfy readiness.
             var profileUrlValid = await ServiceInstallViability.PinnedProfileServerUrlValidAsync(env, root);
             var exit = manager is LaunchdServiceManager launchd
                 ? await new ServiceVerify(store, root, launchd,
@@ -1553,7 +1552,7 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
-    /// UX-evidence-only re-read of the installed unit's baked environment (spec §3): which profile,
+    /// UX-evidence-only re-read of the installed unit's baked environment: which profile,
     /// server URL, expectation and consent-seed default it was installed with. Sourced by re-reading the
     /// plist rather than threading it through <see cref="ServiceQuery"/> so the query type stays a pure
     /// lifecycle probe. All four are null when no unit is present or the re-read/parse fails for any

@@ -105,7 +105,7 @@ public record DeviceCodeResponse {
     /// <summary>RFC 8628 §3.5's default when the server omits it.</summary>
     public int IntervalOrDefault => Interval > 0 ? Interval : 5;
 
-    /// <summary>Bounds the poll loop. §3.2 makes it REQUIRED, but an absent one must not mean forever.</summary>
+    /// <summary>An absent provider expiry must not make the polling loop unbounded.</summary>
     public int ExpiresInOrDefault => ExpiresIn > 0 ? ExpiresIn : 900;
 }
 

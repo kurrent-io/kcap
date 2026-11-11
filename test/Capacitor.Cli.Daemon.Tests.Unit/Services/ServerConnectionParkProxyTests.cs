@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// §2.7 B6 task 2: covers <see cref="ServerConnection.ReportParticipantParkedAsync"/> — the
+/// Covers <see cref="ServerConnection.ReportParticipantParkedAsync"/> — the
 /// daemon→hub park-report proxy — mapping the server's two-value wire outcome
 /// (<see cref="ParkParticipantOutcome"/>) plus "no definite reply" into the daemon-local
 /// <see cref="ParkAck"/>. Mirrors <c>AcpServerConnectionTests</c>'s approach exactly: no live SignalR
@@ -106,7 +106,7 @@ public class ServerConnectionParkProxyTests {
     }
 
     /// <summary>
-    /// High regression (qodo pre-merge review): <c>ParkReviewerAsync</c> holds the reap claim across
+    /// High regression ( pre-merge review): <c>ParkReviewerAsync</c> holds the reap claim across
     /// this call, so a disconnected daemon (<see cref="ServerConnection.IsReady"/> never true) must not
     /// pin it — the readiness gate is bounded by <c>ParkAckBudget</c>. When the budget elapses with no
     /// reply the call returns <see cref="ParkAck.Ambiguous"/> (release + retry) PROMPTLY (the 5s

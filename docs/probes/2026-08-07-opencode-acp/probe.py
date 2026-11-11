@@ -210,11 +210,8 @@ async def free_phase(outdir):
         # Both wire selectors, in the order the daemon would try them. Recorded raw: a
         # "method not found" is a real answer, and so is a success that does not take effect.
         #
-        # The model read half lives in session/new's `configOptions` -- NOT in a `models` object as
-        # Kiro and Gemini return. An earlier revision of this probe looked for `models`, found
-        # nothing, and fell back to a hard-coded id the account cannot reach: both selectors then
-        # answered -32602 "model not found", which reads exactly like an unsupported method and
-        # would have argued for NoOpModelSelector on a measurement that never named a real model.
+        # Read reachable model ids from configOptions, not the models shape other vendors use;
+        # an unreachable id would conflate model-not-found with unsupported selection.
         cur, target = model_options(base.result.get("session_new"))
         base.result["model_current"] = cur
         base.result["model_target"] = target
@@ -463,10 +460,7 @@ async def turn_phase(outdir, only_arm=None):
         arm.result["answer_text"] = said
         arm.result["read_worked"] = "PLATYPUS" in blob
         arm.result["mcp_called"] = mcp_log.exists() and "tools/call" in mcp_log.read_text()
-        # A FILESYSTEM side effect, not a string in the answer. An earlier revision searched the
-        # model's own text for the echoed sentinel and scored the denied arm as having run the shell,
-        # because the model quoted the command it had been asked to run while explaining that it
-        # could not. Prose cannot create this file.
+        # Require a filesystem side effect; a model quoting the refused command is not execution.
         arm.result["shell_ran"] = (work / "shell-ran.txt").exists()
         arm.result["permission_frame_count"] = sum(
             1 for f in arm.frames if f.get("frame", {}).get("method") == "session/request_permission")

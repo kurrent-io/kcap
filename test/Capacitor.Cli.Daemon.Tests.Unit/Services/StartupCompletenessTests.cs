@@ -4,7 +4,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-// Phase B2-b (sequenced-settlement design): the orchestrator surfaces the durable coverage
+// The orchestrator surfaces the durable coverage
 // boot-chain verdict (DaemonConfig.RecordlessSurvivorsImpossible, folded in DaemonRunner before
 // Connect) so the enriched DaemonConnect payload can advertise it. Reuses AgentOrchestratorHarness
 // (BuildOrchestrator/CaptureServerConnection/SpyPtyProcessFactory).
@@ -19,7 +19,7 @@ public class StartupCompletenessTests {
         await Assert.That(orch.RecordlessSurvivorsImpossibleForTest).IsTrue();
     }
 
-    // Phase B2-b (sequenced-settlement design): StartupDiscovery.MarkerScanState is NotApplicable off
+    // StartupDiscovery.MarkerScanState is NotApplicable off
     // Linux (Windows has no scan, macOS env is redacted) and — on Linux — flips to Complete after one
     // clean env-marker-scan pass. A clean boot with no candidates completes the pass on the first reap.
     [Test]
@@ -32,7 +32,7 @@ public class StartupCompletenessTests {
             .IsEqualTo(OperatingSystem.IsLinux() ? MarkerScanState.Complete : MarkerScanState.NotApplicable);
     }
 
-    // Phase B2-b (sequenced-settlement design): a persisted marker-candidate source (a recordless
+    // A persisted marker-candidate source (a recordless
     // prior-epoch survivor with no matching live triple) surfaces as a PendingMarker blocked candidate
     // and keeps StartupReapComplete false. Linux-only — the blocked-candidate surface is asserted
     // directly via BuildStatusReport (no scan runs), so the seeded dead pid is never resolved away.
@@ -48,7 +48,7 @@ public class StartupCompletenessTests {
             .IsEqualTo(StartupCandidateUnresolvedReason.PendingMarker);
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): a PRESENT prior-epoch record that the record pass
+    // a PRESENT prior-epoch record that the record pass
     // spared (a transient ambiguous identity read on Linux, or a record-pass fault) is still on disk and
     // therefore UNRESOLVED — confirmed-dead records are deleted. It must keep completion FALSE (surfaced as
     // identity_unresolvable), never be silently omitted (the paired server would treat omission as proof of
@@ -71,7 +71,7 @@ public class StartupCompletenessTests {
         await Assert.That(orch.ComputeStartupReapComplete()).IsFalse();
     }
 
-    // Phase B2-b (sequenced-settlement design §4.2.4): the ledger's un-acked snapshot is re-reported on
+    // the ledger's un-acked snapshot is re-reported on
     // every status report until the server prunes it per-entry via AckResolvedCandidates. The seam and
     // the underlying ledger Ack are SYNCHRONOUS (void) — no await (would be CS4008).
     [Test]

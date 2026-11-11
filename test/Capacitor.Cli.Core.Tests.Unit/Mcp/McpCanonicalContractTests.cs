@@ -16,8 +16,7 @@ public class McpCanonicalContractTests {
 
     [Test]
     public async Task Every_canonical_server_has_a_description() {
-        // kcap-sessions previously had a null Description. Pin that every canonical server
-        // carries one so the routing/discoverability gap can't silently reopen.
+        // Every canonical server needs a description for routing and discoverability.
         foreach (var s in KcapMcpServers.All)
             await Assert.That(string.IsNullOrWhiteSpace(s.Description))
                 .IsFalse().Because($"{s.Name} must have a non-empty Description");

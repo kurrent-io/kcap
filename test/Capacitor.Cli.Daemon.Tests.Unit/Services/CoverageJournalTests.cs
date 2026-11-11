@@ -71,9 +71,8 @@ public class CoverageJournalTests {
 
     [Test] public async Task Indeterminate_prior_lock_is_not_genesis_even_with_absent_journal() {
         using var h = new Harness();
-        // A read-failed / blank prior lock (priorLockReadFailed = true) with an absent journal must NOT be
-        // treated as genesis — an unreadable prior lock could hide an intervening boot, so it fails closed
-        // (regression: previously null priorLockInstanceId alone drove genesis, conflating empty-vs-unreadable).
+        // An unreadable prior lock can hide an intervening boot. With no journal it must fail closed,
+        // not be conflated with a genuinely empty first-boot lock.
         var covered = new CoverageJournal(h.StateDirectory, NullLogger.Instance)
             .RecordBoot("me", priorLockInstanceId: null, priorLockReadFailed: true, thisEpochContained: true);
         await Assert.That(covered).IsFalse();

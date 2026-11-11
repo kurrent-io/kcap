@@ -4,10 +4,8 @@ using Capacitor.Cli.Core.Config;
 namespace Capacitor.Cli.Core.Tests.Unit.Config;
 
 public class UpdateChannelConfigTests {
-    // Default asserted via direct construction: STJ source-gen does NOT apply the
-    // `= "latest"` member-initializer for a property absent from the JSON, so a
-    // Deserialize("{}") would yield null here — that is expected, and Task 4's read
-    // site applies `?? "latest"`. This test verifies the record default itself.
+    // Construct directly to pin the record initializer. Deserializing an absent property can yield null,
+    // which the config read site separately handles with ?? "latest".
     [Test]
     public async Task Defaults_to_latest_on_new_profile() {
         await Assert.That(new Profile().UpdateChannel).IsEqualTo("latest");

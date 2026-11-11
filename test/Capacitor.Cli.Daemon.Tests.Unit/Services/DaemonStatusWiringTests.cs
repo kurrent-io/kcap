@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// Pins the non-obvious DI mechanism <see cref="DaemonRunner"/> depends on for the DaemonStatus
 /// push to ever reach a real hub connection: <see cref="ServerConnection"/>'s trailing optional
 /// <c>DaemonStatusNotifier?</c> parameter is resolved to the ONE registered singleton only because
-/// its DI registration is a bare <c>AddSingleton&lt;ServerConnection&gt;()</c> — no factory
+/// Its DI registration is a bare <c>AddSingleton&lt;ServerConnection&gt;</c> — no factory
 /// delegate. If a future change rewrites that registration with a factory that omits the
 /// notifier (e.g. <c>AddSingleton(sp => new ServerConnection(...))</c> without the 5th arg),
 /// <c>ServerConnection</c> falls back to a private notifier nobody subscribes to and every
@@ -74,7 +74,7 @@ public class DaemonStatusWiringTests {
     /// ServerConnection: AgentOrchestrator's ctor also ends in an optional
     /// <c>DaemonStatusNotifier?</c> parameter, resolved to the ONE registered singleton only
     /// because its production registration (<c>DaemonRunner</c>) is a bare
-    /// <c>AddSingleton&lt;AgentOrchestrator&gt;()</c> — no factory delegate. If a future change
+    /// <c>AddSingleton&lt;AgentOrchestrator&gt;</c> — no factory delegate. If a future change
     /// rewrites that registration with a factory that omits the notifier, every agent mutation
     /// (SetAgentStatus/PublishAgent/UnpublishAgent) would silently stop reaching StatusSubscribe
     /// clients — with no other test noticing, since every other observable behavior (including

@@ -885,8 +885,8 @@ public partial class App : Application {
     internal static bool ShouldPromptToInstall(InstallLocationKind kind, string root, ApplicationsInstallPlan plan) =>
         !InstallLocation.Passes(kind) || Path.GetFullPath(root) != Path.GetFullPath(plan.Target) || plan.Replaces.Count > 0;
 
-    /// The installed copy finishes an update when it replaces an earlier version, or when this copy is itself the
-    /// relaunch of one, already updated in place under another name; a first install has nothing to finish.
+    /// Finish upgrades for the installed copy or an in-place relaunch under a different name.
+    /// A first install has no pending upgrade to finish.
     void RecordInstallerHandover(ApplicationsInstallPlan plan, string? previous) {
         if (plan.SourceVersion is not { } to) return;
         var from = previous is not null && PrereleaseSemver.IsNewer(to, previous) ? previous : null;

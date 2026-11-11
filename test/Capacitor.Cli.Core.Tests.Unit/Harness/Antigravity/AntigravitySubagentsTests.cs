@@ -3,10 +3,8 @@ using Capacitor.Cli.Core.Harness.Antigravity;
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// Unit tests for <see cref="AntigravitySubagents"/>. The child→parent map is
-/// built from the parent transcript's <c>INVOKE_SUBAGENT</c> steps (the spawn-time signal) rather
-/// than the child-reports-back <c>messages/*.json</c> scan used previously, which
-/// missed children that never reported back.
+/// Discover children from parent INVOKE_SUBAGENT steps, including children that fail without ever
+/// reporting back. A child-result scan cannot establish complete parent linkage.
 /// </summary>
 public class AntigravitySubagentsTests {
     static void MakeBrainDir(string home, string convId) =>
@@ -155,7 +153,7 @@ public class AntigravitySubagentsTests {
 
     [Test]
     public async Task ResolveTopLevelAncestor_walks_a_deep_chain_to_the_root() {
-        // P ← C ← G : the grandchild resolves to P, not C.
+        // P ← C ← G: the grandchild resolves to P, not C.
         var map = new Dictionary<string, string>(StringComparer.Ordinal) { ["C"] = "P", ["G"] = "C" };
         await Assert.That(AntigravitySubagents.ResolveTopLevelAncestor("G", map)).IsEqualTo("P");
         await Assert.That(AntigravitySubagents.ResolveTopLevelAncestor("C", map)).IsEqualTo("P");

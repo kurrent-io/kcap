@@ -427,7 +427,7 @@ internal sealed class AntigravityImportSource : IImportSource {
             try {
                 // failOnError: true — SentChildContent must reflect only server-ACCEPTED
                 // batches; a non-2xx now throws and is caught below, so a rejected batch
-                // never flips the signal (Qodo finding 3).
+                // never flips the signal.
                 childSent = await SessionImporter.SendTranscriptBatches(
                     httpClient: client, baseUrl: baseUrl, sessionId: rootId,
                     filePath: childTranscript, agentId: childAgentId, startLine: childStartLine, time: _time, vendor: Vendor,

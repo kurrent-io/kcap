@@ -461,13 +461,8 @@ internal static partial class MemoryIndexLiveCertHarness {
     }
 
     /// <summary>
-    /// Sets the REAL profile flag, and fails loudly if the subprocess did not succeed.
-    ///
-    /// <para>Discarding this exit code is not a cosmetic gap. A failed <c>true</c> makes the negative
-    /// control vacuous (it observes no injection because injection was never disabled, and passes for
-    /// the wrong reason); a failed restore leaves a developer's machine with memory injection off. The
-    /// pre-existing Claude cert asserts this exit code, and an earlier draft of this shared harness
-    /// dropped that guard.</para>
+    /// Check the real config subprocess's exit code: an unsuccessful toggle invalidates the negative
+    /// control, and an unsuccessful restore can leave the operator's memory injection disabled.
     /// </summary>
     public static async Task SetDisableMemoryIndexAsync(bool value) {
         var (exitCode, _, stderr) = await RunProcessAsync(
@@ -564,12 +559,8 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         // Unresolved: THROW rather than hand the bare name back.
         //
-        // An earlier version returned the name with the comment "so Process.Start produces its own,
-        // clearer error" — which is wrong for the one command that matters. `Process.Start` consults the
-        // WORKING DIRECTORY before PATH, and this assembly's working directory is its own output folder,
-        // which holds a `kcap` copied there by the project reference. So the fallback does not produce
-        // an error at all: it silently runs the test build, which is the exact wrong-binary failure this
-        // resolver exists to prevent, reintroduced on the unresolved path.
+        // Require a resolved absolute executable path. Returning bare kcap can select the copied test
+        // binary in the assembly's output directory instead of the operator's installed CLI.
         throw new FileNotFoundException(
             $"'{fileName}' is not on PATH. Refusing to fall back to the bare name: Process.Start would "
           + $"resolve it against the working directory, and this assembly's output folder contains a "
@@ -583,23 +574,9 @@ internal static partial class MemoryIndexLiveCertHarness {
     const int X_OK = 1;
 
     /// <summary>
-    /// Existence is NOT the test a shell applies. <c>which</c> and <c>execvp</c> skip a PATH entry whose
-    /// match is not executable and keep looking, so resolving on <c>File.Exists</c> alone would stop at a
-    /// non-executable same-named file and either fail the launch or — worse for this harness —
-    /// disagree with the <c>which kcap</c> line recorded beside it, which is the exact disagreement the
-    /// resolver exists to remove.
-    ///
-    /// <para><b>The question is EFFECTIVE executability, so ask the kernel.</b> An earlier version tested
-    /// "any of the three execute bits is set", justified by "over-accepting can only fall back to the
-    /// platform's own error" — which is wrong, and review caught it: this resolver returns an ABSOLUTE
-    /// path, so there is no fallback to a later PATH entry. A file that is owner-executable but owned by
-    /// someone else, or sits on a <c>noexec</c> mount, would be selected here and would simply fail to
-    /// launch, while a shell would have kept walking. <c>access(path, X_OK)</c> answers for the current
-    /// identity, which is the same question <c>execvp</c> asks.</para>
-    ///
-    /// <para><c>File.Exists</c> stays as the first gate, and not merely as an optimisation:
-    /// <c>access(X_OK)</c> succeeds on a DIRECTORY, so dropping it would let a directory named
-    /// <c>kcap</c> shadow the binary.</para>
+    /// Match shell PATH behavior by checking effective executability with the kernel; execute bits
+    /// alone ignore identity and noexec mounts. An absolute path selected here gets no later PATH fallback.
+    /// Require File.Exists first because access(X_OK) also succeeds on directories.
     /// </summary>
     static bool IsExecutableFile(string path) {
         if (OperatingSystem.IsWindows()) return false;

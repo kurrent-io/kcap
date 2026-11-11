@@ -56,15 +56,15 @@ public static class LifecycleSpoolDrain {
             // must not follow a later run's start: both are settled before the phases run.
             if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
 
-            // Phase 1: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
+            // session-start (and any non-terminal lifecycle) BEFORE transcript tail.
             await lifecycle.DrainRoutesAsync(sid, isTerminal: false, PostLifecycle, Expired, ct);
             if (Expired()) return;
-            // Phase 2: transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
+            // transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
             await transcript.DrainAsync(sid, PostTranscript, Expired, ct);
             if (transcript.HasBacklog(sid)) continue;
             if (transcript.NeedsImport(sid)) await DeliverNeedsImportAsync(sid, PostLifecycle);
             if (Expired()) return;
-            // Phase 3: session-end LAST. A non-zero consumed count means a terminal entry was truly
+            // session-end LAST. A non-zero consumed count means a terminal entry was truly
             // resolved (delivered or permanently dropped) in THIS call — not merely left for a retry
             // by a TransientStop/budget — so the session can be durably marked ended.
             string? ended = null;

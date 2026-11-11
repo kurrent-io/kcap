@@ -27,7 +27,7 @@ public sealed class UnixPtyProcess : IPtyProcess {
         _reader       = new(masterFd, childPid, _cts.Token);
     }
 
-    /// <summary>Executable resolution is PRE-FORK, in the parent (spec §4.2(a), pinned): resolves
+    /// <summary>Executable resolution is PRE-FORK, in the parent: resolves
     /// <paramref name="command"/> against the SAME env/PATH that will be passed to the child
     /// (never the daemon's ambient PATH if extraEnv overrides it — closes the execvpe "resolve
     /// against the wrong PATH" trap at the top level too, matching the shim's own env-shebang

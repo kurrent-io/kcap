@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
 /// Durable per-agent PID records under <c>{state-dir}/agents/</c>, so a restarted daemon can reap a
-/// surviving child by exact identity (spec §6.4(2)). Written atomically (temp file + same-directory
+/// surviving child by exact identity. Written atomically (temp file + same-directory
 /// rename). The filename is a SHA-256 of the agent id, NOT the id itself: the id crosses the SignalR
 /// wire unconstrained, so using it directly in a path would let <c>..</c> / separators escape the
 /// directory. The original id is preserved inside the JSON. Deleted only after confirmed death (caller's
@@ -16,7 +16,7 @@ internal sealed class AgentPidRecordStore(string stateDir, ILogger logger) {
     readonly string _agentsDir = Path.Combine(stateDir, "agents");
 
     /// <summary>Atomically write (or overwrite) the record. Throws on I/O failure — the caller treats a
-    /// write failure as a launch failure and tears the child down (§6.4(2a)).</summary>
+    /// write failure as a launch failure and tears the child down.</summary>
     public void Write(AgentPidRecord record) {
         Directory.CreateDirectory(_agentsDir);
 
@@ -41,7 +41,7 @@ internal sealed class AgentPidRecordStore(string stateDir, ILogger logger) {
     }
 
     /// <summary>Whether a durable record exists for this agent id — one existence check, no read and no
-    /// parse. This is the second half of the un-sequenced stop-admission probe (spec §3.3), which the
+    /// parse. This is the second half of the un-sequenced stop-admission probe, which the
     /// sequenced processor evaluates inside its own critical section, so it must stay this cheap: never
     /// widen it to <see cref="ReadAll"/>. A record-backed id is a REAL stop target — the stop path reaps a
     /// prior incarnation's survivor by exact identity — not a no-op, so admission has to see it.
@@ -149,7 +149,7 @@ internal sealed class AgentPidRecordStore(string stateDir, ILogger logger) {
             return null;
         }
 
-        // M1-A (spec §4.3): the only rejected shapes are NEW-schema-inconsistent combinations —
+        // The only rejected shapes are NEW-schema-inconsistent combinations —
         // Present claiming a comparable identity with an empty token, or IdentityUnavailable
         // claiming NO comparable identity while still carrying a nonempty one. A LEGACY record
         // (no identity_kind key at all) always decodes as Present (PidIdentityKind's zero value)

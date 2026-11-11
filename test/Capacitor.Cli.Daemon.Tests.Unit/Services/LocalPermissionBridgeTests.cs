@@ -83,7 +83,7 @@ public class LocalPermissionBridgeTests {
 
     /// <summary>
     /// The production reproduction, and the deterministic one. DaemonRunner registers this type
-    /// through TWO singleton descriptors — <c>AddSingleton&lt;LocalPermissionBridge&gt;()</c> so the
+    /// Through TWO singleton descriptors — <c>AddSingleton&lt;LocalPermissionBridge&gt;</c> so the
     /// orchestrator can read its bound URL, and an <c>AddHostedService</c> factory resolving that
     /// same instance so the listener starts before any agent spawns. Microsoft DI tracks
     /// disposables per DESCRIPTOR without de-duplicating by reference, so
@@ -675,9 +675,8 @@ public class LocalPermissionBridgeTests {
         }
     }
 
-    // Qodo #255: the auto-approve must be precise. A tool from a DIFFERENT server whose id merely
-    // ends in "submit_review_result" must NOT be short-circuited — it goes to the server like any
-    // other tool, so the auto-approve can't be used to slip an unrelated tool past the prompt.
+    // A different server's tool ending in submit_review_result is not the reserved result channel;
+    // it must follow the ordinary permission path rather than bypass prompting.
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task Same_named_tool_from_a_different_server_is_not_auto_approved() {
         var (bridge, server) = CreateBridge((_, _, _, _, _) =>
@@ -863,10 +862,8 @@ public class LocalPermissionBridgeTests {
 
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task Shared_token_reserved_channel_tool_names_consult_the_server() {
-        // The auto-approve is reviewer-gated: the reserved channel is only injected for flow
-        // participants, so on the SHARED (interactive) token an identically-named tool is
-        // untrusted — it takes the normal server prompt path, qualified or bare. (Previously the
-        // shared token also auto-approved mcp__kcap_flow_result__submit_review_result.)
+        // Only reviewer tokens may auto-approve the reserved result channel. An identically named tool
+        // on a shared interactive token remains untrusted, whether its name is qualified or bare.
         var (bridge, server) = CreateBridge((_, _, _, _, _) =>
             Task.FromResult(new PermissionDecision("allow", null, null))
         );
@@ -924,7 +921,7 @@ public class LocalPermissionBridgeTests {
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task Claude_cli_hook_post_target_lands_at_new_url() {
         // Verify that the bridge accepts POSTs at the /{token}/claude/permission-request URL
-        // that the CLI's PermissionRequestCommand now targets (Task 10 migration).
+        // that the CLI's PermissionRequestCommand now targets ( migration).
         var (bridge, server) = CreateBridge();
 
         try {

@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 /// <see cref="IHostedService"/>s — it never disposes the ServiceProvider — so a shutdown path that
 /// calls <c>StopAsync</c> without also disposing the host leaves the thread (and therefore the whole
 /// process) alive forever. These tests build a minimal host with the same
-/// <c>AddSingleton&lt;UnixSpawnerThread&gt;()</c> registration <c>DaemonRunner.RunAsync</c> uses and
+/// <c>AddSingleton&lt;UnixSpawnerThread&gt;</c> registration <c>DaemonRunner.RunAsync</c> uses and
 /// drive the exact StopAsync/dispose sequence to prove: (1) StopAsync alone is not enough, and
 /// (2) <see cref="DaemonRunner.DisposeHostAsync"/> — the fix — retires the thread.
 /// </summary>

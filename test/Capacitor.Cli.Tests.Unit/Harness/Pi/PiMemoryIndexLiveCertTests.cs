@@ -4,61 +4,16 @@ using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 namespace Capacitor.Cli.Tests.Unit.Harness.Pi;
 
 /// <summary>
-/// Env-gated certification that the SessionStart memory index actually reaches the model on Pi
-/// (badlogic/pi-mono). The raw-stdout contract (<c>PiHookCommand.RenderMemoryOutput</c>, the
-/// <c>&lt;!-- kcap-memory-index:v1 --&gt;</c> marker) and the extension's static shape are covered
-/// against fakes elsewhere in this suite; this is the only place asserting the end-to-end claim: that
-/// a real <c>pi</c> process, running the installed <c>kcap.ts</c> extension, actually puts the fragment
-/// in front of the model.
-///
-/// <para><b>Why this matters for Pi specifically.</b> Delivery is entirely owned by Pi's own extension
-/// runtime, not by kcap: <c>kcap.ts</c> caches the fragment on <c>session_start</c> and splices it into
-/// <c>_event.systemPrompt</c> from <c>pi.on("before_agent_start", …)</c>, keyed on
-/// <c>ctx.sessionManager.getSessionFile()</c> matching the cached session file. A renamed lifecycle
-/// event, a <c>before_agent_start</c> payload that stops carrying <c>systemPrompt</c>, or a
-/// <c>getSessionFile()</c> that returns something else on a future Pi build would silently stop
-/// delivery while every unit test in this suite still passed — those tests assert the bytes kcap
-/// writes and the text of the extension we generate, never what Pi's runtime does with either. Cursor
-/// is the standing counterexample in this epic: byte-perfect output, model receipt not guaranteed.
-/// Nothing except this test would notice.</para>
-///
-/// <para><b>Session identity is the session FILE PATH</b> (<c>PiHookCommand.ExtractSessionId</c>): the
-/// header's uuid when the session's first line has been flushed, else the uuid suffix of the
-/// <c>&lt;timestamp&gt;_&lt;uuid&gt;.jsonl</c> filename. The readiness probe below constructs throwaway
-/// filenames of that exact shape for the same reason the OpenCode cert mints throwaway session ids —
-/// each probe must resolve to an identity kcap has never seen, so it spends its own once-per-session
-/// lease rather than the cert's.</para>
-///
-/// <para><b>No <c>VerifiedFloor</c> baseline yet.</b> Unlike the OpenCode cert, this file has never
-/// been run against a live <c>pi</c> + installed extension — the substitution work that produced it was
-/// done by reading <c>PiExtensionInstaller.ExtensionContent</c> and <c>PiHookCommand</c>, not by
-/// observing a real turn. Recording an unverified version string here would be worse than recording
-/// none: a future failure below an unearned floor would be misread as a vendor regression when no floor
-/// was ever established. The first live run must fill in <see cref="VerifiedFloor"/> with the observed
-/// <c>pi --version</c> output (see <c>RecordCertEnvironmentAsync</c>'s console line).</para>
-///
-/// <para><b>The <c>-p</c> stdout-shape assumption is GUARDED, not just disclosed.</b> The positive case
-/// asserts on <c>stdout.Trim()</c> directly on the assumption that print mode writes ONLY the
-/// assistant's final text — unlike OpenCode, which structurally defends that claim by parsing just the
-/// <c>type: "text"</c> NDJSON frames. Because that structural defense has no Pi equivalent, the positive
-/// case instead asserts, BEFORE the nonce assertion, that raw stdout does NOT contain
-/// <see cref="MemoryIndexEmitter.FragmentMarker"/>: if a future <c>pi</c> build ever echoed the injected
-/// system prompt, the marker would ride along with the nonce and turn what would otherwise be a silent
-/// vacuous pass (the negative control cannot catch this — it has no fragment to echo) into a loud,
-/// diagnosable failure. That guard is necessarily partial — a reformatted echo that drops the literal
-/// marker text would not trip it — so the deferred first live run must still eyeball raw stdout by eye,
-/// not just trust the guard.</para>
-///
-/// <para><b>Known flakiness, and which kind it is.</b> Per the shared harness's <c>PositivePrompt</c>,
-/// the positive case asks the model to echo 32 random hex characters; a small/free model can
-/// mistranscribe them. That is a model-capability flake, not a delivery defect — see
-/// <see cref="ModelEnvVar"/> below. Do NOT weaken the assertion to a fuzzy match: an exact echo is the
-/// whole proof that the fragment, and not some other source, produced the answer.</para>
-///
-/// <para>Both tests are <c>[NotInParallel]</c>: the negative control mutates the REAL process-global
-/// <c>disable_memory_index</c> config. <c>[NotInParallel]</c> only prevents concurrency — it restores
-/// nothing — so every test snapshots before creating anything and restores in a <c>finally</c>,
-/// including the unset state.</para>
+/// Certify model receipt through Pi's session_start cache and before_agent_start systemPrompt injection.
+/// Session identity is the session file path: use its header uuid or timestamp_uuid filename fallback.
+/// Readiness probes need fresh identities so they cannot spend the real certification's session lease.
+/// VerifiedFloor must name an observed live build; do not seed an unverified version.
+/// Require an exact nonce echo and reject stdout containing MemoryIndexEmitter.FragmentMarker first:
+/// an echoed system prompt could otherwise pass without model receipt. A reformatted echo can evade
+/// that marker guard, so inspect raw stdout on the first live run. ModelEnvVar can select a model
+/// capable of exact copying; do not weaken the assertion to fuzzy matching.
+/// The negative control mutates real disable_memory_index config. Serialize, snapshot and restore
+/// in finally, including the unset state.
 /// </summary>
 public class PiMemoryIndexLiveCertTests {
     const string LiveGateEnvVar = "KCAP_PI_MEMORY_LIVE";

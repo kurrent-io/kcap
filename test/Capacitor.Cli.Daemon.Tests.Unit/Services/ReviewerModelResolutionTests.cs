@@ -277,14 +277,12 @@ public class ReviewerModelResolutionTests {
         await Assert.That(r.DiagnosticCode).IsNull();
     }
 
-    // === Codex date-sensitivity (Task 8: the report must never feed a dated slug to the resolver) ===
+    // === Codex date-sensitivity (: the report must never feed a dated slug to the resolver) ===
 
     [Test]
     public async Task Codex_DatedSlug_HasADifferentKeyThanTheBareSlug() {
-        // Codex's slug-level key is date-SENSITIVE: a hypothetical dated slug canonicalizes to a
-        // DIFFERENT anchor than the bare slug. This locks the contract that Task 8's resolved-model
-        // report must report the verbatim LaunchModel (bare slug), never a date-suffixed
-        // session-metadata model — the latter would drift the key and fail the server's echo validation.
+        // A dated Codex slug has a different anchor from its bare slug. Report the verbatim LaunchModel,
+        // never date-suffixed session metadata, or the server's model-key echo validation will fail.
         var bare  = CodexReviewerModelResolver.Instance.Resolve("gpt-5-codex");
         var dated = CodexReviewerModelResolver.Instance.Resolve("gpt-5-codex-2025-01-01");
 

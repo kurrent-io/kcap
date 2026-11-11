@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Cursor;
 
 /// <summary>
-/// D0/D1 — round-trips CursorMarkers' quarantine/barrier/heartbeat path helpers and the
+/// round-trips CursorMarkers' quarantine/barrier/heartbeat path helpers and the
 /// quarantine read/write cycle, each test under its own config root.
 /// </summary>
 public class CursorMarkersTests {
@@ -68,7 +68,7 @@ public class CursorMarkersTests {
         await Assert.That(marker!.Value.Reason).IsEqualTo("first reason");
     }
 
-    // Qodo PR #324 finding #4 — Quarantine's file operations must be fail-open, like
+    // Quarantine's file operations must be fail-open, like
     // IsQuarantined/ReadMarker, since it's invoked from CursorRewriteGuard.Reject deep in the
     // watcher's drain loop with no broad exception handler above it. Occupy the marker's own
     // path with a directory so the final File.Move onto it fails; the call must swallow that

@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Acp;
 
 /// <summary>
 /// Typed <c>params</c> payloads for the ACP methods <c>Daemon.Acp.AcpConnection</c> callers
-/// (<c>AcpHostedAgentRuntime</c>, Task 9) send. These exist only so request construction can
+/// (<c>AcpHostedAgentRuntime</c>) send. These exist only so request construction can
 /// go through source-gen (<see cref="JsonSerializer.SerializeToElement{T}(T, System.Text.Json.Serialization.Metadata.JsonTypeInfo{T})"/>
 /// against <see cref="CapacitorJsonContext"/>) instead of the reflection-based overloads, which are
 /// unsafe under NativeAOT. Field names/shapes are pinned to the probe-confirmed wire shapes in
@@ -231,15 +231,8 @@ public sealed record ConfigOptionChoiceDto(
 );
 
 /// <summary>
-/// <c>session/request_permission</c> params sent BY THE AGENT (server-initiated request, handled
-/// via <c>Daemon.Acp.AcpConnection.OnServerRequest</c>). Spec-derived, NOT
-/// probe-confirmed: the probe never observed a real <c>session/request_permission</c> frame
-/// (the probe account's turn ended before any tool call — see
-/// <c>docs/acp-probe-findings.md</c> §"Permission / elicitation requests"). Mirrors the shape
-/// <c>Capacitor.Cli.Tests.Unit.Acp.FakeAcpAgent.BuildRequestPermissionFrame</c> already
-/// builds for tests. <see cref="ToolCall"/> stays an opaque <see cref="JsonElement"/> — its exact
-/// schema is unconfirmed and it is never re-serialized, only forwarded to the server as
-/// <see cref="AcpInteractionRequest.ToolInput"/> best-effort (see <c>AcpInteractionBridge</c>).
+/// ToolCall is opaque JSON because its full schema is not verified here. Forward the original
+/// payload for audit rather than reconstructing it; AcpInteractionBridge validates decision semantics.
 /// </summary>
 public sealed record SessionRequestPermissionParams(
     [property: JsonPropertyName("sessionId")] string              SessionId,
@@ -275,22 +268,11 @@ public sealed record PermissionOutcomeDto(
 );
 
 /// <summary>
-/// Agent→client <c>elicitation/create</c> request params — the STABILIZED ACP shape
-/// (agent-client-protocol #1779, 2026-07-24; <c>schema/v1/schema.json</c>
-/// <c>CreateElicitationRequest</c>), replacing the pre-stabilization draft this daemon was
-/// originally modeled on (whose <c>options</c> array never existed on any stabilized wire).
-/// Mode variants: <c>"form"</c> carries <see cref="RequestedSchema"/>; <c>"url"</c> carries
-/// <see cref="ElicitationId"/> + <see cref="Url"/> (unsupported by this client — cancelled).
-/// Scope variants: session-scoped (<see cref="SessionId"/>) or request-scoped
-/// (<see cref="RequestId"/>, unsupported — cancelled). Every member is nullable at the DTO
-/// layer: <c>Capacitor.Cli.Daemon.Acp.AcpInteractionBridge</c> owns ALL semantic validation
-/// (a non-nullable C# string would not guarantee the wire supplied one). The daemon now
-/// advertises the <c>elicitation</c> client capability (form mode only — see
-/// <see cref="ElicitationCapabilities"/> and <c>AcpHostedAgentRuntime</c>'s initialize call
-/// sites), the end-to-end multi-select work having shipped; this lane also still answers
-/// UNSOLICITED frames spec-correctly instead of with the old malformed <c>{outcome}</c> result.
-/// <see cref="RequestedSchema"/> is forwarded to the server verbatim for audit (capped
-/// server-side); the daemon's own <c>ElicitationSchemaClassifier</c> parses it separately.
+/// Use the stabilized CreateElicitationRequest shape: form mode carries requestedSchema;
+/// URL mode and request-scoped variants are unsupported and cancelled. Keep members nullable at
+/// this DTO boundary because non-nullable C# annotations do not validate incoming JSON.
+/// The bridge owns semantic validation; the classifier parses the schema separately from the
+/// verbatim server-side audit copy. Responses must use the stabilized wire result shape.
 /// </summary>
 public sealed record ElicitationCreateParams(
     [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

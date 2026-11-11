@@ -86,10 +86,7 @@ public class CursorLiveSubagentIntegrationTests {
     /// </summary>
     [Test]
     public async Task live_agent_id_matches_the_dashless_id_the_import_path_would_use() {
-        // Exercises the payload seam DIRECTLY. This previously drove a child sessionStart and
-        // asserted a subagent-start came back — the exact child-lifecycle trigger this suite no
-        // longer asserts (see the class doc). The parity property lives in the builder, not in
-        // how the builder happens to be reached, so nothing is lost by testing it here.
+        // Exercise payload parity at the builder seam independently of which lifecycle path invokes it.
         var childRaw = Guid.NewGuid().ToString();  // dashed, as Cursor emits
         var childId  = CursorImportSource.NormalizeCursorSessionId(childRaw);
         var parentId = CursorImportSource.NormalizeCursorSessionId(Guid.NewGuid().ToString());

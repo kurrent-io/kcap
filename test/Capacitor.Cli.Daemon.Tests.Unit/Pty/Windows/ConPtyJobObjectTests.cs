@@ -3,7 +3,7 @@ using Capacitor.Cli.Daemon.Pty.Windows;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Windows;
 
 /// <summary>
-/// W1 (spec §4.1): every hosted-agent PTY on Windows is created already-bound to a
+/// W1: every hosted-agent PTY on Windows is created already-bound to a
 /// KILL_ON_JOB_CLOSE job — the OS itself kills the leader AND every descendant the instant
 /// the job handle's last reference closes (clean dispose, crash, or an external kill of the
 /// daemon). No managed reap layer is exercised on Windows once this is proven; these tests

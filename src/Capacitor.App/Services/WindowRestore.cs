@@ -28,7 +28,7 @@ public sealed class WindowRestore {
         window.Hide();
     }
 
-    /// Call before Show(). A window this never hid is only brought back from Minimized.
+    // Call before Show. A window this never hid is only brought back from Minimized.
     public void BeforeShow(Window window) {
         if (_hiddenAs is not { } state) {
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;

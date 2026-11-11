@@ -627,16 +627,8 @@ public class AntigravityReviewerLaunchTests {
     }
 
     /// <summary>
-    /// An interactive (hosted) launch runs — it is not refused — and it runs under the SAME per-launch
-    /// isolated home the reviewer gets, with the widened permission flag the reviewer never gets.
-    ///
-    /// <para>Both halves are measured facts rather than preferences. The refusal this replaces claimed
-    /// an inherited HOME would let agy's capture hooks spawn a watcher that holds the turn's stdout
-    /// open; four piped runs under a real HOME, on a kcap predating the descriptor fix, all reached
-    /// EOF in 6–16s, so the wedge does not reproduce. What those runs DID show is that each was also
-    /// recorded by the hook lane as its own watcher session — and this runtime is already the
-    /// transcript source, so an inherited HOME would not add capture, it would DUPLICATE it. Isolation
-    /// is the fix here, not a cost, which is why the hosted arm keeps it.</para>
+    /// Hosted Antigravity needs the same isolated HOME as a reviewer to prevent duplicate hook capture,
+    /// while only the hosted arm receives the widened permission flag.
     /// </summary>
     [Test]
     public async Task An_interactive_launch_is_hosted_under_the_isolated_home_with_permissions_widened() {
@@ -1164,11 +1156,8 @@ public class AntigravityReviewerLaunchTests {
 
         await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_auth_unavailable");
 
-        // ALL THREE, and the third is the one that regressed: an earlier revision named only the
-        // switch and the project, and an operator following it exactly still got
-        // `authentication required` — because ADC's default location is under the HOME this launch
-        // redirects, and neither of those two carries a path. A remedy that leaves the operator
-        // where they started is worse than no remedy, so the message is pinned, not just its code.
+        // Include the explicit ADC credential path in the remedy: isolated HOME hides ADC's default
+        // location, so naming only the auth switch and project still leaves the launch unauthenticated.
         await Assert.That(ex.Message).Contains("AGY_ADC_AUTH");
         await Assert.That(ex.Message).Contains("GOOGLE_CLOUD_PROJECT");
         await Assert.That(ex.Message).Contains("GOOGLE_APPLICATION_CREDENTIALS");
@@ -1183,11 +1172,8 @@ public class AntigravityReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The control for the test above, and it must carry NON-EMPTY output that simply is not an auth
-    /// signal. An earlier revision used a child that said nothing at all — a mutation check showed
-    /// that made the assertion vacuous, because a null-diagnostics child is rejected by the pattern
-    /// match before the classifier is ever consulted, so a classifier hard-wired to <c>true</c>
-    /// survived. With real, unrelated output the classifier is the guard that decides.
+    /// Supply nonempty, unrelated diagnostics as the control. Empty output bypasses the auth classifier
+    /// entirely and would not detect a classifier that labels every observed message as an auth failure.
     /// </summary>
     [Test]
     public async Task A_first_turn_that_dies_with_unrelated_output_is_not_reported_as_an_auth_failure() {

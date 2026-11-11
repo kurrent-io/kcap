@@ -48,9 +48,7 @@ public class GeminiReviewerCapabilityTests {
     }
 
     /// <summary>
-    /// The direction that matters, and it is the inverse of what this gate used to do: a NEWER build is
-    /// admitted with no operator action. Refusing every vendor release was the treadmill the
-    /// certified-set model was abandoned for, and exact-match only relocated it onto the operator.
+    /// A newer build clears the recorded minimum without another operator affirmation.
     /// </summary>
     [Test]
     [Arguments("0.55.0")]

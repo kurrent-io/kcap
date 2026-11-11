@@ -244,7 +244,7 @@ public class AppStartupTests {
     /// App is OutputType=WinExe, so a normal GUI launch has no console: a startup failure (bad
     /// config, window construction throw) reported only to Console.Error would make the app
     /// silently vanish. BuildStartupErrorWindow is a plain, visible window with a copyable (SelectableTextBlock) lead
-    /// line plus the exception's full ToString(). This proves the rendered text actually carries
+    /// Line plus the exception's full ToString. This proves the rendered text actually carries
     /// both, the same way MainWindowSmokeTests proves bound VM text actually reaches the screen.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -343,7 +343,7 @@ public class AppStartupTests {
 
     /// A dialog resolved normally (button click, before any cancellation) must not have its
     /// registration fire later and try to re-close an already-closed window — the registration is
-    /// disposed as soon as the tcs completes, so a later Cancel() is a silent no-op.
+    // Disposed as soon as the tcs completes, so a later Cancel() is a silent no-op.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task WireDialogCancellation_after_normal_resolution_ignores_a_later_cancel() {
@@ -401,7 +401,7 @@ public class AppStartupTests {
 
     static readonly TimeSpan LoopSignalBound = TimeSpan.FromSeconds(30);
 
-    /// A startup failure AFTER service.Start()/_service assignment (e.g. BuildAndShowMainWindow
+    // A startup failure AFTER service.Start()/_service assignment (e.g. BuildAndShowMainWindow
     /// throwing) must dispose the live IPC pump/socket before ShowStartupError: closing the error
     /// window force-shuts-down via desktop.Shutdown(1), which bypasses OnShutdownRequested and its
     /// async DisposeAsync entirely, so nothing else would ever clean it up. Drives
@@ -512,7 +512,7 @@ public class AppStartupTests {
         await Assert.ThrowsAsync<OperationCanceledException>(() => lane.RunAsync(request, CancellationToken.None));
     }
 
-    /// TryShutdown() in the DEFERRED shutdown path (OnShutdownRequested -> DisposeAndShutdownAsync,
+    // TryShutdown() in the DEFERRED shutdown path (OnShutdownRequested -> DisposeAndShutdownAsync,
     /// e.g. Cmd+Q while the startup-error window is still up) must carry the exit code: a default
     /// 0 would overwrite the startup failure with an apparent success. Drives
     /// DisposeAndConfirmShutdownAsync directly: a real DaemonClientService (fakes, disposal
@@ -691,7 +691,7 @@ public class AppStartupTests {
 
     /// Closing the window while no quit is in progress cancels the close and hides instead — the
     /// window instance survives (Closed never fires), which is what lets ShowMainWindow re-show
-    /// it: Avalonia refuses to Show() a window that was really closed.
+    // It: Avalonia refuses to Show() a window that was really closed.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Close_hides_window() {

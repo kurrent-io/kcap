@@ -214,39 +214,11 @@ internal sealed class AgentHookPoster(
     static readonly TimeSpan DrainThrottle = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Task 4 (Task 12: centralized): bounded, best-effort drain of the cross-vendor
-    /// lifecycle + transcript spools. Introduced in Task 4 as a per-vendor call from each
-    /// JSON-payload dispatcher's <c>Handle</c>; Task 12 centralized the call site into
-    /// <c>Program.cs</c>'s <c>case "hook":</c> (before dispatch, non-Codex) so it runs exactly once
-    /// per invocation and additionally covers Claude/Cursor, which never called it directly. Codex
-    /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
-    /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
-    /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>
-    /// directly instead.
-    ///
-    /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
-    /// EVERY prompt (Kiro's <c>agentSpawn</c>, OpenCode's <c>session.idle</c>-driven re-fire), so an
-    /// un-throttled drain would attempt a ~1.5s network round-trip per prompt during a server outage.
-    /// A cross-vendor on-disk stamp (<c>{spoolDir}/.last-drain</c>) caps attempts to one per
-    /// <see cref="DrainThrottle"/>. An in-memory guard can't help — every hook is a fresh AOT process
-    /// — so the stamp must be on disk. The drain is global (one pass replays ALL sessions' backlog),
-    /// so a single shared stamp is the correct granularity; it also throttles the reap that piggybacks
-    /// on the same gate. This is the Kiro-side analogue of the event-type gate applied to Copilot,
-    /// whose per-turn <c>agentStop</c>/<c>notification</c> events skip this call entirely.</para>
-    ///
-    /// <para><b>Skips on auth lapse.</b> Every POST would 401 and stop the pass at its first entry,
-    /// so the budget is better left to the vendor's own hook; the backlog waits for the login.</para>
-    ///
-    /// <para><b>Fresh client (review #3 — documented deviation).</b> The brief's Step 3
-    /// suggested reusing the vendor's authenticated client, but the drain runs at the top of the
-    /// dispatcher BEFORE any lifecycle POST, and the vendors never hold a reusable client — each
-    /// <see cref="PostOrSpoolAsync(string,string,string,HookSpool,string,string)"/> builds and
-    /// disposes its own internally. Threading a client through purely for reuse would leak an
-    /// <see cref="HttpClient"/> into every code path (including those that never drain). A fresh,
-    /// budget-scoped client built and disposed here is the cleaner seam.</para>
-    ///
-    /// Never throws — a spool-drain hiccup must not disrupt the vendor's own hook.
+    /// Drain once per hook invocation without letting a backlog failure interrupt the vendor's hook.
+    /// Throttle globally with an on-disk stamp: hooks are fresh processes, and a pass replays all sessions,
+    /// so an in-memory or per-session guard would add repeated outage round trips to every prompt.
+    /// Skip an auth lapse rather than spend the vendor hook's budget on a pass that immediately gets 401.
+    /// Codex drains in background after writing its stdout contract.
     /// </summary>
     public Task DrainSpoolsAsync(HookSpool lifecycle, TranscriptSpool transcript, string? sessionId)
         => DrainSpoolsCoreAsync(lifecycle, transcript, sessionId,

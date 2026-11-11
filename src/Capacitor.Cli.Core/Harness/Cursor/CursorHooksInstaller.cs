@@ -13,10 +13,8 @@ public static class CursorHooksInstaller {
     public const string MarkerFileName = ".kcap-hooks-version";
 
     /// <summary>
-    /// True when the user has previously installed Cursor hooks via setup or
-    /// <c>kcap plugin install --cursor</c>. Marker file presence OR an
-    /// existing <c>kcap hook --cursor</c> entry in hooks.json — the
-    /// hooks-json fallback covers pre-marker installs.
+    /// Refresh only an existing Cursor hook install, identified by its marker or owned hook entry.
+    /// The config-entry fallback keeps markerless installs refreshable.
     /// </summary>
     public static bool IsInstalled(string hooksPath) {
         var dir = Path.GetDirectoryName(hooksPath);

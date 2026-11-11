@@ -24,8 +24,8 @@ class CommentSyntaxTests(unittest.TestCase):
 
     def test_banned_patterns(self):
         examples = {
-            "spec-coordinate": ["§4.2", "§ 3", "Task 12", "finding 2", "Decision 4", "Phase B", "Phase 2", "(D2a)"],
-            "review-artifact": ["Qodo #1", "Bugbot", "CodeRabbit", "Codex review", "round-4 review", "round4 fix", "round 2 finding", "BLOCKER-1"],
+            "spec-coordinate": ["§4.2", "§ 3", "Task 12", "Task B4", "finding 2", "finding #3", "Decision 4", "Phase B", "Phase B2-b", "Phase 2", "Phase-2", "(D2a)"],
+            "review-artifact": ["Qodo #1", "Bugbot", "CodeRabbit", "Codex review", "round-4 review", "round4 fix", "round 2 finding", "BLOCKER-1", "review fix #7", "Fix #4", "PR #244 review", "code-review r3", "Round-2 follow-up findings"],
             "change-narration": ["pre-fix", "an earlier revision", "an earlier version", "an earlier draft"],
         }
         for rule, examples in examples.items():
@@ -34,7 +34,7 @@ class CommentSyntaxTests(unittest.TestCase):
                     self.assertEqual(self.found(".cs", "// " + example), [(1, rule)])
 
     def test_allowed_language(self):
-        for text in ["a token the server no longer accepts", "previously accepted wire shape", "review round 2", "Task runner", "Phase encoding", "RFC 8628 §3.4"]:
+        for text in ["a token the server no longer accepts", "previously accepted wire shape", "review round 2", "flow-review round 2 findings", "stale round 1 findings text", "Task runner", "Phase encoding", "RFC 8628 §3.4"]:
             with self.subTest(text=text):
                 self.assertEqual(self.found(".cs", "// " + text), [])
         self.assertEqual(self.found(".cs", "// RFC 8628 §3.4; §4.2"), [(1, "spec-coordinate")])

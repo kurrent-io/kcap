@@ -200,7 +200,7 @@ sealed class AntigravityHookCommand(
             SessionStartMemoryHookSupport.FlowsLaneDisabled(HarnessId.Antigravity, harnesses, audience: audience),
             budget.Remaining);
 
-        // Task 6: spawn-before-post. Route through the shared spool-aware poster (which
+        // spawn-before-post. Route through the shared spool-aware poster (which
         // replaced this dispatcher's former bespoke poster) — a lapse/outage durably spools the
         // payload for a later drain AND still proceeds to spawn the watcher, so capture never
         // depends on lifecycle-POST delivery. Only a permanent Failed withholds the watcher.
@@ -400,7 +400,7 @@ sealed class AntigravityHookCommand(
 
     /// <summary>
     /// Safely read a string field: returns null when the key is absent OR the value is a
-    /// non-string JSON shape (number/object/array). <c>JsonNode.GetValue&lt;string&gt;()</c>
+    /// Non-string JSON shape (number/object/array). <c>JsonNode.GetValue&lt;string&gt;</c>
     /// throws on a shape mismatch, which would break the hook's fail-open contract.
     /// </summary>
     static string? Str(JsonObject payload, string key) => AsString(payload[key]);

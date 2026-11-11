@@ -116,7 +116,7 @@ public class HtmlStructureTests {
             .IsEqualTo("doc(indent(p('note'),details#0{'A'}(p('a'))))");
     }
 
-    /// Qodo wraps every details body in `dl`/`dd`, nested items included. Leaving those indents
+    /// wraps every details body in `dl`/`dd`, nested items included. Leaving those indents
     /// stacks with the nested section's own inset and pushes lists mid-pane. Pros/cons written as
     /// `- ➕` / `- ➖` become bold `+` / `-` paragraphs so the bullet and faint emoji drop away.
     [Test]
@@ -188,7 +188,7 @@ public class HtmlStructureTests {
         await Assert.That(Trees.MaxDepth(refused)).IsEqualTo(GitHubHtmlPass.MaxDepth);
     }
 
-    /// The shape of a Qodo review: a finding's details around quoted nested details, closed by a
+    /// The shape of a review: a finding's details around quoted nested details, closed by a
     /// block that also holds a trailing rule, and a context section of divs and comments.
     [Test]
     public async Task A_qodo_review_converts_whole() {

@@ -1,9 +1,8 @@
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Shared symlink/cycle/depth-guarded file enumeration for import discovery.
-/// Only Claude previously resolved link targets + deduped by real path; every routed source
-/// now shares this so a symlinked/large session tree can't loop, explode, or abort a pass.
+/// All import sources share symlink resolution, real-path deduplication, and depth/cycle guards
+/// so a linked or oversized session tree cannot loop or abort discovery.
 /// </summary>
 internal static class GuardedDiscovery {
     public static IEnumerable<string> EnumerateFiles(string root, string pattern, int maxDepth = 8, bool recursive = true) {

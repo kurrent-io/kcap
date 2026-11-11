@@ -136,21 +136,10 @@ public static class AgentsSkillsInstaller {
     }
 
     /// <summary>
-    /// True when the user has previously installed kcap skills via setup
-    /// or <c>kcap plugin install --skills</c>. The npm postinstall hook
-    /// uses this to decide whether to refresh on upgrade (it does) vs. install
-    /// for the first time (it doesn't — that's setup's job).
+    /// Refresh only an existing skills installation; setup owns first installation.
+    /// A marker or an owned kcap-prefixed folder identifies markerless installs. An edited folder
+    /// retained beside a manifest is user-owned and must not authorize topping up the installation.
     /// </summary>
-    /// <remarks>
-    /// Detection is the marker file OR any owned <c>kcap-&lt;name&gt;</c>
-    /// folder under <paramref name="targetDir"/>. The folder fallback covers
-    /// users whose install predates the marker — without it, the very first
-    /// upgrade onto a marker-aware build would no-op and leave stale skills
-    /// untouched, defeating the auto-refresh entirely. After a successful
-    /// refresh <see cref="Install"/> writes the marker, so subsequent upgrades
-    /// take the fast path. A folder left beside a manifest is one <see cref="Remove"/> kept because the
-    /// user edited it, so it is not an install a refresh may top up.
-    /// </remarks>
     public static bool IsInstalled(string targetDir) {
         if (File.Exists(Path.Combine(targetDir, MarkerFileName))) return true;
 

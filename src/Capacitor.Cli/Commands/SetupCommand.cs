@@ -791,7 +791,6 @@ sealed class SetupCommand(
         WriteRule(new Rule("[bold green]Welcome to kcap[/]").Centered());
 
 
-        // Check if already configured
         var activeProfile  = profile.ActiveName;
         var existing       = profile.Profiles.GetValueOrDefault(activeProfile);
         var existingTokens = await store.LoadAsync(activeProfile);
@@ -808,7 +807,6 @@ sealed class SetupCommand(
             }
         }
 
-        // Step 1: Server
         WriteRule(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Server);
         string serverUrl;
@@ -899,7 +897,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 2: Login
         WriteRule(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
         _json?.Started(SetupJsonReport.SignIn);
 
@@ -991,7 +988,6 @@ sealed class SetupCommand(
         // A local server has one user, so there is no audience to ask about.
         var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
 
-        // Step 3: Default session visibility
         WriteRule(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
@@ -1050,7 +1046,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 4: Harnesses
         WriteRule(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Harnesses);
         await Console.Out.WriteLineAsync("  kcap records sessions by installing hooks into your harnesses.");
@@ -1190,10 +1185,8 @@ sealed class SetupCommand(
             RegisterCopilotMcp:       () => HarnessMcpProjections.Copilot.Register(copilot.McpConfigJson, home),
             InstallCopilotInstructions: () => AgentInstructionsWriter.Write(
                 copilot.InstructionsMd, KcapAgentInstructions.Body),
-            // Skills are already current when the on-disk marker matches this build AND
-            // every owned kcap-* folder is present; used to skip the prompt + re-copy
-            // (mirrors PluginCommand's postinstall fast path). A missing/stale marker — or a
-            // deleted skill folder — reads as "not current" → prompt + install (self-heals).
+            // A matching version marker is insufficient if any owned skill folder is missing.
+            // Require both so the fast path cannot conceal deleted payloads.
             AgentSkillsCurrent:       AgentsSkillsInstaller.IsCurrent,
             RegisterOpenCodeMcp:      () => HarnessMcpProjections.OpenCode.Register(opencode.McpConfigJson, home),
             InstallOpenCodeInstructions: () => AgentInstructionsWriter.Write(
@@ -1320,7 +1313,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 5: Daemon name + save
         WriteRule(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Daemon);
 
@@ -1364,7 +1356,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Save config
         var activeName     = "default";
         var defaultProfile = new Profile();
         string? previousDaemonName = null;
@@ -1451,7 +1442,6 @@ sealed class SetupCommand(
             await Console.Out.WriteLineAsync();
         }
 
-        // Step 6: Import past sessions
         WriteRule(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Import);
 
@@ -1466,7 +1456,7 @@ sealed class SetupCommand(
 
         // Auth requirements are satisfied when no login is required at all (provider
         // None), or the login this run just did (or already had) produced a usable,
-        // non-expired token — not merely "provider != None" (Decision 9).
+        // non-expired token — not merely "provider != None".
         // "usable token" = refresh-aware (mirrors the import path's own auth): an expired but
         // refreshable token still counts. The probe is wrapped so a token I/O / refresh failure
         // degrades to an ineligible (best-effort) skip rather than throwing out of setup — the

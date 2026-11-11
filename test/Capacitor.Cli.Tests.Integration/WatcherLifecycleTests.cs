@@ -168,7 +168,7 @@ public class WatcherLifecycleTests {
         await Assert.That(File.Exists(successorPidFile)).IsTrue();
     }
 
-    // #550: a session watcher must stop the child watchers it spawned on its own way out — they
+    // a session watcher must stop the child watchers it spawned on its own way out — they
     // have no parent-pid watchdog and the server's StopWatcher only reaches the session watcher's
     // connection, so the parent's teardown is the only thing that knows they exist. One live and
     // one already-dead child in the same batch: both pid files must be gone afterwards (the dead

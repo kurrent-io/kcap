@@ -17,8 +17,7 @@ public class McpFlowsServerTests {
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root),
             new FixedCapacitorHttpClient(), NoTelemetry.Startup, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), time: TimeProvider.System);
 
-    // The ack retry's 2s wait now runs on the injected clock, so these tests stay instant while
-    // still asserting the real schedule (VirtualFlowRetryClock.Delays records every requested wait).
+    // Advance the injected clock while recording requested delays to verify the retry schedule without waiting.
     static VirtualFlowRetryClock Clock() => new();
 
     [Test]
@@ -319,9 +318,8 @@ public class McpFlowsServerTests {
             """;
         var node = JsonNode.Parse(body)!.AsObject();
 
-        // Pins the carried Minor from Task 2's review: a malformed (non-object) array entry must
-        // be skipped, not throw — FormatPolledRoundResult has no try/catch, so a throw here would
-        // turn a terminal result into a generic internal error.
+        // Skip malformed array entries: FormatPolledRoundResult has no outer catch, so throwing would turn
+        // a terminal result into a generic internal error.
         var text = McpFlowsServer.FormatPolledRoundResult(node, "f1", out var pendingIds);
 
         await Assert.That(text).Contains("from tester [msg-a1]: first");
@@ -476,7 +474,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task StartFlowAsync_with_model_posts_exactly_one_v4_request_with_protocol_4_body() {
-        // §2.7 B3: a model override is orthogonal to park-capability, so a v4 client routes a
+        // A model override is orthogonal to park-capability, so a v4 client routes a
         // model start to /v4 too (the superset route applies the model AND records protocol 4).
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
@@ -646,7 +644,7 @@ public class McpFlowsServerTests {
         server.Given(Request.Create().WithPath("/api/flows/review/start/v2").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody(
                 """{"flow_run_id":"f1","status":"running","round_id":null,"round_number":null}"""));
-        // The model path now lands on /v4 (B3 superset route); it needs the model acknowledgement
+        // The model path now lands on /v4 (the superset route); it needs the model acknowledgement
         // fields, or the response is rejected before the body assertion below is reached.
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody(V3RunningWithAck));
@@ -692,7 +690,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task CheckReviewerModelResult_uncoded_non_success_body_is_surfaced_not_masked() {
-        // Qodo #2: a non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+        // a non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
         // old-server signal — it returns null so the caller surfaces the real status/body, rather
         // than masking a genuine failure as reviewer_model_protocol_required.
         var result = McpFlowsServer.CheckReviewerModelResult(

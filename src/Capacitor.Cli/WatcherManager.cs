@@ -378,9 +378,8 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
-    /// Stops every watcher in <paramref name="keys"/> concurrently (#550, a session watcher's
-    /// teardown of its spawned children). <see cref="KillWatcher"/>'s SIGTERM-first gives each
-    /// child its final drain; its 5s force-kill bound keeps a wedged child from stalling the caller.
+    /// Stop watchers concurrently so one child's final drain does not serialize the whole teardown.
+    /// KillWatcher sends SIGTERM first and caps each wait at five seconds before forcing termination.
     /// </summary>
     public Task KillWatchers(IEnumerable<string> keys) =>
         Task.WhenAll(keys.Select(key => KillWatcher(key)));

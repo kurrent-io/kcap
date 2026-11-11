@@ -48,10 +48,8 @@ public class KiroReviewerFirstOutputTests {
         var conn    = new AcpConnection(agent.ClientWriteStream, agent.ClientReadStream, NullLogger.Instance);
         var process = new TrackingProcess();
 
-        // GENUINELY silent. The fake's default prompt script emits an agent_message_chunk, so a
-        // plain fake is not the peer this bound is about — an earlier version of this test failed for
-        // exactly that reason, and it was the test that was wrong. An empty update list plus a held
-        // response models a child that accepted the turn and then produced nothing at all.
+        // Use empty updates and hold the response to model a silent child. The fake's default script
+        // emits a message chunk and therefore cannot exercise the first-output deadline.
         agent.EnqueuePromptScript(
             updates ?? [], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
         agent.HoldPromptResponses = new TaskCompletionSource();

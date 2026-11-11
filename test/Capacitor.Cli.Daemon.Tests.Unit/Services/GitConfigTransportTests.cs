@@ -184,7 +184,7 @@ public class GitConfigTransportTests {
             WorktreeManager.RequireProbeApplied(
                 "filter.probe=1.smudge\ncat\0filter.probe=1.required\nfalse\0", probe));
 
-        // The key cut at its '=' — what the transport this replaces did.
+        // Preserve the whole config key, including any equals sign in its name.
         Assert.Throws<GitConfigTransportException>(() =>
             WorktreeManager.RequireProbeApplied("filter.probe\n1.smudge=\0", probe));
     }

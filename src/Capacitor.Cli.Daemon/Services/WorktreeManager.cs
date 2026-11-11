@@ -552,37 +552,11 @@ public partial class WorktreeManager(
     }
 
     /// <summary>
-    /// Git config that must be forced on any git command that checks out or commits branch content.
-    ///
-    /// <para>A relative <c>core.hooksPath</c> — <c>.githooks</c> is a widespread convention, and a
-    /// documented setup step in many repos — makes the hook scripts themselves branch content. Git then runs
-    /// the branch's <c>post-checkout</c> during <c>worktree add</c>, i.e. BEFORE anything in this class has
-    /// had a chance to neutralize the tree. Review caught it: the MCP strip is pointless if creating the
-    /// tree already executed the branch's code. Pointing <c>core.hooksPath</c> at a daemon-owned empty
-    /// directory disables the whole mechanism for these commands without touching the operator's config.</para>
-    ///
-    /// <para><b>This covers the hook-DIRECTORY mechanism only.</b> Clean/smudge filters are a separate
-    /// vector — a branch selects them through its own <c>.gitattributes</c>, and this flag does not affect
-    /// them at all — handled by <see cref="BranchFilterOverridesAsync"/>, which disables every defined
-    /// driver rather than trying to judge commands. Git's config-based hooks
-    /// (<c>hook.&lt;name&gt;.event</c> / <c>.command</c>) are not covered and need not be: measured on git
-    /// 2.49, that config is undocumented and does not run.</para>
-    /// </summary>
-    /// <summary>
-    /// A <c>core.hooksPath</c> that cannot contain a hook, because it cannot be a directory.
-    ///
-    /// <para>Three earlier revisions of this created an empty directory instead, and every review round
-    /// found a new problem with it: a fixed temp name another user could pre-create with a
-    /// <c>post-checkout</c>; a mkdir-then-chmod race; a Windows temp location not guaranteed private; an
-    /// empty <c>LocalApplicationData</c> silently yielding a RELATIVE path; and one leaked directory per
-    /// daemon process. All of that was incidental to needing somewhere with no hooks in it.</para>
-    ///
-    /// <para><c>/dev/null</c> is not a directory, so git finds no hook there and there is nothing to
-    /// create, permission, or clean up — and nothing for another user to squat. Measured: with the
-    /// branch's own <c>core.hooksPath</c> a committed <c>post-checkout</c> RUNS during
-    /// <c>worktree add</c>; with this it does not, and the worktree is still created normally. Safe on
-    /// Windows by construction too — git there either resolves it the same way or treats it as a relative
-    /// path that does not exist, and both mean no hook.</para>
+    /// Disable hook discovery before git materializes branch content: a relative hooksPath can execute
+    /// branch-authored post-checkout during worktree creation, before MCP neutralization can run.
+    /// Use a nondirectory sentinel so disabling hooks needs no mutable directory, permissions, or cleanup.
+    /// This does not disable attribute filters; they need their own overrides. Prove override transport
+    /// at the git invocation so suppression cannot silently disappear.
     /// </summary>
     internal const string NoHooksPath = "/dev/null";
 
@@ -659,16 +633,9 @@ public partial class WorktreeManager(
         [new("submodule.recurse", "false"), new("fetch.recurseSubmodules", "false")];
 
     /// <summary>
-    /// Neutralizes the tree, and UNDOES the creation if that fails.
-    ///
-    /// <para>Neutralization is fail-closed, and it necessarily runs after <c>worktree add</c> has already
-    /// registered a worktree, a branch and (for a review launch) a fetched ref. Throwing straight out of
-    /// <see cref="CreateAsync"/> means no <see cref="WorktreeInfo"/> ever reaches the caller, so nothing
-    /// downstream can clean any of that up and repeated failures accumulate registrations — review caught
-    /// it. Rolling back here keeps fail-closed without making it a leak.</para>
-    ///
-    /// <para>A rollback failure is swallowed in favour of the original exception: the reason the launch is
-    /// being refused is more useful to an operator than whatever went wrong while tidying up after it.</para>
+    /// Neutralization can fail after git has registered the worktree, branch, and fetched ref.
+    /// Roll those back here because the caller receives no WorktreeInfo with which to clean them up.
+    /// Keep rollback failures secondary to the original reason for refusing the launch.
     /// </summary>
     async Task StripOrRollBackAsync(WorktreeInfo created, string pinned, string? pinnedCommonDir) {
         try {
@@ -719,13 +686,8 @@ public partial class WorktreeManager(
     static readonly GitConfigOverride[] ParallelCheckout = [new("checkout.workers", "0")];
 
     /// <summary>
-    /// The filter overrides for a context, LOGGED as a side effect.
-    ///
-    /// <para>Single entry point on purpose. Each of the three materialising paths previously called the
-    /// inventory directly and remembered — or forgot — to log separately: standalone lost its logging when
-    /// a redundant source-level call was deleted, and the borrowed snapshot never had it, so a reviewer on
-    /// an LFS host silently got pointer files. Two rounds, one class. Computing and logging together means
-    /// a fourth path cannot repeat it.</para>
+    /// Compute and log filter overrides together so every materialization path reports pointer-file
+    /// and filter suppression behavior without depending on callers to remember a separate log step.
     /// </summary>
     async Task<GitConfigOverride[]> FilterOverridesForAsync(string gitContextPath) {
         var overrides = await BranchFilterOverridesAsync(gitContextPath, time);
@@ -760,13 +722,10 @@ public partial class WorktreeManager(
                 repoPath, string.Join(", ", drivers));
     }
 
-    /// <summary>Removes branch-authored vendor MCP configuration and logs what went, so an operator whose
-    /// repo legitimately ships one can tell that kcap removed it rather than that the vendor ignored it.
-    /// <para>Called by the worktree creation paths. Borrowed snapshots do not call it — they never
-    /// materialise these files in the first place, because <see cref="PlanSnapshotExclusions"/> now folds in
-    /// the same list. An earlier version of this comment claimed "every creation path calls this", which
-    /// was not true and papered over exactly the gap that left <c>.kiro/settings/mcp.json</c> in a borrowed
-    /// snapshot.</para></summary>
+    /// <summary>
+    /// Log removals so the operator can distinguish config neutralization from vendor behavior.
+    /// Worktree creation removes these files; borrowed snapshots exclude them before materialization.
+    /// </summary>
     void StripWorkspaceMcpConfig(string worktreePath) {
         var removed = NeutralizeWorkspaceMcpConfig(worktreePath);
 
@@ -1115,15 +1074,11 @@ public partial class WorktreeManager(
         }
     }
 
-    /// <summary>Rebuilds <paramref name="targetWorktreePath"/> from a pristine independent generation,
-    /// then replaces the live contents — the source repository is never used as the reviewer's cwd, and
-    /// reviewer-created git metadata cannot survive into the next round. Vendor config is excluded along
-    /// the ancestor chain of <paramref name="sourceCwd"/>.
-    /// <para><b>Takes a SOURCE cwd, not a target execution path.</b> The overloads this replaces took only
-    /// a target-side path, which left no way to obtain the git-derived prefix except by re-deriving it from
-    /// the target filesystem — the derivation that lets the launch and the classifier disagree. They had no
-    /// production callers, so removing them is cheaper than preserving an unsafe inference. There is no
-    /// fallback: a caller that cannot supply a source cwd cannot use this.</para></summary>
+    /// <summary>
+    /// Rebuild from an independent pristine generation so reviewer-created git metadata cannot persist
+    /// between rounds. Take the source cwd to derive the git-relative prefix used for both exclusion
+    /// and launch; a target-side filesystem path cannot safely reconstruct it.
+    /// </summary>
     public async Task SyncFromSourceAsync(
             string sourceRepoRoot, string sourceCwd, string targetWorktreePath,
             string[] excludePaths, CancellationToken ct) {
@@ -1598,16 +1553,10 @@ public partial class WorktreeManager(
                candidate.StartsWith(prefix, FileSystemPathComparison);
     }
 
-    /// <summary>Resolves links along the whole existing prefix of <paramref name="path"/>, then appends
-    /// whatever does not exist yet literally.
-    /// <para>The snapshot root is created by the very call that checks it, so "resolve the final path" is
-    /// undefined. Appending the tail without re-resolving also means a component substituted after the
-    /// check cannot be followed by this function.</para>
-    /// <para><b>Every component, not just the deepest.</b> An earlier version tested <c>LinkTarget</c> on
-    /// the deepest existing component alone, so with <c>/alias -> /real</c> and an ordinary
-    /// <c>/alias/existing</c>, resolving <c>/alias/existing/new</c> returned the lexical path and the
-    /// containment check still missed a snapshot root reaching inside the source through the ancestor
-    /// link. Chains are followed with a bounded iteration count rather than trusted to terminate.</para>
+    /// <summary>
+    /// Resolve every existing ancestor, not just the deepest component: /alias/existing/new can reach
+    /// inside the source through /alias even when existing is not a link. Bound link-chain traversal,
+    /// then append the nonexistent tail literally without following replacements made after the check.
     /// </summary>
     static string ResolveDeepestExisting(string path) {
         const int maxLinkHops = 64;
@@ -1747,27 +1696,12 @@ public partial class WorktreeManager(
             right.TryGetValue(pair.Key, out var other) && pair.Value.Mode == other.Mode &&
             pair.Value.Length == other.Length && pair.Value.Hash.AsSpan().SequenceEqual(other.Hash));
 
-    /// <summary>Marks the excluded config paths <c>skip-worktree</c> so their absence from the snapshot is
-    /// not reported as a change — otherwise a tracked <c>src/.mcp.json</c> shows up as a DELETION in the
-    /// reviewer's <c>git status</c> and diff, and can produce a review finding about a deletion kcap
-    /// performed.
-    ///
-    /// <para><b>Reads the DESTINATION index, not the source's.</b> The destination is a fresh clone checked
-    /// out at <c>HEAD</c>, so a path staged-but-uncommitted in the source is in the SOURCE index and absent
-    /// here. Intersecting against the source listing would batch such a path and fail
-    /// <c>update-index</c> on a perfectly legitimate snapshot.</para>
-    ///
-    /// <para><b>Membership decides, so failure is real.</b> The previous version swallowed every error to
-    /// cover "absent from the index". With membership established from the listing, a failure means
-    /// something else went wrong and it propagates.</para>
-    ///
-    /// <para><b>Batched on stdin.</b> The expanded set is <c>paths × depth</c> entries and O(depth²)
-    /// aggregate bytes, so argv could exceed <c>ARG_MAX</c>; <c>--stdin</c> also makes the paths literal,
-    /// where an ancestor directory named <c>:foo</c> or <c>-foo</c> would otherwise be read as pathspec
-    /// syntax.</para>
-    ///
-    /// <para>The targets are the index's OWN spellings, taken from the listing, so they are guaranteed to
-    /// name entries git will accept — and the case decision is made once, by the shared classifier.</para>
+    /// <summary>
+    /// Mark excluded config as skip-worktree so intentional suppression is not presented as a deletion.
+    /// Read the destination index: source-staged paths can be absent from the fresh clone and make an
+    /// update against source membership fail. Once destination membership is established, propagate errors.
+    /// Batch literal paths on stdin to avoid ARG_MAX and pathspec interpretation of names such as :foo.
+    /// Keep git's own path spelling and the shared classifier's case decision.
     /// </summary>
     static async Task ApplyReservedIndexPolicyAsync(
             string destination, SnapshotExclusionPlan plan, bool caseSensitive, TimeProvider time,
@@ -1776,13 +1710,9 @@ public partial class WorktreeManager(
         var targets = new List<string>();
         foreach (var record in SplitNulRecords(indexListing)) {
             ct.ThrowIfCancellationRequested();
-            // Every non-Unrelated match, Exact AND Descendant — the same set ReadSourceManifestAsync
-            // excludes. An earlier version marked only Exact on the reasoning that a descendant of a
-            // config path is not an index entry, which is backwards: the reserved parent may not be an
-            // entry, but a repository CAN track `.codex/config.toml/child` (the config pathname as a
-            // directory), and each such child is a real index entry. Omitted from the snapshot and left
-            // unmarked, it reads as a deletion — and an ordinary git operation in the snapshot could
-            // restore it and rebuild a live vendor-config tree.
+            // Mark both exact and descendant config matches, just as the manifest excludes them. Git can
+            // track .codex/config.toml/child with the reserved config name as a directory; leaving its omitted
+            // child unmarked makes it appear deleted and allows git to restore a live vendor-config tree.
             if (ClassifyReservedPath(record.Span, plan.Reserved, caseSensitive).Kind
                     == ReservedPathMatchKind.Unrelated)
                 continue;
@@ -2102,23 +2032,9 @@ public partial class WorktreeManager(
     }
 
     /// <summary>
-    /// The proof gate, applied where the overrides are HANDED TO GIT rather than where they are composed.
-    ///
-    /// <para>An earlier revision proved the transport inside each producer of containment config instead.
-    /// Review found the hole that shape leaves: <c>ReadGitRelativeCwdAsync</c> passes
-    /// <c>core.quotePath=false</c> and is not a containment producer, so it carried an override past no
-    /// proof at all — a fourth call site would have had the same problem, and a fifth. Gating on "this run
-    /// carries overrides" cannot be forgotten by a new caller.</para>
-    ///
-    /// <para><b>Including <c>sourceReadOnly</c>'s own pair.</b> A revision of this gated only on
-    /// caller-supplied config, reasoning that losing that flag's suppressions costs a maintenance run.
-    /// Review corrected it: <c>core.fsmonitor</c> set to anything other than a boolean names a HOOK
-    /// PROGRAM, which git runs whenever a command refreshes the index, so silently dropping
-    /// <c>core.fsmonitor=false</c> re-exposes an execution surface — not a performance one. There is no
-    /// per-key classification here for the same reason there is no filter-driver exemption: the argument
-    /// for "this one is harmless to lose" is exactly what keeps turning out to be wrong. Every git run
-    /// carrying ANY override proves the transport first. The cost is that a git too old to honour the
-    /// transport cannot be used for these reads either — that git already cannot create a worktree.</para>
+    /// Prove override transport at every git invocation carrying overrides, including sourceReadOnly.
+    /// Silently losing core.fsmonitor=false can execute an operator-configured hook program; these
+    /// settings are not merely performance preferences. A git too old to honor transport must fail closed.
     /// </summary>
     static Task ProveConfigTransportIfCarryingAsync(
             string cwd, TimeProvider time, bool sourceReadOnly, GitConfigOverride[] config) =>
@@ -2220,10 +2136,8 @@ public partial class WorktreeManager(
             psi.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
         }
 
-        // Every override this process passes goes through ONE composition, so the indices and the count are
-        // allocated in a single place. An earlier revision wrote the sourceReadOnly pair at fixed indices
-        // 0 and 1 with a fixed count of 2, which both displaced any inherited entry and left no room for a
-        // caller's own overrides.
+        // Compose all inherited, read-only, and caller overrides in one place so their indices and
+        // GIT_CONFIG_COUNT cannot clobber each other.
         GitConfigOverride[] composed = sourceReadOnly
             ? [.. SourceReadOnlyConfig, .. config ?? []]
             : config ?? [];

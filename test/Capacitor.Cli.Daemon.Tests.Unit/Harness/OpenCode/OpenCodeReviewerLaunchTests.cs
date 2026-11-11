@@ -413,15 +413,9 @@ public class OpenCodeReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The name is interpolated into a GLOB, so anything a glob engine reads as syntax would widen the
-    /// entry past that server. Unreachable today (every injected name is a per-launch alias this daemon
-    /// generated) — the guard exists so the day a name starts coming from elsewhere is a refusal rather
-    /// than a wider surface.
-    ///
-    /// <para>The arguments deliberately range past the obvious <c>* ? [ ]</c> into extglob, brace, pipe
-    /// and backslash syntax: an earlier revision enumerated metacharacters and review pointed out the
-    /// list could not be exhaustive for an engine we do not control. The implementation is now a
-    /// character ALLOWLIST, which is total by construction, and these cases pin that.</para>
+    /// MCP names become glob entries, so unsupported syntax must be rejected rather than widen access.
+    /// Exercise extglob, braces, pipes, and backslashes as well as obvious metacharacters; a character
+    /// allowlist must cover the full admitted alphabet rather than guess every engine's syntax.
     /// </summary>
     [Test]
     [Arguments("kcap-*")]

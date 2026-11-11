@@ -1,16 +1,9 @@
 namespace Capacitor.Cli.Core.Mcp;
 
 /// <summary>
-/// How one harness projects the kcap MCP servers into its own config: which subset it receives, which
-/// on-disk shape renders it, and the ownership-marker name it is written under.
-///
-/// <para><b>Why this exists.</b> That tuple used to be written out twice for every harness — once in
-/// <c>PluginCommand</c>'s per-target registration and once in <c>SetupCommand</c>'s installer
-/// delegates — with nothing tying the two together. Either copy could drop a server, pick the wrong
-/// shape, or use a different marker, and the other route would keep working, so a harness could
-/// silently project a different set of tools depending on whether the user ran
-/// <c>kcap plugin install</c> or <c>kcap setup</c>. Conformance tests can only catch that by
-/// exercising both routes; one definition makes it unrepresentable.</para>
+/// Setup and plugin installation must project the same server subset, config shape, and ownership
+/// marker for a harness. A shared definition prevents either installation path from exposing a
+/// different MCP surface.
 /// </summary>
 public sealed record HarnessMcpProjection(
     string                        Harness,

@@ -3,42 +3,12 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli;
 
 /// <summary>
-/// Answers "which session am I serving, and where is it working?" for a long-lived MCP server
-/// process, from what the RUNNING harness told this process — not from whatever environment the
-/// process happened to inherit.
-///
-/// <para>The distinction matters because an MCP stdio server is spawned once, at harness startup,
-/// from the launching process's environment, and then serves every tool call for the rest of that
-/// session:</para>
-/// <list type="bullet">
-///   <item><description><c>KCAP_SESSION_ID</c> is written by the session-start hook into the
-///   harness's shell-env file, which the harness applies to its <b>shell</b> invocations. It is
-///   therefore correct inside a session's own shell, but an MCP server never sees that file — it
-///   only sees the value that was exported in whichever process launched the harness. When one
-///   session launches another (a driver session started from a parent session's shell), the child
-///   harness — and so every MCP server it spawns — inherits the <b>parent's</b>
-///   <c>KCAP_SESSION_ID</c>, and nothing ever rewrites it. Requester context resolved from it then
-///   names the wrong session for the whole life of the driver.</description></item>
-///   <item><description>The process's current directory has the same failure mode whenever the MCP
-///   registration does not pin a <c>cwd</c>: the server inherits the launching process's directory,
-///   which for a session launched from another session's checkout is the <b>parent's</b> checkout,
-///   not the driver's.</description></item>
-/// </list>
-///
-/// <para>Claude Code exports <c>CLAUDE_CODE_SESSION_ID</c> and <c>CLAUDE_PROJECT_DIR</c> into every
-/// process it spawns, setting both to <b>its own</b> session and project directory — so a child
-/// harness overwrites any inherited values for its own children. That makes them per-process
-/// evidence of the harness we are actually running under, which is exactly what an inherited
-/// variable cannot be, and when present it wins.</para>
-///
-/// <para>Nesting keeps that evidence honest in one direction only: a Claude Code session rewrites
-/// these variables for its own children, but a DIFFERENT harness launched from inside a Claude Code
-/// session (<c>codex exec</c> from a Bash tool call, say) inherits them and leaves them in place. So
-/// a co-present signal from another harness makes ours unprovable, and resolution falls back to the
-/// ambient signals rather than relocating the requester into the OUTER harness's checkout.</para>
-///
-/// <para>A daemon-hosted agent whose harness names no session of its own carries
-/// <c>KCAP_DAEMON_AGENT_ID</c> instead, and its daemon is asked which session that agent is bound to.</para>
+/// An MCP server keeps its startup environment for the whole session. Nested launches can inherit
+/// a parent's KCAP_SESSION_ID and cwd, so those alone cannot prove the current requester.
+/// Claude's per-process session/project variables identify its own children, but another harness
+/// launched inside Claude can inherit them too: co-present harness evidence makes that attribution
+/// unprovable. Use the ambient fallback rather than relocate into the outer session's checkout.
+/// Daemon-hosted agents can resolve their own KCAP_DAEMON_AGENT_ID through the daemon instead.
 /// </summary>
 static class HarnessRequesterContext {
     /// <summary>Set by the running Claude Code process in every child process's environment.</summary>

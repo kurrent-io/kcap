@@ -51,10 +51,7 @@ public class DaemonNameResolverTests {
 
     [Test]
     public async Task Resolve_NameArgOverridesEnvVar() {
-        // DaemonRunner previously had the env var trump --name,
-        // which inverted the usual CLI convention (explicit flag is the
-        // strongest signal). The new precedence puts --name first so the
-        // user's explicit choice always wins.
+        // An explicit --name must take precedence over the environment's daemon name.
         Environment.SetEnvironmentVariable("KCAP_DAEMON_NAME", "from-env");
 
         try {

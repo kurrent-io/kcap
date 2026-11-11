@@ -33,10 +33,8 @@ public class McpTelemetryTests {
         await Assert.That(probe.Events.Single().Properties["ok"]!.GetValue<bool>()).IsFalse();
     }
 
-    // Tool arguments can contain repo paths, prompts, and session ids. An earlier draft of this
-    // test checked the absence of three literal key names (arguments/params/input), which would
-    // still pass against an implementation that leaked argument data under any OTHER key.
-    // Inverted to an allowlist so ANY unexpected key fails the test, regardless of its name.
+    // Tool arguments can contain paths, prompts, and session ids. Assert the allowed telemetry keys
+    // so argument data cannot leak under an unexpected key that a short denylist would miss.
     [Test]
     public async Task No_argument_data_is_carried() {
         var probe = StartCapturing();
@@ -115,7 +113,7 @@ public class McpTelemetryTests {
 
     [Test]
     public async Task ResponseOk_is_true_when_isError_is_absent() {
-        // The real wire shape on success: BuildToolResult's `isError ? true : null` combined with
+        // The real wire shape on success: BuildToolResult's `isError ? true: null` combined with
         // DefaultIgnoreCondition.WhenWritingNull means a successful call omits the key entirely.
         var response = """{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}""";
 

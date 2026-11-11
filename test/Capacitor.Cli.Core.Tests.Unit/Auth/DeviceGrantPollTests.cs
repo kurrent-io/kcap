@@ -58,7 +58,7 @@ public class DeviceGrantPollTests {
 
             polls++;
 
-            // A gateway's HTML, not JSON — exactly what used to NRE.
+            // A gateway can return HTML; classify it without dereferencing a JSON response.
             return polls == 1
                 ? new HttpResponseMessage(HttpStatusCode.TooManyRequests) {
                       Content = new StringContent("<html><body>Too Many Requests</body></html>", Encoding.UTF8, "text/html")

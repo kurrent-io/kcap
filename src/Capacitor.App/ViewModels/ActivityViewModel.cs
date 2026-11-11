@@ -25,7 +25,7 @@ public sealed record ActivityRow(
 /// on the UI thread (UiTicker's doc comment), so no ObserveOn is needed here.
 ///
 /// That constructor-scoped subscription is why this is IDisposable: the shared ticker is
-/// Publish().RefCount(), so its Interval only tears down when the LAST subscriber goes — a
+/// Publish.RefCount, so its Interval only tears down when the LAST subscriber goes — a
 /// subscriber nobody disposes keeps a 1 Hz timer (and this object) alive past teardown, including
 /// the startup-failure path where the app lingers on an error window. App disposes it in reverse
 /// creation order with the other UI services.

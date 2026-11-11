@@ -69,7 +69,7 @@ public class SequencedSettlementWireTests {
         await Assert.That(pruneJson).Contains("\"generation\":3");
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): the report/connect payloads advertise
+    // the report/connect payloads advertise
     // HighestResolutionGeneration (the daemon-lifetime monotonic high-water) alongside the resolved-
     // candidates array, so once sparse acks prune entries the server still knows the generation frontier.
     // Additive/optional — old-shape construction leaves it null.

@@ -4,41 +4,12 @@ using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 namespace Capacitor.Cli.Tests.Unit.Harness.OpenCode;
 
 /// <summary>
-/// Env-gated certification that the SessionStart memory index actually reaches the model on SST
-/// OpenCode. The raw-stdout contract and the plugin's static shape are covered against fakes by
-/// <c>OpenCodeSessionStartMemoryTests</c>; this is the only place asserting the end-to-end claim.
-///
-/// <para><b>This cert matters more here than for any other harness in the epic.</b> Injection rides
-/// <c>experimental.chat.system.transform</c> — an API OpenCode names EXPERIMENTAL. An upstream rename,
-/// a changed payload shape, or a dropped trigger would stop delivering the fragment to the model while
-/// every unit test in the suite still passed, because those tests assert the bytes kcap writes and the
-/// text of the plugin we generate, not what OpenCode does with either. Cursor is the standing
-/// counterexample: byte-perfect output, model receipt not guaranteed. Nothing except this test would
-/// notice.</para>
-///
-/// <para><b>Verified experimental-API baseline: opencode 1.18.9.</b> That is the build against which
-/// the system-transform contract was measured
-/// (<c>docs/probes/2026-08-07-opencode-acp/</c> established the ACP surface; the transform contract
-/// itself was read out of the 1.18.9 binary and is recorded here): the hook is triggered from
-/// <c>LLMRequestPrep.prepare</c> once per LLM request with
-/// <c>({sessionID, model}, {system: string[]})</c>, the array arrives holding ONE pre-joined element,
-/// mutations to it are honoured, and the same hook name is separately triggered by the agent-config
-/// generator with NO <c>sessionID</c>. A future build that breaks any of those is what this cert is
-/// for — if it fails, re-read that contract before assuming a kcap defect.</para>
-///
-/// <para><b>Known flakiness, and which kind it is.</b> The positive case asks the model to echo 32
-/// RANDOM hex characters, and a small free model mistranscribes them often enough to fail the run —
-/// observed twice while certifying, both times with the fragment demonstrably delivered (the readiness
-/// probe confirmed the index carried the nonce, and an isolated turn on a patterned nonce reproduced it
-/// exactly). That is a model-capability flake, not a delivery defect, which is why the assertion puts
-/// the model's own answer in the failure message: <c>NONE</c> means go read the transform, a near-miss
-/// of the nonce means point <see cref="ModelEnvVar"/> at a more capable model. Do NOT weaken the
-/// assertion to a fuzzy match — an exact echo is the whole proof.</para>
-///
-/// <para>Both tests are <c>[NotInParallel]</c>: the negative control mutates the REAL process-global
-/// <c>disable_memory_index</c> config. <c>[NotInParallel]</c> only prevents concurrency — it restores
-/// nothing — so every test snapshots before creating anything and restores in a <c>finally</c>,
-/// including the unset state.</para>
+/// Certify real model receipt through experimental.chat.system.transform; static plugin assertions
+/// cannot prove the vendor invokes it. The callback must mutate the request's system array and ignore
+/// agent-config generation calls without sessionID.
+/// Require an exact nonce echo. NONE points to delivery; a near match may need a more capable ModelEnvVar,
+/// not a fuzzy assertion. The negative control changes real disable_memory_index config: serialize,
+/// snapshot and restore in finally, including the unset state.
 /// </summary>
 public class OpenCodeMemoryIndexLiveCertTests {
     const string LiveGateEnvVar = "KCAP_OPENCODE_MEMORY_LIVE";

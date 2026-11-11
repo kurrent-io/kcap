@@ -51,22 +51,12 @@ internal static class BorrowedReviewRuntimeRoots {
         Path.Combine("etc", "ca-certificates", "cert.pem")
     ];
 
-    /// <summary>Installation prefixes whose layout has actually been MEASURED, and the only ones whose
-    /// software subdirectories are granted recursively.
-    ///
-    /// <para>Holding <c>bin</c> and <c>lib</c> is a compatibility shape, not a trust boundary, and it is
-    /// unsafe wherever it is applied: a configured vendor at <c>/private/tmp/reviewer/bin/copilot</c>
-    /// beside a <c>lib</c>, or anything under <c>/Users/Shared</c> or a mounted work directory, would
-    /// otherwise have had those trees granted recursively. Those locations are daemon-user-writable and
-    /// outside home, so neither the root nor the home exclusion catches them.</para>
-    ///
-    /// <para>So the shape is used to FIND a candidate and this list decides whether it may be trusted.
-    /// Only Apple Silicon Homebrew has been measured, and this feature is macOS/arm64-only, so the list
-    /// has one entry. Adding a per-user layout (nvm, Volta, <c>~/.local</c>) means measuring it against a
-    /// real vendor start — the same bar the platform gate is held to — not widening the classifier.</para>
-    ///
-    /// <para>A vendor installed anywhere else gets its executable literal and nothing more, so the
-    /// launch fails loudly at exec rather than quietly reading adjacent files.</para></summary>
+    /// <summary>
+    /// A bin/lib layout locates a candidate but cannot establish trust: user-writable prefixes outside
+    /// HOME could otherwise gain recursive reads. Grant software subdirectories only beneath verified
+    /// installation prefixes; unknown layouts receive the executable literal and fail loudly if insufficient.
+    /// Per-user layouts need an actual vendor-start verification before receiving broader access.
+    /// </summary>
     internal static readonly ImmutableArray<string> MeasuredPrefixes = ["/opt/homebrew"];
 
     /// <summary>How far up from the binary to look for an installation prefix before giving up.</summary>

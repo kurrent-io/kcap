@@ -8,7 +8,7 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 3: exercises <see cref="AcpTranscriptForwarder"/>'s seq assignment, unacked
+/// Option B: exercises <see cref="AcpTranscriptForwarder"/>'s seq assignment, unacked
 /// buffer, and ack state machine (gap-resend, terminal-drop, send-throw-then-recover) against a fake
 /// send delegate and a fake transcript channel — no real <c>ServerConnection</c>/SignalR involved.
 /// The ack rules under test are transcribed EXACTLY from
@@ -29,7 +29,7 @@ public class AcpTranscriptForwarderTests {
         new() { Kind = AcpEventKind.SessionStarted, RawSessionId = "sess-1" };
 
     static AcpEventEnvelope NewTextEnvelope(string text) =>
-        new() { Kind = AcpEventKind.AssistantText, Text = text }; // Seq=0 placeholder, per task 2's contract
+        new() { Kind = AcpEventKind.AssistantText, Text = text }; // Seq=0 placeholder, per 's contract
 
     // A distinct item per call unless named: ephemerals of one item supersede each other in a drain.
     static AcpEventEnvelope NewEphemeralEnvelope(string text, string? itemId = null) =>
@@ -87,14 +87,12 @@ public class AcpTranscriptForwarderTests {
         await Assert.That(sentSeqsInCallOrder).IsEquivalentTo(new long[] { 0, 1, 2, 3 });
     }
 
-    // ── §2.7 B4: resume/rebind seq initialization ─────────────────────────────────────────────────
+    // ── resume/rebind seq initialization ─────────────────────────────────────────────────
 
     [Test]
     public async Task Resume_mode_suppresses_SessionStarted_and_numbers_new_events_from_resumeFromSeq_plus_one() {
-        // A parked-reviewer rebind: initialEnvelope null + resumeFromSeq = the canonical AcceptedSeq. The
-        // forwarder must send NO SessionStarted and number round-2's first new event at AcceptedSeq+1.
-        // Pre-fix the forwarder ALWAYS started at seq 0, so seq 6/7 here would be <= AcceptedSeq(5) and the
-        // server would silently dedup (LOSE) them — this assertion is what catches that.
+        // A rebind sends no SessionStarted and numbers its first new event at canonical AcceptedSeq+1;
+        // restarting at zero would silently deduplicate the resumed round's new events.
         const long resumeFromSeq = 5;
 
         var channel = NewChannel();
@@ -277,7 +275,7 @@ public class AcpTranscriptForwarderTests {
             // Call 1: initial envelope (seq 0) — normal ack. Call 2: the [seq1,seq2] batch — the
             // server reports AcceptedSeq=0 (unchanged — both were silently dropped by an
             // already-terminal binding) with ExpectedNextSeq null: AcceptedSeq(0) < highest-sent(2)
-            // AND ExpectedNextSeq==null is exactly the terminal-drop signature (design spec §2.3).
+            // AND ExpectedNextSeq==null is exactly the terminal-drop signature.
             return Task.FromResult(new AcpBatchAck(0, 0));
         }
 

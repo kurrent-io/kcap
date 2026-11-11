@@ -167,7 +167,7 @@ public class LifecyclePromptViewModelTests {
         await Assert.That(vm.ShowDeclineButton).IsTrue();
     }
 
-    /// Prompt() passes DaemonVersion "1.0.0" and CliVersion "1.1.0"; for update-ready those are
+    // Prompt() passes DaemonVersion "1.0.0" and CliVersion "1.1.0"; for update-ready those are
     /// the candidate and the installed build.
     [Test]
     [NotInParallel("AvaloniaSession")]

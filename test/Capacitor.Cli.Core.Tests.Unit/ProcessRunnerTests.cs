@@ -4,26 +4,10 @@ using System.Runtime.InteropServices;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
-/// Drives the REAL ProcessRunner (the System.Diagnostics.Process wrapper in Capacitor.Cli.Core),
-/// unlike every other seam test, which substitutes FakeProcessRunner. IProcessRunner is a seam for
-/// process-driven services' consumers, not for ProcessRunner's guts, so a real child process is
-/// the only way to exercise the actual stdout/stderr drain wiring.
-///
-/// Regression coverage for a Qodo review finding: the stdout drain task used to be discarded
-/// (`_ = process.StandardOutput.ReadToEndAsync(ct)`), so a fault on it (e.g. once `ct` fired,
-/// since it shared the caller's token) surfaced nowhere — an unobserved task exception. The fix
-/// keeps both drain tasks, reads them with CancellationToken.None (so a detached child's pipes
-/// never back up just because the caller stopped waiting), and awaits both via Task.WhenAll on
-/// the normal path.
-///
-/// Not covered here: (1) asserting the abandoned-drain-observed property on the cancellation
-/// path — that would require hooking the process-wide TaskScheduler.UnobservedTaskException
-/// event and forcing GC/finalization on a non-deterministic schedule, which is not a reliable CI
-/// signal and would pollute every other test in the process. (2) A large-output stress test to
-/// prove no deadlock — analytically unnecessary: both ReadToEndAsync calls start consuming their
-/// pipes immediately, concurrently with WaitForExitAsync, which is the standard
-/// non-deadlocking pattern for redirected process IO; a real regression there would hang this
-/// class's own tests until the CI timeout, which is still a signal, just not a fast one.
+/// Use real children to exercise stdout/stderr draining; a fake runner cannot establish pipe behavior.
+/// Both drain tasks must stay observed, and caller cancellation must not stop drains for a detached
+/// child. Avoid process-wide unobserved-exception events and forced finalization as nondeterministic
+/// assertions; pipe deadlocks are bounded by the test host's timeout.
 public class ProcessRunnerTests {
     static (string FileName, string[] Args) EchoBothStreamsThenExit(int exitCode) =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows)

@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// Option B task 1 wire-compat guard: <see cref="AcpEventEnvelope"/>/<see cref="AcpBatchAck"/>
+/// Option B wire-compat guard: <see cref="AcpEventEnvelope"/>/<see cref="AcpBatchAck"/>
 /// are daemon-local mirrors of the server's <c>Capacitor.Server.Core.Acp.AcpEventEnvelope</c> /
 /// <c>AcpBatchAck</c> (read from the ai-686 server worktree,
 /// <c>src/Capacitor.Server.Core/Acp/AcpEventEnvelope.cs</c>) — they cross the SignalR wire to the
@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 /// field-name/casing mismatch would silently break the wire. The server has NO explicit
 /// <c>[JsonPropertyName]</c> attributes on either type — every property rides the wire under its
 /// SignalR JSON protocol's <c>JsonNamingPolicy.SnakeCaseLower</c> (see server
-/// <c>Program.cs</c>'s <c>AddSignalR().AddJsonProtocol(...)</c>), exactly the same naming policy this
+/// <c>Program.cs</c>'s <c>AddSignalR.AddJsonProtocol(...)</c>), exactly the same naming policy this
 /// context's <see cref="CapacitorJsonContext"/> is configured with (see the
 /// <c>AcpInteractionRequest_round_trips_and_uses_snake_case_server_contract_wire_shape</c> precedent
 /// in <c>AcpInteractionMessagesTests</c>). This test locks in every expected snake_case property name
@@ -135,7 +135,7 @@ public class AcpEventEnvelopeWireCompatTests {
 
     [Test]
     public async Task TokenUsage_envelope_carries_every_additive_bucket_under_its_snake_case_name() {
-        // The additive-billing delta lane (§2.4). Distinct from the context-occupancy Usage kind —
+        // The additive-billing delta lane. Distinct from the context-occupancy Usage kind —
         // the server stamps these into $usage metadata. Field-for-field vs the server mirror.
         var env = new AcpEventEnvelope(
             Kind:                       AcpEventKind.TokenUsage,
@@ -166,7 +166,7 @@ public class AcpEventEnvelopeWireCompatTests {
     [Test]
     public async Task AcpBatchAck_round_trips_a_gap_reject_shape_with_snake_case_field_names() {
         // Mirrors the server's `AcpBatchAck(long AcceptedSeq, long PersistedSeq, long? ExpectedNextSeq = null)`
-        // — a gap-reject ack sets ExpectedNextSeq (the daemon's resend cursor per §2.3).
+        // a gap-reject ack sets ExpectedNextSeq (the daemon's resend cursor per ).
         const string serverShapedJson = """{"accepted_seq":4,"persisted_seq":4,"expected_next_seq":5}""";
 
         var ack = JsonSerializer.Deserialize(serverShapedJson, CapacitorJsonContext.Default.AcpBatchAck);

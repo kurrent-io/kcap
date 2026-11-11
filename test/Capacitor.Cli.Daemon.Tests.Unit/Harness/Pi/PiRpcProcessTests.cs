@@ -197,23 +197,10 @@ public class PiRpcProcessTests {
     }
 
     /// <summary>
-    /// The regression this pins: <c>DisposeAsync</c> used to call <c>_stdinGate.Dispose()</c>, but
-    /// <see cref="SemaphoreSlim.Dispose()"/> does not release outstanding async waiters. That only
-    /// bites when a SECOND writer is genuinely queued in <c>WaitAsync</c> behind a first writer that
-    /// is itself still blocked holding the gate — a single unopposed <c>WriteLineAsync</c> acquires
-    /// the semaphore synchronously and never exercises the disposed-waiter path at all (an earlier
-    /// version of this test raced exactly one write against dispose and was proven vacuous by
-    /// mutation testing: reverting the fix left it green).
-    ///
-    /// <para>So this test manufactures the real precondition directly: A child that never reads its
-    /// stdin (<see cref="StartNonReadingChild"/>) lets writer A block mid-<c>WriteAsync</c>/
-    /// <c>FlushAsync</c> — <c>Process.StandardInput</c>'s <c>AutoFlush</c> is on by default, so
-    /// writing more than the OS pipe buffer can hold with nobody draining it blocks the write itself
-    /// — WHILE HOLDING <c>_stdinGate</c>. Writer B then queues behind A in <c>WaitAsync</c>. Only
-    /// with a real waiter parked on the gate does disposing it (the bug) or leaving it alone (the
-    /// fix) diverge. <c>DisposeAsync</c> then runs concurrently with both; the pre-fix code hangs B
-    /// forever, the fix lets everything settle (faulted is fine — the kill breaks A's pipe and B's
-    /// disposed-check throws) within the bounded wait below.</para>
+    /// Queue a second writer behind a first that holds the stdin gate while blocked on a full pipe.
+    /// A single unopposed write does not exercise outstanding semaphore waiters. Disposing a SemaphoreSlim
+    /// does not release those waiters; process disposal must let both writes settle within the bound,
+    /// even if the blocked write faults after the child is killed.
     /// </summary>
     [Test]
     public async Task DisposeAsync_racing_a_writer_queued_behind_a_blocked_write_never_hangs() {
@@ -236,8 +223,7 @@ public class PiRpcProcessTests {
                       "— if A already finished (e.g. the OS pipe buffer absorbed the whole line) this " +
                       "test proves nothing, exactly like the mutation-caught prior version");
 
-        // B queues in WaitAsync behind A. THIS is the state the pre-fix `_stdinGate.Dispose()` could
-        // strand forever.
+        // Writer B must be queued behind A: disposal must not strand an outstanding semaphore waiter.
         var writeB = SwallowFault(proc.WriteLineAsync("""{"type":"prompt","id":"queued"}""", CancellationToken.None));
 
         var disposeTask = proc.DisposeAsync().AsTask();

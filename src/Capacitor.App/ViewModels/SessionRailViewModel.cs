@@ -21,7 +21,7 @@ namespace Capacitor.App.ViewModels;
 /// The session rail's root: groups → sessions over directory.Rows, grouped and sorted the user's way.
 /// Ctor-scoped and disposable like HomeViewModel — the tree must be live from construction.
 /// ONE ObserveOn at the top of the pipeline: nested group caches are mutated by this outer
-/// pipeline, so every inner Connect() below already fires on the UI thread.
+// Pipeline, so every inner Connect() below already fires on the UI thread.
 public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public const string CapNote = "Loading limit reached · search or narrow the scope for older sessions";
     public const string ScopeLockedTip = "Local version only stores your sessions. Upgrade to work with your team.";

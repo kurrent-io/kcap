@@ -6,27 +6,10 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Harness.Codex;
 
 /// <summary>
-/// The §2.4 bounded forward buffer that decouples the codex app-server stdout reader from SignalR
-/// envelope forwarding. Envelopes are emitted synchronously from the single notification-handling path
-/// (the app-server read loop); the SignalR forwarder drains <see cref="Reader"/> independently.
-///
-/// <para>Overflow policy, fixed by §2.4:</para>
-/// <list type="bullet">
-/// <item><description><b>Canonical envelopes are NEVER dropped.</b> When the buffer is full a canonical
-/// emit BLOCKS the caller — the read loop stops consuming stdout and the app-server blocks on its
-/// writes, which is lossless (a slow reader loses nothing; the app-server buffers/blocks). A gap in the
-/// canonical stream would corrupt the transcript permanently; a stall does not.</description></item>
-/// <item><description><b>Ephemeral envelopes are DROPPABLE.</b> When the buffer is full an ephemeral
-/// emit is dropped rather than blocking (counted in <see cref="DroppedEphemeralCount"/>). The ephemeral
-/// payloads are cumulative content-so-far and the item's canonical completed snapshot converges the
-/// viewer, so a dropped ephemeral is harmless.</description></item>
-/// <item><description><b>Stall watchdog.</b> If a canonical emit stays blocked past
-/// <c>forwardStallSeconds</c>, the buffer fires <c>onStall</c> ONCE (a deterministic terminal fault) and
-/// stops accepting — never an indefinite wedge, and never a silently incomplete canonical transcript
-/// (the fault makes the truncation loud).</description></item>
-/// </list>
-/// Not thread-safe for concurrent emit (single writer = the read loop); the reader side is a standard
-/// channel reader consumed by one forwarder.
+/// Canonical envelopes block the single stdout reader when full: dropping one corrupts the transcript.
+/// Ephemeral payloads are cumulative, so they may drop and converge at the canonical completed snapshot.
+/// If a canonical write exceeds forwardStallSeconds, the watchdog faults the session to unblock the
+/// reader; it must not bypass the queue or silently discard canonical data.
 /// </summary>
 internal sealed class CodexForwardBuffer : IDisposable {
     readonly Channel<AcpEventEnvelope> _channel;

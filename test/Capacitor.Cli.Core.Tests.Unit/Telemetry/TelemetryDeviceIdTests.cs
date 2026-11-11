@@ -69,11 +69,8 @@ public class TelemetryDeviceIdTests {
         await Assert.That(TelemetryDeviceId.ReadPersisted(Config.Root)).IsEqualTo(first);
     }
 
-    // Unlike the old coupled telemetry.json, GetOrCreate has no notion of "enabled" at all — the
-    // file it owns doesn't carry that field. This pins the property that used to require a separate
-    // precedence rule (an earlier revision of the coupled GetOrCreateDeviceId re-checked
-    // state.Enabled itself, which broke KCAP_TELEMETRY=1 overriding a persisted opt-out): calling it
-    // directly always mints/returns an id, full stop.
+    // Device-id persistence has no telemetry-enabled policy. Direct calls always mint or return an
+    // id; enable overrides must not be defeated by a persisted opt-out read inside GetOrCreate.
     [Test]
     public async Task Get_or_create_is_unaffected_by_telemetry_state() {
         TelemetryState.SetEnabled(false, Config.Root);

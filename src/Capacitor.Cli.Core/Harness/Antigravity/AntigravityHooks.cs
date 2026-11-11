@@ -44,11 +44,8 @@ public static class AntigravityHooks {
     public const string PluginVersion = "1.0.0";
 
     /// <summary>
-    /// The plugin manifest (<c>plugin.json</c>) the Antigravity GUI REQUIRES to recognize a
-    /// directory under <c>config/plugins/</c> as a loadable plugin. Without this marker the GUI
-    /// silently ignores the dir and never loads the sibling <c>hooks.json</c> — the reason the
-    /// CLI-dir install shipped in #256 was invisible to the running IDE (GUI re-test).
-    /// <c>name</c> is optional (the GUI defaults it to the dir name) but we set it explicitly.
+    /// The GUI recognizes a config/plugins directory only when plugin.json is present; without it,
+    /// sibling hooks.json is silently ignored. Write the name explicitly instead of relying on dirname.
     /// </summary>
     public static JsonObject BuildPluginManifest() =>
         new() {

@@ -13,9 +13,8 @@ public static class GeminiHooksInstaller {
     public const string MarkerFileName = ".kcap-hooks-version";
 
     /// <summary>
-    /// True when kcap's Gemini hooks were previously installed. Marker file
-    /// presence OR an existing <c>kcap hook --gemini</c> entry in settings.json
-    /// (the latter covers pre-marker installs).
+    /// Refresh only an existing Gemini hook install, identified by its marker or owned hook entry.
+    /// The config-entry fallback keeps markerless installs refreshable.
     /// </summary>
     public static bool IsInstalled(string settingsPath) {
         var dir = Path.GetDirectoryName(settingsPath);

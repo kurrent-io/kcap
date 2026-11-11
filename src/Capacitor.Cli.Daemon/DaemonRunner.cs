@@ -148,7 +148,7 @@ public static partial class DaemonRunner {
             }
         }
 
-        // Phase B (D3): reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
+        // reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
         config.ReviewerMaxLifetime = ParseSecondsEnv("KCAP_REVIEWER_MAX_LIFETIME", config.ReviewerMaxLifetime);
         config.RestartTurnWait = ParseSecondsEnv("KCAP_RESTART_TURN_WAIT_SECONDS", config.RestartTurnWait);
         config.ResumeMaxAge = ParseSecondsEnv("KCAP_RESUME_MAX_AGE_SECONDS", config.ResumeMaxAge);
@@ -157,7 +157,7 @@ public static partial class DaemonRunner {
             config.ResumeConcurrency = resumeConcurrency;
         config.ReviewerIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_IDLE_TIMEOUT", config.ReviewerIdleTimeout);
         config.ReviewerResumableIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_RESUMABLE_IDLE_TIMEOUT", config.ReviewerResumableIdleTimeout);
-        // Task 12: daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
+        // daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
         // of the server's own Flows:TurnWedgeCeilingSeconds — see DaemonConfig.ReviewerTurnWedgeCeiling.
         config.ReviewerTurnWedgeCeiling = ParseSecondsEnv("KCAP_REVIEWER_TURN_WEDGE_CEILING", config.ReviewerTurnWedgeCeiling);
 
@@ -321,7 +321,7 @@ public static partial class DaemonRunner {
             );
         }
 
-        // Phase B2-b (sequenced-settlement design §4.2.3): the durable per-daemon state root — used by
+        // the durable per-daemon state root — used by
         // the pre-host boot-check block immediately below AND (further down) by the coverage journal /
         // reviewer-home sweeps. Computed once here so every consumer agrees on the exact same directory.
         var coverageStateDir = config.Store.StateDirectory(config.Name);
@@ -334,12 +334,12 @@ public static partial class DaemonRunner {
         // daemon never gets far enough to touch the network or spawn anything.
         if (await RunBootChecksAsync(config, time) is { } bootCheckExit) return bootCheckExit;
 
-        // Phase B2-b (sequenced-settlement design): pin the per-boot epoch here, before any service is
+        // Pin the per-boot epoch here, before any service is
         // built, so the epoch advertised on DaemonConnect and the orchestrator's own _daemonEpoch (which
         // falls back to config.DaemonEpoch) are provably the same value.
         config.DaemonEpoch ??= Guid.NewGuid().ToString("N");
 
-        // Phase B2-b (sequenced-settlement design §4.2.3): fold the durable coverage boot-chain BEFORE any
+        // fold the durable coverage boot-chain BEFORE any
         // Connect/spawn. this_epoch_contained is true only where OS containment leaves NO recordless
         // survivor class (the Windows Job Object). Fail-closed inside RecordBoot. NullLogger is acceptable
         // this early — the host's logging pipeline isn't built yet.
@@ -457,7 +457,7 @@ public static partial class DaemonRunner {
         if (OperatingSystem.IsWindows()) {
             builder.Services.AddSingleton<IPtyProcessFactory, WinPtyProcessFactory>();
         } else {
-            // L1-managed(a)/(b): one dedicated, daemon-lifetime native thread runs EVERY Unix
+            // one dedicated, daemon-lifetime native thread runs EVERY Unix
             // pty_spawn call (never a thread-pool thread — see UnixSpawnerThread's own doc
             // comment for why). Registered with no factory delegate so DI resolves it via its
             // parameterless constructor, which already starts the thread. host.StopAsync() only
@@ -736,8 +736,7 @@ public static partial class DaemonRunner {
             attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>(), time: time));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
-        // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
-        // agents from the user's own terminal (AI local-attach Phase 1).
+        // The local control socket lets terminal commands manage daemon-hosted agents without the server hub.
         builder.Services.AddSingleton<LocalControlServer>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalControlServer>());
 
@@ -837,9 +836,8 @@ public static partial class DaemonRunner {
         // without any comparison against a validated-build record.
         LogUnattendedVendorIdentities(logger, startupCapabilities);
 
-        // The counterpart of the line above. A withheld vendor used to vanish from advertisement in
-        // silence: the refusal text existed, but only the launch path threw it — and advertisement is
-        // what stops that launch being attempted, so the explanation could never be produced.
+        // Log the advertisement refusal here: a vendor omitted from the advertised set may never reach
+        // the launch path that would otherwise explain its refusal.
         foreach (var withheld in unattendedStatuses.Where(s => s.WithheldReason is not null))
             LogUnattendedVendorWithheld(logger, withheld.Vendor, withheld.WithheldReason!);
 
@@ -895,15 +893,9 @@ public static partial class DaemonRunner {
         // can run null-safely when SIGTERM lands before the orchestrator was ever resolved.
         AgentOrchestrator? orchestrator = null;
 
-        // EVERY exit path from host start onward — success, the nameInUse early-exit, cooperative
-        // shutdown cancelling an in-flight startup await (including host.StartAsync itself: a
-        // hosted service still starting when SIGTERM lands surfaces the cancellation as
-        // TaskCanceledException out of StartAsync — dotnet/runtime#111013 behavior), OR any
-        // startup exception — MUST run the unified teardown so DisposeHostAsync(host) fires and
-        // the process can actually exit instead of hanging or aborting: once the orchestrator is
-        // resolved, the Unix IPtyProcessFactory has pulled in UnixSpawnerThread, whose foreground
-        // (non-background) OS thread parks forever until the ServiceProvider is disposed.
-        // Structural fix; backed by DaemonHostDisposalTests.
+        // Every exit after host start must dispose the service provider, including cancellation during
+        // StartAsync. Resolving the orchestrator creates a foreground UnixSpawnerThread that otherwise
+        // keeps the process alive after hosted services stop.
         var startupExit = await RunGuardedStartupAsync(
             logger,
             lifetime.ApplicationStopping,
@@ -916,7 +908,7 @@ public static partial class DaemonRunner {
                 LogStartupPhase(logger, "socket bound");
                 startupWatch.Entering("reaping agents a prior run left behind");
 
-                // Phase B (D4 §6.4(3)): resolve the orchestrator (which wires OnLaunchAgent +
+                // resolve the orchestrator (which wires OnLaunchAgent +
                 // GetLiveAgents in its ctor) and reap any hosted-agent children that outlived a
                 // PRIOR daemon run — all BEFORE ConnectAsync advertises this daemon and the server
                 // can dispatch launches. Doing it after connect would let new work be admitted
@@ -1135,42 +1127,13 @@ public static partial class DaemonRunner {
         => RunTeardownAsync(logger, BuildDaemonTeardownSteps(daemonLock, orchestrator, connection, host));
 
     /// <summary>
-    /// Builds the production teardown step list. Do NOT reorder: the explicit-dispose-before-
-    /// host-stop sequence is load-bearing (spawner-thread retirement, pinned by
-    /// <c>DaemonHostDisposalTests</c>). <paramref name="orchestrator"/> is nullable because
-    /// cooperative shutdown can land before it was ever resolved (mid <c>host.StartAsync</c>);
-    /// host disposal still releases whatever WAS partially resolved.
-    ///
-    /// LIMITATION: <see cref="RunTeardownAsync"/> contains a throw from each STEP, but it cannot
-    /// make the DI container's own dispose walk (inside <see cref="DisposeHostAsync"/>) resilient
-    /// — a tracked singleton whose Dispose/DisposeAsync throws still aborts the container's
-    /// INTERNAL walk partway, silently skipping the remaining singletons. The helper prevents the
-    /// process abort, not partial DI disposal; each disposable must still contain its own
-    /// failures (ServerConnection and AgentOrchestrator now do). The one skip that could strand
-    /// the process — <see cref="UnixSpawnerThread"/>, whose Dispose retires the FOREGROUND thread
-    /// that otherwise keeps a "shut down" daemon alive forever — is closed by the dedicated
-    /// spawner-retire step below, which runs BEFORE host disposal.
-    ///
-    /// Structural double-teardown sweep (explicit dispose here + a framework-driven dispose of
-    /// the SAME instance) and why each shape is safe today:
-    ///   • ServerConnection / AgentOrchestrator / UnixSpawnerThread: run-once dispose guards.
-    ///   • DaemonLock: disposed explicitly here AND DI-tracked; its Dispose is idempotent
-    ///     (releases the handle once, subsequent calls no-op).
-    ///   • RestartCoordinator / LocalControlServer / LocalPermissionBridge: registered through
-    ///     TWO singleton descriptors each (<c>AddSingleton&lt;T&gt;()</c> + an
-    ///     <c>AddHostedService</c> factory resolving the same instance). Microsoft DI tracks
-    ///     disposables per DESCRIPTOR and does not de-duplicate by reference, so the container's
-    ///     dispose walk visits each such instance TWICE (LocalPermissionBridge's own
-    ///     <c>_disposed</c> doc documents exactly this). LocalPermissionBridge carries its own
-    ///     run-once guard; RestartCoordinator and LocalControlServer inherit
-    ///     <c>BackgroundService.Dispose</c>, which is safe to re-enter under the current
-    ///     Microsoft.Extensions.Hosting behavior (it only cancels its stopping CTS) — a
-    ///     framework-version assumption.
-    ///
-    /// host-stop/host-dispose stay split because <c>host.StopAsync()</c> only STOPS
-    /// IHostedServices — it does NOT dispose the ServiceProvider, so a plain
-    /// <c>AddSingleton&lt;T&gt;()</c> IDisposable is never released by StopAsync alone; disposing
-    /// the host is what disposes the ServiceProvider and therefore every registered singleton.
+    /// Dispose the orchestrator and retire the foreground spawner thread before stopping the host.
+    /// The orchestrator can be absent if startup was interrupted; host disposal must still release
+    /// partially constructed services. A throwing singleton aborts DI's own dispose walk, so explicit
+    /// steps must contain their failures and spawner retirement cannot depend on that walk.
+    /// StopAsync stops hosted services but does not dispose the service provider; both steps are needed.
+    /// Explicit disposal and multiple singleton registrations can revisit the same instance, so service
+    /// disposal must tolerate repeated calls.
     /// </summary>
     internal static (string Name, Func<ValueTask> Action)[] BuildDaemonTeardownSteps(
             IDisposable       daemonLock,
@@ -1286,7 +1249,7 @@ public static partial class DaemonRunner {
         config.MaxConcurrentAgents = max;
     }
 
-    /// <summary>Phase B (D3): parse a seconds-valued env var into a <see cref="TimeSpan"/>
+    /// <summary>parse a seconds-valued env var into a <see cref="TimeSpan"/>
     /// (<c>0</c> → <see cref="TimeSpan.Zero"/>, which disables the bound). Unset/blank/invalid/negative
     /// → the supplied <paramref name="fallback"/>.</summary>
     internal static TimeSpan ParseSecondsEnv(string name, TimeSpan fallback) {
@@ -1348,74 +1311,12 @@ public static partial class DaemonRunner {
     internal static int NameInUseExit(bool supervised) => supervised ? 0 : 3;
 
     /// <summary>
-    /// Whether a reviewer vendor is permitted on this daemon. **Absent means ENABLED** — this is an
-    /// opt-OUT, and it used to be an opt-in. Same polarity as
-    /// <see cref="ParseAcpReconnectFlag"/> now, where it used to be deliberately the opposite.
-    ///
-    /// <para><b>Why the default flipped.</b> The reviewer vendor is a caller-chosen parameter, and
-    /// Claude, Codex, Cursor and Copilot have never been gated at all — each running with FULL tool
-    /// access (shell and write) in the same worktree. <b>On any daemon that also ADVERTISES one of
-    /// those</b> — the overwhelmingly common case — the gate did not widen the CAPABILITY CLASS a
-    /// requester could reach: one it blocked from a gated vendor simply asked for an ungated one with
-    /// more capability, while the honest path paid a service-unit edit and a restart. Two of the four
-    /// gated vendors (Kiro, OpenCode) also run READ-ONLY reviewers, so the strictest policy sat on the
-    /// least dangerous configurations.</para>
-    ///
-    /// <para><b>Three precisions, because earlier revisions of this comment overstated all three</b> —
-    /// review caught each. (1) The predicate is ADVERTISED, not installed: a vendor must also be
-    /// certified and above its version floor, so a daemon with an uncertified Claude advertises no
-    /// ungated vendor either. (2) "Did not widen the capability class" is the true claim, not "excluded
-    /// nobody": even where an ungated vendor exists, this flip adds execution paths with different
-    /// binaries, different vendor-side permission models and different CREDENTIALS — a Gemini reviewer
-    /// burns the operator's Gemini credentials, which is not a subset of "Claude was already
-    /// available". (3) On a daemon that advertises ONLY a gated vendor — installed for hosted work, the
-    /// ordinary reason — these variables were the sole separation between the hosted role and the
-    /// unattended-reviewer role, and the flip genuinely widens what a non-operator requester can cause
-    /// to run with no human in the loop.</para>
-    ///
-    /// <para><b>What actually compensates, stated without inflation.</b> Exactly two things, and the
-    /// floor in the DEFAULT configuration is worth saying plainly: on a fresh daemon that has not been
-    /// configured further, the only thing between a non-operator requester and an unattended gated-vendor
-    /// launch is that the vendor be installed, certified and above its version floor.
-    /// <list type="number">
-    /// <item>The operator keeps an explicit opt-out — and it is REACHABLE on the supported install path:
-    /// <c>ServiceEnvironment</c> carries these four variables into a service unit on
-    /// every platform, DERIVED from the affirmable-reviewer registry so a new vendor cannot be omitted.
-    /// The caveat is timing, not reachability: a supervised daemon's environment is FROZEN at
-    /// <c>kcap daemon service install</c>, so an opt-out set afterwards needs a reinstall to take
-    /// effect.</item>
-    /// <item><c>kcap daemon consent</c> is the only control that scopes unattended launches as such — but
-    /// it DEFAULTS TO ALLOW, so it compensates only for an operator who has configured it, not for the
-    /// average daemon.</item>
-    /// </list></para>
-    ///
-    /// <para><b>The version floor is deliberately NOT a third entry</b>, though it is easy to count as
-    /// one. It constrains which BUILD runs, never whether a non-operator can cause an unattended launch;
-    /// it is seeded automatically at first boot precisely so it never blocks a first launch. It is real
-    /// protection against a different failure — several of these vendors' containment is environment-based
-    /// and fails SILENTLY when a build stops honouring it, which is what
-    /// <c>kcap daemon reviewer affirm</c> exists to remediate. Remediation, not permission.</para>
-    ///
-    /// <para><b>Unset means enabled; a value we cannot read means DISABLED.</b></para>
-    ///
-    /// <para>Those two are not in tension, and the asymmetry is the point. Since unset already enables,
-    /// the only reason to set one of these variables at all is to turn a reviewer OFF — enabling needs no
-    /// variable. So an unrecognised value is not an ambiguous input, it is a FAILED ATTEMPT TO SAY OFF,
-    /// and honouring the evident intent means failing closed. Review caught this: an earlier revision
-    /// failed open here, reasoning from the general "a typo must not take a feature offline" rule, which
-    /// does not transfer to a setting whose only use is to disable.</para>
-    ///
-    /// <para>The direction is also cheap in the wrong case: a typo'd ENABLE attempt (<c>=y</c>,
-    /// <c>=enabled</c>) lands on the pre-change behaviour, which is the safe side, and the operator still
-    /// gets the warning either way.</para>
-    ///
-    /// <para><b>That justification does not generalise, so do not reuse this from anywhere else.</b> It
-    /// rests on TWO facts specific to the four reviewer variables: unset already means enabled, and
-    /// disabling is therefore the only possible intent behind setting one. A setting where unset means
-    /// disabled, or where fail-open was chosen deliberately, needs its own parse and its own reasoning —
-    /// inheriting this one by name would silently import an argument that does not hold. The four
-    /// <c>KCAP_*_UNATTENDED_REVIEWER</c> variables in <see cref="RunAsync"/>'s apply loop are the only
-    /// production callers.</para>
+    /// These reviewer switches are opt-outs: absence enables a vendor; an unreadable value disables it.
+    /// Since disabling requires setting the variable and enabling does not, a typo must not defeat
+    /// an attempted opt-out. Do not reuse this parser for settings with a different default or intent.
+    /// A supervised daemon captures its environment at service installation; changing an opt-out
+    /// requires reinstalling the service. Daemon consent defaults to allow until the operator configures it.
+    /// Build floors protect containment compatibility, not authorization to request a reviewer.
     /// </summary>
     internal static bool ParseConsentFlag(string? value) => ReviewerConsent.IsEnabled(value);
 
@@ -1544,20 +1445,11 @@ public static partial class DaemonRunner {
     }
 
     /// <summary>
-    /// Records the installed build as affirmed the first time a vendor's reviewer is enabled.
-    ///
-    /// <para>Keyed on the record's ABSENCE AS A FILE, not on "Affirmed is null". The store reports null
-    /// for a corrupt or unreadable record too, and seeding on that would (a) re-affirm whatever is
-    /// installed after the record was removed post-upgrade, silently clearing the gate, and (b) attempt
-    /// a write that a directory at the pathname makes throw — bricking a boot on a file that is
-    /// supposed to fail closed, never fatally.</para>
+    /// Seed only when the record file is genuinely absent. A corrupt or unreadable record must fail
+    /// closed rather than affirm the installed build or turn a refusal into a fatal write error.
+    /// Only an explicit vendor opt-out skips seeding; ordinary first launches must not require manual
+    /// affirmation merely because no minimum has been recorded yet.
     /// </summary>
-    /// <param name="enabled">The vendor's opt-out state. Only skips the probe for a vendor the operator
-    /// has EXPLICITLY disabled — which is now the rare case, since the switch defaults to enabled.
-    /// Seeding on the ordinary path is what keeps the version floor from blocking a first launch: with
-    /// no record, the gate answers <c>version_no_minimum</c>, and that is a refusal only
-    /// <c>kcap daemon reviewer affirm</c> can clear. A floor is meant to exclude a build found to be
-    /// bad, not to be an opt-in gate wearing a different hat.</param>
     internal static void SeedReviewerAffirmation(
             string stateDir, string vendor, bool enabled, string binaryPath, Core.Setup.BinaryProbe binaries) {
         if (!enabled) return;

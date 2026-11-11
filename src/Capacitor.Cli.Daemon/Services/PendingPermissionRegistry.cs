@@ -3,24 +3,10 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Correlates a hosted-agent permission request with the server's later decision push.
-///
-/// Background: the daemon used to obtain a permission decision as the return value of
-/// a <c>RequestPermission</c> hub invocation that stayed pending for the entire elicitation
-/// wait. Under SignalR's default <c>MaximumParallelInvocationsPerClient = 1</c> that single
-/// in-flight invocation starved the daemon's <c>DaemonPing</c>, tripped the 5s ping deadline,
-/// and sent the daemon into a reconnect storm (garbled terminal + spurious deny). The new model
-/// has the daemon call <c>RequestPermission2</c> — a short invocation returning a
-/// <c>requestId</c> — and the server pushes the decision via a <c>PermissionResolved</c>
-/// server→client message when the user responds. This registry holds the awaiting
-/// <see cref="TaskCompletionSource{T}"/> keyed by requestId and bridges the push back to it.
-///
-/// The decision push can in principle arrive before the caller has registered its await (the
-/// user answers in the gap between <c>RequestPermission2</c> returning and
-/// <see cref="AwaitDecisionAsync"/> running). Such early arrivals are buffered and picked up at
-/// registration, so no decision is lost. The buffer is bounded (<see cref="MaxBufferedDecisions"/>,
-/// FIFO eviction) so duplicate/late/unknown pushes that are never awaited can't grow without
-/// bound over the daemon's lifetime.
+/// Keep permission hub calls short: a pending decision invocation can starve DaemonPing under
+/// SignalR's one-invocation-per-client default. RequestPermission2 returns an id and the decision
+/// arrives as a later push. Buffer decisions that beat await registration, with bounded FIFO eviction
+/// so duplicate or unclaimed pushes cannot grow memory throughout the daemon's lifetime.
 /// </summary>
 internal sealed class PendingPermissionRegistry {
     /// <summary>

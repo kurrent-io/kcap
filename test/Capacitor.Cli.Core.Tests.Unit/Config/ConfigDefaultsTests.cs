@@ -4,12 +4,8 @@ using Capacitor.Cli.Core.Config;
 namespace Capacitor.Cli.Core.Tests.Unit.Config;
 
 /// <summary>
-/// A hand-written, truncated, or older-version config.json omits keys that a
-/// kcap-written one always contains. STJ source-gen builds these init-only
-/// records through an object initializer that assigns <c>default(T)</c> for every
-/// absent property, discarding the record's member initializers — so every such
-/// key used to deserialize to null/false/0 and crash the first command that
-/// touched it. These pin the declared defaults to the load boundary.
+/// Hand-written and older configs can omit keys. Source-generated record deserialization assigns
+/// default(T) to absent properties, bypassing member initializers; pin declared defaults at load.
 /// </summary>
 public class ConfigDefaultsTests {
     static ProfileConfig Load(string json) => ConfigMigration.MigrateIfNeeded(json).Config;

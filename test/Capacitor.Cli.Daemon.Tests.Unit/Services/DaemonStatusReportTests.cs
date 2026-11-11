@@ -6,9 +6,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D2): <see cref="AgentOrchestrator.BuildStatusReport"/> reports the daemon's
-/// authoritative ActiveCount + live-agent metadata (quarantine wired in D4/Task 8).
-/// Partial of <see cref="AgentOrchestratorVendorTests"/> to reuse its test doubles.
+/// Status reports expose the active count and live-agent metadata, and publish changes after registration.
 /// </summary>
 public class DaemonStatusReportTests {
     [Test]
@@ -24,7 +22,7 @@ public class DaemonStatusReportTests {
 
         await Assert.That(report.ActiveCount).IsEqualTo(2); // a1 + a2 (a3 stopped)
         await Assert.That(report.LiveAgents.Select(x => x.Id)).IsEquivalentTo(new[] { "a1", "a2" });
-        await Assert.That(report.Quarantined).IsEmpty(); // until D4/Task 8
+        await Assert.That(report.Quarantined).IsEmpty();
     }
 
     /// <summary>A report built inside the registration bracket is dropped, so a count change there reaches

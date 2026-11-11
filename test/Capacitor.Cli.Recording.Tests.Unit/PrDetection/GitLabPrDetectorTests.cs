@@ -69,9 +69,7 @@ public class GitLabPrDetectorTests {
 
     [Test]
     public async Task Bad_iid_record_is_skipped_not_the_whole_result() {
-        // A non-numeric iid on one matching record must not drop the OTHER valid match — the bad
-        // record is skipped, not the whole detection (the per-record parse used to throw and the
-        // outer catch returned null for everything).
+        // Skip a matching record with a nonnumeric iid without losing another valid matching record.
         CommandRunner fake = (_, _, _, _) => Task.FromResult<string?>("""
         [
           {"iid":9,"title":"good","web_url":"https://gitlab.com/g/p/-/merge_requests/9","source_branch":"feat/x","updated_at":"2026-06-30T00:00:00Z"},

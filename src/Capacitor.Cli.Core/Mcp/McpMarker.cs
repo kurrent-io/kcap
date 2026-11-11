@@ -32,7 +32,7 @@ public interface IMcpMarker {
 /// The `markerPathFor` override lets tests point both cases at a temp dir.
 ///
 /// <para><b>Format v2</b> records a per-entry fingerprint (<see cref="McpFingerprint"/>) so an
-/// absolute-path <c>command</c> (the native binary, AI's Phase-2 registration shape) stays owned
+/// absolute-path <c>command</c> (the native binary, registration with an absolute native path) stays owned
 /// across refresh-healing and uninstall — v1's literal <c>command == "kcap"</c> ownership test
 /// would strand it. Migration is safe and lazy: a v1 marker (JSON array of names) reads as
 /// fingerprint-less entries that keep the legacy command check, and the next

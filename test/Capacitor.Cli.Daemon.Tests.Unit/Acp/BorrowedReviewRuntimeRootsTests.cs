@@ -98,15 +98,10 @@ public class BorrowedReviewRuntimeRootsTests {
         await Assert.That(roots).DoesNotContain(forbidden);
     }
 
-    /// <summary>The narrow exception, and it is load-bearing: a Homebrew Node reads
-    /// <c>etc/openssl@3/openssl.cnf</c> before <c>main</c> and aborts with an OpenSSL configuration
-    /// error without it. Probed — this was the last grant standing between the narrowed profile and a
-    /// vendor that would not start.
-    ///
-    /// <para>Granted as individual FILES, not as their directories. An earlier revision granted
-    /// <c>etc/openssl@3</c> wholesale, which also admits <c>certs/</c>, <c>misc/</c> and by convention
-    /// <c>private/</c> — locally managed certificates and their keys. The fixture plants a
-    /// <c>private/server.key</c> so that regression cannot pass unnoticed.</para></summary>
+    /// <summary>
+    /// Homebrew Node reads openssl.cnf before main. Permit the required files individually;
+    /// granting their parent directory would also expose private keys. Plant a private key to detect that.
+    /// </summary>
     [Test]
     public async Task Package_installed_crypto_config_is_granted_as_files_not_directories() {
         var binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
@@ -216,12 +211,9 @@ public class BorrowedReviewRuntimeRootsTests {
         await Assert.That(grants.Files.Select(Posix)).Contains($"{prefix}/bin/copilot");
     }
 
-    /// <summary>The shipped trust boundary, pinned by VALUE.
-    ///
-    /// <para>An earlier version of this test asserted only that <c>/opt/homebrew</c> was admitted and one
-    /// arbitrary path refused — which stays green when a second entry is added, so it did not pin the
-    /// thing it claimed to. This list is now the confidentiality boundary, so any expansion has to fail
-    /// here and be looked at, whatever the new entry happens to be.</para></summary>
+    /// <summary>
+    /// Pin the full set of trusted runtime prefixes by value so adding any prefix requires review.
+    /// </summary>
     [Test]
     public async Task The_measured_prefix_list_is_exactly_homebrew() {
         await Assert.That(BorrowedReviewRuntimeRoots.MeasuredPrefixes.ToArray())
@@ -244,14 +236,10 @@ public class BorrowedReviewRuntimeRootsTests {
         await Assert.That(refused.Directories).IsEmpty();
     }
 
-    /// <summary>Never the filesystem root, in EITHER of the two ways it can be reached.
-    ///
-    /// <para>An earlier revision of this test asserted only that the root's software subdirectories
-    /// (<c>/bin</c>, <c>/lib</c>, …) were absent, and it passed against a build that granted
-    /// <c>(subpath "/")</c> outright — the package-directory of a binary resolving to <c>/copilot</c>
-    /// is <c>/</c>. That grant is the entire filesystem, so every named-tree containment assertion
-    /// elsewhere would also have passed while the boundary was gone. Both routes are now asserted, and
-    /// the root itself first.</para></summary>
+    /// <summary>
+    /// Refuse both the filesystem root itself and its software subdirectories. A binary at /copilot
+    /// can derive / as its package directory, bypassing checks that name only /bin and /lib.
+    /// </summary>
     [Test]
     [Arguments("/copilot")]
     [Arguments("/opt")]
@@ -302,19 +290,11 @@ public class BorrowedReviewRuntimeRootsTests {
         await Assert.That(roots).DoesNotContain("/Users/dev");
     }
 
-    /// <summary>A prefix BENEATH the user's home is refused, even though it matches the shape rule.
-    ///
-    /// <para><c>bin</c> + <c>lib</c> is a compatibility classifier, not a confidentiality-safe one, and
-    /// below home it is not safe at all: a source repository or a mixed-use <c>~/toolbox</c> with
-    /// ordinary <c>bin/</c> and <c>lib/</c> names matches it, and the exact-home exclusion does not
-    /// apply because the match is a descendant rather than home itself. An earlier revision granted
-    /// exactly that, and the test that was supposed to cover per-user installs removed the sibling
-    /// <c>lib</c>, so it could not see the route.</para>
-    ///
-    /// <para>The cost is deliberate and stated rather than hidden: a per-user install (nvm, Volta,
-    /// <c>~/.local</c>) gets only the executable literal, so the launch fails loudly at exec instead of
-    /// quietly reading the user's files. Admitting one of those layouts requires MEASURING it, the same
-    /// bar the rest of this feature is held to; only the Homebrew prefix has been measured.</para></summary>
+    /// <summary>
+    /// A bin/lib layout beneath HOME is not a trust boundary: repositories and mixed-use toolboxes
+    /// can have that shape. Keep the sibling lib in this fixture so the unsafe classifier would match.
+    /// Unknown per-user layouts receive the executable literal, not recursive directory access.
+    /// </summary>
     [Test]
     [Arguments("/Users/dev/.local")]
     [Arguments("/Users/dev/toolbox")]

@@ -772,7 +772,7 @@ public class HomeViewModelTests {
         });
     }
 
-    /// A blank goal disables Start and its tip says why, and Execute() past CanExecute still sends nothing.
+    // A blank goal disables Start and its tip says why, and Execute() past CanExecute still sends nothing.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Start_needs_a_prompt() {

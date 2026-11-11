@@ -681,10 +681,8 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("MCP servers registered"));
     }
 
-    // A failed hooks write is NOT evidence about the MCP servers: hooks.json and mcp.json are
-    // different files. Registering them is what the user asked for, and dropping it would be the same
-    // silent no-op that skipping used to cause. Gemini is the one vendor where the failure IS evidence
-    // — see Gemini_mcp_not_registered_when_hooks_fail.
+    // A hooks-write failure says nothing about a separate MCP config file. Continue requested MCP
+    // registration unless that vendor's shared config failure actually prevents it, as Gemini's does.
     [Test]
     public async Task Cursor_mcp_still_registered_when_hooks_fail() {
         var sink     = new Sink();
@@ -700,9 +698,7 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CursorMcpRegistered).IsTrue();
     }
 
-    // "Tools without recording" — the combination the server explicitly sanctions and the browser's
-    // Agents screen offers as two independent toggles. It used to install nothing at all: the hooks
-    // were skipped, and every MCP registration was gated on the hooks having installed.
+    // Tools and recording are independent choices: MCP registration must still run when hooks are disabled.
     [Test]
     [Arguments("cursor")]
     [Arguments("copilot")]

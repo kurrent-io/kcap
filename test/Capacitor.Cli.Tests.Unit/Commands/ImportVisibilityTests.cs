@@ -178,7 +178,7 @@ public class ImportVisibilityTests : IDisposable {
 
     // =====================================================================
     // Section B — orchestrator-level (ImportCommand.HandleImport): the
-    // chainDefaultVisibility = forcePrivate ? "private" : defaultVisibility
+    // chainDefaultVisibility = forcePrivate ? "private": defaultVisibility
     // resolution made in HandleImport itself, not just forwarded by
     // ImportChainsAsync.
     // =====================================================================
@@ -1135,9 +1135,8 @@ public class ImportVisibilityTests : IDisposable {
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("private");
     }
 
-    // --- Cursor: the source the 2026-07-20 spec called out, because its live hook has no
-    //     default_visibility injection at all, so the import path is the only one that stamps.
-    //     Direct-logic coverage plus one full WireMock round-trip through HandleImport. ---
+    // Cursor's live hook supplies no default_visibility, so import must stamp it.
+    // Cover both direct classification and the full HTTP import path.
 
     [Test]
     public async Task Cursor_new_session_stamps_default_visibility() {
@@ -1234,19 +1233,9 @@ public class ImportVisibilityTests : IDisposable {
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("org_public");
     }
 
-    // =====================================================================
-    // Section E — matrix completion (review finding): AlreadyLoaded gaps,
-    // forcePrivate × replay-status (Partial), and defaultVisibility:null,
-    // for EACH of the 7 routed sources. DRY via RoutedSourceCase + shared
-    // assertion helpers across the 6 "uniform-shaped" sources (Copilot,
-    // Gemini, Kiro, Pi, Antigravity, Cursor) — all driven the same way as
-    // Section C above (RoutedClassification + ImportSessionAsync directly).
-    // OpenCode needs a real sqlite fixture (see OpenCodeImportSourceTests /
-    // Section C above) so it's covered separately, right after this table.
-    //
-    // New + defaultVisibility set, and Partial ⇒ omit, are already fully
-    // covered for all 7 sources in Section C — not repeated here.
-    // =====================================================================
+    // ── Routed visibility combinations ──────────────────────────────────────────────
+    // Cover AlreadyLoaded replays, forced privacy, Partial status, and absent default visibility.
+    // Most routed sources share the fixture; OpenCode needs a real SQLite source.
 
     /// <summary>One routed source's shape for the generic matrix helpers below.</summary>
     sealed record RoutedSourceCase(

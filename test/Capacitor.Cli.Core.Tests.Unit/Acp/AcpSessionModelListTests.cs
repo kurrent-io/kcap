@@ -146,13 +146,8 @@ public class AcpSessionModelListTests {
     }
 
     /// <summary>
-    /// A <c>models</c> entry with no <c>modelId</c> must be dropped, not passed on.
-    ///
-    /// <para><c>AvailableModelDto.ModelId</c> is non-nullable in C# but nothing stops an agent omitting
-    /// it, and <see cref="AcpModelResolver.Resolve"/>'s prefix arm then calls <c>StartsWith</c> on null
-    /// and throws past a caller whose only guard is <c>JsonException</c> — turning a malformed vendor
-    /// response into a failed LAUNCH, for a feature that is never supposed to be a launch precondition.
-    /// The <c>configOptions</c> path always filtered; this one did not, which is what review caught.</para>
+    /// Drop model entries missing modelId before prefix matching can dereference them.
+    /// Malformed optional model metadata must not escape as an unrelated launch failure.
     /// </summary>
     [Test]
     public async Task AModelsEntryWithNoModelId_IsDroppedRatherThanCrashingTheResolver() {

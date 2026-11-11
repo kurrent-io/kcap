@@ -73,9 +73,8 @@ public class GeminiReviewerLiveCertTests {
         var outcome = await RunProbeAsync(project, allowlist: id.UnmatchableMcpName,
                                           injectAs: id.ResultChannelWireName, hostileRepoNames: []);
 
-        // The run must have been HEALTHY before an absent marker means anything. Review caught this being
-        // vacuous: a startup failure, a rejected session/new or an invalid prompt all produce "no marker",
-        // which would read as "the deny-all name blocked the channel".
+        // Require a healthy session and successful turn before an absent marker establishes denial.
+        // Startup, session creation, and prompt failures can all produce absence without exercising the gate.
         await Assert.That(outcome.SessionEstablished).IsTrue()
             .Because($"the negative control needs a working session to be evidence of anything: {outcome.Detail}");
         await Assert.That(outcome.TurnCompleted).IsTrue()
@@ -124,7 +123,7 @@ public class GeminiReviewerLiveCertTests {
     /// <summary>
     /// Drives a real <c>gemini --experimental-acp</c> child. Evidence is a marker file each MCP server writes,
     /// never the ACP transcript: the client cannot see whether Gemini spawned a server, so only the marker
-    /// proves a process ran — which is the boundary that matters (§3.1's rule is about execution, not about
+    /// proves a process ran — which is the boundary that matters ('s rule is about execution, not about
     /// who wins tool dispatch).
     /// </summary>
     static async Task<ProbeOutcome> RunProbeAsync(
@@ -212,22 +211,15 @@ public class GeminiReviewerLiveCertTests {
     readonly record struct DriveResult(bool SessionEstablished, bool TurnCompleted, string? Detail);
 
     /// <summary>
-    /// initialize → session/new → session/prompt over stdio, AWAITING each response and prompting with the
-    /// session id `session/new` returned.
-    ///
-    /// <para>Review caught the earlier version discarding responses and sending <c>sessionId: null</c>: the
-    /// positive certs could not reliably establish invocation against a protocol-conforming implementation,
-    /// and the NEGATIVE cert was vacuous — startup failure, a rejected <c>session/new</c>, or an invalid
-    /// prompt all produced "no marker appeared", which it read as "the deny-all name blocked the channel".
-    /// So the negative case now has to show the session and turn actually succeeded before an absent marker
-    /// counts as evidence.</para>
+    /// Await initialize, session/new, and session/prompt in sequence, using the returned session id.
+    /// A negative marker check needs a successful session and turn; protocol failure cannot prove containment.
     /// </summary>
     static async Task<DriveResult> DriveGeminiAsync(
             string ws, string project, string allowlist, string injectAs, string server, string marker) {
         var psi = new ProcessStartInfo("gemini", [
             "--experimental-acp", "--skip-trust",
             "--approval-mode", "yolo",              // without this Gemini gates its OWN channel behind a
-            "--allowed-mcp-server-names", allowlist  // permission frame no test can answer (§2.4)
+            "--allowed-mcp-server-names", allowlist  // permission frame no test can answer
         ]) {
             WorkingDirectory = ws, RedirectStandardInput = true, RedirectStandardOutput = true,
             RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true

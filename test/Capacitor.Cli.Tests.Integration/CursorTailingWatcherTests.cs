@@ -12,37 +12,11 @@ using Capacitor.Cli.Recording.Harness.Cursor;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task 13 — end-to-end acceptance tests for the Cursor tailing-watcher promotion,
-/// composing the pure/HTTP seams Tasks 7-12 already built (mirroring
-/// <c>LiveWatchHardeningAcceptanceTests</c>'s style: thin tests proving the contract from
-/// a fresh vantage point, not re-deriving coverage an earlier task's unit tests already own).
-/// A real SignalR wire round trip (the watcher's own <c>HubConnection</c>) is out of scope here —
-/// this project has no in-process SignalR host, so the drain/ack path itself is unit-tested
-/// server-side (<c>SendTranscriptBatchAckedWireTests</c>) and CLI-side via the pure
-/// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>/<see cref="CursorRewriteGuard"/> seams.
-///
-/// <para>Covers the four acceptance scenarios from the plan/spec:</para>
-/// <list type="number">
-/// <item><b>Force-quit mid-turn → tail drained.</b> A transcript whose final line has no
-/// trailing newline yet (the shape a killed Cursor agent leaves behind mid-write) is HELD by
-/// every live-drain read and only CONSUMED by the shutdown final drain — the exact two-phase
-/// contract <c>WatchCommand.RunWatch</c>'s final-drain call exercises
-/// (<see cref="ForceQuitMidTurn_HeldByLiveDrain_ThenConsumedByFinalDrain"/>).</item>
-/// <item><b>Idle-ceiling exit, without Cursor synthesizing its own session-end.</b>
-/// <see cref="IdleCeiling_EndsTheCursorSession_ButSuppressesSessionEndSynthesis"/> — Cursor has
-/// exactly one owner for end synthesis (the <c>sessionEnd</c> hook, or the server-side
-/// lease-gated sweep backstop); the watcher must exit on the ceiling WITHOUT itself posting
-/// session-end (that "sweep closes" half of the criterion is proven server-side by
-/// <c>StaleActiveSessionReaperTests.CursorSweep_LeasePresent_AbsentAndIdle_Reaps</c>, Task 5 —
-/// this CLI repo has no read-model/sweep visibility to re-prove it).</item>
-/// <item><b>Open-but-idle past ceiling+threshold → closed, next hook reactivates</b> —
-/// exercised via BOTH resume shapes, driving the REAL <see cref="CursorHookCommand.HandleCore"/>
-/// dispatcher end to end (not just the pure <c>ShouldSpawnWatcher</c> predicate
-/// <c>CursorWatcherSpawnTests</c> already covers): a <c>sessionStart</c> resume
-/// (<see cref="Reactivation_ViaSessionStartHook_SpawnsAFreshWatcher"/>) and a NON-<c>sessionStart</c>
-/// resume hook — the every-hook spawn path
-/// (<see cref="Reactivation_ViaNonSessionStartHook_SpawnsAFreshWatcher"/>).</item>
-/// </list>
+/// Exercise live-drain versus final-drain handling of an incomplete final line, watcher idle exit
+/// without duplicate session-end synthesis, and reactivation through both start and non-start hooks.
+/// Drive CursorHookCommand.HandleCore for reactivation; a predicate-only test cannot establish spawning.
+/// This suite has no in-process SignalR host: the acknowledgement wire and server lease sweep have
+/// separate server-side coverage. TranscriptReader and CursorRewriteGuard supply the local read seams.
 /// </summary>
 [NotInParallel] // KCAP_WATCHER_DIR is process-global, and other classes pin it too.
 public class CursorTailingWatcherTests {

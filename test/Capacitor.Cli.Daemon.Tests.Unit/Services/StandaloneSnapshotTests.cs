@@ -187,7 +187,7 @@ public class StandaloneSnapshotTests {
 
         var nested = Path.Combine(source, "nested");
         Directory.CreateDirectory(nested);
-        // nested/loop -> .. : stays within the root at every step, so it is admissible AND cyclic.
+        // nested/loop -> ..: stays within the root at every step, so it is admissible AND cyclic.
         Directory.CreateSymbolicLink(Path.Combine(nested, "loop"), "..");
 
         var worktree = await NewManager().CreateAsync(source);

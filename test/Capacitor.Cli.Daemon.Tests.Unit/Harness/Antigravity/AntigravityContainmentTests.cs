@@ -7,46 +7,12 @@ using Capacitor.Cli.Daemon.Services;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// GATED enforcement of the Antigravity reviewer's containment, run against a REAL <c>agy</c>
-/// process.
-///
-/// <para><b>Why a real process.</b> A model-layer refusal is not containment evidence: an agent that
-/// declines to touch the operator's home looks identical to one that is structurally unable to. Every
-/// assertion below is a filesystem or process-table observation made after a real turn, never a claim
-/// read out of the agent's own words. This is the same rule <c>BorrowedReviewSandbox</c>'s
-/// enforcement tests follow for Copilot, applied to the containment shape this vendor actually
-/// uses — an isolated per-launch <c>HOME</c>, not an OS sandbox.</para>
-///
-/// <para><b>What it certifies.</b> The three properties the design's containment section rests on,
-/// plus the probe finding that makes the whole shape sound:</para>
-/// <para>1. Capture stays single-lane — no kcap hook fired for this conversation, so no second
-/// watcher recorded it alongside the runtime's own NDJSON parse.</para>
-/// <para>2. No watcher process was spawned for it.</para>
-/// <para>3. On macOS <c>agy</c> derives <c>~/Library</c> from <c>$HOME</c>, so its Library writes land
-/// INSIDE the per-launch home. This is the observation that makes "the reviewer's state is contained" a
-/// measured fact rather than an assumption — if it were false, reviewer conversation state would
-/// pollute the operator's own agy history and containment would be a fiction. Every run prints the
-/// home's top two levels, which is the record of where a Windows or Linux run wrote.</para>
-/// <para>4. The operator's real agy conversation store gained no entry for this conversation.</para>
-///
-/// <para><b>Read-only against the operator's tree.</b> This test never creates, modifies or deletes
-/// anything under the real <c>~/.config/kcap</c> or <c>~/.gemini</c> (on Windows, the <c>.gemini</c>
-/// under <c>USERPROFILE</c>, which is the home a Go binary reads there). It only reads them, and it keys
-/// every observation on THIS run's conversation id so a concurrently-live daemon writing its own
-/// files cannot make it pass or fail.</para>
-///
-/// <para><b>The positive control is deliberately not run.</b> The same turn under the operator's real
-/// <c>HOME</c> DOES create a kcap log and a watcher — that was measured during the probe (agy's own
-/// hook contract fires in print mode) and is written down in
-/// <c>docs/probes/2026-08-06-agy-reviewer/findings.md</c>. Running it here would record a real session
-/// against the operator's server and spawn a watcher over the reviewer's conversation, which is the
-/// exact damage the containment exists to prevent — so the control stays a recorded measurement, not
-/// a test case.</para>
-///
-/// <para><b>Gated</b> behind <c>KCAP_ANTIGRAVITY_REVIEWER_LIVE=1</c> AND a non-empty
-/// <c>GOOGLE_CLOUD_PROJECT</c>: CI has neither an <c>agy</c> binary nor Google credentials, and the
-/// case spends a real model turn. Both gates are evaluated before anything else, so a CI run costs a
-/// skip.</para>
+/// Verify containment through filesystem and process observations after a real agy turn, never
+/// through the model's refusal text. Check single-lane capture, no watcher, Library writes inside
+/// the isolated HOME, and no conversation entry in the operator's real store.
+/// Read the real config trees without modifying them and correlate observations by conversation id.
+/// Do not run a positive control under the real HOME: it would record and watch a real operator session.
+/// KCAP_ANTIGRAVITY_REVIEWER_LIVE=1 and GOOGLE_CLOUD_PROJECT opt in to a paid model turn.
 /// </summary>
 public class AntigravityContainmentTests {
     const string GateEnvVar = "KCAP_ANTIGRAVITY_REVIEWER_LIVE";

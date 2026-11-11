@@ -17,38 +17,12 @@ using Capacitor.Cli.Core.Workspace;
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
-/// Single-binary dispatcher for GitHub Copilot CLI hooks. Copilot
-/// command-hook payloads carry no uniform event-name field (sessionStart's
-/// payload is just <c>{sessionId, timestamp, cwd, source, initialPrompt}</c>),
-/// so the kcap hooks installer writes one entry per event with the event name
-/// embedded in the command: <c>kcap hook --copilot --event sessionStart</c>.
+/// Copilot payloads lack a uniform event-name field, so the installer passes --event explicitly.
+/// Spawn detached finalization before inline end handling: Copilot can kill the hook within seconds,
+/// while the shutdown tail and session-end must outlive it. Resume replays are idempotent and use the
+/// server watermark. VS Code's variant has snake_case fields and no sessionEnd, so idle ends its watcher.
+/// Only sessionStart emits stdout, and only when additional memory context exists.
 /// </summary>
-/// <remarks>
-/// Wire contract (Copilot event → server route):
-///   sessionStart → POST /hooks/session-start/copilot, then spawn the watcher
-///                  tailing $COPILOT_HOME/session-state/{sid}/events.jsonl
-///                  with vendor=copilot (the server's CopilotTranscriptNormalizer
-///                  owns content; the hook owns lifecycle). Fires with
-///                  source:"resume" on the same session id for --continue /
-///                  --resume — the server's deterministic lifecycle event ids
-///                  make the re-POST idempotent and the watcher resumes from
-///                  the server watermark.
-///   sessionEnd   → spawn the detached copilot-finalize process FIRST (it must
-///                  outlive this hook, which Copilot can kill within seconds, to
-///                  deliver the session.shutdown tail and the session end), then
-///                  kill watcher + capped inline drain, then POST the same end to
-///                  /hooks/session-end/copilot.
-///   agentStop    → no server POST. Fires at every turn end; used only to
-///                  re-enliven a crashed watcher (mirrors Codex's Stop).
-///   notification → best-effort forward to the Claude-shaped /hooks/notification
-///                  (Copilot's payload already carries message / title /
-///                  notification_type in the compatible shape).
-/// VS Code's Local harness runs these same hooks with snake_case fields and a transcript under
-/// <c>GitHub.copilot-chat/transcripts</c>. It fires no sessionEnd: its watcher ends it after going idle.
-/// Copilot treats hook stdout as optional. This dispatcher emits nothing for every event except
-/// sessionStart, which writes a single {"additionalContext":"…"} document when — and only when —
-/// a team-memory fragment is available to inject.
-/// </remarks>
 sealed class CopilotHookCommand(
         ConfigRoot config, ProfileContext profiles, HookClock clock, UserHome home,
         HarnessRegistry harnesses, HostedAgent hosted, ICapacitorHttpClient http, WatcherManager watchers,
@@ -201,8 +175,6 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
         var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");

@@ -8,14 +8,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Regression tests for issue #374: the daemon reconnect loop spun forever calling
-/// <c>HubConnection.StartAsync</c> against a hub that was not <c>Disconnected</c> — a healthy,
-/// registered connection kept logging "cannot be started if it is not in the Disconnected state"
-/// at Warning every 30s, and every <c>Closed</c> event minted another concurrent loop. Mirrors the
-/// <c>AcpServerConnectionTests</c> approach: no live SignalR transport;
-/// <see cref="RetryTestConnection"/> overrides the internal seams (<c>HubState</c>,
-/// <c>StartHubAsync</c>, <c>RegisterDaemonAsync</c>, <c>IsReady</c>) and emulates the real
-/// <c>HubConnection.StartAsync</c> contract of throwing when not Disconnected.
+/// Start a hub only from Disconnected and keep reconnect single-flight. A healthy registered hub
+/// must not enter a warning/retry loop, and repeated Closed notifications must not create peers.
+/// The fake enforces StartAsync's state contract without opening a real SignalR transport.
 /// </summary>
 public class ConnectWithRetryTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
@@ -319,15 +314,8 @@ public class ConnectWithRetryTests {
     }
 
     /// <summary>
-    /// Codex P2 (production): ConnectWithRetryAsync only pulsed <c>_statusNotifier</c> on the
-    /// success path (after LogConnected). An initial-start failure fired neither
-    /// OnReconnecting nor OnClosed, so a status subscriber that snapshotted while the hub was
-    /// Connecting kept displaying "connecting" for the whole outage — no pulse ever refreshed
-    /// it, and <c>DaemonRunner</c> starts <c>LocalControlServer</c> before <c>ConnectAsync</c>,
-    /// so the race is reachable. Drives a StartHubAsync that always throws (simulating repeated
-    /// initial-connect failures) with a fast retry schedule, and polls the notifier's Version
-    /// until it advances past its pre-call snapshot — proving every failed attempt now pulses,
-    /// not just the eventual success.
+    /// Every failed initial-connect attempt must pulse status subscribers even without a Closed or
+    /// Reconnecting event. Drive repeated failures and require notifier progress, not only eventual success.
     /// </summary>
     [Test]
     public async Task Failed_connect_attempts_pulse_the_status_notifier() {

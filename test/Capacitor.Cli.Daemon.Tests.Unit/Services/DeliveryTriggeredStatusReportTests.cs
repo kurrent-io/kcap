@@ -143,7 +143,7 @@ public class DeliveryTriggeredStatusReportTests {
         await Assert.That(seqs[1]).IsEqualTo(3UL);
     }
 
-    /// <summary>Qodo (reliability): a stalled send must not hold <c>_statusReportOrderingGate</c> — and
+    /// <summary>(reliability): a stalled send must not hold <c>_statusReportOrderingGate</c> — and
     /// every OTHER waiter behind it — forever. <see cref="AgentOrchestrator.StatusReportSendTimeout"/>
     /// bounds the in-gate WAIT, not the send's invocation, so a parked first send times out, the gate
     /// releases, and a second emission proceeds and reaches the wire — and the content-monotonicity

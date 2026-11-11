@@ -5,7 +5,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 4: covers the orchestrator wiring that ties tasks 1–3 into the launch/
+/// Option B: covers the orchestrator wiring that ties into the launch/
 /// teardown lifecycle — <c>AgentOrchestrator.HandleLaunchAgent</c>'s post-registration ACP
 /// bind + forwarder start, and <see cref="AgentOrchestrator"/>'s teardown path's bounded final-drain
 /// before <c>EndAgentSession</c>. Reuses the shared <see cref="AgentOrchestratorHarness"/> test
@@ -18,7 +18,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorAcpForwardingTests {
-    // ── Bind ordering (design spec §2.3) ────────────────────────────────────────────────────────
+    // ── Bind ordering ────────────────────────────────────────────────────────
 
     [Test]
     public async Task Cursor_launch_binds_after_register_and_before_events_and_registers_the_binding() {
@@ -56,10 +56,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await WaitHarness.PollUntilAsync(() => cursorFactory.LastRuntime!.ServerBindSettledCalls == 1);
         await Assert.That(cursorFactory.LastRuntime!.ServerBound).IsTrue();
 
-        // RegisterAcpBinding was called: a reconnect re-bind (task 3's ReBindAcpSessionsAsync)
-        // must re-invoke AcpSessionStarted for this agent — UnregisterAcpBinding is NOT
-        // observable directly (non-virtual), so this is the indirect proof task 3's own tests
-        // use for the same seam.
+        // Prove registration indirectly: reconnect rebind must invoke AcpSessionStarted again for this agent.
         var bindCallsBefore = server.AcpSessionStartedCalls.Count;
         await server.ReBindAcpSessionsAsync();
         await Assert.That(server.AcpSessionStartedCalls.Count).IsEqualTo(bindCallsBefore + 1);
@@ -71,7 +68,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Forwarding (design spec §2.2/§2.4) ──────────────────────────────────────────────────────
+    // ── Forwarding ──────────────────────────────────────────────────────
 
     /// <summary>The server attributes a hosted session to a repository only from what session_started
     /// names, since no hook runs inside a hosted agent.</summary>
@@ -128,8 +125,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await Assert.That(firstBatch[0].Seq).IsEqualTo(0);
         await Assert.That(firstBatch[0].RawSessionId).IsEqualTo(cursorFactory.LastRuntime!.AcpSessionId);
 
-        // Mirrors task 2's aggregator emitting a translated envelope mid-turn — the forwarder
-        // must pick it up off the SAME channel and assign it the next monotonic seq.
+        // Emit an envelope mid-turn so the live forwarder must consume the same channel and assign the next seq.
         cursorFactory.LastRuntime.EnvelopesWriter.TryWrite(new AcpEventEnvelope(Kind: AcpEventKind.AssistantText, Text: "hello"));
 
         var call2 = await server.AcpEventsCallSignal.Reader.ReadAsync().AsTask().WaitAsync(WaitHarness.AcpHangGuard);
@@ -143,7 +139,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Teardown ordering (design spec §2.3 terminal ownership) ────────────────────────────────
+    // ── Teardown ordering (design spec terminal ownership) ────────────────────────────────
 
     [Test]
     public async Task Teardown_drains_the_transcript_before_ending_the_session_then_unregisters_the_binding() {
@@ -183,8 +179,7 @@ public class AgentOrchestratorAcpForwardingTests {
         // Give FinalizeAgentRunAsync a moment to reach (and block inside) the gated send.
         await Task.Delay(TimeSpan.FromMilliseconds(150));
 
-        // While the drain is still gated, EndAgentSession must NOT have been called yet — the
-        // load-bearing ordering guarantee (drain-before-finalize, design spec §2.3).
+        // Finalization must wait for the gated transcript drain before sending EndAgentSession.
         await Assert.That(server.AcpCallOrder).DoesNotContain($"endSession:{cmd.AgentId}");
         await Assert.That(unregistered.Task.IsCompleted).IsFalse();
 
@@ -206,8 +201,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await Assert.That(lastEventsIndex).IsGreaterThanOrEqualTo(0);
         await Assert.That(endSessionIndex).IsGreaterThan(lastEventsIndex);
 
-        // UnregisterAcpBinding ran (non-virtual — verified indirectly, same as task 3's own
-        // tests): a reconnect re-bind no longer touches this now-dead agent.
+        // Prove unregistration indirectly: reconnect rebind must not touch this dead agent.
         var bindCallsBefore = server.AcpSessionStartedCalls.Count;
         await server.ReBindAcpSessionsAsync();
         await Assert.That(server.AcpSessionStartedCalls.Count).IsEqualTo(bindCallsBefore);
@@ -265,10 +259,10 @@ public class AgentOrchestratorAcpForwardingTests {
         }
     }
 
-    // ── Reliability fixes (PR #301 review: per-agent CTS) ───────────────────────────────
+    // ── Per-agent forwarding cancellation ───────────────────────────────────────────
 
     /// <summary>
-    /// Qodo #4: a drain that misses its budget must not leave the forwarder's <c>RunTask</c> running
+    /// a drain that misses its budget must not leave the forwarder's <c>RunTask</c> running
     /// forever in the background. The per-agent CTS created at launch is cancelled specifically on
     /// drain-timeout (<c>AgentOrchestrator.FinalDrainAcpTranscriptAsync</c>) — this test proves
     /// that cancellation actually reaches the forwarder's blocked send (via
@@ -322,7 +316,7 @@ public class AgentOrchestratorAcpForwardingTests {
     }
 
     /// <summary>
-    /// Qodo #5 / Codex P1 #2: the bind-vs-finalize stale-binding race. <c>AcpSessionStartedAsync</c>'s
+    ///  the bind-vs-finalize stale-binding race. <c>AcpSessionStartedAsync</c>'s
     /// <c>ConnectionRetry</c> gating can block across a reconnect outage; if the agent's WHOLE
     /// lifecycle (launch → exit → finalize → cleanup) runs to completion while that bind is still
     /// in flight, the late bind resolving afterwards must NOT register a binding for the now-dead
@@ -423,7 +417,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Failure isolation (design spec §2.3, load-bearing correctness point 3) ─────────────────
+    // ── Failure isolation (design spec, load-bearing correctness point 3) ─────────────────
 
     [Test]
     public async Task Forwarder_fault_does_not_crash_the_agent_or_the_orchestrator() {

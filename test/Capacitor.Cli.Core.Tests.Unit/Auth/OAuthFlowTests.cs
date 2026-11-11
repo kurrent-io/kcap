@@ -235,11 +235,8 @@ public class OAuthFlowTests {
         await Assert.That(OAuthLoginFlow.ChooseDiscoveryProvider([])).IsEqualTo(AuthProvider.WorkOS);
     }
 
-    // Discovery no longer consults the environment at all. It used to: a non-interactive session fell
-    // back to GitHub App auth (the only provider with a device flow), which dead-ended because that
-    // branch cannot provision — and when that implicit fallback went, `--device` was left behind as an
-    // explicit way to reach it. WorkOS has a device grant of its own now, so neither is needed:
-    // headless discovery stays on org SSO and signs in with a device code.
+    // Headless org discovery stays on SSO with its own device grant; neither terminal detection nor
+    // an explicit device request may redirect discovery to GitHub App provisioning.
     [Test]
     public async Task Discovery_stays_on_org_sso_whatever_the_environment() {
         await Assert.That(OAuthLoginFlow.ChooseDiscoveryProvider(["--device"])).IsEqualTo(AuthProvider.WorkOS);

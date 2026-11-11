@@ -5,7 +5,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-// Phase B2-b (sequenced-settlement design §4.2.4): orchestrator-level proof that the quarantine-drain
+// orchestrator-level proof that the quarantine-drain
 // hook emits positive per-id death evidence into the real ResolvedCandidatesLedger owned by the
 // orchestrator (append BEFORE the durable PID-record delete). Reuses the vendor test class's
 // BuildOrchestrator/CaptureServerConnection/SpyPtyProcessFactory harness + the shared test seams.

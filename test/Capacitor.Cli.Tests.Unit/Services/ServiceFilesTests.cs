@@ -100,12 +100,10 @@ public partial class ServiceFilesTests {
         }
     }
 
-    /// <summary>If the final mode cannot be guaranteed, no unit is left at the live path.
-    ///
-    /// <para>The failure is injected, because on a normal filesystem a rename preserves the mode and this
-    /// branch is unreachable. It is worth proving anyway: an earlier revision ran the post-rename check
-    /// outside the cleanup scope, so a failure there threw while leaving a readable credential-bearing unit
-    /// exactly where launchd would consume it — a failed install that still published the secret.</para></summary>
+    /// <summary>
+    /// Inject post-rename mode failure because ordinary rename preserves permissions. The credential-bearing
+    /// unit must be removed from its live path even when the final verification itself fails.
+    /// </summary>
     [Test]
     public async Task WriteOwnerOnly_removes_the_live_unit_when_the_final_check_fails() {
         using var tmp = new TempDir();
