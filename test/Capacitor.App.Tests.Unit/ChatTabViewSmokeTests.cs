@@ -729,48 +729,84 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
-    /// Either edge grows or shrinks the column about the window's centre, and the composer follows it.
-    /// A user turn stays at the window's right edge whatever the column's width.
+    /// The column and the agent's lane inside it keep their shares as the window resizes. The edge
+    /// handles drag the column about the centre, the lane handle the lane's right edge; the composer
+    /// follows the column and a user turn keeps to its right edge.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Dragging_a_chat_column_handle_resizes_the_centred_column() => RunOnUiAsync(async () => {
+    public Task Dragging_the_chat_handles_resizes_the_column_and_the_agents_lane() => RunOnUiAsync(async () => {
         var host = new Host();
         try {
             host.Window.Width = 1400;
             await host.LoadAsync(Tmp.CreateFile("column.jsonl", [UserLine, AssistantLinkLine]));
+            var items = host.View.FindControl<ItemsControl>("ChatItems")!;
             var presenter = host.View.GetVisualDescendants().OfType<ItemsPresenter>().Single(p => p.Name == "PART_ItemsPresenter");
             var composer = host.View.FindControl<Grid>("ComposerColumn")!;
-            double Left(Control c) => c.TranslatePoint(default, host.View)!.Value.X;
-            double Centre(Control c) => Left(c) + c.Bounds.Width / 2;
-            var width = PaneLayout.ChatColumnDefaultWidth;
-            await Assert.That(presenter.Bounds.Width).IsEqualTo(width - 44);
-            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
-            await Assert.That(composer.Bounds.Width).IsEqualTo(width - 44);
             var bubble = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("userTurn"));
+            Control AgentRow() => items.ContainerFromItem(host.Chat.Items.OfType<AssistantTextItem>().Single())!;
+            double Left(Control c) => c.TranslatePoint(default, host.View)!.Value.X;
             double Right(Control c) => Left(c) + c.Bounds.Width;
-            await Assert.That(Right(bubble)).IsEqualTo(1400 - 22).Within(0.5);
+            double Centre(Control c) => Left(c) + c.Bounds.Width / 2;
+            async Task LaidOut(double column, double lane, double window) {
+                await Assert.That(presenter.Bounds.Width).IsEqualTo(column - 44).Within(1);
+                await Assert.That(composer.Bounds.Width).IsEqualTo(column - 44).Within(1);
+                await Assert.That(Centre(presenter)).IsEqualTo(window / 2).Within(1);
+                await Assert.That(Right(bubble)).IsEqualTo(Right(presenter)).Within(1);
+                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter)).Within(1);
+                await Assert.That(AgentRow().Bounds.Width).IsEqualTo(lane).Within(1);
+            }
+            void Drag(string name, double dx) {
+                var start = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(start + new Point(dx, 0));
+                host.Window.MouseUp(start + new Point(dx, 0), MouseButton.Left);
+                host.Settle();
+            }
+            var column = 1400 * PaneLayout.ChatColumnDefaultFraction;
+            var lane = PaneLayout.ChatLaneDefaultFraction;
+            await LaidOut(column, lane * (column - 44), 1400);
 
-            var handle = host.View.FindControl<Border>("ChatColumnRightHandle")!;
-            var start = PresentAndLocate(host, handle);
-            host.Window.MouseMove(start);
-            host.Window.MouseDown(start, MouseButton.Left);
-            host.Window.MouseMove(start + new Point(100, 0));
-            host.Window.MouseUp(start + new Point(100, 0), MouseButton.Left);
-            host.Settle();
-            await Assert.That(presenter.Bounds.Width).IsEqualTo(width + 200 - 44);
-            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
-            await Assert.That(composer.Bounds.Width).IsEqualTo(width + 200 - 44);
+            Drag("ChatColumnRightHandle", 100);
+            column += 200;
+            await LaidOut(column, lane * (column - 44), 1400);
 
-            handle = host.View.FindControl<Border>("ChatColumnLeftHandle")!;
-            start = PresentAndLocate(host, handle);
-            host.Window.MouseMove(start);
-            host.Window.MouseDown(start, MouseButton.Left);
-            host.Window.MouseMove(start + new Point(5000, 0));
-            host.Window.MouseUp(start + new Point(5000, 0), MouseButton.Left);
+            host.Window.Width = 1000;
             host.Settle();
-            await Assert.That(presenter.Bounds.Width).IsEqualTo(PaneLayout.ChatColumnMinWidth - 44);
-            await Assert.That(Centre(presenter)).IsEqualTo(700).Within(0.5);
-            await Assert.That(Right(bubble)).IsEqualTo(1400 - 22).Within(0.5);
+            column = column / 1400 * 1000;
+            await LaidOut(column, lane * (column - 44), 1000);
+
+            Drag("ChatLaneHandle", -200);
+            var laneWidth = lane * (column - 44) - 200;
+            await LaidOut(column, laneWidth, 1000);
+
+            host.Window.Width = 1400;
+            host.Settle();
+            var wide = column / 1000 * 1400;
+            await LaidOut(wide, laneWidth / (column - 44) * (wide - 44), 1400);
+
+            Drag("ChatColumnLeftHandle", 5000);
+            await LaidOut(PaneLayout.ChatColumnMinWidth, PaneLayout.ChatLaneMinWidth, 1400);
+        } finally { await host.CloseAsync(); }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Pointing_at_any_chat_handle_shows_them_all() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            host.Window.Width = 1400;
+            await host.LoadAsync(Tmp.CreateFile("column-hover.jsonl", [UserLine]));
+            var handles = new[] { "ChatColumnLeftHandle", "ChatColumnRightHandle", "ChatLaneHandle" }
+                .Select(name => host.View.FindControl<Border>(name)!).ToArray();
+            await Assert.That(handles.Any(h => h.Classes.Contains("shown"))).IsFalse();
+
+            host.Window.MouseMove(PresentAndLocate(host, handles[1]));
+            await Assert.That(handles.All(h => h.Classes.Contains("shown"))).IsTrue();
+
+            host.Window.MouseMove(new Point(700, 300));
+            host.Settle();
+            await Assert.That(handles.Any(h => h.Classes.Contains("shown"))).IsFalse();
         } finally { await host.CloseAsync(); }
     });
 
@@ -1378,7 +1414,7 @@ public class ChatTabViewSmokeTests {
 
                     await Assert.That(rendered.Count(c => c == '…')).IsEqualTo(1);
                     await Assert.That(rendered).EndsWith("demo.txt +1 more");
-                    if (width >= 640)
+                    if (width >= 980)
                         await Assert.That(rendered).EndsWith("scratchpad/demo.txt +1 more");
                 }
             } finally { await host.CloseAsync(); }

@@ -5,9 +5,10 @@ using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
-/// Sizes a chat view's centred column from its window's <see cref="PaneLayout"/> and lets either edge
-/// handle drag it wider or narrower about the centre. A drag commits on release, so the store is
-/// written once per drag rather than on every pointer move.
+/// Sizes a chat view's centred column as a share of the chat's width, and the agent's lane inside it
+/// as a share of the column, from its window's <see cref="PaneLayout"/>. The edge handles drag the
+/// column about the centre; the lane handle drags the lane's right edge. A drag commits on release,
+/// so the store is written once per drag rather than on every pointer move.
 public sealed class ChatColumnSizing {
     // The transcript's side margin inside the column; the composer band's padding matches it.
     const double Gutter = 22;
@@ -18,24 +19,29 @@ public sealed class ChatColumnSizing {
     readonly ItemsControl _items;
     readonly Panel _area;
     readonly Control _composerContent;
+    readonly Control[] _handles;
     readonly Control _leftHandle;
     readonly Control _rightHandle;
+    readonly Control _laneHandle;
+    readonly HashSet<Control> _hovered = [];
     ChatTailPanel? _tail;
     PaneLayout? _panes;
-    double _width = PaneLayout.ChatColumnDefaultWidth;
+    double _column = PaneLayout.ChatColumnDefaultFraction;
+    double _lane = PaneLayout.ChatLaneDefaultFraction;
     IPointer? _dragPointer;
+    Control? _dragHandle;
     double _dragStartX;
     double _dragStartWidth;
-    int _dragSign;
 
-    ChatColumnSizing(Control view, ItemsControl items, Panel area, Control composerContent, Control leftHandle, Control rightHandle) {
+    ChatColumnSizing(Control view, ItemsControl items, Panel area, Control composerContent,
+            Control leftHandle, Control rightHandle, Control laneHandle) {
         _items = items;
         _area = area;
-        leftHandle.Width = HandleWidth;
-        rightHandle.Width = HandleWidth;
         _composerContent = composerContent;
         _leftHandle = leftHandle;
         _rightHandle = rightHandle;
+        _laneHandle = laneHandle;
+        _handles = [leftHandle, rightHandle, laneHandle];
 
         items.TemplateApplied += (_, e) => {
             _tail = e.NameScope.Find<ChatTailPanel>("ChatTail");
@@ -45,7 +51,7 @@ public sealed class ChatColumnSizing {
             _panes = (TopLevel.GetTopLevel(view) as MainWindow)?.Panes;
             if (_panes is not null) {
                 _panes.Changed += OnPanesChanged;
-                _width = _panes.ChatColumnWidth;
+                (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneFraction);
             }
             Apply();
         };
@@ -54,88 +60,134 @@ public sealed class ChatColumnSizing {
             _panes = null;
         };
         area.SizeChanged += (_, _) => Apply();
-        Wire(leftHandle, -1);
-        Wire(rightHandle, 1);
+        foreach (var handle in _handles) Wire(handle);
         Apply();
     }
 
     public static ChatColumnSizing Attach(Control view, ItemsControl items, Panel area, Control composerContent,
-            Control leftHandle, Control rightHandle) =>
-        new(view, items, area, composerContent, leftHandle, rightHandle);
+            Control leftHandle, Control rightHandle, Control laneHandle) =>
+        new(view, items, area, composerContent, leftHandle, rightHandle, laneHandle);
 
     void OnPanesChanged(object? sender, EventArgs e) {
-        if (_dragPointer is not null || _panes is null || _panes.ChatColumnWidth == _width) return;
-        _width = _panes.ChatColumnWidth;
+        if (_dragPointer is not null || _panes is null) return;
+        if (_panes.ChatColumnFraction == _column && _panes.ChatLaneFraction == _lane) return;
+        (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneFraction);
         Apply();
     }
 
-    void Wire(Control handle, int sign) {
+    void Wire(Control handle) {
+        handle.Width = HandleWidth;
+        handle.PointerEntered += (_, _) => {
+            _hovered.Add(handle);
+            ShowHandles();
+        };
+        handle.PointerExited += (_, _) => {
+            _hovered.Remove(handle);
+            ShowHandles();
+        };
         handle.PointerPressed += (_, e) => {
             if (!e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed) return;
+            e.Handled = true;
             if (e.ClickCount >= 2) {
-                Commit(PaneLayout.ChatColumnDefaultWidth);
-                e.Handled = true;
+                if (handle == _laneHandle) _lane = PaneLayout.ChatLaneDefaultFraction;
+                else _column = PaneLayout.ChatColumnDefaultFraction;
+                Commit();
                 return;
             }
             _dragPointer = e.Pointer;
+            _dragHandle = handle;
             _dragStartX = e.GetPosition(_area).X;
-            _dragStartWidth = Clamp(_width);
-            _dragSign = sign;
+            _dragStartWidth = handle == _laneHandle ? LaneWidth(ColumnWidth()) : ColumnWidth();
             e.Pointer.Capture(handle);
-            handle.Classes.Add("dragging");
-            e.Handled = true;
+            ShowHandles();
         };
         handle.PointerMoved += (_, e) => {
             if (!ReferenceEquals(e.Pointer, _dragPointer)) return;
-            var grown = (e.GetPosition(_area).X - _dragStartX) * 2 * _dragSign;
-            _width = Clamp(_dragStartWidth + grown);
+            var dx = e.GetPosition(_area).X - _dragStartX;
+            if (handle == _laneHandle) _lane = LaneFractionOf(_dragStartWidth + dx, ColumnWidth());
+            else _column = ColumnFractionOf(_dragStartWidth + (handle == _leftHandle ? -2 : 2) * dx);
             Apply();
             e.Handled = true;
         };
         handle.PointerReleased += (_, e) => {
             if (!ReferenceEquals(e.Pointer, _dragPointer)) return;
-            EndDrag(handle);
+            EndDrag();
             e.Pointer.Capture(null);
-            Commit(_width);
+            Commit();
             e.Handled = true;
         };
         handle.PointerCaptureLost += (_, _) => {
-            if (_dragPointer is null || _dragSign != sign) return;
-            EndDrag(handle);
-            Commit(_width);
+            if (_dragHandle != handle) return;
+            EndDrag();
+            Commit();
         };
     }
 
-    void EndDrag(Control handle) {
+    void EndDrag() {
         _dragPointer = null;
-        handle.Classes.Remove("dragging");
+        _dragHandle = null;
+        ShowHandles();
     }
 
-    double Clamp(double width) =>
-        Math.Max(PaneLayout.ChatColumnMinWidth, Math.Min(width, Math.Max(PaneLayout.ChatColumnMinWidth, _area.Bounds.Width - 2 * HandleReserve)));
+    void ShowHandles() {
+        var shown = _dragPointer is not null || _hovered.Count > 0;
+        foreach (var handle in _handles) handle.Classes.Set("shown", shown);
+    }
 
-    void Commit(double width) {
-        _width = width;
-        if (_panes is not null) _panes.ChatColumnWidth = width;
+    double MaxColumnWidth => _area.Bounds.Width - 2 * HandleReserve;
+
+    bool Resizable => MaxColumnWidth >= PaneLayout.ChatColumnMinWidth;
+
+    double ColumnWidth() => Resizable
+        ? Math.Clamp(_column * _area.Bounds.Width, PaneLayout.ChatColumnMinWidth, MaxColumnWidth)
+        : _area.Bounds.Width;
+
+    // A drag to the widest the chat allows stays the widest on any later window size.
+    double ColumnFractionOf(double width) =>
+        width >= MaxColumnWidth ? 1 : Math.Max(PaneLayout.ChatColumnMinWidth, width) / _area.Bounds.Width;
+
+    static double LaneWidth(double column, double fraction) {
+        var content = Math.Max(0, column - 2 * Gutter);
+        return Math.Clamp(fraction * content, Math.Min(PaneLayout.ChatLaneMinWidth, content), content);
+    }
+
+    double LaneWidth(double column) => LaneWidth(column, _lane);
+
+    static double LaneFractionOf(double width, double column) {
+        var content = column - 2 * Gutter;
+        return content <= 0 || width >= content ? 1 : Math.Max(PaneLayout.ChatLaneMinWidth, width) / content;
+    }
+
+    void Commit() {
+        if (_panes is not null) {
+            _panes.ChatColumnFraction = _column;
+            _panes.ChatLaneFraction = _lane;
+        }
         Apply();
     }
 
     void Apply() {
-        // Each handle sits in a strip just outside its edge: the gutter inside belongs to a margin drag
-        // that selects text, and the window's right edge to the scrollbar. A window too narrow for
-        // the strips gives the column all its width and shows no handles.
+        // The edge handles sit in a strip just outside the column: the gutter inside belongs to a
+        // margin drag that selects text, and the window's right edge to the scrollbar. A window too
+        // narrow for the strips gives the column and the lane all their width and shows no handles.
         var available = _area.Bounds.Width;
-        var resizable = available - 2 * HandleReserve >= PaneLayout.ChatColumnMinWidth;
-        var column = resizable ? Math.Min(_width, available - 2 * HandleReserve) : available;
-        if (_tail is not null) _tail.ColumnWidth = column;
-        // On the list, not the panel: item containers inherit through their logical parent.
-        ChatOverhang.SetAmount(_items, (available - column) / 2);
+        var resizable = Resizable;
+        var column = ColumnWidth();
+        var lane = resizable ? LaneWidth(column) : Math.Max(0, column - 2 * Gutter);
+        if (_tail is not null) {
+            _tail.ColumnWidth = column;
+            if (_tail.LaneWidth != lane) {
+                _tail.LaneWidth = lane;
+                // The rows read the lane from the column; their own constraint is unchanged.
+                _items.ItemsPanelRoot?.InvalidateMeasure();
+            }
+        }
         _composerContent.MaxWidth = Math.Max(0, column - 2 * Gutter);
 
-        _leftHandle.IsVisible = resizable;
-        _rightHandle.IsVisible = resizable;
+        foreach (var handle in _handles) handle.IsVisible = resizable;
         var left = (available - column) / 2;
         _leftHandle.Margin = new Thickness(left - HandleWidth, 0, 0, 0);
         _rightHandle.Margin = new Thickness(left + column, 0, 0, 0);
+        _laneHandle.Margin = new Thickness(left + Gutter + lane, 0, 0, 0);
     }
 }

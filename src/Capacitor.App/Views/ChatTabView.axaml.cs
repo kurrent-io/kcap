@@ -79,7 +79,7 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
-        ChatColumnSizing.Attach(this, ChatItems, ChatArea, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle);
+        ChatColumnSizing.Attach(this, ChatItems, ChatArea, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
         ComposerInput.TemplateApplied += (_, e) =>
             _composerPresenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
         // The ScrollViewer is the list template's; it exists only once the list is first measured,

@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
@@ -50,6 +51,12 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         return Math.Clamp(index >= 0 ? index : ~index - 1, 0, Math.Max(0, Items.Count - 1));
     }
 
+    /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
+    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem;
+
+    double RowWidth(object item, double width) =>
+        SpansColumn(item) ? width : Math.Min(width, this.FindAncestorOfType<ChatTailPanel>()?.LaneWidth ?? width);
+
     protected override Size MeasureOverride(Size availableSize) {
         var scroll = this.FindAncestorOfType<ScrollViewer>();
         var view = this.FindAncestorOfType<ChatTabView>();
@@ -82,7 +89,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             _starts[i] = previousStart + adjustment;
             previousStart = nextStart;
             var row = Realize(i);
-            row.Container.Measure(new Size(availableSize.Width, double.PositiveInfinity));
+            row.Container.Measure(new Size(RowWidth(row.Item, availableSize.Width), double.PositiveInfinity));
             var height = row.Container.DesiredSize.Height;
             adjustment += height - oldHeight;
             _measured[row.Item] = height;
@@ -101,7 +108,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             var pinned = entry.Value.OwnContainer || ReferenceEquals(entry.Value.Container, scrollAnchor)
                 || focused is not null && (ReferenceEquals(focused, entry.Value.Container) || entry.Value.Container.IsVisualAncestorOf(focused));
             if (entry.Key < first && !pinned) continue;
-            entry.Value.Container.Measure(new Size(availableSize.Width, double.PositiveInfinity));
+            entry.Value.Container.Measure(new Size(RowWidth(entry.Value.Item, availableSize.Width), double.PositiveInfinity));
             var height = entry.Value.Container.DesiredSize.Height;
             var delta = height - (_starts[entry.Key + 1] - _starts[entry.Key]);
             _measured[entry.Value.Item] = height;
@@ -135,7 +142,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var anchors = this.FindAncestorOfType<IScrollAnchorProvider>();
         foreach (var entry in _realized) {
             var container = entry.Value.Container;
-            container.Arrange(new Rect(0, _starts[entry.Key], finalSize.Width, container.DesiredSize.Height));
+            container.Arrange(new Rect(0, _starts[entry.Key], RowWidth(entry.Value.Item, finalSize.Width), container.DesiredSize.Height));
             if (container.IsVisible && container.Bounds.Intersects(_viewport)) anchors?.RegisterAnchorCandidate(container);
         }
         return finalSize;

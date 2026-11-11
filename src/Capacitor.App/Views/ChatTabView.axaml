@@ -202,7 +202,7 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Border.chatColumnHandle:pointerover, Border.chatColumnHandle.dragging">
+        <Style Selector="Border.chatColumnHandle.shown">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.chatColumnGrip">
@@ -285,64 +285,62 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.DataTemplates>
                     <DataTemplate x:DataType="vm:UserTurnItem">
-                        <views:ChatOverhang>
-                            <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
-                                    HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
-                                <StackPanel Spacing="6">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-                                        <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                            <TextBlock.Text>
-                                                <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                                    <Binding Path="Sender.Title" />
-                                                    <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                        </TextBlock>
-                                        <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
-                                                   IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                    </StackPanel>
-                                    <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
-                                                        FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
-                                                        OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
-                                                        RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                                    <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel Orientation="Horizontal" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:UserAttachment">
-                                                <Panel Margin="0,2,8,2">
-                                                    <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
-                                                                            ToolTip.Tip="{Binding FileName}"
-                                                                            AutomationProperties.Name="{Binding FileName}"
-                                                                            Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
-                                                                            CommandParameter="{Binding}" />
-                                                    <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
-                                                            Background="{StaticResource KcapSurfaceBrush}"
-                                                            BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
-                                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                                            <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
-                                                                           Foreground="{StaticResource KcapMutedBrush}" />
-                                                            <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
-                                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                                       Foreground="{StaticResource KcapTextBrush}" />
-                                                        </StackPanel>
-                                                    </Border>
-                                                </Panel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
-                                        <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                        <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
-                                                   VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
-                                    </Grid>
+                        <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
+                                HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                    <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                                <Binding Path="Sender.Title" />
+                                                <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                               IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                 </StackPanel>
-                            </Border>
-                        </views:ChatOverhang>
+                                <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
+                                                    FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
+                                                    OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
+                                                    RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
+                                <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:UserAttachment">
+                                            <Panel Margin="0,2,8,2">
+                                                <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
+                                                                        ToolTip.Tip="{Binding FileName}"
+                                                                        AutomationProperties.Name="{Binding FileName}"
+                                                                        Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
+                                                        Background="{StaticResource KcapSurfaceBrush}"
+                                                        BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
+                                                                       Foreground="{StaticResource KcapMutedBrush}" />
+                                                        <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
+                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                   Foreground="{StaticResource KcapTextBrush}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
+                                    <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                     </DataTemplate>
                     <DataTemplate x:DataType="vm:AssistantTextItem">
                         <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
@@ -384,24 +382,23 @@
                     </DataTemplate>
                     <DataTemplate x:DataType="vm:ShellCommandItem">
                         <StackPanel Margin="0,0,0,12">
-                            <views:ChatOverhang>
-                                <Border Classes="shellCommand" HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,0" Padding="14,11" CornerRadius="10"
-                                        Background="{StaticResource KcapSurfaceRaisedBrush}"
-                                        IsVisible="{Binding HasCommand}">
-                                    <StackPanel Spacing="6">
-                                        <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                            <TextBlock.Text>
-                                                <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                                    <Binding Path="Sender.Title" />
-                                                    <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                        </TextBlock>
-                                        <SelectableTextBlock Classes="toolLine" Text="{Binding Command}" />
-                                    </StackPanel>
-                                </Border>
-                            </views:ChatOverhang>
+                            <Border Classes="shellCommand" HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,0" Padding="14,11" CornerRadius="10"
+                                    Background="{StaticResource KcapSurfaceRaisedBrush}"
+                                    IsVisible="{Binding HasCommand}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                                <Binding Path="Sender.Title" />
+                                                <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <SelectableTextBlock Classes="toolLine" Text="{Binding Command}" />
+                                </StackPanel>
+                            </Border>
                             <Border Classes="shellOutput chatSystemCard" Margin="0,8,0,0"
+                                    MaxWidth="{Binding $parent[views:ChatTailPanel].LaneWidth}"
                                     IsVisible="{Binding HasOutput}">
                                 <StackPanel Spacing="6">
                                     <views:ChatKindHeader Label="Output" IconKind="{x:Static views:ToolCategoryIcons.CommandIcon}" />
@@ -600,6 +597,9 @@
                 <Border Classes="chatColumnGrip" />
             </Border>
             <Border x:Name="ChatColumnRightHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset">
+                <Border Classes="chatColumnGrip" />
+            </Border>
+            <Border x:Name="ChatLaneHandle" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset">
                 <Border Classes="chatColumnGrip" />
             </Border>
         </Panel>

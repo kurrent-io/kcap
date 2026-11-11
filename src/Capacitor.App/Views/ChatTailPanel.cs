@@ -4,16 +4,24 @@ using Avalonia.Controls;
 namespace Capacitor.App.Views;
 
 /// Stacks the transcript and its live note in one column of at most <see cref="ColumnWidth"/>,
-/// centred in the scroll viewport.
+/// centred in the scroll viewport. <see cref="LaneWidth"/> is how wide the agent's rows in it may be.
 public sealed class ChatTailPanel : Panel {
     public static readonly StyledProperty<double> ColumnWidthProperty =
         AvaloniaProperty.Register<ChatTailPanel, double>(nameof(ColumnWidth), double.PositiveInfinity);
+
+    public static readonly StyledProperty<double> LaneWidthProperty =
+        AvaloniaProperty.Register<ChatTailPanel, double>(nameof(LaneWidth), double.PositiveInfinity);
 
     static ChatTailPanel() => AffectsMeasure<ChatTailPanel>(ColumnWidthProperty);
 
     public double ColumnWidth {
         get => GetValue(ColumnWidthProperty);
         set => SetValue(ColumnWidthProperty, value);
+    }
+
+    public double LaneWidth {
+        get => GetValue(LaneWidthProperty);
+        set => SetValue(LaneWidthProperty, value);
     }
 
     protected override Size MeasureOverride(Size availableSize) {

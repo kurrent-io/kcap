@@ -29,7 +29,8 @@ public sealed record AppState(
     bool RailCollapsed = false,
     double? ContextPaneWidth = null,
     bool ContextPaneCollapsed = false,
-    double? ChatColumnWidth = null,
+    double? ChatColumnFraction = null,
+    double? ChatLaneFraction = null,
     // When setup last sent the user to kcap.ai's sign-up; cleared once a sign-in commits.
     DateTimeOffset? WebSignUpOpenedAt = null,
     bool WindowsServiceDeclined = false,
