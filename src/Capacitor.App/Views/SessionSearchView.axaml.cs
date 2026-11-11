@@ -5,7 +5,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
@@ -17,11 +16,13 @@ namespace Capacitor.App.Views;
 public partial class SessionSearchView : UserControl {
     readonly SerialDisposable _focusRequests = new();
     Point? _pointerAt;
+    ScrollViewer? _hitsScroll;
 
     public SessionSearchView() {
         InitializeComponent();
         SearchQueryBox.AddHandler(KeyDownEvent, OnQueryKeyDown, RoutingStrategies.Tunnel);
-        SearchHits.AddHandler(PointerWheelChangedEvent, OnHitsWheel, RoutingStrategies.Bubble, handledEventsToo: true);
+        SearchHits.AddHandler(PointerWheelChangedEvent, OnHitsWheel, RoutingStrategies.Tunnel, handledEventsToo: true);
+        SearchHits.TemplateApplied += (_, e) => _hitsScroll = e.NameScope.Find<ScrollViewer>("SearchHitsScroll");
         this.GetObservable(IsVisibleProperty).Subscribe(visible => {
             if (visible) Dispatcher.UIThread.Post(() => SearchQueryBox.Focus(), DispatcherPriority.Loaded);
         });
@@ -107,13 +108,36 @@ public partial class SessionSearchView : UserControl {
     }
 
     // A wheel scroll moves rows under a still pointer without a PointerMoved, which would leave the highlight off
-    // screen for Enter while the row under the pointer looks hovered; once the scroll lands, that row takes it.
+    // screen for Enter. Once the list has moved, the row under the pointer takes it; with the pointer off every row,
+    // as over a scrollbar beside them, the highlight only steps onto the nearest row on screen. A wheel that scrolls
+    // nothing leaves it where the keyboard put it.
     void OnHitsWheel(object? sender, PointerWheelEventArgs e) {
-        var at = e.GetPosition(SearchHits);
+        if (_hitsScroll is not { } scroll) return;
+        var at = e.GetPosition(scroll);
+        var from = scroll.Offset;
         Dispatcher.UIThread.Post(() => {
-            if ((SearchHits.InputHitTest(at) as Visual)?.FindAncestorOfType<Button>(includeSelf: true) is { DataContext: SearchHitViewModel hit })
-                Highlight(hit);
+            if (scroll.Offset != from) HighlightAfterScroll(scroll, at);
         }, DispatcherPriority.Loaded);
+    }
+
+    void HighlightAfterScroll(ScrollViewer scroll, Point pointer) {
+        if (Search is not { } search) return;
+        // Rows are read where the new offset arranges them, not where the last layout pass left them.
+        scroll.UpdateLayout();
+        int under = -1, first = int.MaxValue, last = -1;
+        foreach (var row in SearchHits.GetRealizedContainers()) {
+            var index = SearchHits.IndexFromContainer(row);
+            if (index < 0 || !row.IsVisible || row.TranslatePoint(default, scroll) is not { } top) continue;
+            var bounds = new Rect(top, row.Bounds.Size);
+            if (bounds.Contains(pointer)) under = index;
+            if (bounds.Top < -0.5 || bounds.Bottom > scroll.Viewport.Height + 0.5) continue;
+            first = Math.Min(first, index);
+            last = Math.Max(last, index);
+        }
+        var target = under >= 0 ? under
+            : last < 0 || (search.HighlightIndex >= first && search.HighlightIndex <= last) ? -1
+            : search.HighlightIndex < first ? first : last;
+        if (target >= 0 && target != search.HighlightIndex) search.MoveHighlight(target - search.HighlightIndex);
     }
 
     void Highlight(SearchHitViewModel hit) {

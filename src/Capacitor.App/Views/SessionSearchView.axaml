@@ -118,7 +118,7 @@
                     <ItemsControl x:Name="SearchHits" ItemsSource="{Binding Search.Hits, FallbackValue={x:Null}}">
                         <ItemsControl.Template>
                             <ControlTemplate>
-                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                <ScrollViewer x:Name="SearchHitsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                                     <ItemsPresenter x:Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
                                 </ScrollViewer>
                             </ControlTemplate>
