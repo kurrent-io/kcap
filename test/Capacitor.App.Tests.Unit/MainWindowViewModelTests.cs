@@ -681,11 +681,9 @@ public class MainWindowViewModelTests {
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 tenantName: "work", home: home, appServerUrl: server, requestSignIn: () => { });
             using var activation = vm.Activator.Activate();
-            try {
+            using (home) {
                 service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "work", serverUrl: server));
                 await Assert.That(home.SignInVisible).IsTrue();
-            } finally {
-                home.Dispose();
             }
 
             await Assert.That(() => service.SnapshotsSubject.OnNext(Snap(connection: "connected", profile: "work", serverUrl: server))).ThrowsNothing();
