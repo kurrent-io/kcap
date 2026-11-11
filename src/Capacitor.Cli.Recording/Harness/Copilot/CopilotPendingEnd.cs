@@ -28,7 +28,7 @@ public static class CopilotPendingEnd {
     /// <paramref name="runId"/> is the run the transcript named when the stop arrived: a later run supersedes this end.
     /// <paramref name="watcherPid"/> is the writer, which a later watcher replaces.</summary>
     public static bool Write(WatcherPaths paths, string sessionId, string endBody, string? server, int? runtimePid, string transcriptPath, TimeProvider time,
-            string? runId = null, int? watcherPid = null) {
+            string? runId = null, int? watcherPid = null, TimeSpan? lockWait = null) {
         var record = new JsonObject {
             ["server"]            = server,
             ["body"]              = endBody,
@@ -37,12 +37,27 @@ public static class CopilotPendingEnd {
             ["watcher_pid"]       = watcherPid,
             ["transcript_path"]   = transcriptPath,
             ["run_id"]            = runId,
-            ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
+            ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
+            ["nonce"]             = Guid.NewGuid().ToString("N")
         };
 
-        using var held = CopilotPendingEndLock.TryAcquire(paths, sessionId);
+        using var held = CopilotPendingEndLock.TryAcquire(paths, sessionId, lockWait);
 
         return held is not null && Save(paths, sessionId, record);
+    }
+
+    /// <summary><see cref="Write"/> retried until <paramref name="within"/> runs out: a watcher whose end cannot be held has
+    /// nothing else to keep it.</summary>
+    public static async Task<bool> WriteWithRetryAsync(WatcherPaths paths, string sessionId, string endBody, string? server, int? runtimePid, string transcriptPath,
+            TimeProvider time, TimeSpan within, string? runId = null, int? watcherPid = null, TimeSpan? attemptWait = null) {
+        var started = time.GetTimestamp();
+
+        while (true) {
+            if (Write(paths, sessionId, endBody, server, runtimePid, transcriptPath, time, runId, watcherPid, attemptWait)) return true;
+            if (time.GetElapsedTime(started) >= within) return false;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), time);
+        }
     }
 
     // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none. The
@@ -128,20 +143,40 @@ public static class CopilotPendingEnd {
             : [];
 
     /// <summary>Spools every pending end for <paramref name="server"/> that is due and returns how many. Never throws.</summary>
-    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time) {
+    /// <param name="lockWait">How long to wait for a record a writer holds; a hook passes zero and leaves it to a later pass.</param>
+    /// <param name="budget">Starts no further record once spent.</param>
+    /// <remarks>The decision reads the record and the transcript with no lock held, however long the transcript is. Only
+    /// the change it decides on runs under the session's lock, and only if the record is still the one it read.</remarks>
+    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time, TimeSpan? lockWait = null, TimeSpan? budget = null) {
         var spooled = 0;
+        var started = time.GetTimestamp();
 
         foreach (var session in SessionsWithPending(paths)) {
-            try {
-                // From the read to the promotion or drop: a hook or watcher writing meanwhile would be overwritten or revived.
-                using var held = CopilotPendingEndLock.TryAcquire(paths, session);
-                if (held is null) continue;
+            if (budget is { } allowed && time.GetElapsedTime(started) >= allowed) break;
 
-                // The span close it owes is recorded first, so no spooled end goes without one.
-                if (Decide(paths, session, lifecycle, server, time) is { } due
-                 && CopilotSpanClose.Record(paths, session, server, due.Body, time, due.RunId) && lifecycle.Append(session, Route, due.Body)) {
-                    TryDelete(FileFor(paths, session));
-                    spooled++;
+            try {
+                if (ReadText(paths, session) is not { } read) continue;
+
+                var outcome = Decide(paths, session, read, lifecycle, server, time);
+                if (outcome.Kind == Change.None) continue;
+
+                using var held = CopilotPendingEndLock.TryAcquire(paths, session, lockWait);
+                if (held is null || ReadText(paths, session) is not { } now || IdentityOf(now) != IdentityOf(read)) continue;
+
+                if (outcome.Why is { } why) Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: {why}");
+
+                switch (outcome.Kind) {
+                    case Change.Save:
+                        Save(paths, session, outcome.Record!);
+                        break;
+                    case Change.Drop:
+                        TryDelete(FileFor(paths, session));
+                        break;
+                    // The span close it owes is recorded first, so no spooled end goes without one.
+                    case Change.Promote when CopilotSpanClose.Record(paths, session, server, outcome.Body!, time, outcome.RunId) && lifecycle.Append(session, Route, outcome.Body!):
+                        TryDelete(FileFor(paths, session));
+                        spooled++;
+                        break;
                 }
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) {
                 // The next pass tries again.
@@ -151,38 +186,53 @@ public static class CopilotPendingEnd {
         return spooled;
     }
 
-    /// <summary>A pending end that is due, with the run its transcript was on when the watcher stopped.</summary>
-    readonly record struct Due(string Body, string? RunId);
+    static string? ReadText(WatcherPaths paths, string session) {
+        try {
+            return File.Exists(FileFor(paths, session)) ? File.ReadAllText(FileFor(paths, session)) : null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
+        }
+    }
+
+    /// <summary>Which write a record is: its time and nonce, which a sweep's own notes leave alone; a torn record's text.</summary>
+    static string IdentityOf(string text) {
+        try {
+            if (JsonNode.Parse(text) is JsonObject record && record["nonce"]?.GetValue<string>() is { } nonce) return $"{record["written_at"]?.GetValue<string>()}|{nonce}";
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
+
+        return text;
+    }
+
+    enum Change { None, Save, Drop, Promote }
+
+    /// <summary>What a sweep decided for a record; nothing is written until the record is locked and found unchanged.</summary>
+    readonly record struct Outcome(Change Kind, JsonObject? Record = null, string? Body = null, string? RunId = null, string? Why = null) {
+        public static readonly Outcome Keep = new(Change.None);
+        public static Outcome Dropped(string? why = null) => new(Change.Drop, Why: why);
+    }
 
     // VS Code rewrites the transcript in place, so one read can catch it empty or half written. A run found gone or
     // superseded counts only once the file has stayed exactly so across passes this far apart.
     static readonly TimeSpan MismatchSettles = TimeSpan.FromSeconds(30);
 
-    /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
-    /// <remarks>The caller holds the session's <see cref="CopilotPendingEndLock"/>.</remarks>
-    static Due? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
-        if (!File.Exists(FileFor(paths, session))) return null;
-
+    /// <summary>What to do with the record read as <paramref name="text"/>; reads, never writes.</summary>
+    static Outcome Decide(WatcherPaths paths, string session, string text, HookSpool lifecycle, string? server, TimeProvider time) {
         JsonObject? record;
 
         try {
-            record = JsonNode.Parse(File.ReadAllText(FileFor(paths, session))) as JsonObject;
+            record = JsonNode.Parse(text) as JsonObject;
         } catch (JsonException) {
             record = null;
         }
 
-        if (record is null) {
-            Console.Error.WriteLine($"[kcap] dropping unreadable pending Copilot end for {session}");
+        if (record is null) return Outcome.Dropped("the record is unreadable");
 
-            return Drop();
-        }
+        if (lifecycle.IsDisabledByPerson(session)) return Outcome.Dropped();
 
-        if (lifecycle.IsDisabledByPerson(session)) return Drop();
-
-        if (record["server"]?.GetValue<string>() is { } recorded && !ServerIdentity.SameServer(recorded, server)) return null;
+        if (record["server"]?.GetValue<string>() is { } recorded && !ServerIdentity.SameServer(recorded, server)) return Outcome.Keep;
 
         if (!DateTimeOffset.TryParse(record["written_at"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var writtenAt)
-         || time.GetUtcNow() - writtenAt > Retention) return Drop();
+         || time.GetUtcNow() - writtenAt > Retention) return Outcome.Dropped();
 
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
 
@@ -192,7 +242,9 @@ public static class CopilotPendingEnd {
         var runId = record["run_id"]?.GetValue<string>();
         var runs  = CopilotRunBoundary.Read(transcript);
 
-        if (runs is null && runId is not null) return null;
+        if (runs is null && runId is not null) return Outcome.Keep;
+
+        var cleared = false;
 
         if (runs is not null) {
             var mismatch = runId is not null && !runs.Ids.Contains(runId) ? "its run is gone from the rewritten transcript"
@@ -200,18 +252,16 @@ public static class CopilotPendingEnd {
                          :                                                null;
 
             if (mismatch is null) {
-                if (record.Remove("mismatch")) Save(paths, session, record);
-            } else if (Settled(paths, session, record, transcript, time)) {
-                Console.Error.WriteLine($"[kcap] dropping pending Copilot end for {session}: {mismatch}");
-
-                return Drop();
+                cleared = record.Remove("mismatch");
             } else {
-                return null;
+                var (settled, noted) = Settle(record, transcript, time);
+
+                return settled ? Outcome.Dropped(mismatch) : noted is not null ? new Outcome(Change.Save, noted) : Outcome.Keep;
             }
         }
 
         // A watcher started since this one stopped records the session and sends its end.
-        if (WatcherLiveness.PidAlive(paths, session) && CurrentWatcherPid(paths, session) != record["watcher_pid"]?.GetValue<int>()) return Drop();
+        if (WatcherLiveness.PidAlive(paths, session) && CurrentWatcherPid(paths, session) != record["watcher_pid"]?.GetValue<int>()) return Outcome.Dropped();
 
         var shutdown = EndsOnShutdown(transcript);
 
@@ -223,34 +273,25 @@ public static class CopilotPendingEnd {
         // Without the runtime's identity, a live pid may be another process, so a transcript gone quiet stands in.
         var quietUnidentified = (pid is null || token is null) && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
 
-        if (!shutdown && !runtimeGone && !quietUnidentified) return null;
+        if (!shutdown && !runtimeGone && !quietUnidentified) return cleared ? new Outcome(Change.Save, record) : Outcome.Keep;
 
-        if (record["body"]?.GetValue<string>() is not { } body) return Drop();
-
-        return new Due(body, runId);
-
-        Due? Drop() {
-            TryDelete(FileFor(paths, session));
-
-            return null;
-        }
+        return record["body"]?.GetValue<string>() is { } body ? new Outcome(Change.Promote, Body: body, RunId: runId) : Outcome.Dropped();
     }
 
     /// <summary>Whether the transcript has stayed exactly as a mismatch first found it for <see cref="MismatchSettles"/>;
-    /// otherwise records how it looks now, so a later pass can tell.</summary>
-    static bool Settled(WatcherPaths paths, string session, JsonObject record, string transcript, TimeProvider time) {
+    /// when the mismatch is new or the file has changed, the record noting how it looks now, for a later pass to compare.</summary>
+    static (bool Settled, JsonObject? Noted) Settle(JsonObject record, string transcript, TimeProvider time) {
         var info  = new FileInfo(transcript);
         var shape = $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
 
         if (record["mismatch"] is JsonObject seen && seen["shape"]?.GetValue<string>() == shape
          && DateTimeOffset.TryParse(seen["since"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var since)) {
-            return time.GetUtcNow() - since >= MismatchSettles;
+            return (time.GetUtcNow() - since >= MismatchSettles, null);
         }
 
         record["mismatch"] = new JsonObject { ["since"] = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture), ["shape"] = shape };
-        Save(paths, session, record);
 
-        return false;
+        return (false, record);
     }
 
     static bool EndsOnShutdown(string transcript) {

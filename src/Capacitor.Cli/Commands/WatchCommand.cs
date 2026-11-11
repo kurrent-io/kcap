@@ -351,13 +351,20 @@ class WatchCommand(
         // The end is held before the wait, which the teardown that stopped this watcher can cut short; a later spool
         // drain sends it once the runtime has gone or the transcript ends on its shutdown line.
         async Task<string?> CopilotStopEndAsync(string path) {
-            var held = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
-            CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, RunCutoff().RunId, Environment.ProcessId);
+            var held     = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+            var holding  = CopilotPendingEnd.WriteWithRetryAsync(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, HeldEndWriteWindow,
+                RunCutoff().RunId, Environment.ProcessId);
 
             var reason = await CopilotStopRequestEnd.DecideAsync(
                 () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
                 () => CopilotFinalizeDrainCommand.LastLineIsShutdown(path),
                 time, CopilotStopRequestEnd.Wait);
+
+            // An end nothing holds is lost, so one that could not be held is sent now, though the session may not be over.
+            if (!await holding && reason is null) {
+                Log(time, "Could not hold the Copilot session's end for a later spool drain; sending it now");
+                reason = "parent_exited";
+            }
 
             Log(time, reason is not null
                 ? $"Stopped with the Copilot session over; ending it ({reason})"
@@ -647,6 +654,9 @@ class WatchCommand(
 
         return 0;
     }
+
+    // Within the 5 s KillWatcher gives a stopping watcher before it force-kills.
+    static readonly TimeSpan HeldEndWriteWindow = TimeSpan.FromSeconds(4);
 
     /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
     /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>

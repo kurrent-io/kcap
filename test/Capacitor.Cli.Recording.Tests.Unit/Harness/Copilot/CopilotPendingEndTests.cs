@@ -415,6 +415,65 @@ public class CopilotPendingEndTests {
         await Assert.That(RunIdOnDisk(Paths)).IsEqualTo("run-b");
     }
 
+    /// <summary>A sweep reads the transcript with no lock held, so however long that takes, a watcher writing its end meanwhile
+    /// is not refused; the sweep then finds the record changed and leaves it. A named pipe stands in for a transcript whose
+    /// read does not finish until the test lets it.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    public async Task A_long_transcript_read_does_not_hold_back_a_watchers_write() {
+        var transcript = Config.PathTo("events.fifo");
+        using (var mkfifo = System.Diagnostics.Process.Start("mkfifo", [transcript])!) await mkfifo.WaitForExitAsync();
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
+
+        var sweep = Task.Run(Sweep);
+        await Task.Delay(300);
+
+        var clock   = System.Diagnostics.Stopwatch.StartNew();
+        var written = CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-b");
+        clock.Stop();
+
+        await using (new FileStream(transcript, FileMode.Open, FileAccess.Write)) { }
+        await sweep;
+
+        await Assert.That(written).IsTrue();
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(1));
+        await Assert.That(RunIdOnDisk(Paths)).IsEqualTo("run-b");
+    }
+
+    /// <summary>A hook sweeps inside Copilot's shared shutdown budget, so it waits for no record another writer holds.</summary>
+    [Test]
+    public async Task A_hook_sweep_skips_a_record_another_writer_holds() {
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, Transcript(StartA + "\n" + Down), TimeProvider.System, runId: "run-a");
+
+        using (CopilotPendingEndLock.TryAcquire(Paths, Session)) {
+            var clock   = System.Diagnostics.Stopwatch.StartNew();
+            var spooled = CopilotPendingEnd.SpoolDue(Paths, Spool, Server, TimeProvider.System, lockWait: TimeSpan.Zero, budget: TimeSpan.FromMilliseconds(250));
+            clock.Stop();
+
+            await Assert.That(spooled).IsEqualTo(0);
+            await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(1));
+        }
+
+        await Assert.That(Sweep()).IsEqualTo(1);
+    }
+
+    /// <summary>A watcher retries its end through its stop window rather than lose it to a writer holding the record.</summary>
+    [Test]
+    public async Task A_watchers_write_is_retried_past_a_held_record() {
+        var transcript = Transcript(StartA + "\n" + Turn);
+        var held       = CopilotPendingEndLock.TryAcquire(Paths, Session)!;
+        var release    = Task.Run(async () => {
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            held.Dispose();
+        });
+
+        var written = await CopilotPendingEnd.WriteWithRetryAsync(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, TimeSpan.FromSeconds(10), "run-a",
+            attemptWait: TimeSpan.FromMilliseconds(100));
+        await release;
+
+        await Assert.That(written).IsTrue();
+        await Assert.That(RunIdOnDisk(Paths)).IsEqualTo("run-a");
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);

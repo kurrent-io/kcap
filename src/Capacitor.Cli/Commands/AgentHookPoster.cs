@@ -254,6 +254,8 @@ internal sealed class AgentHookPoster(
         => DrainSpoolsCoreAsync(lifecycle, transcript, sessionId,
             http.ForHookAsync);
 
+    static readonly TimeSpan PendingEndSweepBudget = TimeSpan.FromMilliseconds(250);
+
     /// <summary>A drain that ignores the throttle, for a caller holding an end it must deliver now. Never throws.</summary>
     public Task DrainSpoolsNowAsync(HookSpool lifecycle, string sessionId, Action<string, string, DrainOutcome>? onLifecycleOutcome = null) =>
         DrainSpoolsUnthrottledAsync(lifecycle, new TranscriptSpool(config, time, Url), sessionId, http.ForHookAsync, onLifecycleOutcome);
@@ -288,7 +290,9 @@ internal sealed class AgentHookPoster(
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
         MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
-        CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, time);
+        // Inside a hook's budget, which Copilot shares across every session it ends at once: no record is waited for, and
+        // the sweep stops early. The daemon, and the next drain, take what is left.
+        CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, time, lockWait: TimeSpan.Zero, budget: PendingEndSweepBudget);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.
