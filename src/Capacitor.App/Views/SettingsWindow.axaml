@@ -476,7 +476,7 @@
                                 <StackPanel Classes="settingsRowText">
                                     <TextBlock Classes="kcapLabel" Text="Local server downloads" />
                                     <TextBlock x:Name="LocalBundleDisclosure" Classes="kcapHint" TextWrapping="Wrap"
-                                               Text="Setting up a local server, or opening its Search settings, downloads the local server's signed release manifest from kurrent.io. Nothing is fetched when the app starts. The request carries no device id and is not usage data, so the switch above and DO_NOT_TRACK do not stop it." />
+                                               Text="Setting up or upgrading a local server, or opening its Search settings, downloads the local server's signed release manifest from kurrent.io. Nothing is fetched when the app starts. The request carries no device id and is not usage data, so the switch above and DO_NOT_TRACK do not stop it." />
                                 </StackPanel>
                             </Grid>
                         </Border>
