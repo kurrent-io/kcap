@@ -709,6 +709,30 @@ public class MainWindowSmokeTests {
         }
     });
 
+    /// The window's name is what Windows lists in the taskbar and Alt+Tab and what a screen reader announces,
+    /// so it stays set even though the title bar prints no title text.
+    [Test]
+    [NotInParallel]
+    [Arguments(null, "kcap Desktop")]
+    [Arguments("dev-a", "dev-a")]
+    public async Task The_main_window_is_named_for_the_taskbar_and_screen_readers(string? instanceTitle, string expected) {
+        using var env = EnvScope.Exclusive(MainWindow.TitleEnvVar, instanceTitle);
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var window = new MainWindow { DataContext = vm };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(window);
+                await Assert.That(window.Title).IsEqualTo(expected);
+                await Assert.That(peer.GetName()).IsEqualTo(expected);
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {
