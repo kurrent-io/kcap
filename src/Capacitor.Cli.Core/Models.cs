@@ -2670,8 +2670,10 @@ public record AgentRunStarted(
         string  Vendor
     );
 
-/// <summary><see cref="DaemonInstanceId"/> names the daemon process whose run stopped, the same id its
-/// <see cref="DaemonConnect"/> carries, so the server can tell this run's stop from one a predecessor sent late.</summary>
+/// <summary><see cref="DaemonInstanceId"/> names the daemon process that holds the stopped run on the server, the
+/// id its <see cref="DaemonConnect"/> carries, so the server can tell this run's stop from one a predecessor sent
+/// late. A process reporting a run it did not launch sends null: a resume claim re-stamps the server's entry with
+/// the claiming process, so its own ledger cannot say which process the server holds, and a wrong id hides the stop.</summary>
 public record AgentRunStopped(string? Reason, int? ExitCode, string? DaemonInstanceId = null);
 
 public record AgentRunHeartbeat(string? SessionId);

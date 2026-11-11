@@ -103,23 +103,24 @@ public class AgentRunEventQueueTests {
         await Assert.That(credentials.Refused).IsEquivalentTo(new string?[] { "old" });
     }
 
-    /// <summary>A stop names the daemon instance that sent it, so a server can keep a stop its predecessor
-    /// sent late off the resumed run. The field is additive: a server that predates it ignores it.</summary>
+    /// <summary>A stop names the daemon process that holds its run, as the stop was built, never the process
+    /// sending it: a restarted daemon reports its predecessor's runs too. The field is additive: a server that
+    /// predates it ignores it.</summary>
     [Test]
-    public async Task A_stop_carries_the_daemon_instance_that_sent_it() {
+    [Arguments("proc-1", """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":"proc-1"}}""")]
+    [Arguments(null, """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":null}}""")]
+    public async Task A_stop_carries_the_process_that_holds_its_run(string? holder, string body) {
         var bodies = new List<string>();
         var config = new DaemonConfig {
-            Name = "queue-test", ServerUrl = "http://server.test", Profiles = Resolutions.None(Config.Root), InstanceId = "proc-1"
+            Name = "queue-test", ServerUrl = "http://server.test", Profiles = Resolutions.None(Config.Root), InstanceId = "proc-sender"
         };
 
         using var queue = new AgentRunEventQueue(
             config, new FixedCredentialSource(), TimeProvider.System, new CapturingLogger(), new HttpClient(new BodyCapture(bodies)));
 
-        await queue.PostDirectAsync("agent-1", new AgentRunStopped("done", 0), CancellationToken.None);
+        await queue.PostDirectAsync("agent-1", new AgentRunStopped("done", 0, holder), CancellationToken.None);
 
-        await Assert.That(bodies).IsEquivalentTo([
-            """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":"proc-1"}}"""
-        ]);
+        await Assert.That(bodies).IsEquivalentTo([body]);
     }
 
     sealed class BodyCapture(List<string> bodies) : HttpMessageHandler {

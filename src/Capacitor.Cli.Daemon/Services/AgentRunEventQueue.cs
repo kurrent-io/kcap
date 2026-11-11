@@ -126,9 +126,7 @@ internal sealed partial class AgentRunEventQueue(
         return response;
     }
 
-    string Serialize(object evt) {
-        if (evt is AgentRunStopped stopped) evt = stopped with { DaemonInstanceId = config.InstanceId };
-
+    static string Serialize(object evt) {
         var data = JsonSerializer.SerializeToNode(evt, evt.GetType(), CapacitorJsonContext.Default)!.AsObject();
 
         return new JsonObject { ["event_type"] = evt.GetType().Name, ["data"] = data }.ToJsonString();
