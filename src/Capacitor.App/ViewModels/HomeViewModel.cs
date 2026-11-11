@@ -507,7 +507,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     readonly BehaviorSubject<bool> _daemonStartVisibleFeed = new(false);
     readonly BehaviorSubject<bool> _daemonRetryVisibleFeed = new(false);
     readonly BehaviorSubject<bool> _daemonSignInOffered = new(false);
-    internal void SetDaemonSignInOffered(bool offered) => _daemonSignInOffered.OnNext(offered);
+    internal void SetDaemonSignInOffered(bool offered) {
+        if (!_disposed) _daemonSignInOffered.OnNext(offered);
+    }
     readonly BehaviorSubject<bool> _daemonRepairVisibleFeed = new(false);
 
     /// Wired by AttachDaemonRecovery to MainWindow's Start/Reconnect commands.

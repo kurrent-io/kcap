@@ -669,6 +669,33 @@ public class MainWindowViewModelTests {
     }
 
     [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Daemon_sign_in_updates_survive_launcher_disposal() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            const string server = "https://app.example";
+            var service = new FakeDaemonClientService();
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            var home = new HomeViewModel(service, new AppStateStore(path), new UnusedLaunchClient(),
+                () => Task.FromResult(Array.Empty<string>()), TimeProvider.System, appServerUrl: server);
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "work", home: home, appServerUrl: server, requestSignIn: () => { });
+            using var activation = vm.Activator.Activate();
+            try {
+                service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "work", serverUrl: server));
+                await Assert.That(home.SignInVisible).IsTrue();
+            } finally {
+                home.Dispose();
+            }
+
+            await Assert.That(() => service.SnapshotsSubject.OnNext(Snap(connection: "connected", profile: "work", serverUrl: server))).ThrowsNothing();
+            await Assert.That(vm.SignInVisible).IsFalse();
+            await Assert.That(() => service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "work", serverUrl: server))).ThrowsNothing();
+            await Assert.That(vm.SignInVisible).IsTrue();
+        });
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
