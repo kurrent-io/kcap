@@ -9,6 +9,10 @@ public static class RecordingIpc {
     /// <summary>Advertised by a daemon that records hosted sessions now, so a hook can leave them to it.</summary>
     public const string Capability = "recording/1";
 
+    /// <summary>Advertised by a daemon that records terminal sessions now, so a hook outside any hosted agent can hand
+    /// one over.</summary>
+    public const string TerminalCapability = "recording-terminal/1";
+
     /// <summary>Advertised by a daemon that answers <see cref="FrameType.DisableSession"/>.</summary>
     public const string DisableCapability = "recording-disable/1";
 
@@ -33,6 +37,10 @@ public static class RecordingIpc {
     /// <summary>The refusal of a source that isn't the asking agent's.</summary>
     public const string NotTheAgents = "not_the_agents";
 
+    /// <summary>How long a terminal hook waits for the hello. A daemon that is up answers in well under a millisecond,
+    /// and one stopped, starved or swapped out would otherwise spend the hook's whole hand-off on it.</summary>
+    public static readonly TimeSpan TerminalHelloWait = TimeSpan.FromMilliseconds(250);
+
     /// <summary>How the daemon took <paramref name="source"/>.</summary>
     public static async Task<RecordingHandOver> RecordAsync(DaemonStore store, string daemonName, RecordSourceDto source, CancellationToken ct) {
         try {
@@ -41,27 +49,75 @@ public static class RecordingIpc {
 
             var json = JsonSerializer.Serialize(source, RecordingIpcJsonContext.Default.RecordSourceDto);
 
-            return await ExchangeAsync(store, daemonName, LocalFrame.RecordSource(json), ct) switch {
-                { Type: FrameType.RecordSourceAck, Text: Recording }    => RecordingHandOver.Taken,
-                { Type: FrameType.RecordSourceAck, Text: Refused }      => RecordingHandOver.Declined,
-                { Type: FrameType.RecordSourceAck, Text: NotTheAgents } => RecordingHandOver.Disowned,
-                _                                                       => RecordingHandOver.Unanswered,
-            };
+            return HandOverOf(await ExchangeAsync(store, daemonName, LocalFrame.RecordSource(json), ct));
         } catch (Exception ex) when (IsNoAnswer(ex)) {
             return RecordingHandOver.Unanswered;
         }
     }
 
-    /// <summary>Whether the daemon has made the final drain of the source <paramref name="key"/> names. A caller that
-    /// stops waiting has still asked, and the daemon still finishes. No capability is asked for: a hook sends this only
-    /// to the daemon with a claim, and one that has stopped taking sources still holds that one.</summary>
-    public static async Task<bool> FinishAsync(DaemonStore store, string daemonName, string key, CancellationToken ct) {
+    /// <summary>How the daemon took a terminal session's source. <paramref name="describe"/> runs only once the daemon has
+    /// said it takes terminal sessions, so one that doesn't costs the hook its hello and nothing more; null from it hands
+    /// nothing over.</summary>
+    public static async Task<RecordingHandOver> RecordTerminalAsync(
+            DaemonStore store, string daemonName, Func<RecordTerminalSourceDto?> describe, TimeProvider time, CancellationToken ct) {
         try {
-            return await ExchangeAsync(store, daemonName, LocalFrame.FinishSource(key), ct) is { Type: FrameType.FinishSourceAck, Text: Finished };
+            IReadOnlyList<string>? capabilities;
+
+            using (var wait = new CancellationTokenSource(TerminalHelloWait, time))
+            using (var hello = CancellationTokenSource.CreateLinkedTokenSource(ct, wait.Token)) {
+                capabilities = await CapabilitiesAsync(store, daemonName, hello.Token);
+            }
+
+            if (capabilities is null) return RecordingHandOver.Unanswered;
+            if (!capabilities.Contains(TerminalCapability) || describe() is not { } source) return RecordingHandOver.Declined;
+
+            var json = JsonSerializer.Serialize(source, RecordingIpcJsonContext.Default.RecordTerminalSourceDto);
+
+            return HandOverOf(await ExchangeAsync(store, daemonName, LocalFrame.RecordTerminalSource(json), ct));
         } catch (Exception ex) when (IsNoAnswer(ex)) {
-            return false;
+            return RecordingHandOver.Unanswered;
         }
     }
+
+    static RecordingHandOver HandOverOf(LocalFrame? answer) => answer switch {
+        { Type: FrameType.RecordSourceAck, Text: Recording }    => RecordingHandOver.Taken,
+        { Type: FrameType.RecordSourceAck, Text: Refused }      => RecordingHandOver.Declined,
+        { Type: FrameType.RecordSourceAck, Text: NotTheAgents } => RecordingHandOver.Disowned,
+        _                                                       => RecordingHandOver.Unanswered,
+    };
+
+    /// <summary>How the daemon answered an ask for the final drain of the source <paramref name="key"/> names. A caller
+    /// that stops waiting has still asked, and the daemon still finishes. No capability is asked for: a hook sends this
+    /// only to the daemon with a claim, and one that has stopped taking sources still holds that one.</summary>
+    /// <param name="from">The coding-agent process the asking hook runs under, when it knows it.</param>
+    public static async Task<RecordingFinish> FinishAsync(DaemonStore store, string daemonName, string key, ProcessIncarnation? from, CancellationToken ct) {
+        try {
+            return await ExchangeAsync(store, daemonName, LocalFrame.FinishSource(FinishText(key, from)), ct) switch {
+                { Type: FrameType.FinishSourceAck, Text: Finished } => RecordingFinish.Finished,
+                { Type: FrameType.FinishSourceAck, Text: NotHeld }  => RecordingFinish.NotHeld,
+                _                                                   => RecordingFinish.Unanswered,
+            };
+        } catch (SocketException) {
+            // Only the connect throws this: nothing listens on the socket.
+            return RecordingFinish.Unreachable;
+        } catch (ArgumentException) {
+            // A path too long to open a socket on, which nothing can be listening on either.
+            return RecordingFinish.Unreachable;
+        } catch (Exception ex) when (IsNoAnswer(ex)) {
+            return RecordingFinish.Unanswered;
+        }
+    }
+
+    /// <summary>A <see cref="FrameType.FinishSource"/> payload: the key, then the asking process's pid and start token.</summary>
+    public static string FinishText(string key, ProcessIncarnation? from) =>
+        from is null ? key : $"{key}\n{from.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{from.StartToken}";
+
+    /// <summary>What <see cref="FinishText"/> wrote. A process that doesn't read back is no process.</summary>
+    public static (string Key, ProcessIncarnation? From) ReadFinish(string text) =>
+        text.Split('\n') is [var key, var pid, var token]
+     && int.TryParse(pid, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 1 && token.Length > 0
+            ? (key, new ProcessIncarnation(id, token))
+            : (text.Split('\n')[0], null);
 
     /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. One that
     /// takes the connection and says nothing it can read is silent. A daemon too old for the frame records nothing this

@@ -306,6 +306,9 @@ public static partial class DaemonRunner {
         config.PriorInstanceId = daemonLock.PriorInstanceId;
         StartupPhase(time, "lock acquired");
 
+        // Under the lock, so no other daemon of this name writes or removes it, and the lock's release removes it.
+        DaemonRecordingMarker.Sync(config.Store, config.Name, config.RecordHostedClaude);
+
         // File when detached, console when foreground. After the lock: Windows opens the log file
         // write-exclusive, so a duplicate daemon opening it first would crash instead of refusing above.
         if (logFile is not null) {
@@ -1259,8 +1262,8 @@ public static partial class DaemonRunner {
 
     /// The profile's max_agents applies whenever --max-agents was not passed; the flag wins when it was.
     internal static void ApplyProfileCapacity(DaemonConfig config, DaemonSettings? profileDaemon, bool maxAgentsFromArgs) {
-        if (maxAgentsFromArgs || profileDaemon is null) return;
-        config.MaxConcurrentAgents = profileDaemon.MaxAgents;
+        if (maxAgentsFromArgs || profileDaemon?.MaxAgents is not { } max) return;
+        config.MaxConcurrentAgents = max;
     }
 
     /// <summary>Phase B (D3): parse a seconds-valued env var into a <see cref="TimeSpan"/>

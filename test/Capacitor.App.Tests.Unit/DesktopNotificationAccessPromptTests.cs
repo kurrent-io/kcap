@@ -1,12 +1,29 @@
+using Microsoft.Extensions.Time.Testing;
 using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
+using Capacitor.App.Platform.Mac;
 using ReactiveUnit = System.Reactive.Unit;
 
 namespace Capacitor.App.Tests.Unit;
 
 public class DesktopNotificationAccessPromptTests {
+    [Test]
+    public async Task An_alerts_only_Mac_install_requests_badges_once_while_notifications_are_enabled_and_foreground() {
+        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false) };
+        using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+        using var preferences = new BehaviorSubject<NotificationPreferences>(new(false, false, false));
+        using var activated = new Subject<ReactiveUnit>();
+        using var prompt = new DesktopNotificationAccessPrompt(sink, preferences, activated,
+            () => true, ImmediateScheduler.Instance);
+        await Assert.That(native.Requests).IsEqualTo(0);
+        preferences.OnNext(new());
+        activated.OnNext(ReactiveUnit.Default);
+        activated.OnNext(ReactiveUnit.Default);
+        await Assert.That(native.Requests).IsEqualTo(1);
+    }
+
     sealed class Harness : IDisposable {
         public FakeDesktopNotificationAccess Access { get; }
         public BehaviorSubject<NotificationPreferences> Preferences { get; }

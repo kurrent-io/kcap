@@ -272,6 +272,53 @@ public class ChatTabViewSmokeTests {
         }
     });
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Find_and_connection_recovery_actions_remain_usable_together() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var lines = new[] { Reply("The needle is up here.") }
+                .Concat(Enumerable.Repeat(UserLine, 80))
+                .Concat([Reply("And a needle down here.")]).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("find-reconnecting.jsonl", lines));
+            host.View.OpenFind();
+            host.Chat.WorkspaceNotice = SessionConnectionPresentation.Reconnecting();
+            host.Settle();
+
+            var find = host.View.FindControl<Border>("FindBar")!;
+            var input = host.View.FindControl<TextBox>("FindInput")!;
+            var banner = host.View.FindControl<SessionConnectionNotice>("ChatConnectionBanner")!;
+            await Assert.That(find.IsEffectivelyVisible).IsTrue();
+            await Assert.That(banner.IsEffectivelyVisible).IsTrue();
+            await Assert.That(input.IsFocused).IsTrue();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+            await Assert.That(host.Chat.Find.MatchCount).IsEqualTo(2);
+            var first = host.Chat.Find.CurrentIndex;
+
+            Click(host, host.View.FindControl<Button>("FindNext")!);
+            await Assert.That(host.Chat.Find.CurrentIndex).IsEqualTo((first + 1) % 2);
+            await Assert.That(CurrentMark(host)?.DataContext)
+                .IsSameReferenceAs(host.Chat.Items[host.Chat.Find.Current!.ItemIndex]);
+
+            var retries = 0;
+            using var retry = ReactiveUI.Reactive.ReactiveCommand.Create(() => { retries++; });
+            host.Chat.WorkspaceNotice = SessionConnectionPresentation.Failed(retry);
+            host.Settle();
+            Click(host, banner.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+            await Assert.That(retries).IsEqualTo(1);
+            await Assert.That(host.Chat.Find.Query).IsEqualTo("needle");
+            await Assert.That(find.IsEffectivelyVisible).IsTrue();
+
+            input.Focus();
+            host.PressEnter(RawInputModifiers.None);
+            host.Settle();
+            await Assert.That(host.Chat.Find.CurrentIndex).IsEqualTo(first);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
     /// Pins that leaving a session and coming back, whether the view is swapped to another chat or
     /// taken out of the window, keeps the search open on the match the reader was at.
     [Test]

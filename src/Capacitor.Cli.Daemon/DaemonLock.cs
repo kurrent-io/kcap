@@ -27,6 +27,7 @@ internal sealed class DaemonLock : IDisposable {
     readonly string     _pidPath;
     readonly string     _lockPath;
     readonly string     _versionPath;
+    readonly string     _recordingPath;
     bool                _disposed;
 
     public string InstanceId { get; }
@@ -67,12 +68,13 @@ internal sealed class DaemonLock : IDisposable {
     /// an indeterminate prior as fail-closed, NEVER as genesis.</summary>
     public bool PriorLockIndeterminate { get; }
 
-    DaemonLock(FileStream stream, string lockPath, string pidPath, string versionPath, string instanceId,
+    DaemonLock(FileStream stream, string lockPath, string pidPath, string versionPath, string recordingPath, string instanceId,
                bool priorExitWasUnclean, int? priorHolderPid, string? priorInstanceId, bool priorLockIndeterminate) {
         _stream                = stream;
         _lockPath              = lockPath;
         _pidPath               = pidPath;
         _versionPath           = versionPath;
+        _recordingPath         = recordingPath;
         InstanceId             = instanceId;
         PriorExitWasUnclean    = priorExitWasUnclean;
         PriorHolderPid         = priorHolderPid;
@@ -168,7 +170,7 @@ internal sealed class DaemonLock : IDisposable {
             try { DaemonVersionMarker.Write(store, daemonName, version); } catch { /* best-effort */ }
         }
 
-        return new DaemonLock(stream, lockPath, pidPath, versionPath, instanceId, priorUnclean, priorPid, priorInstanceId, priorLockIndeterminate);
+        return new DaemonLock(stream, lockPath, pidPath, versionPath, store.RecordingMarkerPath(daemonName), instanceId, priorUnclean, priorPid, priorInstanceId, priorLockIndeterminate);
     }
 
     /// <summary>
@@ -257,6 +259,7 @@ internal sealed class DaemonLock : IDisposable {
         if (ours) {
             try { File.Delete(_pidPath); } catch { /* best-effort */ }
             try { File.Delete(_versionPath); } catch { /* best-effort */ }
+            try { File.Delete(_recordingPath); } catch { /* best-effort */ }
         }
 
         // Release the kernel-level flock last. Do NOT delete the lock file: the

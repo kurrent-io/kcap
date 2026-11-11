@@ -16,6 +16,50 @@ public class RecorderClaimsTests {
 
     RecorderClaims Claims => field ??= new(Directory, _time);
 
+    /// <summary>Two daemons can share one directory. One that woke after a sleep must neither keep a source the other
+    /// took nor keep that one's claim fresh for it, or the claim would outlive the daemon actually holding it.</summary>
+    [Test]
+    public async Task A_holders_view_beats_and_keeps_only_its_own_claim() {
+        var mine  = new RecorderClaims(Directory, _time, "daemon-a");
+        var other = new RecorderClaims(Directory, _time, "daemon-b");
+        mine.TryTake(Key, "daemon-a", isHosted: false);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+        other.TryTake(Key, "daemon-b", isHosted: false);
+        var taken = File.GetLastWriteTimeUtc(mine.ClaimFile(Key));
+
+        _time.Advance(TimeSpan.FromSeconds(10));
+        mine.Beat(Key);
+
+        await Assert.That(mine.Keeps(Key)).IsFalse();
+        await Assert.That(other.Keeps(Key)).IsTrue();
+        await Assert.That(File.GetLastWriteTimeUtc(mine.ClaimFile(Key))).IsEqualTo(taken);
+
+        other.Beat(Key);
+        await Assert.That(File.GetLastWriteTimeUtc(mine.ClaimFile(Key))).IsGreaterThan(taken);
+    }
+
+    /// <summary>A read that fails once must not stop a recorder with no final drain, so a claim it can't read is kept.</summary>
+    [Test]
+    public async Task A_holders_view_keeps_a_claim_it_cannot_read_and_no_claim_at_all_is_lost() {
+        var mine = new RecorderClaims(Directory, _time, "daemon-a");
+        mine.TryTake(Key, "daemon-a", isHosted: false);
+        await File.WriteAllTextAsync(mine.ClaimFile(Key), "garbage");
+
+        await Assert.That(mine.Keeps(Key)).IsTrue();
+
+        mine.Release(Key);
+        await Assert.That(mine.Keeps(Key)).IsFalse();
+    }
+
+    /// <summary>Without a holder any claim keeps a source, stale or not, as a host with one owner always read it.</summary>
+    [Test]
+    public async Task Claims_with_no_holder_keep_any_claim() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Assert.That(Claims.Keeps(Key)).IsTrue();
+    }
+
     [Test]
     public async Task A_source_with_no_file_has_no_claim() {
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);

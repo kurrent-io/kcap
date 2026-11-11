@@ -45,7 +45,7 @@ public class PullRequestViewSmokeTests {
             var reader = host.Content;
             await Assert.That(reader).IsTypeOf<PullRequestReader>();
             await Assert.That(((Control)reader!).IsEffectivelyVisible).IsTrue();
-            await Assert.That(vm.ShowsTerminalBanners).IsFalse();
+            await Assert.That(vm.HasBannerNotice).IsFalse();
             await Assert.That(vm.PullRequests.Description).IsEqualTo("Private description");
             await vm.ShowChatCommand.Execute();
             await vm.ShowPullRequestCommand.Execute();

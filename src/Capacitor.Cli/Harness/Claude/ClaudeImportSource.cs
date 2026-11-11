@@ -101,7 +101,8 @@ internal sealed class ClaudeImportSource(
             transcripts,
             ctx.MinLines,
             ct,
-            vendor: Vendor
+            vendor: Vendor,
+            excludeBeforeProbeAsync: ctx.ExcludeBeforeProbeAsync
         );
     }
 

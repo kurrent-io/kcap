@@ -920,7 +920,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// The listing row a session-only workspace was built from, as the composer reads it.
     public static RepoSessionDto SourceOf(AgentRow row) => new() {
         SessionId = row.SessionId ?? row.Id, Status = row.IsEndedSession ? "ended" : "active",
-        AccessLevel = row.AccessLevel ?? "", Vendor = row.Vendor, Title = row.Title, Cwd = row.RepoPath, Branch = row.Branch,
+        AccessLevel = row.AccessLevel ?? "", Vendor = row.Vendor, Title = row.Title, Cwd = row.WorktreePath ?? row.RepoPath, Branch = row.Branch,
         Owner = row.OwnerUserId is { } owner ? new() { UserId = owner, DisplayName = row.OwnerName, AvatarUrl = row.OwnerAvatarUrl } : null,
         StartedAt = row.CreatedAt, LastActivityAt = row.LastActivityAt ?? row.CreatedAt, EndedAt = row.EndedAt,
         Recording = row.Recording,

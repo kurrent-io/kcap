@@ -11,6 +11,17 @@ public class ArgParsingTests {
         await Assert.That(ArgParsing.PositionalSessionId(["recap", "--get-turn", "3", "abc"], valueFlags: ["--get-turn"])).IsEqualTo("abc");
     }
 
+    /// <summary>A GUID in any spelling names the session the server files under its 32-hex form, so the
+    /// dashed id `kcap sessions` prints works when pasted back; an opaque vendor id keeps its dashes.</summary>
+    [Test]
+    [Arguments("34a36f6f-788b-475c-a464-49e62a0678f8", "34a36f6f788b475ca46449e62a0678f8")]
+    [Arguments("34A36F6F-788B-475C-A464-49E62A0678F8", "34a36f6f788b475ca46449e62a0678f8")]
+    [Arguments("34a36f6f788b475ca46449e62a0678f8", "34a36f6f788b475ca46449e62a0678f8")]
+    [Arguments("sess-1", "sess-1")]
+    [Arguments("ses_7f3a-b2", "ses_7f3a-b2")]
+    public async Task PositionalSessionId_canonicalizes_a_guid_and_keeps_an_opaque_id(string typed, string expected) =>
+        await Assert.That(ArgParsing.PositionalSessionId(["recap", typed])).IsEqualTo(expected);
+
     [Test]
     public async Task ResolveSessionId_returns_first_positional_when_no_flags() {
         var id = ArgParsing.ResolveSessionId(["eval", "sess-123"]);

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
@@ -42,14 +43,22 @@ public class DaemonRecorderTests {
 
     /// <param name="prepare">What a recorder's preparing waits on, which ignores its token as repository detection does.</param>
     /// <param name="probe">The server's answer, which is yes unless the test holds it.</param>
-    DaemonRecorder NewRecorder(bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null) {
+    /// <param name="endsFirst">How the first session-end posts go, in order; every later one is delivered.</param>
+    DaemonRecorder NewRecorder(
+            bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null, string name = Name,
+            IReadOnlyList<SessionEndDelivery>? endsFirst = null) {
         if (probe is null) {
             probe = new RecordingProbe();
             probe.Report(true);
         }
 
+        var first = new Queue<SessionEndDelivery>(endsFirst ?? []);
+
+        var config = NewConfig(on);
+        config.Name = name;
+
         return new DaemonRecorder(
-            NewConfig(on), new CapacitorServer(Url, Config.Root, Resolutions.None(Config.Root)), probe,
+            config, new CapacitorServer(Url, Config.Root, Resolutions.None(Config.Root)), probe,
             () => {
                 Connections++;
 
@@ -61,7 +70,72 @@ public class DaemonRecorderTests {
 
                 return new FakeRecorderHousekeeping { OnPrepare = prepare };
             },
-            time ?? TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
+            time ?? TimeProvider.System, NullLogger<DaemonRecorder>.Instance, process => {
+                Interlocked.Increment(ref _processLooks);
+
+                return Exited.Contains(process.Pid);
+            },
+            (source, end) => {
+                lock (Ends) {
+                    var delivery = first.TryDequeue(out var next) ? next : SessionEndDelivery.Delivered;
+
+                    if (delivery is SessionEndDelivery.Delivered) Ends.Add((source.Key, end, (time ?? TimeProvider.System).GetUtcNow()));
+                    else Undelivered.Add(source.Key);
+
+                    return Task.FromResult(delivery);
+                }
+            });
+    }
+
+    /// <summary>Every session end the recorder posted, with the time it posted it.</summary>
+    List<(string Key, System.Text.Json.Nodes.JsonObject End, DateTimeOffset At)> Ends { get; } = [];
+
+    int EndCount {
+        get {
+            lock (Ends) return Ends.Count;
+        }
+    }
+
+    /// <summary>Every session end that was not delivered, under the lock on <see cref="Ends"/>.</summary>
+    List<string> Undelivered { get; } = [];
+
+    int UndeliveredCount {
+        get {
+            lock (Ends) return Undelivered.Count;
+        }
+    }
+
+    /// <summary>What a hook leaves when a process claims a session.</summary>
+    void ClaimNote(int pid, string session = Session, string token = "test:claude") {
+        Directory.CreateDirectory(Config.Root.Path("agent-sessions"));
+        File.WriteAllText(Config.Root.Path("agent-sessions", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)), $"{session}\n{token}");
+    }
+
+    /// <summary>Moves the clock a second at a time until <paramref name="condition"/> holds.</summary>
+    static async Task Stepping(FakeTimeProvider time, Func<bool> condition) =>
+        await WaitHarness.PollUntilAsync(() => {
+            if (condition()) return true;
+
+            time.Advance(TimeSpan.FromSeconds(1));
+
+            return condition();
+        });
+
+    /// <summary>The pids of terminal processes that have gone.</summary>
+    ConcurrentBag<int> Exited { get; } = [];
+
+    int _processLooks;
+
+    /// <summary>Moves the clock one process check at a time until the daemon has looked twice more, so the first of those
+    /// rounds has finished whatever it was going to.</summary>
+    async Task TwoProcessChecks(FakeTimeProvider time) {
+        var looked = Volatile.Read(ref _processLooks);
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(DaemonRecorder.ProcessCheck);
+
+            return Volatile.Read(ref _processLooks) >= looked + 2;
+        });
     }
 
     WatcherPaths Paths => WatcherPaths.FromEnvironment(Config.Root);
@@ -73,12 +147,728 @@ public class DaemonRecorderTests {
     RecordedSource Source(string? transcript = null, string? subagent = null) =>
         new("agent-1", Session, subagent, transcript ?? Tmp.PathTo("t.jsonl"), "claude", null, false);
 
+    /// <summary>A terminal session's source, which its Claude process ends rather than an agent.</summary>
+    static RecordedSource Terminal(string transcript, string session = Session, int pid = 4242) =>
+        new(null, session, null, transcript, "claude", null, false, Process: new ProcessIncarnation(pid, "test:claude"));
+
     string Transcript(params string[] lines) => Tmp.CreateFile("t.jsonl", string.Concat(lines.Select(line => $"{line}\n")));
 
     /// <summary>A watcher's pid file naming this very process, which is as alive as a pid gets.</summary>
     async Task LiveWatcher(string key) {
         Directory.CreateDirectory(Paths.Directory);
         await File.WriteAllTextAsync(Paths.PidFile(key), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}");
+    }
+
+    /// <summary>A hook outside any agent left a terminal claim, which a hook from a hosted agent never waits on, and no
+    /// agent's exit ends the source.</summary>
+    [Test]
+    public async Task A_terminal_source_takes_a_terminal_claim_and_no_agents_exit_ends_it() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+
+        await Assert.That(await recorder.TryRecordAsync(source, CancellationToken.None)).IsTrue();
+        await recorder.FinishAgentAsync("agent-1", TimeSpan.FromSeconds(5)).WithinDeadlineAsync("an agent's end");
+
+        await Assert.That(Claims.IsHosted(source.Key)).IsFalse();
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo(Name);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>A terminal session has no agent exit to end it. Once its Claude process has gone the daemon finishes the
+    /// source by itself, on its own round of looking, with no hook involved.</summary>
+    [Test]
+    public async Task A_terminal_source_ends_once_its_process_has_gone() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        await TwoProcessChecks(time);
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+
+        Exited.Add(4242);
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromSeconds(1));
+
+            return recorder.ActiveKeys.Count == 0 && Claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0;
+        });
+
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    /// <summary>A terminal session killed with no SessionEnd hook gets the end a watcher's parent monitor would post, once
+    /// the grace for a late hook has passed. Until then the claim and the list entry stay, so a hook in the grace finds
+    /// the source, and the daemon claims that process's end first, so a late hook posts none of its own.</summary>
+    [Test]
+    public async Task A_terminal_session_whose_process_exits_unannounced_gets_its_end_after_the_grace() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+        var drained = time.GetUtcNow();
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([source.Key]);
+
+        await Stepping(time, () => EndCount == 1 && claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0);
+
+        var (_, end, at) = Ends.Single();
+        await Assert.That(at - drained).IsGreaterThanOrEqualTo(DaemonRecorder.SessionEndGrace);
+        await Assert.That(end["reason"]?.GetValue<string>()).IsEqualTo("parent_exited");
+        await Assert.That(end["session_id"]?.GetValue<string>()).IsEqualTo(Session);
+        await Assert.That(end.ContainsKey("agent_host_id")).IsFalse();
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>The SessionEnd hook's continuation runs detached and can land after the process has gone. Its finish
+    /// inside the grace is answered once the exit's drain is done, and the end it claims for that process holds the
+    /// daemon's back.</summary>
+    [Test]
+    public async Task A_session_end_hook_inside_the_grace_keeps_the_daemon_from_posting_an_end() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the hook's finish")).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Yours);
+        SessionEndRecord.MarkPosted(Paths, Session, source.Process!, time.GetUtcNow());
+        await Stepping(time, () => List.Load().Count == 0);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    /// <summary>The hook got there first, so the exit that follows decides nothing: one end, the hook's.</summary>
+    [Test]
+    public async Task A_hook_finish_ahead_of_the_process_check_leaves_no_end_to_post() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        var hook = recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => hook.IsCompleted);
+        await hook;
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    /// <summary>A subagent's source ends with its process, and only the session posts an end.</summary>
+    [Test]
+    public async Task A_terminal_subagent_whose_process_exits_posts_no_end() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply)) with { SubagentId = "a1" };
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => List.Load().Count == 0);
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>What a person disabled gets no end either, however the session stopped.</summary>
+    [Test]
+    public async Task A_session_disabled_inside_the_grace_gets_no_end() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        DisabledSessions.Mark(Session, Config.Root);
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable");
+
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A session resumed in a new process while this one exits runs on there: its hook claimed it, and its next
+    /// hook may be minutes off. The source follows the new process instead of ending, and ends when that one does.</summary>
+    [Test]
+    public async Task A_session_resumed_in_another_process_is_followed_rather_than_ended() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        ClaimNote(4343);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+
+        Exited.Add(4343);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => EndCount == 1);
+    }
+
+    /// <summary>A session resumed in a new process inside the grace runs on there, and that process's SessionStart found
+    /// the claim fresh and started nothing. The daemon finds it before the grace is out and follows it, with no end.</summary>
+    [Test]
+    public async Task A_session_resumed_inside_the_grace_is_followed_with_no_end_posted() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var path   = Transcript(Prompt, Reply);
+        var source = Terminal(path);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        ClaimNote(4343);
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+        var noted = time.GetUtcNow();
+
+        await Stepping(time, () => recorder.Holds(source.Key) || time.GetUtcNow() - noted >= DaemonRecorder.SessionEndGrace);
+        await Assert.That(time.GetUtcNow() - noted).IsLessThan(DaemonRecorder.SessionEndGrace);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Any(batch => batch.LineNumbers.Contains(2)));
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
+    }
+
+    /// <summary>The claim went to another daemon while the end waited, so the resumed run is that daemon's to record, and
+    /// this one neither follows it nor posts an end.</summary>
+    [Test]
+    public async Task A_resume_inside_the_grace_is_not_followed_onto_a_claim_another_took() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: false);
+        ClaimNote(4343);
+
+        await Stepping(time, () => !recorder.AwaitsEnd(source.Key));
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(recorder.Holds(source.Key)).IsFalse();
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>The resumed process can end inside the grace as well. Its hook is that process's own, not the exited one's
+    /// late hook: the source follows it and makes the final drain of the lines it wrote, and the hook posts the end.</summary>
+    [Test]
+    public async Task A_resumed_processes_session_end_inside_the_grace_drains_its_own_lines() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var path   = Transcript(Prompt, Reply);
+        var source = Terminal(path);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+
+        var resumed = new ProcessIncarnation(4343, "test:claude");
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, resumed, CancellationToken.None).WithinDeadlineAsync("the resumed run's finish")).IsTrue();
+
+        await Assert.That(Transport.Batches.Any(batch => batch.LineNumbers.Contains(2))).IsTrue();
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(2);
+
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A hook's finish declined because the source hasn't started takes nothing from its process's exit, which
+    /// still ends the source.</summary>
+    [Test]
+    public async Task A_declined_hook_finish_leaves_the_end_to_the_processes_exit() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None)).IsFalse();
+
+        recorder.StartForAgent(source);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+    }
+
+    /// <summary>A late SessionEnd that can't say which process it ran under is taken for the exited process's own, which
+    /// posts the end itself, so the daemon posts none.</summary>
+    [Test]
+    public async Task A_late_hook_naming_no_process_inside_the_grace_keeps_the_daemon_from_posting() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, from: null, CancellationToken.None).WithinDeadlineAsync("the hook's finish")).IsTrue();
+        await Stepping(time, () => List.Load().Count == 0);
+        time.Advance(TimeSpan.FromMinutes(2));
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>The hook claimed the end and was killed before its post landed. Its claim never says posted, so once it
+    /// is older than any hook takes the daemon posts the end itself; the server appends nothing for a second one.</summary>
+    [Test]
+    public async Task A_hooks_claim_left_unposted_is_taken_over_by_the_daemon() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>An end that reached neither the server nor the spool is still owed. The source waits on with its claim and
+    /// its list entry, which is what a restart picks it up by, and the end is posted once the daemon's own unmarked claim
+    /// on it is old enough to take over.</summary>
+    [Test]
+    public async Task A_session_end_neither_posted_nor_spooled_is_tried_again() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Lost]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        await Stepping(time, () => UndeliveredCount == 1);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsTrue();
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([source.Key]);
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(EndCount).IsEqualTo(0);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>An end the server refused drops, as any refused hook post does: the source is let go, and the end is not
+    /// sent again however long the daemon runs, nor by a hook that comes after the claim has gone stale.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_is_not_tried_again() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time, endsFirst: [SessionEndDelivery.Rejected]);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await Stepping(time, () => UndeliveredCount == 1 && List.Load().Count == 0);
+        time.Advance(SessionEndRecord.TakeOver * 2);
+        await Task.Delay(50);
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
+        await Assert.That(UndeliveredCount).IsEqualTo(1);
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A daemon killed between its claim of the end and its post left the claim, the list entry and its own
+    /// recorder claim. The next boot finds the claim old and unposted, and posts the end.</summary>
+    [Test]
+    public async Task A_daemon_killed_between_its_claim_and_its_post_posts_the_end_at_the_next_boot() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Terminal(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: false);
+        Exited.Add(4242);
+        SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow() - TimeSpan.FromSeconds(5));
+
+        await using var recorder = NewRecorder(time: time);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>The exited process's continuation can land after the source has followed a resumed process. That run is
+    /// over and the session went on, so the finish ends nothing, and the resumed run goes on recording.</summary>
+    [Test]
+    public async Task A_late_hook_from_the_exited_process_after_a_follow_leaves_the_resumed_run_recording() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        ClaimNote(4343);
+        await Stepping(time, () => recorder.Holds(source.Key));
+        var drains = Transport.DrainCompletes;
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
+
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(drains);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A source the exit followed at once to a resumed process is that process's, and the exited one's late
+    /// hook finishes nothing of it.</summary>
+    [Test]
+    public async Task A_late_hook_from_the_exited_process_after_an_exit_time_follow_leaves_the_source_recording() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        ClaimNote(4343);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A follow means the exited run is over and the session went on, so that run owes no end. A stop that
+    /// refuses the follow leaves the source for the next boot, which then posts none for it.</summary>
+    [Test]
+    public async Task A_follow_refused_by_a_stop_still_leaves_the_exited_run_no_end() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Terminal(Transcript(Prompt, Reply));
+
+        await using (var recorder = NewRecorder(time: time)) {
+            await recorder.TryRecordAsync(source, CancellationToken.None);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            Exited.Add(4242);
+            recorder.FinishExitedProcesses();
+            await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+            await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+            await recorder.FinishForHookAsync(source.Key, new ProcessIncarnation(4343, "test:claude"), CancellationToken.None).WithinDeadlineAsync("the resumed run's finish");
+        }
+
+        Exited.Add(4343);
+        await using var next = NewRecorder(time: time);
+        await next.RestoreAsync(InScope, CancellationToken.None);
+        await next.SettleRestoredAsync(_ => false);
+        await Stepping(time, () => List.Load().Count == 0);
+        time.Advance(TimeSpan.FromMinutes(2));
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A session disabled while its end waits, and resumed meanwhile, is neither followed nor kept: the follow
+    /// refuses it and lets it go.</summary>
+    [Test]
+    public async Task A_follow_refused_for_a_disabled_session_lets_the_source_go() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        DisabledSessions.Mark(Session, Config.Root);
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable");
+        ClaimNote(4343);
+
+        var start = time.GetUtcNow();
+        await Stepping(time, () => !recorder.AwaitsEnd(source.Key) || time.GetUtcNow() - start > TimeSpan.FromMinutes(1));
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A daemon stopping inside the grace hasn't decided the end, so it keeps the claim and the entry, and the
+    /// next boot finds the process gone and posts it.</summary>
+    [Test]
+    public async Task A_daemon_stopping_inside_the_grace_leaves_the_end_to_the_next_boot() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        var source = Terminal(Transcript(Prompt, Reply));
+
+        await using (var recorder = NewRecorder(time: time)) {
+            await recorder.TryRecordAsync(source, CancellationToken.None);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            Exited.Add(4242);
+            recorder.FinishExitedProcesses();
+            await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+            await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+        }
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([source.Key]);
+
+        await using var next = NewRecorder(time: time);
+        await next.RestoreAsync(InScope, CancellationToken.None);
+        await next.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>The hook's finish inside the grace leaves the end to the hook, which claims that process's end before it
+    /// posts and marks it posted after. A daemon that stops and boots again before deciding finds it posted and posts no
+    /// second end.</summary>
+    [Test]
+    public async Task An_end_the_hook_claimed_before_a_restart_is_not_posted_again() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Terminal(Transcript(Prompt, Reply));
+
+        await using (var recorder = NewRecorder(time: time)) {
+            await recorder.TryRecordAsync(source, CancellationToken.None);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            Exited.Add(4242);
+            recorder.FinishExitedProcesses();
+            await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+            await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the hook's finish");
+            SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
+            SessionEndRecord.MarkPosted(Paths, Session, source.Process!, time.GetUtcNow());
+            await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+        }
+
+        await using var next = NewRecorder(time: time);
+        await next.RestoreAsync(InScope, CancellationToken.None);
+        await next.SettleRestoredAsync(_ => false);
+        await Stepping(time, () => List.Load().Count == 0);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A claim gone while the daemon was down was taken by a hook, which recorded the session from there and posted
+    /// its end. The daemon finishes what it left, but an end of its own would be a false one, as late as its next boot.</summary>
+    [Test]
+    public async Task A_restored_terminal_source_whose_claim_was_taken_gets_no_end() {
+        var source = Terminal(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Exited.Add(4242);
+
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => List.Load().Count == 0 && recorder.ActiveKeys.Count == 0);
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    /// <summary>A boot finds a terminal source's process gone and its session claimed by another process, which resumed it
+    /// while the daemon was down. The source follows that process rather than ending.</summary>
+    [Test]
+    public async Task A_restored_session_resumed_in_another_process_is_followed() {
+        var source = Terminal(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: false);
+        Exited.Add(4242);
+        ClaimNote(4343);
+
+        await using var recorder = NewRecorder(time: new FakeTimeProvider(DateTimeOffset.UtcNow));
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
+    }
+
+    /// <summary>The daemon died inside the grace and came back: what still runs is picked up from the server's position,
+    /// and what ended while it was away gets the tail it missed and is finished.</summary>
+    [Test]
+    public async Task A_restart_picks_up_a_terminal_source_still_running_and_finishes_one_that_ended() {
+        const string ended = "fedcba9876543210fedcba9876543210";
+        var running = Terminal(Transcript(Prompt, Reply));
+        var gone    = Terminal(Tmp.CreateFile("gone.jsonl", $"{Prompt}\n"), ended, pid: 4343);
+        List.TryAdd(running);
+        List.TryAdd(gone);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(running.Key, Name, isHosted: false);
+        Claims.TryTake(gone.Key, Name, isHosted: false);
+        Exited.Add(4343);
+
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => claims.Read(gone.Key) is RecorderClaimState.None && recorder.ActiveKeys.Count == 1 && List.Load().Count == 1);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([running.Key]);
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([running.Key]);
+        await Assert.That(Transport.Batches.Any(batch => batch.SessionId == ended)).IsTrue();
+        await Assert.That(Ends.Select(end => end.Key)).IsEquivalentTo([gone.Key]);
+    }
+
+    /// <summary>A terminal session outlives a daemon that stops, so the next boot picks it up. Its claim stays for the
+    /// grace, which is what keeps a hook from starting a watcher across a restart. One whose process had already gone
+    /// without anyone seeing it stays too, so the next boot posts the end nobody else will.</summary>
+    [Test]
+    public async Task A_shutdown_keeps_every_terminal_source_for_the_next_boot() {
+        await using var recorder = NewRecorder();
+        var running = Terminal(Transcript(Prompt, Reply));
+        var ended   = Terminal(Tmp.CreateFile("ended.jsonl", $"{Prompt}\n"), "fedcba9876543210fedcba9876543210", pid: 4343);
+        await recorder.TryRecordAsync(running, CancellationToken.None);
+        await recorder.TryRecordAsync(ended, CancellationToken.None);
+        Exited.Add(4343);
+
+        await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+
+        await Assert.That(Claims.Read(running.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Claims.Read(ended.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([running.Key, ended.Key]);
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
+    /// <summary>A hosted source with no agent coming back is still let go at a shutdown.</summary>
+    [Test]
+    public async Task A_shutdown_lets_go_of_a_hosted_source_whose_agent_does_not_come_back() {
+        await using var recorder = NewRecorder();
+        var hosted = Source(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(hosted, CancellationToken.None);
+
+        await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+
+        await Assert.That(Claims.Read(hosted.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>With the server out past the grace, a terminal session goes to a watcher, which may reach a server this
+    /// daemon can't, while a hosted one stays for its stamps.</summary>
+    [Test]
+    public async Task Only_a_terminal_source_lets_its_claim_go_stale_while_the_server_is_out() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var claims = new RecorderClaims(Paths.Directory, time);
+        Transport.IsConnected     = false;
+        Transport.ConnectFailures = 1000;
+        await using var recorder = NewRecorder(time: time);
+        var hosted   = Source(Transcript(Prompt, Reply));
+        var terminal = Terminal(Tmp.CreateFile("terminal.jsonl", $"{Prompt}\n"), "fedcba9876543210fedcba9876543210");
+        await recorder.TryRecordAsync(hosted, CancellationToken.None);
+        await recorder.TryRecordAsync(terminal, CancellationToken.None);
+        var start = time.GetUtcNow();
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromSeconds(1));
+
+            return time.GetUtcNow() - start > RecorderClaims.Grace * 2 && claims.Read(terminal.Key) is RecorderClaimState.DaemonStale;
+        });
+
+        await Assert.That(claims.Read(hosted.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+    }
+
+    /// <summary>Two daemons share one directory. The one that slept finds its source taken by the other: it stops sending
+    /// with no final drain, and neither beats nor lets go of the claim that is now the other's.</summary>
+    [Test]
+    public async Task A_source_another_daemon_took_stops_here_and_its_claim_is_left_alone() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: false);
+
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0 && List.Load().Count == 0);
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>Another daemon took the claim while this one's agent was starting. The launch failing here lets go of
+    /// nothing that daemon holds.</summary>
+    [Test]
+    public async Task A_launch_that_never_ran_leaves_a_claim_another_daemon_took() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt));
+        await Assert.That(await recorder.ClaimAsync(source, CancellationToken.None)).IsTrue();
+
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: true);
+        recorder.ReleaseClaim(source);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A claim that can't be read may be this daemon's own, and a launch that never ran lets go of it.</summary>
+    [Test]
+    public async Task A_launch_that_never_ran_lets_go_of_a_claim_that_cannot_be_read() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        await File.WriteAllTextAsync(Claims.ClaimFile(source.Key), "garbled");
+        recorder.ReleaseClaim(source);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
     }
 
     /// <summary>With no claim, a host's recorder reads its source as lost and silently records nothing, so the source
@@ -928,13 +1718,35 @@ public class DaemonRecorderTests {
 
         // What comes for it next doesn't wait on a source that may never move.
         await Assert.That(await recorder.TryRecordAsync(source, CancellationToken.None).WithinDeadlineAsync("the hand-over")).IsFalse();
-        await recorder.FinishAgentAsync(source.AgentId, TimeSpan.FromMinutes(1)).WithinDeadlineAsync("the agent's end");
+        await recorder.FinishAgentAsync(source.AgentId!, TimeSpan.FromMinutes(1)).WithinDeadlineAsync("the agent's end");
 
         stuck.Release();
         await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
 
         await Assert.That(Transport.Batches).IsEmpty();
         await Assert.That(MarkedForImport).IsFalse();
+    }
+
+    /// <summary>A disable lets go of this daemon's claims and no other's. Stuck short of its next look, the recorder has not
+    /// yet seen that another daemon took its source.</summary>
+    [Test]
+    public async Task A_disable_leaves_a_claim_another_daemon_took() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var stuck  = new Stuck();
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder(time: time, prepare: stuck.Prepare);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await stuck.Entered.WithinDeadlineAsync("the recorder to get stuck");
+
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: true);
+        var disable = recorder.DisableSessionAsync(Session, CancellationToken.None);
+        time.Advance(DaemonRecorder.DisableBound);
+        await disable.WithinDeadlineAsync("the answer");
+        stuck.Release();
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
     }
 
     /// <summary>A source that wakes long after the disable can reach the spool between its check and its write.</summary>
@@ -1463,14 +2275,18 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load()).IsEmpty();
     }
 
-    /// <summary>Housekeeping can run long between a recorder's beats, and a claim going stale lets a hook take a source
-    /// that is recording.</summary>
+    /// <summary>Housekeeping can run long between a recorder's beats. Its beat keeps the claim fresh, or a hook could take a
+    /// source that is recording, and counts as the source's, or the host would give the attempt up as stuck and build the
+    /// next one's housekeeping. The two stretches outlast the grace and the threshold with its backoff together, and
+    /// neither does alone, so only that beat keeps both.</summary>
     [Test]
-    public async Task A_housekeeping_beat_keeps_its_sources_claim_fresh() {
-        var time    = new FakeTimeProvider(DateTimeOffset.UtcNow);
+    public async Task A_housekeeping_beat_keeps_its_source_claimed_and_its_attempt_going() {
+        var time      = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var preparing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var claims  = new RecorderClaims(Paths.Directory, time);
+        var release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claims    = new RecorderClaims(Paths.Directory, time);
+        var before    = RecorderClaims.Grace / 2;
+        var after     = RecorderHost.WedgedAfter - TimeSpan.FromSeconds(10);
         await using var recorder = NewRecorder(time: time, prepare: () => {
             preparing.TrySetResult();
 
@@ -1480,12 +2296,15 @@ public class DaemonRecorderTests {
 
         await recorder.TryRecordAsync(source, CancellationToken.None);
         await preparing.Task.WithinDeadlineAsync("the recorder to reach its housekeeping");
-        time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
-        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+        time.Advance(before);
 
         HousekeepingBeat!();
+        var beat = time.GetUtcNow();
+        await Stepping(time, () => time.GetUtcNow() - beat >= after);
 
+        await Assert.That(before + after > RecorderClaims.Grace && before + after > RecorderHost.WedgedAfter + TimeSpan.FromSeconds(5)).IsTrue();
         await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Housekept.Count).IsEqualTo(1);
         release.SetResult();
     }
 

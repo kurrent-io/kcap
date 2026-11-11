@@ -3996,7 +3996,8 @@ public class ChatTabViewModelTests {
     }
 
     /// An empty chat can mean the agent is held at a prompt only its terminal shows, so it points
-    /// there, unless the agent has no terminal or the dialog card already does.
+    /// there, unless the agent has no terminal or the dialog card already does. The bound empty
+    /// state must be re-raised when the card appears, or the stale offer stays on screen.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task An_empty_chat_offers_the_terminal_until_the_dialog_card_does() {
@@ -4008,11 +4009,17 @@ public class ChatTabViewModelTests {
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running" });
                 await Assert.That(h.Chat.PhaseNote).IsEqualTo("Waiting for chat…");
                 await Assert.That(h.Chat.ShowsTerminalOffer).IsTrue();
+                await Assert.That(h.Chat.EmptyState!.HasAction).IsTrue();
 
+                var raised = new List<string?>();
+                h.Chat.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
                 var dialog = new TerminalDialogDto("Do you want to proceed?", "", ["Yes", "No"], 0, "");
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = dialog });
                 await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
                 await Assert.That(h.Chat.ShowsTerminalOffer).IsFalse();
+                await Assert.That(raised).Contains(nameof(ChatTabViewModel.EmptyState));
+                await Assert.That(h.Chat.EmptyState!.HasAction).IsFalse();
+                await Assert.That(h.Chat.EmptyState!.HasDetail).IsFalse();
             } finally { await h.TeardownAsync(); }
         });
     }

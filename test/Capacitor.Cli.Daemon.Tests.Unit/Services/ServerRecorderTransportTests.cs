@@ -61,6 +61,18 @@ public class ServerRecorderTransportTests {
     public async Task A_send_gives_up_ahead_of_its_claim_going_stale() =>
         await Assert.That(ServerRecorderTransport.SendBudget < RecorderClaims.Grace).IsTrue();
 
+    /// <summary>A send is the longest a healthy source goes between beats, so one using its whole budget mustn't read as a
+    /// source stuck where no token reaches.</summary>
+    [Test]
+    public async Task A_send_gives_up_ahead_of_its_source_reading_as_stuck() =>
+        await Assert.That(ServerRecorderTransport.SendBudget < RecorderHost.WedgedAfter).IsTrue();
+
+    /// <summary>A source given up on beats its claim again at once, so the threshold mustn't reach the grace, or a hook could
+    /// take a source its host is about to restart.</summary>
+    [Test]
+    public async Task A_stuck_source_restarts_ahead_of_its_claim_going_stale() =>
+        await Assert.That(RecorderHost.WedgedAfter < RecorderClaims.Grace).IsTrue();
+
     /// <summary>The send failed because the connection went, and a log saying the server was slow would send whoever reads
     /// it the wrong way. It still has to read as a failed send, not a stop.</summary>
     [Test]
@@ -281,6 +293,29 @@ public class ServerRecorderTransportTests {
         await back.Task.WithinDeadlineAsync("the connection to come back");
         await hub.WaitForAsync(h => h.Bearers.Count == 2, "the second sign-in to reach the server");
         await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
+    }
+
+    /// <summary>A connect can wait out a sign-out and wake after a hook took its source for a watcher. Registering then
+    /// would move the watcher's session onto this connection, and the server's stop for it would never reach the watcher.</summary>
+    [Test]
+    public async Task A_connect_that_outwaits_its_claim_registers_nothing() {
+        string?         bearer    = null;
+        var             keeps     = true;
+        var             time      = new TimerLog(DateTimeOffset.UtcNow);
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config, () => bearer), time, _ => { }, _ => keeps);
+        hub.RequiresBearer = true;
+
+        var connect = transport.ConnectAsync(A, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => hub.Refusals > 0 && time.Due.Contains(TimeSpan.FromSeconds(1)));
+
+        keeps  = false;
+        bearer = "first";
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        await Assert.That(async () => await connect.WithinDeadlineAsync("the connect")).Throws<IOException>();
+        await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first"]);
+        await Assert.That(hub.Calls).DoesNotContain($"connect {SessionA}");
     }
 
     [Test]

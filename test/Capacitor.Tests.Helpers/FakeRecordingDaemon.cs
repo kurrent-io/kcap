@@ -49,7 +49,7 @@ public sealed class FakeRecordingDaemon : IAsyncDisposable {
 
                 await FrameCodec.WriteAsync(stream, frame.Type switch {
                     FrameType.Hello          => LocalFrame.HelloJson(FrameType.HelloReply, hello),
-                    FrameType.RecordSource   => LocalFrame.RecordSourceAck(Answer!),
+                    FrameType.RecordSource or FrameType.RecordTerminalSource => LocalFrame.RecordSourceAck(Answer!),
                     FrameType.DisableSession => LocalFrame.DisableSessionAck(Answer!),
                     _                        => LocalFrame.FinishSourceAck(Answer!),
                 }, _cts.Token);
