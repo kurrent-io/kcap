@@ -24,31 +24,54 @@ public static class CopilotPendingEnd {
 
     static string FileFor(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, sessionId + Suffix);
 
-    /// <summary>Holds <paramref name="endBody"/> until the runtime is gone or the transcript ends on its shutdown line.</summary>
-    public static bool Write(WatcherPaths paths, string sessionId, string endBody, string? server, int? runtimePid, string transcriptPath, TimeProvider time) {
-        try {
-            var record = new JsonObject {
-                ["server"]            = server,
-                ["body"]              = endBody,
-                ["runtime_pid"]       = runtimePid,
-                ["runtime_token"]     = runtimePid is { } pid ? ProcessStartToken.ForPid(pid) : null,
-                ["transcript_path"]   = transcriptPath,
-                ["transcript_length"] = LengthOf(transcriptPath),
-                ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
-            };
+    /// <summary>Holds <paramref name="endBody"/> until the runtime is gone or the transcript ends on its shutdown line.
+    /// <paramref name="transcriptLength"/> is where the stopped run's transcript ended, taken when the stop arrived: lines
+    /// written after it are another run's. <paramref name="watcherPid"/> is the writer, which a later watcher replaces.</summary>
+    public static bool Write(WatcherPaths paths, string sessionId, string endBody, string? server, int? runtimePid, string transcriptPath, TimeProvider time,
+            long? transcriptLength = null, int? watcherPid = null) {
+        var record = new JsonObject {
+            ["server"]            = server,
+            ["body"]              = endBody,
+            ["runtime_pid"]       = runtimePid,
+            ["runtime_token"]     = runtimePid is { } pid ? ProcessStartToken.ForPid(pid) : null,
+            ["watcher_pid"]       = watcherPid,
+            ["transcript_path"]   = transcriptPath,
+            ["transcript_length"] = transcriptLength ?? LengthOf(transcriptPath),
+            ["written_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)
+        };
 
+        // Through a temp file and a rename, so a killed write never leaves a torn record. The temp's name matches none.
+        var target = FileFor(paths, sessionId);
+        var temp   = $"{target}.{Guid.NewGuid():N}.tmp";
+
+        try {
             Directory.CreateDirectory(paths.Directory);
-            File.WriteAllText(FileFor(paths, sessionId), record.ToJsonString());
+            File.WriteAllText(temp, record.ToJsonString());
+            File.Move(temp, target, overwrite: true);
 
             return true;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            TryDelete(temp);
+
             return false;
         }
     }
 
+    /// <summary>Whether a drain should hold a Copilot end while the session's watcher still runs: it may yet spool the tail
+    /// the end must follow. Once the watcher is gone, the next drain sends it.</summary>
+    public static bool HeldForWatcher(WatcherPaths paths, string route, string body) =>
+        route == Route && SessionOf(body) is { } session && WatcherLiveness.PidAlive(paths, session);
+
     /// <summary>Drops the session's pending end: a hook for it has run, and its end or its next run is that hook's.</summary>
-    public static void Discard(WatcherPaths paths, string sessionId) {
-        try { File.Delete(FileFor(paths, sessionId)); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    public static void Discard(WatcherPaths paths, string sessionId) => TryDelete(FileFor(paths, sessionId));
+
+    // Best effort: a record left behind is retried or dropped on the next pass.
+    static void TryDelete(string path) {
+        try {
+            File.Delete(path);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            Console.Error.WriteLine($"[kcap] could not delete {path}: {ex.Message}");
+        }
     }
 
     public static IEnumerable<string> SessionsWithPending(WatcherPaths paths) =>
@@ -77,7 +100,19 @@ public static class CopilotPendingEnd {
 
     /// <summary>The body to spool, or null to keep waiting; drops a record that can no longer be due.</summary>
     static string? Decide(WatcherPaths paths, string session, HookSpool lifecycle, string? server, TimeProvider time) {
-        if (JsonNode.Parse(File.ReadAllText(FileFor(paths, session))) is not JsonObject record) return Drop();
+        JsonObject? record;
+
+        try {
+            record = JsonNode.Parse(File.ReadAllText(FileFor(paths, session))) as JsonObject;
+        } catch (JsonException) {
+            record = null;
+        }
+
+        if (record is null) {
+            Console.Error.WriteLine($"[kcap] dropping unreadable pending Copilot end for {session}");
+
+            return Drop();
+        }
 
         if (lifecycle.IsDisabledByPerson(session)) return Drop();
 
@@ -87,9 +122,14 @@ public static class CopilotPendingEnd {
          || time.GetUtcNow() - writtenAt > Retention) return Drop();
 
         var transcript = record["transcript_path"]?.GetValue<string>() ?? "";
-        var shutdown   = EndsOnShutdown(transcript);
 
-        if (!shutdown && NewRunSince(transcript, record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
+        // A later run owns the session's end, even one that has since shut down too.
+        if (NewRunSince(transcript, record["transcript_length"]?.GetValue<long>() ?? 0)) return Drop();
+
+        // A watcher started since this one stopped records the session and sends its end.
+        if (WatcherLiveness.PidAlive(paths, session) && CurrentWatcherPid(paths, session) != record["watcher_pid"]?.GetValue<int>()) return Drop();
+
+        var shutdown = EndsOnShutdown(transcript);
 
         // An unreadable token proves nothing either way: only an exited pid or two tokens that differ show the runtime gone.
         var pid         = record["runtime_pid"]?.GetValue<int>();
@@ -146,14 +186,25 @@ public static class CopilotPendingEnd {
         try {
             if (!File.Exists(transcript)) return false;
 
-            string? last = null;
-
-            foreach (var line in File.ReadLinesShared(transcript))
-                if (!string.IsNullOrWhiteSpace(line)) last = line;
-
-            return last is not null && CopilotShutdown.IsShutdownLine(last);
+            return File.ReadLinesShared(transcript).LastOrDefault(line => !string.IsNullOrWhiteSpace(line)) is { } last && CopilotShutdown.IsShutdownLine(last);
         } catch (IOException) {
             return false;
+        }
+    }
+
+    static int? CurrentWatcherPid(WatcherPaths paths, string session) {
+        try {
+            return int.TryParse(File.ReadLines(paths.PidFile(session)).FirstOrDefault()?.Trim(), out var pid) ? pid : null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
+        }
+    }
+
+    static string? SessionOf(string body) {
+        try {
+            return JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+            return null;
         }
     }
 

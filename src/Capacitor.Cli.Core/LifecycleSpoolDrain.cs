@@ -104,15 +104,19 @@ public static class LifecycleSpoolDrain {
     /// silently drop the what's-done generation. Callers that don't need it (or can't reach the
     /// process-spawning helper — the daemon has its own) may omit it.</para>
     /// <para><paramref name="onLifecycleOutcome"/> sees what the server made of each lifecycle entry, for a caller that
-    /// must tell a delivered end from one a rejection removed. False keeps the entry spooled for a retry.</para>
+    /// must tell a delivered end from one a rejection removed. False keeps the entry spooled for a retry.
+    /// <paramref name="holds"/> keeps an entry spooled unsent, for a later pass.</para>
     /// </summary>
     public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
                                 TimeProvider time, CancellationToken ct,
                                 Action<string, string>? onWhatsDoneRequested = null,
-                                Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null)
+                                Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null,
+                                Func<string, string, bool>? holds = null)
         => RunAsync(config, lifecycle, transcript, currentSessionId,
             lifecyclePoster: async (route, body) => {
+                if (holds?.Invoke(route, body) == true) return DrainOutcome.TransientStop;
+
                 var outcome = await PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested);
                 return onLifecycleOutcome is null || onLifecycleOutcome(route, body, outcome) ? outcome : DrainOutcome.TransientStop;
             },

@@ -40,6 +40,60 @@ public class CopilotSpanCloseTests {
         await Assert.That(Owed).IsEqualTo(stillOwed);
     }
 
+    const string Other = "1f1e2d3c4b5a69788796a5b4c3d2e1f0";
+
+    static string EndOf(string session) => End.Replace(Session, session);
+
+    void Owe(string session) {
+        CopilotSpanClose.Record(Paths, session, Server, EndOf(session));
+        CopilotSpanClose.NoteOutcome(Paths, CopilotPendingEnd.Route, EndOf(session), DrainOutcome.Delivered);
+    }
+
+    /// <summary>A pass shares one budget, so slow closes cannot hold back the rest of a daemon tick.</summary>
+    [Test]
+    public async Task A_pass_starts_no_close_once_its_budget_is_spent() {
+        Owe(Session);
+        Owe(Other);
+
+        var asked = new List<string>();
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, async session => {
+            asked.Add(session);
+            await Task.Delay(300);
+            return true;
+        }, budget: TimeSpan.FromMilliseconds(100));
+
+        await Assert.That(asked.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A new run that drops a close while the pass is busy keeps that close from running.</summary>
+    [Test]
+    public async Task A_close_a_new_run_dropped_meanwhile_does_not_run() {
+        Owe(Session);
+        Owe(Other);
+
+        var asked = new List<string>();
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, session => {
+            asked.Add(session);
+            CopilotSpanClose.Discard(Paths, session == Session ? Other : Session);
+            return Task.FromResult(true);
+        });
+
+        await Assert.That(asked.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A marker a new end replaced while its close ran is the new end's, so it stays.</summary>
+    [Test]
+    public async Task A_marker_replaced_during_its_close_stays() {
+        Owe(Session);
+
+        await CopilotSpanClose.CloseDueAsync(Paths, Spool, Server, TimeProvider.System, session => {
+            CopilotSpanClose.Record(Paths, session, Server, EndOf(session).Replace("user_exit", "parent_exited"));
+            return Task.FromResult(true);
+        });
+
+        await Assert.That(Owed).IsTrue();
+    }
+
     [Test]
     public async Task A_close_that_throws_stays_owed() {
         CopilotSpanClose.Record(Paths, Session, Server, End);

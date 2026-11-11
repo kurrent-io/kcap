@@ -173,6 +173,69 @@ public class CopilotPendingEndTests {
         }
     }
 
+    /// <summary>A resumed run that shuts down too ends on a shutdown line the stopped run never wrote.</summary>
+    [Test]
+    public async Task An_end_is_dropped_when_a_new_run_begins_and_shuts_down() {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System);
+        await File.AppendAllTextAsync(transcript, """{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""" + "\n" + Down + "\n");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>The stopped run's transcript ends where the stop found it: a run that wrote since, before the record was
+    /// written, is still a new one.</summary>
+    [Test]
+    public async Task An_end_is_dropped_when_a_new_run_began_before_it_was_recorded() {
+        using var runtime = DummyProcess.StartSleep(30);
+        var transcript = Transcript(Turn);
+        var stoppedAt  = new FileInfo(transcript).Length;
+        await File.AppendAllTextAsync(transcript, """{"type":"session.resume","data":{},"id":"evt-r","timestamp":3}""" + "\n");
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtime.Pid, transcript, TimeProvider.System, transcriptLength: stoppedAt);
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+    }
+
+    /// <summary>A watcher started since this one stopped records the session and sends its end, however quiet it is.</summary>
+    [Test]
+    public async Task An_end_is_dropped_once_another_watcher_records_the_session() {
+        var transcript = Transcript(Turn);
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, watcherPid: 999999);
+        using var successor = DummyProcess.StartSleep(30);
+        Directory.CreateDirectory(Paths.Directory);
+        await File.WriteAllTextAsync(Paths.PidFile(Session), $"{successor.Pid}\n{PidIdentity.Capture(successor.Pid)}");
+
+        var later = new FakeTimeProvider(DateTimeOffset.UtcNow + CopilotPendingEnd.QuietPeriod + TimeSpan.FromMinutes(1));
+        await Assert.That(CopilotPendingEnd.SpoolDue(Paths, Spool, Server, later)).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+        await Assert.That(Spool.HasBacklog(Session)).IsFalse();
+    }
+
+    /// <summary>The watcher that wrote the record is not another one.</summary>
+    [Test]
+    public async Task An_end_is_kept_while_its_own_watcher_is_still_stopping() {
+        var transcript = Transcript(Turn);
+        using var writer = DummyProcess.StartSleep(30);
+        Directory.CreateDirectory(Paths.Directory);
+        await File.WriteAllTextAsync(Paths.PidFile(Session), $"{writer.Pid}\n{PidIdentity.Capture(writer.Pid)}");
+        CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, watcherPid: writer.Pid);
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsTrue();
+    }
+
+    [Test]
+    public async Task A_torn_record_is_dropped() {
+        Directory.CreateDirectory(Paths.Directory);
+        await File.WriteAllTextAsync(Path.Combine(Paths.Directory, Session + ".copilot-pending-end.json"), """{"server":"https://kcap""");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
+        await Assert.That(Pending).IsFalse();
+    }
+
     [Test]
     public async Task An_end_of_a_disabled_session_is_dropped() {
         var transcript = Transcript(Down);

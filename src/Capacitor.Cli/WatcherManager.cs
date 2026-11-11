@@ -391,7 +391,7 @@ public sealed partial class WatcherManager(
             if (lines.Length > 1 && lines[1].Trim() is { Length: > 0 } token && ProcessStartToken.Matches(pid, token) == false) return;
 
             if (!TrySignalTerm(pid)) WatcherStopSignal.TryRequest(pid);
-        } catch {
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // No pid file, or one that cannot be read: there is no watcher to ask.
         }
     }

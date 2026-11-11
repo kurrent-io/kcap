@@ -332,7 +332,8 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
 
         var paths = WatcherPaths.FromEnvironment(Config.Root);
         Directory.CreateDirectory(paths.Directory);
-        await File.WriteAllTextAsync(paths.PidFile(sessionId), WatcherIgnoringStops(tmp, out var watcher));
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), WatcherIgnoringStops(tmp, out var started));
+        using var watcher = started;
 
         try {
             await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
@@ -341,7 +342,6 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
             await Assert.That(watcher.WaitForExit(TimeSpan.FromSeconds(5))).IsTrue();
         } finally {
             if (!watcher.HasExited) watcher.Kill();
-            watcher.Dispose();
         }
     }
 
@@ -409,6 +409,22 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
 
         await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
         await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
+    }
+
+    /// <summary>An end the finalizer posts itself settles the span close it owes, as a drain's delivery would.</summary>
+    [Test]
+    public async Task SettlesTheSpanClose_OfAnEndItPostsItself() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-direct-close";
+        StubServer(sessionId);
+        StubSessionEnd();
+        var end   = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, sessionId, _server.Url, end);
+
+        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: end);
+
+        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(sessionId);
     }
 
     [Test]

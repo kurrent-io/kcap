@@ -254,6 +254,8 @@ class WatchCommand(
         // barriers in practice.
         var parentExited = 0;
         var stopRequested = 0;
+        // Where the transcript ended when a stop arrived; lines after it belong to whatever runs next.
+        long stopOffset = -1;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
@@ -301,21 +303,52 @@ class WatchCommand(
         //
         // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
         // waits on any other exit, so these tell the recorder rather than only cancelling.
+        void NoteStopRequest() {
+            Interlocked.Exchange(ref stopRequested, 1);
+            Interlocked.CompareExchange(ref stopOffset, TranscriptLength(recorder.TranscriptPath), -1);
+        }
+
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
-            Interlocked.Exchange(ref stopRequested, 1);
+            NoteStopRequest();
             recorder.RequestStop();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
-            Interlocked.Exchange(ref stopRequested, 1);
+            NoteStopRequest();
             recorder.RequestStop();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
-            Interlocked.Exchange(ref stopRequested, 1);
+            NoteStopRequest();
             recorder.RequestStop();
         });
+
+        // Quitting VS Code terminates the watchers it started, and a session whose sessionEnd hook Copilot skipped has
+        // nothing else to send its end. Any other owner's end may arrive too: the server keeps a session's first.
+        var copilotSession = vendor == "copilot" && agentId is null;
+
+        bool CopilotStopEndApplies() =>
+            copilotSession && Volatile.Read(ref stopRequested) == 1 && !DisabledSessions.IsDisabledByPerson(sessionId, config);
+
+        // The end is held before the wait, which the teardown that stopped this watcher can cut short; a later spool
+        // drain sends it once the runtime has gone or the transcript ends on its shutdown line.
+        async Task<string?> CopilotStopEndAsync(string path) {
+            var held   = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+            var offset = Interlocked.Read(ref stopOffset);
+            CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, offset >= 0 ? offset : null, Environment.ProcessId);
+
+            var reason = await CopilotStopRequestEnd.DecideAsync(
+                () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
+                () => CopilotFinalizeDrainCommand.LastLineIsShutdown(path),
+                time, CopilotStopRequestEnd.Wait);
+
+            Log(time, reason is not null
+                ? $"Stopped with the Copilot session over; ending it ({reason})"
+                : "Stopped before the Copilot session was over; its end is held for a later spool drain");
+
+            return reason;
+        }
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
         // delivering SIGHUP to us, but if a shell forwards SIGHUP explicitly to
@@ -493,6 +526,11 @@ class WatchCommand(
                 }
             }
 
+            if (CopilotStopEndApplies() && await CopilotStopEndAsync(transcriptPath) is { } early) {
+                watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
+                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early);
+            }
+
             await logWriter.DisposeAsync();
 
             return 0;
@@ -537,27 +575,7 @@ class WatchCommand(
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
             copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
 
-        // Quitting VS Code terminates the watchers it started, and a session whose sessionEnd hook Copilot skipped has
-        // nothing else to send its end. Any other owner's end may arrive too: the server keeps a session's first.
-        var copilotSession = vendor == "copilot" && agentId is null;
-
-        if (endReason is null && copilotSession && Volatile.Read(ref stopRequested) == 1
-         && !DisabledSessions.IsDisabledByPerson(sessionId, config)) {
-            endReason = await CopilotStopRequestEnd.DecideAsync(
-                () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
-                () => CopilotFinalizeDrainCommand.LastLineIsShutdown(transcriptPath),
-                time, CopilotStopRequestEnd.Wait);
-
-            if (endReason is not null) {
-                Log(time, $"Stopped with the Copilot session over; ending it ({endReason})");
-            } else {
-                // Nothing proves the session over yet: a later spool drain sends this end once the runtime has gone or
-                // the transcript ends on its shutdown line.
-                var held = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
-                if (CopilotPendingEnd.Write(_paths, sessionId, held.ToJsonString(), Url, parentPid, transcriptPath, time))
-                    Log(time, "Stopped before the Copilot session was over; its end is held for a later spool drain");
-            }
-        }
+        if (endReason is null && CopilotStopEndApplies()) endReason = await CopilotStopEndAsync(transcriptPath);
 
         // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the
         // sessionEnd hook or the server's lease-gated sweep, and posting here would race whichever fires.
@@ -599,10 +617,8 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
-                    // The server keeps a session's first end, and a sessionEnd hook's spooled one carries the quit time.
-                    if (copilotSession) await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
-
-                    await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
+                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason);
+                    else await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
         }
@@ -610,6 +626,22 @@ class WatchCommand(
         await logWriter.DisposeAsync();
 
         return 0;
+    }
+
+    /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
+    /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>
+    async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason) {
+        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
+
+        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason)) CopilotPendingEnd.Discard(_paths, sessionId);
+    }
+
+    static long TranscriptLength(string path) {
+        try {
+            return File.Exists(path) ? new FileInfo(path).Length : 0;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return 0;
+        }
     }
 
     /// <summary>

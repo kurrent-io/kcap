@@ -42,8 +42,23 @@ public static class CopilotSpanClose {
     }
 
     /// <summary>Drops the session's owed close: a new run starts its own span, which that close would end.</summary>
-    public static void Discard(WatcherPaths paths, string sessionId) {
-        try { File.Delete(FileFor(paths, sessionId)); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    public static void Discard(WatcherPaths paths, string sessionId) => TryDelete(FileFor(paths, sessionId));
+
+    // Best effort: a marker left behind is settled or aged out on a later pass.
+    static void TryDelete(string path) {
+        try {
+            File.Delete(path);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            Console.Error.WriteLine($"[kcap] could not delete {path}: {ex.Message}");
+        }
+    }
+
+    static JsonNode? ParseOrNull(string text) {
+        try {
+            return JsonNode.Parse(text);
+        } catch (JsonException) {
+            return null;
+        }
     }
 
     public static bool IsDelivered(WatcherPaths paths, string sessionId) => Read(paths, sessionId)?["delivered"]?.GetValue<bool>() == true;
@@ -59,20 +74,30 @@ public static class CopilotSpanClose {
     }
 
     /// <summary>Runs <paramref name="close"/>, which says whether nothing is left, for every close owed on
-    /// <paramref name="server"/> whose end was delivered, and returns how many it settled. Never throws.</summary>
-    public static async Task<int> CloseDueAsync(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time, Func<string, Task<bool>> close) {
+    /// <paramref name="server"/> whose end was delivered, and returns how many it settled. Starts no close once
+    /// <paramref name="budget"/> is spent. A marker a new run replaced or dropped meanwhile is neither closed nor removed.
+    /// Never throws.</summary>
+    public static async Task<int> CloseDueAsync(WatcherPaths paths, HookSpool lifecycle, string? server, TimeProvider time, Func<string, Task<bool>> close,
+            TimeSpan? budget = null) {
         var settled = 0;
+        var started = time.GetTimestamp();
 
         foreach (var session in Pending(paths, server)) {
+            if (budget is { } allowed && time.GetElapsedTime(started) >= allowed) break;
+
             try {
-                if (!IsDelivered(paths, session)) {
+                if (Read(paths, session) is not { } owed) continue;
+
+                if (owed["delivered"]?.GetValue<bool>() != true) {
                     if (!lifecycle.HasBacklog(session) && time.GetUtcNow() - File.GetLastWriteTimeUtc(FileFor(paths, session)) > UndeliveredFor)
                         Discard(paths, session);
 
                     continue;
                 }
 
-                if (!await close(session)) continue;
+                var marker = owed.ToJsonString();
+
+                if (!await close(session) || Read(paths, session)?.ToJsonString() != marker) continue;
 
                 Discard(paths, session);
                 settled++;
@@ -96,7 +121,7 @@ public static class CopilotSpanClose {
 
             return true;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            try { File.Delete(temp); } catch (Exception inner) when (inner is IOException or UnauthorizedAccessException) { }
+            TryDelete(temp);
 
             return false;
         }
@@ -105,13 +130,17 @@ public static class CopilotSpanClose {
     static JsonObject? Read(WatcherPaths paths, string sessionId) {
         var file = FileFor(paths, sessionId);
 
+        JsonNode? parsed;
+
         try {
             if (!File.Exists(file)) return null;
-            if (JsonNode.Parse(File.ReadAllText(file)) is JsonObject owed) return owed;
-        } catch (JsonException) {
+
+            parsed = ParseOrNull(File.ReadAllText(file));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
         }
+
+        if (parsed is JsonObject owed) return owed;
 
         Console.Error.WriteLine($"[kcap] dropping unreadable span-close marker for {sessionId}");
         Discard(paths, sessionId);

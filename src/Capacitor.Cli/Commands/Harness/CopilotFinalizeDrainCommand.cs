@@ -184,6 +184,9 @@ sealed class CopilotFinalizeDrainCommand(
             var outcome = await PostWithinAsync(spool, sessionId, route, endBody, postCap);
             Log($"session end for {sessionId}: {outcome}");
 
+            // As a drain would: the span close this end owes is then due, and a failed close is retried.
+            if (outcome == HookPostOutcome.Posted) CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(config), route, endBody, DrainOutcome.Delivered);
+
             return outcome == HookPostOutcome.Posted;
         }
 

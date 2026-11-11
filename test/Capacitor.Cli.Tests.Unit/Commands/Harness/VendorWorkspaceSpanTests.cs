@@ -150,6 +150,33 @@ public class VendorWorkspaceSpanTests : IDisposable {
         }
     }
 
+    /// <summary>A watcher still stopping may yet spool the tail its end must follow, so drains hold that end until the
+    /// watcher is gone.</summary>
+    [Test]
+    public async Task A_drain_holds_a_Copilot_end_while_its_watcher_runs() {
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString());
+
+        Directory.CreateDirectory(paths.Directory);
+        var watcher = DummyProcess.StartSleep(30);
+        await File.WriteAllTextAsync(paths.PidFile(canonical), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
+        var poster = new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time);
+
+        await poster.DrainSpoolsNowAsync(spool, canonical);
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/session-end/copilot");
+
+        watcher.Kill();
+        watcher.WaitForExit(TimeSpan.FromSeconds(5));
+        watcher.Dispose();
+
+        await poster.DrainSpoolsNowAsync(spool, canonical);
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+    }
+
     /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
     [Test]
     public async Task The_Copilot_finalizer_closes_an_owed_span() {

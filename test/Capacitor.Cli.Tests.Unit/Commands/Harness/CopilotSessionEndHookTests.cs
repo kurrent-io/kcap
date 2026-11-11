@@ -102,7 +102,8 @@ public class CopilotSessionEndHookTests : IDisposable {
         CopilotSpanClose.Record(paths, canonical, _server.Url, "{}");
 
         var client = new FixedCapacitorHttpClient();
-        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(new StringReader(new JsonObject { ["sessionId"] = Session }.ToJsonString()), ["--event", "sessionStart"]);
+        using var stdin = new StringReader(new JsonObject { ["sessionId"] = Session }.ToJsonString());
+        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(stdin, ["--event", "sessionStart"]);
 
         await Assert.That(CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(canonical);
     }
@@ -118,7 +119,8 @@ public class CopilotSessionEndHookTests : IDisposable {
 
         var client  = new FixedCapacitorHttpClient();
         var payload = new JsonObject { ["sessionId"] = Session, ["message"] = "m", ["notification_type"] = "idle_prompt" }.ToJsonString();
-        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(new StringReader(payload), ["--event", eventName]);
+        using var stdin = new StringReader(payload);
+        await Hook(Watchers(FakeProcessStarter.Refusing(), client), client).Handle(stdin, ["--event", eventName]);
 
         await Assert.That(CopilotPendingEnd.SessionsWithPending(paths).Contains(canonical)).IsEqualTo(kept);
     }

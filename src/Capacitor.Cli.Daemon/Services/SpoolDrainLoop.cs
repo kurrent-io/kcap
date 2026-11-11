@@ -84,7 +84,7 @@ internal sealed class SpoolDrainLoop {
                     new WorkspaceSnapshotter(new WorkspaceGit(_time), _time), _time);
                 await store.EndSessionAsync(owed, Budget);
                 return !store.Holds(owed);
-            });
+            }, budget: Budget);
             CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time);
 
             // Resolved on the loop's own token, not the drain budget: a proactive refresh can take
@@ -106,7 +106,8 @@ internal sealed class SpoolDrainLoop {
                     _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
                     onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
-                    onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome));
+                    onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome),
+                    holds: (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(_configRoot), route, body));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.
