@@ -1379,8 +1379,9 @@ public partial class App : Application {
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
         _closeToTrayHint = OperatingSystem.IsWindows()
             ? new CloseToTrayHint(_appState,
-                async () => _notificationSink is not null
-                    && await (_notificationAccess?.GetAsync() ?? Task.FromResult(DesktopNotificationAccess.Unknown)) != DesktopNotificationAccess.Denied,
+                // Only Allowed: an access that cannot tell may have no toast to show, and the tooltip is never lost.
+                async () => _notificationSink is not null && _notificationAccess is { } access
+                    && await access.GetAsync() == DesktopNotificationAccess.Allowed,
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
         _coordinator = new MainWindowCoordinator(
