@@ -173,7 +173,8 @@ sealed class UninstallCommand(
             await console.Out.WriteLineAsync(
                 keptLocal is not null ? $"  • Remove kcap configuration from {configDir}, except the local server in {keptLocal}"
                                         + (kept.Count > 0 ? $" and {keptFiles}" : "")
-                : local is not null && Directory.Exists(local.Root.Directory) ? $"  • Remove kcap configuration from {configDir} (local lifecycle safety metadata is kept)"
+                : local is not null && Directory.Exists(local.Root.Directory) ? $"  • Remove kcap configuration from {configDir} (local lifecycle safety metadata is kept"
+                                                                                + (kept.Count > 0 ? $", as {(kept.Count > 1 ? "are" : "is")} {keptFiles})" : ")")
                 : kept.Count > 0 ? $"  • Remove kcap configuration from {configDir}, except {keptFiles}"
                 : $"  • Delete the kcap config directory ({configDir})");
 

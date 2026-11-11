@@ -1059,6 +1059,8 @@ public class UninstallCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(output).Contains("Purged the local server");
+        await Assert.That(output).Contains(
+            $"Remove kcap configuration from {fixture.ConfigDir} (local lifecycle safety metadata is kept, as are the record of retired local server ports and the local server lock)");
         await Assert.That(output).Contains($"Kept the record of retired local server ports in {Path.Combine(fixture.ConfigDir, "local-retired.json")}.");
         await Assert.That(output).Contains($"Kept the local server lock in {Path.Combine(fixture.ConfigDir, "local-unit.lock")}.");
         await Assert.That(local.Service.IsInstalled(local.Unit)).IsFalse();
