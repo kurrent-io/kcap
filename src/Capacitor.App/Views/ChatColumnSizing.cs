@@ -68,6 +68,12 @@ public sealed class ChatColumnSizing {
             Control leftHandle, Control rightHandle, Control laneHandle) =>
         new(view, items, area, composerContent, leftHandle, rightHandle, laneHandle);
 
+    /// For a view outside a <see cref="MainWindow"/>, which has no layout to read the shares from.
+    internal void UseShares(double column, double lane) {
+        (_column, _lane) = (column, lane);
+        Apply();
+    }
+
     void OnPanesChanged(object? sender, EventArgs e) {
         if (_dragPointer is not null || _panes is null) return;
         if (_panes.ChatColumnFraction == _column && _panes.ChatLaneFraction == _lane) return;
@@ -134,28 +140,23 @@ public sealed class ChatColumnSizing {
         foreach (var handle in _handles) handle.Classes.Set("shown", shown);
     }
 
-    double MaxColumnWidth => _area.Bounds.Width - 2 * HandleReserve;
+    double MaxColumnWidth => Math.Max(0, _area.Bounds.Width - 2 * HandleReserve);
 
-    bool Resizable => MaxColumnWidth >= PaneLayout.ChatColumnMinWidth;
-
-    double ColumnWidth() => Resizable
-        ? Math.Clamp(_column * _area.Bounds.Width, PaneLayout.ChatColumnMinWidth, MaxColumnWidth)
-        : _area.Bounds.Width;
+    // Both widths follow their shares all the way down; the minimums only stop a drag.
+    double ColumnWidth() => Math.Min(_column * _area.Bounds.Width, MaxColumnWidth);
 
     // A drag to the widest the chat allows stays the widest on any later window size.
-    double ColumnFractionOf(double width) =>
-        width >= MaxColumnWidth ? 1 : Math.Max(PaneLayout.ChatColumnMinWidth, width) / _area.Bounds.Width;
+    double ColumnFractionOf(double width) => width >= MaxColumnWidth || _area.Bounds.Width <= 0
+        ? 1
+        : Math.Max(Math.Min(PaneLayout.ChatColumnMinWidth, MaxColumnWidth), width) / _area.Bounds.Width;
 
-    static double LaneWidth(double column, double fraction) {
-        var content = Math.Max(0, column - 2 * Gutter);
-        return Math.Clamp(fraction * content, Math.Min(PaneLayout.ChatLaneMinWidth, content), content);
-    }
+    static double Content(double column) => Math.Max(0, column - 2 * Gutter);
 
-    double LaneWidth(double column) => LaneWidth(column, _lane);
+    double LaneWidth(double column) => _lane * Content(column);
 
     static double LaneFractionOf(double width, double column) {
-        var content = column - 2 * Gutter;
-        return content <= 0 || width >= content ? 1 : Math.Max(PaneLayout.ChatLaneMinWidth, width) / content;
+        var content = Content(column);
+        return content <= 0 || width >= content ? 1 : Math.Max(Math.Min(PaneLayout.ChatLaneMinWidth, content), width) / content;
     }
 
     void Commit() {
@@ -168,12 +169,10 @@ public sealed class ChatColumnSizing {
 
     void Apply() {
         // The edge handles sit in a strip just outside the column: the gutter inside belongs to a
-        // margin drag that selects text, and the window's right edge to the scrollbar. A window too
-        // narrow for the strips gives the column and the lane all their width and shows no handles.
+        // margin drag that selects text, and the window's right edge to the scrollbar.
         var available = _area.Bounds.Width;
-        var resizable = Resizable;
         var column = ColumnWidth();
-        var lane = resizable ? LaneWidth(column) : Math.Max(0, column - 2 * Gutter);
+        var lane = LaneWidth(column);
         if (_tail is not null) {
             _tail.ColumnWidth = column;
             if (_tail.LaneWidth != lane) {
@@ -182,9 +181,9 @@ public sealed class ChatColumnSizing {
                 _items.ItemsPanelRoot?.InvalidateMeasure();
             }
         }
-        _composerContent.MaxWidth = Math.Max(0, column - 2 * Gutter);
+        _composerContent.MaxWidth = Content(column);
 
-        foreach (var handle in _handles) handle.IsVisible = resizable;
+        foreach (var handle in _handles) handle.IsVisible = column > 0;
         var left = (available - column) / 2;
         _leftHandle.Margin = new Thickness(left - HandleWidth, 0, 0, 0);
         _rightHandle.Margin = new Thickness(left + column, 0, 0, 0);

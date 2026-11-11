@@ -53,6 +53,9 @@ public class ChatTabViewSmokeTests {
     const string AgentLaunchLine = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a9f262478e032f427","description":"Map desktop chat UI surfaces","prompt":"go"}}""";
     const string AgentFinishLine = """{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a9f262478e032f427</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Agent \"Map desktop chat UI surfaces\" finished</summary>\n</task-notification>"}}""";
 
+    // A full-width column still leaves a handle strip either side of it.
+    const double HandleStrips = 40;
+
     static string CallLine(int n) => ToolCallLine.Replace("\"t1\"", $"\"t{n}\"");
     static string ResultLine(int n) => ToolResultLine.Replace("\"t1\"", $"\"t{n}\"");
 
@@ -786,7 +789,12 @@ public class ChatTabViewSmokeTests {
             await LaidOut(wide, laneWidth / (column - 44) * (wide - 44), 1400);
 
             Drag("ChatColumnLeftHandle", 5000);
-            await LaidOut(PaneLayout.ChatColumnMinWidth, PaneLayout.ChatLaneMinWidth, 1400);
+            await LaidOut(PaneLayout.ChatColumnMinWidth, laneWidth / (column - 44) * (PaneLayout.ChatColumnMinWidth - 44), 1400);
+
+            // Below the drag minimum the column keeps shrinking with its share, never filling the chat.
+            host.Window.Width = 700;
+            host.Settle();
+            await LaidOut(PaneLayout.ChatColumnMinWidth / 1400 * 700, laneWidth / (column - 44) * (PaneLayout.ChatColumnMinWidth / 2 - 44), 700);
         } finally { await host.CloseAsync(); }
     });
 
@@ -1372,9 +1380,10 @@ public class ChatTabViewSmokeTests {
                     .Replace("\"/repo/x/src/a.cs\"", encoded);
                 if (name == "get_file_context") call = call.Replace("file_path", "path");
                 await host.LoadAsync(Tmp.CreateFile("paths.jsonl", [call, ReadResultLine]));
+                host.View.ColumnSizing.UseShares(1, 1);
 
                 foreach (var width in new[] { 320, 460, 640, 980, 460 }) {
-                    host.Window.Width = width;
+                    host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
                     var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
@@ -1405,16 +1414,17 @@ public class ChatTabViewSmokeTests {
                 var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
                 var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
+                host.View.ColumnSizing.UseShares(1, 1);
 
                 foreach (var width in new[] { 460, 640, 980, 460 }) {
-                    host.Window.Width = width;
+                    host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
                     var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
 
                     await Assert.That(rendered.Count(c => c == '…')).IsEqualTo(1);
                     await Assert.That(rendered).EndsWith("demo.txt +1 more");
-                    if (width >= 980)
+                    if (width >= 640)
                         await Assert.That(rendered).EndsWith("scratchpad/demo.txt +1 more");
                 }
             } finally { await host.CloseAsync(); }
