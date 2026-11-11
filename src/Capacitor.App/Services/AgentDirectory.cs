@@ -83,6 +83,8 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     (string OwnerUserId, string DaemonName)? _provenTwin;
     bool _localConnected;
     bool _localStarting;
+    /// The reason the local daemon last reported Unreachable since it was last Connected.
+    string? _localOutage;
     IReadOnlySet<string> _resuming = FrozenSet<string>.Empty;
     string? _localServerUrl;
     List<AgentInstanceDto> _remoteAgents = [];
@@ -91,6 +93,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly Dictionary<string, AgentRow> _placeholders = new(StringComparer.Ordinal);
     readonly Dictionary<string, AgentRow> _remotePlaceholders = new(StringComparer.Ordinal);
     static readonly TimeSpan PlaceholderTtl = TimeSpan.FromMinutes(10);
+    const string DaemonUnreachableReason = "daemon_unreachable";
     FrozenSet<string> _twinAgents = FrozenSet<string>.Empty;
     bool _registryCurrent;
     List<RepoSessionDto> _serverLive = [];
@@ -184,11 +187,18 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             })
             .DisposeWith(_subscriptions);
         local.Status
-            .Select(s => s.State == AttachState.Connected)
-            .Subscribe(c => {
+            .Subscribe(s => {
                 lock (_lock) {
-                    if (_localConnected == c) return;
-                    _localConnected = c;
+                    var connected = s.State == AttachState.Connected;
+                    // A reconnect attempt's Connecting continues the outage the last Unreachable reported.
+                    var outage = s.State switch {
+                        AttachState.Connected => null,
+                        AttachState.Unreachable => s.Reason,
+                        _ => _localOutage,
+                    };
+                    if (_localConnected == connected && _localOutage == outage) return;
+                    _localConnected = connected;
+                    _localOutage = outage;
                 }
                 Recompute();
             })
@@ -227,7 +237,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         lock (_lock) {
             return row.Origin switch {
                 AgentOrigin.Local => _localConnected && _onAppServer.Value,
-                AgentOrigin.Remote => _registryCurrent,
+                AgentOrigin.Remote => _registryCurrent && row.Status != AgentRow.DaemonDownStatus,
                 _ => false,
             };
         }
@@ -413,8 +423,12 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var hidden = _localConnected
                 ? FrozenDictionary<string, AgentStatusDto>.Empty
                 : _localAgents.Where(a => twinIds.Contains(a.Id)).ToFrozenDictionary(a => a.Id, StringComparer.Ordinal);
+            // The registry lists a dead daemon's agents live until the server notices the disconnect. Only a
+            // daemon that cannot be reached is down: one the app rejects as incompatible still serves the server.
+            var twinDown = twinProven && !_localConnected && !_localStarting && _localOutage == DaemonUnreachableReason;
             var remoteRows = remote.Select(a => {
                 var row = AgentRow.FromRemote(a);
+                if (twinDown && OnTwin(a)) row = row with { Status = AgentRow.DaemonDownStatus };
                 return OnTwin(a) && hidden.TryGetValue(a.AgentId, out var own)
                     ? row with { WorktreePath = own.WorktreePath, WorkLocation = own.WorkLocation, BorrowedFrom = own.BorrowedFrom }
                     : row;

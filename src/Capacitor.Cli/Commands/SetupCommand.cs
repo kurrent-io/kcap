@@ -788,7 +788,7 @@ sealed class SetupCommand(
                 "Either re-run `kcap setup` from inside your repo, or drop --plugin-scope project to install user-scope hooks.");
             return SetupExit.Refused;
         }
-        AnsiConsole.Write(new Rule("[bold green]Welcome to kcap[/]").Centered());
+        WriteRule(new Rule("[bold green]Welcome to kcap[/]").Centered());
 
 
         // Check if already configured
@@ -809,7 +809,7 @@ sealed class SetupCommand(
         }
 
         // Step 1: Server
-        AnsiConsole.Write(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Server);
         string serverUrl;
         string  provider;
@@ -900,7 +900,7 @@ sealed class SetupCommand(
         await Console.Out.WriteLineAsync();
 
         // Step 2: Login
-        AnsiConsole.Write(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
         _json?.Started(SetupJsonReport.SignIn);
 
         var unattended = noPrompt && !loginComplete && provider != AuthProvider.None
@@ -992,7 +992,7 @@ sealed class SetupCommand(
         var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
 
         // Step 3: Default session visibility
-        AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
         string defaultVisibility;
@@ -1051,7 +1051,7 @@ sealed class SetupCommand(
         await Console.Out.WriteLineAsync();
 
         // Step 4: Harnesses
-        AnsiConsole.Write(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Harnesses);
         await Console.Out.WriteLineAsync("  kcap records sessions by installing hooks into your harnesses.");
         await Console.Out.WriteLineAsync();
@@ -1321,7 +1321,7 @@ sealed class SetupCommand(
         await Console.Out.WriteLineAsync();
 
         // Step 5: Daemon name + save
-        AnsiConsole.Write(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Daemon);
 
         // Built from the profile login stored the token under: discovery may have switched it after startup.
@@ -1434,7 +1434,7 @@ sealed class SetupCommand(
         IntelligenceSetupResponse? intelligence = null;
 
         if (local is not null && remembered is { } localAnswers) {
-            AnsiConsole.Write(new Rule("[yellow]Background intelligence[/]").LeftJustified());
+            WriteRule(new Rule("[yellow]Background intelligence[/]").LeftJustified());
             _json?.Started(SetupJsonReport.Intelligence);
 
             var canAskIntelligence = !noPrompt && !local.NoPrompt && AnsiConsole.Profile.Capabilities.Interactive;
@@ -1452,7 +1452,7 @@ sealed class SetupCommand(
         }
 
         // Step 6: Import past sessions
-        AnsiConsole.Write(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Import);
 
         // detectPullRequest:false — Step 6 only needs (owner, name) to scope the repo import;
@@ -1513,7 +1513,7 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        AnsiConsole.Write(new Rule("[green]Setup complete[/]").LeftJustified());
+        WriteRule(new Rule("[green]Setup complete[/]").LeftJustified());
 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[bold]Server[/]",     Markup.Escape(serverUrl));
@@ -1585,6 +1585,25 @@ sealed class SetupCommand(
         _json?.Done(serverUrl);
 
         return SetupExit.Done;
+    }
+
+    /// <summary>A step header fitted to the live window. Setup's console fixes its width when it is created, so a
+    /// window narrower than the buffer, or resized mid-wizard, would wrap every rule; one column is left free
+    /// because a rule exactly as wide as the window wraps on a console without delayed end-of-line wrap.</summary>
+    static void WriteRule(Rule rule) {
+        if (LiveWindowWidth() is { } width) AnsiConsole.Profile.Width = width - 1;
+
+        AnsiConsole.Write(rule);
+    }
+
+    static int? LiveWindowWidth() {
+        try {
+            if (Console.WindowWidth > 1) return Console.WindowWidth;
+        } catch (IOException) {
+            // No standard handle is a console; CONOUT$ may still be one.
+        }
+
+        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is int width and > 1 ? width : null;
     }
 
     /// <summary>The closing "Next steps" box: a question per item, its answer indented beneath.</summary>
@@ -2454,10 +2473,10 @@ sealed class SetupCommand(
             ? [SetupEdition.Choice.Local, SetupEdition.Choice.Cloud, SetupEdition.Choice.Existing]
             : [SetupEdition.Choice.Cloud, SetupEdition.Choice.Existing];
 
-        var choice = AnsiConsole.Prompt(new SelectionPrompt<SetupEdition.Choice>()
+        var choice = WizardChoice.Ask(AnsiConsole.Console, new SelectionPrompt<SetupEdition.Choice>()
             .Title("How do you want to run kcap?")
             .AddChoices(offered)
-            .UseConverter(SetupEdition.Label));
+            .UseConverter(SetupEdition.Label), SetupEdition.Label);
 
         telemetry.SettleEdition(choice == SetupEdition.Choice.Local);
         telemetry.Funnel.EditionChosen(SetupEdition.Wire(choice));

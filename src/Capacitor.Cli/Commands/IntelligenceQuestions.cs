@@ -22,15 +22,16 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
             .Append((Token: IntelligenceAnswer.NoneToken, Label: "Not now"))
             .ToList();
 
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>()
+        var picked = WizardChoice.Ask(AnsiConsole.Console, new SelectionPrompt<string>()
             .Title("Who runs background intelligence?")
-            .AddChoices(choices.Select(c => c.Label)));
+            .AddChoices(choices.Select(c => c.Label)), c => c);
 
         return choices.First(c => c.Label == picked).Token;
     }
 
     public IntelligenceVendor Vendor() {
-        var picked = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Which provider?").AddChoices(IntelligenceVendor.All.Select(v => v.Label)));
+        var picked = WizardChoice.Ask(AnsiConsole.Console,
+            new SelectionPrompt<string>().Title("Which provider?").AddChoices(IntelligenceVendor.All.Select(v => v.Label)), v => v);
 
         return IntelligenceVendor.All.First(v => v.Label == picked);
     }

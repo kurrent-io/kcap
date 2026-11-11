@@ -1059,11 +1059,15 @@ public class UninstallCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(output).Contains("Purged the local server");
+        await Assert.That(output).Contains(
+            $"Remove kcap configuration from {fixture.ConfigDir} (local lifecycle safety metadata is kept, as are the record of retired local server ports and the local server lock)");
+        await Assert.That(output).Contains($"Kept the record of retired local server ports in {Path.Combine(fixture.ConfigDir, "local-retired.json")}.");
+        await Assert.That(output).Contains($"Kept the local server lock in {Path.Combine(fixture.ConfigDir, "local-unit.lock")}.");
         await Assert.That(local.Service.IsInstalled(local.Unit)).IsFalse();
         // Ahead of every other step, the uninstall's own daemon stop included.
         await Assert.That(local.Log.IndexOf("uninstall")).IsLessThan(local.Log.LastIndexOf("recorders:stop"));
         await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)!).ToArray())
-            .IsEquivalentTo(new[] { "local" });
+            .IsEquivalentTo(new[] { "local", "local-retired.json", "local-unit.lock" });
     }
 
     /// <summary>A declined plan says that nothing happened, and the plan has said up front that kcap
@@ -1217,7 +1221,7 @@ public class UninstallCommandTests {
         await using var fixture = await Fixture.CreateAsync();
         var log       = new List<string>();
         var recorders = new FakeOutgoingRecorders(log);
-        recorders.Busy.Add("daemon 'x' is running or starting agents");
+        recorders.Busy.Add(new DaemonBusy("x", DaemonBusyReason.Running));
 
         var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes"]);
 
@@ -1227,12 +1231,30 @@ public class UninstallCommandTests {
         await Assert.That(Directory.Exists(fixture.ConfigDir)).IsTrue();
     }
 
+    /// <summary>A daemon still starting is refused as silent, with the retry that fits it, not as running agents.</summary>
+    [Test]
+    public async Task A_daemon_that_did_not_answer_refuses_without_claiming_running_agents() {
+        await using var fixture = await Fixture.CreateAsync();
+        var log       = new List<string>();
+        var recorders = new FakeOutgoingRecorders(log);
+        recorders.Busy.Add(new DaemonBusy("x", DaemonBusyReason.NoAnswer));
+
+        var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(fixture.Err.ToString()).Contains("daemon 'x' did not answer in time; it may still be starting");
+        await Assert.That(fixture.Err.ToString()).Contains("Run the command again once it has started, or pass --force to stop it.");
+        await Assert.That(fixture.Err.ToString()).DoesNotContain("end them");
+        await Assert.That(log).DoesNotContain("recorders:stop");
+        await Assert.That(Directory.Exists(fixture.ConfigDir)).IsTrue();
+    }
+
     [Test]
     public async Task Force_proceeds_past_a_busy_daemon() {
         await using var fixture = await Fixture.CreateAsync();
         var log       = new List<string>();
         var recorders = new FakeOutgoingRecorders(log);
-        recorders.Busy.Add("daemon 'x' is running or starting agents");
+        recorders.Busy.Add(new DaemonBusy("x", DaemonBusyReason.Running));
 
         var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes", "--force"]);
 
@@ -1474,9 +1496,9 @@ public class UninstallCommandTests {
         await Assert.That(await File.ReadAllTextAsync(Path.Combine(fixture.Home, ".gitconfig"))).IsEqualTo("[hook ");
     }
 
-    sealed class ArrivingSetup(Func<Task<IReadOnlyList<string>>> busy) : IOutgoingRecorders {
+    sealed class ArrivingSetup(Func<Task<IReadOnlyList<DaemonBusy>>> busy) : IOutgoingRecorders {
         public string WatcherDirectory => "/watchers";
-        public Task<IReadOnlyList<string>> BusyAsync() => busy();
+        public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) => busy();
         public Task<bool> StopAsync() => throw new InvalidOperationException("Uninstall stopped recorders without local-data consent.");
         public IReadOnlyList<string> Live() => [];
     }
@@ -1487,7 +1509,7 @@ public class UninstallCommandTests {
         LocalServer? arrived = null;
         var recorders = new ArrivingSetup(() => {
             arrived = InstallLocalServer(fixture);
-            return Task.FromResult<IReadOnlyList<string>>([]);
+            return Task.FromResult<IReadOnlyList<DaemonBusy>>([]);
         });
 
         var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes"]);
@@ -1504,7 +1526,7 @@ public class UninstallCommandTests {
         LocalServer? arrived = null;
         var recorders = new ArrivingSetup(() => {
             arrived = InstallLocalServer(fixture);
-            return Task.FromResult<IReadOnlyList<string>>([]);
+            return Task.FromResult<IReadOnlyList<DaemonBusy>>([]);
         });
 
         var exit = await NewCommand(fixture, recorders: recorders).HandleAsync(["uninstall", "--yes", "--keep-config"]);
@@ -1548,7 +1570,7 @@ public class UninstallCommandTests {
     sealed class ObservingRecorders(IOutgoingRecorders inner, Action observe) : IOutgoingRecorders {
         public string WatcherDirectory => inner.WatcherDirectory;
         public IReadOnlyList<string> Live() => inner.Live();
-        public Task<IReadOnlyList<string>> BusyAsync() => inner.BusyAsync();
+        public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) => inner.BusyAsync(wait);
         public async Task<bool> StopAsync() {
             var stopped = await inner.StopAsync();
             observe();

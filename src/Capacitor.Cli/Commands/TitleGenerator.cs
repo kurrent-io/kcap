@@ -123,15 +123,7 @@ static class TitleGenerator {
                     var role = payload.Value.Str("role");
 
                     if (userText is null && role == "user") {
-                        var text = CodexLineText.ExtractCodexBlockText(payload.Value, "input_text");
-
-                        // Skip codex-injected wrappers that surface as role:"user" messages
-                        // before (or interleaved with) real user prompts. Without these
-                        // skips, titles get generated from the repo's AGENTS.md content or
-                        // an interrupt notice instead of the actual work request.
-                        if (text is not null && !CodexLineText.IsCodexInjectedUserPrelude(text)) {
-                            userText = text;
-                        }
+                        userText = CodexLineText.ExtractCodexUserPrompt(payload.Value);
                     } else if (assistantText is null && role == "assistant") {
                         var text = CodexLineText.ExtractCodexBlockText(payload.Value, "output_text");
 

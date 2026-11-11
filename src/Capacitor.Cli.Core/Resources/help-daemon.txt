@@ -45,9 +45,11 @@ Options for stop:
                           graceful stop; to stop a supervised daemon, use
                           `daemon service stop`.
 
-A daemon that a service supervises (launchd, systemd, or on Windows kcap-service
-or a Scheduled Task) is not stopped, since the service would restart it: stop
-exits 1 and prints the `kcap daemon service stop --name N` command to use.
+A daemon that launchd, systemd --user or a Windows Scheduled Task supervises is
+stopped through that manager, as `kcap daemon service stop` does, since a raw
+stop would be restarted; it starts again at sign-in or with `daemon service
+start`. One that kcap-service supervises is not stopped: stop exits 1 and prints
+the `kcap daemon service stop --name N` command to use.
 
 Options for restart:
   (none)                  Restart now. Interactive agents and Claude flow

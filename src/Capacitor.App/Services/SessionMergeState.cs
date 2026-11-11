@@ -42,6 +42,7 @@ internal sealed record SessionMergeState {
                 (true, AgentOrigin.Local, true, "Completed", _) => (Keep: false, Renew: false, Resume: false),
                 (true, AgentOrigin.Local, true, "Failed", _) => (Keep: true, Renew: false, Resume: false),
                 (true, AgentOrigin.Local, true, _, _) => (Keep: true, Renew: true, Resume: true),
+                (true, AgentOrigin.Remote, true, AgentRow.DaemonDownStatus, _) => (Keep: true, Renew: false, Resume: false),
                 (true, AgentOrigin.Remote, true, _, _) => (Keep: true, Renew: true, Resume: false),
                 _ => (Keep: true, Renew: false, Resume: false),
             };

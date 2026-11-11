@@ -31,12 +31,24 @@ public sealed class AccountStore {
     /// <summary>Not re-entrant: never call <see cref="HostId"/>, <see cref="Mutate{T}"/> or <see cref="MutateWithReadings{T}"/> while holding it.</summary>
     public IDisposable Lock() => ConfigFileLock.Acquire(LockPath);
 
+    /// <summary>How long a missing registry is looked for again while a save is replacing it. On Windows the
+    /// name can be absent for a moment inside the rename, and a lock-free reader that took that for "no
+    /// accounts" would send its caller to the default layout. A rename takes well under a millisecond.</summary>
+    internal TimeSpan ReplaceWait { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    internal TimeProvider Time { get; init; } = TimeProvider.System;
+
+    static readonly TimeSpan ReplacePoll = TimeSpan.FromMilliseconds(5);
+
+    // A save killed between creating its temporary and the rename leaves it behind for good; past this age a
+    // temporary is that leftover, and the registry beside it is missing rather than being replaced.
+    static readonly TimeSpan LiveTemporaryAge = TimeSpan.FromSeconds(5);
+
     public AccountRegistry Load() {
-        if (!File.Exists(RegistryPath)) return new AccountRegistry();
+        if (ReadRegistry() is not { } text) return new AccountRegistry();
         AccountRegistry registry;
-        // Producers read without accounts.lock; a reader denying writers would fail a concurrent save's rename on Windows.
         try {
-            registry = JsonSerializer.Deserialize(File.ReadAllTextShared(RegistryPath), AccountRegistryJsonContext.Default.AccountRegistry)
+            registry = JsonSerializer.Deserialize(text, AccountRegistryJsonContext.Default.AccountRegistry)
                 ?? throw new InvalidDataException($"{RegistryPath} is empty.");
         } catch (JsonException ex) {
             throw new InvalidDataException($"{RegistryPath} is not a valid account registry.", ex);
@@ -44,6 +56,56 @@ public sealed class AccountStore {
 
         var accounts = (registry.Accounts ?? []).Where(Usable).ToList();
         return accounts.Count == registry.Accounts?.Count ? registry : registry with { Accounts = accounts };
+    }
+
+    /// <summary>Null when there is no registry. Takes no lock: <see cref="MutateHeld{T}"/> reads through here
+    /// under <c>accounts.lock</c>, which is not re-entrant.</summary>
+    string? ReadRegistry() {
+        var started = Time.GetTimestamp();
+
+        while (true) {
+            if (TryReadRegistry() is { } text) return text;
+
+            // Sampled between two reads, so a rename that finishes in between is still read.
+            var replacing = ReplaceInFlight();
+            if (TryReadRegistry() is { } after) return after;
+            if (!replacing || Time.GetElapsedTime(started) >= ReplaceWait) return null;
+
+            Thread.Sleep(ReplacePoll);
+        }
+    }
+
+    // Producers read without accounts.lock; a reader denying writers would fail a concurrent save's rename on Windows.
+    string? TryReadRegistry() {
+        try {
+            return File.Exists(RegistryPath) ? File.ReadAllTextShared(RegistryPath) : null;
+        } catch (FileNotFoundException) {
+            return null;
+        }
+    }
+
+    /// <summary>A live save's temporary beside the missing registry. <c>accounts.lock</c> names a mutex, not a
+    /// file, so the temporary is the only trace a save leaves on disk.</summary>
+    bool ReplaceInFlight() {
+        var now = Time.GetUtcNow().UtcDateTime;
+        return Temporaries().Any(t => (now - t.LastWriteTimeUtc).Duration() < LiveTemporaryAge);
+    }
+
+    IEnumerable<FileInfo> Temporaries() {
+        try {
+            var (directory, pattern) = AtomicFile.Temporaries(RegistryPath);
+            return System.IO.Directory.Exists(directory) ? new DirectoryInfo(directory).EnumerateFiles(pattern).ToList() : [];
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
+
+    // Only under accounts.lock, which every save holds: no temporary seen there belongs to a live save.
+    void DeleteLeftoverTemporaries() {
+        foreach (var temporary in Temporaries()) {
+            try { temporary.Delete(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     // A hand edit can leave an entry no path lookup can use; dropping it keeps every hook working.
@@ -138,6 +200,7 @@ public sealed class AccountStore {
 
     void Save(AccountRegistry registry) {
         EnsureDirectory();
+        DeleteLeftoverTemporaries();
         AtomicFile.Replace(RegistryPath, JsonSerializer.Serialize(registry, AccountRegistryJsonContext.Default.AccountRegistry), OwnerOnlyFile);
     }
 

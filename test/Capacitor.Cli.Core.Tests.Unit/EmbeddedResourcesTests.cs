@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 public class EmbeddedResourcesTests {
@@ -19,5 +21,22 @@ public class EmbeddedResourcesTests {
         await Assert.That(unix).Contains("launchd");
         await Assert.That(unix).DoesNotContain("Scheduled Task");
         await Assert.That(windows + unix).DoesNotContain("#if");
+    }
+
+    /// <summary>A count of kcap MCP servers goes stale with every server added, so no help text states one.</summary>
+    [Test]
+    public async Task No_help_text_counts_the_kcap_MCP_servers() {
+        var count = new Regex(@"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+kcap\s+MCP\s+servers\b",RegexOptions.IgnoreCase);
+        const string prefix = "Capacitor.Cli.Core.Resources.";
+
+        var helps = typeof(EmbeddedResources).Assembly.GetManifestResourceNames()
+            .Where(n => n.StartsWith(prefix + "help-", StringComparison.Ordinal) && n.EndsWith(".txt", StringComparison.Ordinal))
+            .Select(n => n[prefix.Length..])
+            .ToList();
+
+        await Assert.That(helps).Contains("help-plugin.txt");
+
+        foreach (var name in helps)
+            await Assert.That(count.Match(EmbeddedResources.Load(name)).Value).IsEmpty().Because(name);
     }
 }

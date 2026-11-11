@@ -61,6 +61,10 @@ public sealed record AgentRow(
     /// A terminal session a daemon steers rather than hosts, from either lane.
     public bool IsAttached => Kind == AgentActionService.AttachedKind;
 
+    /// A registry row of the local daemon while that daemon neither serves nor starts: the registry still
+    /// lists it live until the server notices the disconnect, and nothing can stop or message it meanwhile.
+    public const string DaemonDownStatus = "DaemonDown";
+
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
 

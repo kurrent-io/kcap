@@ -201,9 +201,43 @@ public class AgentOrchestratorResumeOnBootTests {
         var ctx = f.Factory.Contexts.Single();
         await Assert.That(ctx.Prompt).IsEqualTo(nudged ? ResumeNudge.Build(entry.ResumingAt!.Value, "build the thing") : "");
         await Assert.That(f.Orch.GetAgentForTest("resume-idle")!.ActivityClock.AwaitingInput).IsEqualTo(!nudged);
-        // The running entry holds no waiting state of its own: a crash before the next keep-agents shutdown must
-        // not read a turn started since as waiting.
-        await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-idle")!.AwaitingInput).IsNull();
+        // The running entry records the resumed agent's own state, which a kill before the next stop leaves behind.
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-idle")!.AwaitingInput).IsEqualTo(!nudged);
+    }
+
+    /// <summary>A killed daemon writes nothing at its stop, so a waiting state the entry took from the agent's last
+    /// edge is all that tells its successor the agent was idle.</summary>
+    [Test]
+    public async Task A_killed_daemons_idle_agent_comes_back_without_the_nudge() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "killed-idle", state: ResumeState.Running, predecessor: null, daemonInstanceId: "instance-killed", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo("");
+        await Assert.That(f.Orch.GetAgentForTest("killed-idle")!.ActivityClock.AwaitingInput).IsTrue();
+    }
+
+    /// <summary>A killed daemon last wrote the entry at launch, so its heartbeat is the nearer time the agent was
+    /// last alive, and the time the nudge has to name.</summary>
+    [Test]
+    public async Task The_nudge_names_the_predecessors_last_heartbeat_over_an_older_entry() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        var launchedAt = DateTimeOffset.FromUnixTimeSeconds(TimeProvider.System.GetUtcNow().ToUnixTimeSeconds() - 3 * 3600);
+        var beat       = launchedAt + TimeSpan.FromHours(2);
+        Entry(f, "killed-busy", state: ResumeState.Running, at: launchedAt, predecessor: null, daemonInstanceId: "instance-killed");
+        f.Config.Store.EnsureDirectory();
+        var heartbeat = f.Config.Store.HeartbeatPath(f.Config.Name);
+        await File.WriteAllBytesAsync(heartbeat, []);
+        File.SetLastWriteTimeUtc(heartbeat, beat.UtcDateTime);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo(ResumeNudge.Build(beat, "build the thing"));
     }
 
     /// <summary>A restart resume holds the session's lease from before it re-registers until the readiness window
