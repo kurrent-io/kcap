@@ -225,6 +225,31 @@ public class WorkspaceSpanStoreTests {
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Select(c => c.Path)).IsEquivalentTo(["unsent.txt"]);
     }
 
+    /// <summary>A baseline the end could not close survives into the next run. That run starts its own, so the earlier
+    /// run's later close, bounded to the spans opened by its end, cannot take the new run's changes; a turn of the
+    /// same run still carries the survivor on.</summary>
+    [Test]
+    [Arguments(WorkspaceOpen.Run, false)]
+    [Arguments(WorkspaceOpen.Turn, true)]
+    public async Task A_baseline_that_survives_into_a_new_run_is_replaced(WorkspaceOpen mode, bool carriedOn) {
+        using var rig = new WorkspaceRig();
+        await rig.OpenAsync();
+        rig.Write("earlier.txt", "x");
+        var endedAt = rig.Time.GetUtcNow();
+        rig.Time.Advance(TimeSpan.FromMinutes(1));
+
+        Directory.CreateDirectory(rig.Spool.DirectoryPath);
+        var blocker = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        File.WriteAllText(blocker, "");
+        await rig.OpenAsync(mode: mode);
+        File.Delete(blocker);
+
+        rig.Write("later.txt", "x");
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, endedAt);
+
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "later.txt")).IsEqualTo(carriedOn);
+    }
+
     /// <summary>A Stop whose snapshot is slow must not hold the lock an <c>EnterWorktree</c> open of the same
     /// session needs: the lock covers span and spool files only. The tree's fsmonitor hook makes git status
     /// take two seconds, longer than a waiting hook gives the lock.</summary>

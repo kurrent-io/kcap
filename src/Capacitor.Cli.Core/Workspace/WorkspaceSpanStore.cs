@@ -36,13 +36,14 @@ public sealed class WorkspaceSpanStore(
         var started = time.GetTimestamp();
         TimeSpan Left() => budget - time.GetElapsedTime(started);
 
-        if (mode == WorkspaceOpen.Turn && !await CloseAllCoreAsync(sessionId, sessionDir, Left)) return false;
+        if (mode is WorkspaceOpen.Turn or WorkspaceOpen.Run && !await CloseAllCoreAsync(sessionId, sessionDir, Left)) return false;
 
         var repo = await snapshotter.ResolveAsync(dir, Left());
         if (repo is null) return false;
 
-        var path = Path.Combine(sessionDir, $"{repo.Key}.json");
-        if (File.Exists(path)) return true;
+        var path   = Path.Combine(sessionDir, $"{repo.Key}.json");
+        var reuses = mode != WorkspaceOpen.Run;
+        if (reuses && File.Exists(path)) return true;
 
         var snapshot = await snapshotter.TakeAsync(repo.Toplevel, Min(snapshotter.Bounds.SnapshotBudget, Left()));
         if (snapshot is null) return false;
@@ -52,7 +53,7 @@ public sealed class WorkspaceSpanStore(
 
         // A baseline here now is a concurrent open of the same tree, or one whose close could not read the
         // tree; either way the earlier baseline is kept, so the next close spans both turns.
-        if (File.Exists(path)) return true;
+        if (reuses && File.Exists(path)) return true;
 
         var span = new WorkspaceSpan(Guid.NewGuid(), sessionId, repo.Toplevel, time.GetUtcNow(), snapshot);
         return WorkspaceFiles.WriteAtomic(path, JsonSerializer.Serialize(span, WorkspaceJsonContext.Default.WorkspaceSpan));

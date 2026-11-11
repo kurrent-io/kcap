@@ -237,6 +237,7 @@ sealed class CopilotHookCommand(
             HookBudget budget
         ) {
         // A new run: the held end of the one before it, and the span close that end owed, would close this one.
+        var afterAnEnd = CopilotSpanClose.Exists(WatcherPaths.FromEnvironment(config), sessionId);
         CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
         CopilotSpanClose.Discard(WatcherPaths.FromEnvironment(config), sessionId);
 
@@ -292,7 +293,8 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time)
+            .OpenAsync(sessionId, cwd, afterAnEnd ? WorkspaceOpen.Run : WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
 
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the
@@ -366,6 +368,9 @@ sealed class CopilotHookCommand(
         ) {
         var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
+        // This run's spans were all opened by now; a later run's are not this end's to close.
+        var runOpenedBy = clock.Time.GetUtcNow();
+
         var forwarded = new JsonObject {
             ["hook_event_name"] = "sessionEnd",
             ["session_id"]      = sessionId,
@@ -428,7 +433,7 @@ sealed class CopilotHookCommand(
 
         // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
         if (outcome == HookPostOutcome.Posted)
-            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndRunAsync(sessionId, runOpenedBy, WorkspaceSpanHook.EndBudget);
         return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 

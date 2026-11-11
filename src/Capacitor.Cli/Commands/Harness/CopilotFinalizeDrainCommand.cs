@@ -93,8 +93,10 @@ sealed class CopilotFinalizeDrainCommand(
             TimeSpan? postCap    = null,
             Action?   endDurable = null
         ) {
-        // The watcher the hook asked to stop, read before anything awaits: one found later follows a resumed run.
+        // The watcher the hook asked to stop, read before anything awaits: one found later follows a resumed run. The run's
+        // spans were all opened by now too, which is what this end may close.
         var askedToStop = WatcherIncarnation(sessionId);
+        var runOpenedBy = time.GetUtcNow();
 
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
@@ -130,7 +132,7 @@ sealed class CopilotFinalizeDrainCommand(
         endDurable?.Invoke();
 
         // Only after an end the server took: a span must never outlive a lost end.
-        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndRunAsync(sessionId, runOpenedBy, WorkspaceSpanHook.EndBudget);
 
         // Detached, so it pays the span closes the drains ahead of hooks only recorded.
         await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(config), new HookSpool(config, time, profiles.Resolution.ServerUrl), profiles.Resolution.ServerUrl, time, async (owed, openedBy) => {
