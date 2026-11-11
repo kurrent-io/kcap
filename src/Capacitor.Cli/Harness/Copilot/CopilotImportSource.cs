@@ -32,6 +32,8 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
+    const string NumberingKey = "Numbering";
+
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
     readonly ConfigRoot                            _config;
@@ -232,13 +234,27 @@ internal sealed class CopilotImportSource : IImportSource {
             // forever re-sending noise lines that can never advance the
             // watermark.
             var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
+            var sourceMeta     = s.SourceMeta;
+
+            // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
+            // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
+            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) {
+                var resume = numbering?.ToFile(srv + 1) ?? srv + 1;
+
+                // A copy the rewrite kept of a line the server holds is never sent, so it does not keep a session partial.
+                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)
+                 || (numbering is not null && resume <= lastImportable
+                  && Enumerable.Range(resume, lastImportable - resume + 1).All(line => numbering.HeldBack(line, srv + 1)))) {
                     status = ImportCommand.ClassificationStatus.AlreadyLoaded;
                 } else {
                     status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
+                    resumeFromLn = resume;
+                    if (numbering is not null) {
+                        Func<int, int?> sentAs = line => numbering.HeldBack(line, srv + 1) ? null : numbering.ToSent(line);
+                        sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = sentAs };
+                    }
                 }
             }
 
@@ -254,7 +270,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = s.SourceMeta,
+                SourceMeta      = sourceMeta,
             });
         }
 
@@ -308,7 +324,10 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
-                progress:   ctx.Progress);
+                progress:   ctx.Progress,
+                lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
+                    ? numbering as Func<int, int?>
+                    : null);
         } catch {
             return ImportOutcome.Failed;
         }

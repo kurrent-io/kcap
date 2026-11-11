@@ -181,6 +181,9 @@ public class WatchState {
     public int          LinesReadAhead      { get; set; } // file position while buffering
     public bool         ThresholdReached    { get; set; }
     public bool         ShrinkLogged        { get; set; }
+    // Only for a vendor that rewrites its transcript in place. LinesProcessed then counts lines as sent, not
+    // as they sit in the file.
+    public TranscriptLineMap? LineMap { get; set; }
 
     public CommitObservation Commits           { get; set; } = new CommitObservation.Uncovered();
     public DateTimeOffset    LastCoverageCheck { get; set; }
