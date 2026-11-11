@@ -164,27 +164,41 @@ public class UnixPtyProcessSpawnTests {
         }
     }
 
-    /// <summary>A leader something else already reaped is gone, though its status went with the reap:
-    /// it must read as exited, or the agent stays live and a later group signal could hit a reused pid.
-    /// The runtime never reaps before disposal, so the test's reap always wins; its reader can still
-    /// have seen the exit first, and then the code survives.</summary>
+    /// <summary>A leader something else reaped after the runtime saw it exit has its group left alone at
+    /// disposal: once reaped, the group id no longer proves the group is the agent's. The helper surviving
+    /// the disposal is what shows no signal went out. The runtime never reaps before disposal, so the
+    /// test's reap always wins.</summary>
     [Test]
-    public async Task A_leader_reaped_elsewhere_reads_as_exited_with_no_code() {
+    public async Task A_leader_reaped_elsewhere_after_its_exit_was_seen_has_its_group_left_alone() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
 
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
-        var       proc    = factory.Spawn("sleep", ["30"], AppContext.BaseDirectory);
+        var proc = factory.Spawn(
+            "/bin/sh", ["-c", "(trap '' HUP; exec sleep 300) & echo \"CHILD:$!:DONE\"; exec sleep 300"],
+            AppContext.BaseDirectory);
+        var helperPid      = -1;
+        var helperIdentity = "";
         try {
+            helperPid      = await ReadReportedChildPidAsync(proc);
+            helperIdentity = PidIdentity.Capture(helperPid);
+            await Assert.That(helperPid).IsGreaterThan(0);
+
             UnixPtyInterop.kill(proc.Pid, UnixPtyInterop.SIGKILL);
+            await proc.WaitForExitAsync(TimeSpan.FromSeconds(5));
+            await Assert.That(proc.HasExited).IsTrue();
+            await Assert.That(proc.ExitCode).IsEqualTo(137);
+
             await Assert.That(UnixPtyInterop.waitpid(proc.Pid, out _, 0)).IsEqualTo(proc.Pid);
 
-            await proc.WaitForExitAsync(TimeSpan.FromSeconds(1));
+            await proc.DisposeAsync();
+            await Task.Delay(300);
 
-            await Assert.That(proc.HasExited).IsTrue();
-            await Assert.That(proc.ExitCode is null or 137).IsTrue();
+            await Assert.That(PidIdentity.IsGone(helperPid, helperIdentity)).IsFalse();
         } finally {
             await proc.DisposeAsync();
+            if (helperPid > 0 && !PidIdentity.IsGone(helperPid, helperIdentity))
+                UnixPtyInterop.kill(helperPid, UnixPtyInterop.SIGKILL);
         }
     }
 

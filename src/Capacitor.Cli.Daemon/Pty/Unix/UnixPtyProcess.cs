@@ -355,6 +355,16 @@ public sealed class UnixPtyProcess : IPtyProcess {
         lock (_reapSignalGate) {
             if (_reaped) return; // the ids may be recycled
 
+            // Looked at again here, not trusted from an earlier look: .NET's SIGCHLD handler reaps every
+            // child with waitpid(-1) when the daemon is pid 1, as in a container, or inherited SIGCHLD
+            // ignored. Only a reaper running in this same instant can still slip past it.
+            if (UnixPtyInterop.PeekExit(Pid, out _, out _) != 0) {
+                HasExited = true;
+                _reaped   = true;
+
+                return;
+            }
+
             if (UnixPtyInterop.kill(-Pid, sig) != 0) UnixPtyInterop.kill(Pid, sig);
         }
     }
