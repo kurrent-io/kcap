@@ -7,8 +7,8 @@ using Capacitor.Cli.Recording.Harness.Copilot;
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 
 /// <summary>
-/// A VS Code Local session's usage, read from its chat log and sent as the lines Copilot's own transcripts carry: one
-/// usage record per completed request and a checkpoint with the session's credits. The chat log is written seconds
+/// A VS Code Local session's usage, read from its chat log and sent as one usage record per completed request and one
+/// credits line per request whose credits rose. The chat log is written seconds
 /// after the transcript, so a drain that reads no new transcript line still sends what the log gained.
 /// </summary>
 public class CopilotLocalUsageTests {
@@ -67,7 +67,7 @@ public class CopilotLocalUsageTests {
 
         await Assert.That(Sent.Skip(2).Select(Shape).ToArray()).IsEquivalentTo(new (string?, string?, long?, long?)[] {
             ("session.usage_record", "gpt-6-luna", 430, null),
-            ("session.usage_checkpoint", null, null, 465015150),
+            ("kcap.vscode_request_credits", null, null, 465015150),
         });
         await Assert.That(Recorders.Transport.Batches[1].LineNumbers!.All(n => n >= CopilotLocalUsage.LineBase)).IsTrue();
     }
@@ -87,12 +87,14 @@ public class CopilotLocalUsageTests {
 
         await Assert.That(Sent.Skip(2).Select(Shape).ToArray()).IsEquivalentTo(new (string?, string?, long?, long?)[] {
             ("session.usage_record", "gpt-6-luna", 430, null),
-            ("session.usage_checkpoint", null, null, 500000000),
+            ("kcap.vscode_request_credits", null, null, 500000000),
         });
     }
 
+    static readonly IReadOnlyDictionary<string, long> NoCredits = FrozenDictionary<string, long>.Empty;
+
     [Test]
-    public async Task Requests_add_up_and_each_completed_one_is_recorded_once() {
+    public async Task Each_request_reports_its_credits_and_each_completed_one_its_output_once() {
         var session = Session(
             Request("a", 1, 430, 0.5),
             Request("b", 1, 120, 0.25),
@@ -100,28 +102,40 @@ public class CopilotLocalUsageTests {
             Request("no-model", 1, 9, null, model: null),
             Request("no-output", 1, 0, null));
 
-        var first = CopilotLocalUsage.Build(Sid, session, FrozenSet<string>.Empty, sentNanoAiu: 0);
-        var again = CopilotLocalUsage.Build(Sid, session, first.RequestIds.ToFrozenSet(), first.NanoAiu!.Value);
+        var first = CopilotLocalUsage.Build(Sid, session, FrozenSet<string>.Empty, NoCredits);
+        var again = CopilotLocalUsage.Build(Sid, session, first.RequestIds.ToFrozenSet(), first.Credits.ToDictionary(c => c.RequestId, c => c.NanoAiu));
 
         await Assert.That(first.RequestIds).IsEquivalentTo(["a", "b"]);
-        await Assert.That(first.NanoAiu).IsEqualTo(875000000);
+        await Assert.That(first.Credits).IsEquivalentTo([("a", 500000000L), ("b", 250000000L), ("pending", 125000000L)]);
         await Assert.That(again.Lines).IsEmpty();
     }
 
+    /// <summary>A request the user deleted from the chat takes nothing back, and a later charge is sent whole.</summary>
     [Test]
-    public async Task A_lower_total_is_never_sent() {
-        var fewer = CopilotLocalUsage.Build(Sid, Session(Request("a", 1, 430, 0.5)), new HashSet<string> { "a" }.ToFrozenSet(), sentNanoAiu: 750000000);
+    public async Task A_deleted_request_holds_back_no_later_charge() {
+        var sent  = new Dictionary<string, long> { ["a"] = 500000000, ["b"] = 250000000 };
+        var after = CopilotLocalUsage.Build(Sid, Session(Request("b", 1, 120, 0.25), Request("c", 1, 80, 0.1)), new HashSet<string> { "a", "b" }, sent);
 
-        await Assert.That(fewer.Lines).IsEmpty();
-        await Assert.That(fewer.NanoAiu).IsNull();
+        await Assert.That(after.Credits).IsEquivalentTo([("c", 100000000L)]);
+    }
+
+    /// <summary>A request's lines keep their numbers when the requests before it change, in bands of their own.</summary>
+    [Test]
+    public async Task A_requests_line_numbers_do_not_move_with_its_position() {
+        var before = CopilotLocalUsage.Build(Sid, Session(Request("a", 1, 430, 0.5), Request("b", 1, 120, 0.25)), FrozenSet<string>.Empty, NoCredits);
+        var after  = CopilotLocalUsage.Build(Sid, Session(Request("b", 1, 120, 0.25)), FrozenSet<string>.Empty, NoCredits);
+
+        await Assert.That(after.LineNumbers).IsEquivalentTo(before.LineNumbers.Skip(2).ToArray());
+        await Assert.That(before.LineNumbers.Distinct().Count()).IsEqualTo(4);
+        await Assert.That(before.LineNumbers.All(n => n > CopilotLocalUsage.LineBase && n < 2_000_000_000)).IsTrue();
     }
 
     [Test]
     public async Task A_live_send_and_a_reimport_carry_the_same_ids() {
         var session = Session(Request("a", 1, 430, 0.5));
 
-        var live     = CopilotLocalUsage.Build(Sid, session, FrozenSet<string>.Empty, 0);
-        var imported = CopilotLocalUsage.Build(DashedSid.ToUpperInvariant(), session, FrozenSet<string>.Empty, 0);
+        var live     = CopilotLocalUsage.Build(Sid, session, FrozenSet<string>.Empty, NoCredits);
+        var imported = CopilotLocalUsage.Build(DashedSid.ToUpperInvariant(), session, FrozenSet<string>.Empty, NoCredits);
 
         await Assert.That(imported.Lines).IsEquivalentTo(live.Lines);
         await Assert.That(live.Lines.Select(l => Guid.TryParse(JsonNode.Parse(l)!["id"]!.GetValue<string>(), out _)).All(ok => ok)).IsTrue();

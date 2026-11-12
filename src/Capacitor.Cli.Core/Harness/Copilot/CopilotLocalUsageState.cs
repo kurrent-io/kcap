@@ -7,20 +7,23 @@ public sealed class CopilotLocalUsageState(VsCodeChatSessionCache log) {
 
     public HashSet<string> SentRequests { get; } = new(StringComparer.Ordinal);
 
-    public long SentNanoAiu { get; private set; }
+    /// <summary>Each request's credits as last sent, in nano-AIU.</summary>
+    public Dictionary<string, long> SentCredits { get; } = new(StringComparer.Ordinal);
 
     public List<string> StagedRequests { get; } = [];
 
-    public long? StagedNanoAiu { get; set; }
+    public List<(string RequestId, long NanoAiu)> StagedCredits { get; } = [];
 
     public void Unstage() {
         StagedRequests.Clear();
-        StagedNanoAiu = null;
+        StagedCredits.Clear();
     }
 
     public void Commit() {
         SentRequests.UnionWith(StagedRequests);
-        if (StagedNanoAiu is { } nano && nano > SentNanoAiu) SentNanoAiu = nano;
+        foreach (var (requestId, nano) in StagedCredits) {
+            if (!SentCredits.TryGetValue(requestId, out var sent) || nano > sent) SentCredits[requestId] = nano;
+        }
         Unstage();
     }
 }

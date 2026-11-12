@@ -105,6 +105,19 @@ public static class VsCodeChatSessionLog {
         }
 
         if (kind == 2) {
+            // Everything is checked before anything changes, so an entry that does not fit leaves the state as it was.
+            long? length = null;
+            if (entry.ContainsKey("i")) {
+                if (Int(entry["i"]) is not (>= 0 and var i)) return false;
+                length = i;
+            }
+
+            JsonArray? items = null;
+            if (entry.ContainsKey("v")) {
+                if (entry["v"] is not JsonArray pushed) return false;
+                items = pushed;
+            }
+
             var target = path.Count == 0 ? state : Walk(state, path, path.Count);
             if (target is not JsonArray array) {
                 if (target is not null || path.Count == 0) return false;
@@ -114,14 +127,11 @@ public static class VsCodeChatSessionLog {
                 if (!SetChild(parent, path[^1]!, array)) return false;
             }
 
-            if (entry.ContainsKey("i")) {
-                if (Int(entry["i"]) is not { } length || length < 0) return false;
-                while (array.Count > length) array.RemoveAt(array.Count - 1);
+            if (length is { } keep) {
+                while (array.Count > keep) array.RemoveAt(array.Count - 1);
             }
 
-            if (entry.ContainsKey("v")) {
-                if (Detach(entry, "v") is not JsonArray items) return false;
-
+            if (items is not null) {
                 var moved = items.ToList();
                 items.Clear();
                 foreach (var item in moved) array.Add(item);

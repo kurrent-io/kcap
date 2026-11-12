@@ -75,6 +75,8 @@ public class VsCodeChatSessionLogTests {
     [Arguments("""{"kind":1,"k":["requests",7,"completionTokens"],"v":1}""", "does not fit")]
     [Arguments("""{"kind":1,"k":[{"a":1}],"v":1}""", "does not fit")]
     [Arguments("""not json at all""", "not JSON")]
+    [Arguments("""{"kind":2,"k":["requests"],"i":0,"v":{}}""", "does not fit")]
+    [Arguments("""{"kind":2,"k":["requests"],"i":"0","v":[]}""", "does not fit")]
     public async Task An_entry_of_an_unexpected_shape_is_skipped_and_the_rest_still_applies(string entry, string named) {
         var lines   = OneRequest();
         var session = Replay([.. lines[..3], entry, .. lines[3..]]);

@@ -439,7 +439,7 @@ internal sealed class CopilotImportSource : IImportSource {
         var cache = new VsCodeChatSessionCache(chatLog, Path.GetFileNameWithoutExtension(transcriptPath), _ => { });
         if (cache.Current() is not { } session) return;
 
-        var usage = CopilotLocalUsage.Build(sessionId, session, FrozenSet<string>.Empty, sentNanoAiu: 0);
+        var usage = CopilotLocalUsage.Build(sessionId, session, FrozenSet<string>.Empty, FrozenDictionary<string, long>.Empty);
         if (usage.Lines.Count > 0) {
             var batch = new TranscriptBatch {
                 SessionId   = sessionId,

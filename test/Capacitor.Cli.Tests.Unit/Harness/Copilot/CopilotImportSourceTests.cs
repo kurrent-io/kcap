@@ -341,7 +341,7 @@ public class CopilotImportSourceTests {
         var title = server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/harness-title");
 
         await Assert.That(classified[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
-        await Assert.That(types).IsEquivalentTo(["session.usage_record", "session.usage_checkpoint"]);
+        await Assert.That(types).IsEquivalentTo(["session.usage_record", "kcap.vscode_request_credits"]);
         await Assert.That(title.RequestMessage.Body!).Contains("Create notes.md");
     }
 
