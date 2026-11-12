@@ -30,6 +30,7 @@ public sealed class ComposerPicker : ReactiveObject, IDisposable {
         _slash.Reset();
         _mention.Reset();
         if (context is not null) _slash.Prefetch(context);
+        Dismiss();
     }
 
     public async Task UpdateAsync(string text, int caret) {

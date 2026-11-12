@@ -482,7 +482,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     InputSending = inputSending,
                     WorkspaceNotice = ConnectionNotice,
                     Picker = pickers?.Create(presence.Select(p =>
-                            p.Dto is { WorktreePath: { } worktree } dto ? new ComposerContext(worktree, HarnessId.From(dto.Vendor), agentId) : null))
+                            p.Dto is { } dto && (CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath) is { Length: > 0 } checkout
+                                ? new ComposerContext(checkout, HarnessId.From(dto.Vendor), agentId)
+                                : null))
                         .DisposeWith(_disposables),
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
