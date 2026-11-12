@@ -182,7 +182,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         Picker = pickers?.Create(this.WhenAnyValue(x => x.ResumeVisible)
                 .CombineLatest(_choices.WhenAnyValue(x => x.RepoPath, x => x.SelectedVendor, x => x.AccountRows,
                         (repo, vendor, accounts) => PickerContext(repo, vendor, ComposerContext.AccountOf(accounts))),
-                    (resume, handoff) => resume ? PickerContext(_session.Cwd, _session.Vendor, null) : handoff))
+                    (resume, handoff) => resume ? PickerContext(_session.Cwd, _session.Vendor, RecordedAccount()) : handoff))
             .DisposeWith(_disposables);
         // A pick answers the refusal of the one before it.
         _choices.WhenAnyValue(x => x.AccountRows)
@@ -289,6 +289,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     static ComposerContext? PickerContext(string? repo, string? vendor, ResolvedAccount? account) =>
         repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor), Account: account) : null;
+
+    ResolvedAccount? RecordedAccount() =>
+        _session.Recording is { ConfigDir: { Length: > 0 } store } recording
+            ? new ResolvedAccount(store, recording.AccountId, Services.AccountRows.LastSegment(store))
+            : null;
 
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
