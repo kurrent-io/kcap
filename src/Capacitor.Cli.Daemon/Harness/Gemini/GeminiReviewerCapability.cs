@@ -25,8 +25,8 @@ internal enum GeminiReviewerDecision {
 /// one of those is also ADVERTISED, a caller blocked from <c>vendor: "gemini"</c> simply asked for one of
 /// them, so the gate cost the operator a service-unit edit without narrowing the capability class reachable
 /// — though not literally nothing, since a Gemini reviewer burns the operator's own Gemini credentials.
-/// Where only gated vendors are advertised, the flip does widen what a non-operator can cause to run. The
-/// switch is now an opt-OUT (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>); the decision that actually scopes
+/// Where only gated vendors are advertised, the opt-out default does widen what a non-operator can cause to
+/// run. The switch is an opt-OUT (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>); the decision that actually scopes
 /// this is whether to permit unattended reviews on the daemon at all, which is <c>kcap daemon consent</c> —
 /// note that DEFAULTS TO ALLOW, so it scopes nothing until configured.</para>
 ///
@@ -34,15 +34,17 @@ internal enum GeminiReviewerDecision {
 /// allowlist behaving as an exclusive exact-match gate that the repository's own settings cannot widen. That
 /// was established by reading <c>gemini-cli</c> 0.53.0's own matcher, and the binary the daemon launches is
 /// whatever <c>GeminiPath</c> resolves — an upgrade can change matching, config precedence, or empty-list
-/// semantics, so a capability flag set months ago must not silently carry consent across it.</para>
+/// semantics, so a capability flag alone must not carry consent to any build.</para>
 ///
-/// <para>It follows Kiro's model — fail closed when the installed build CHANGES, cleared by the operator
-/// who is already the consenting party, via <c>kcap daemon reviewer affirm --vendor gemini</c>. A
+/// <para>It follows Kiro's model — fail closed when no minimum is recorded, or the installed build is below
+/// it or cannot be identified or ordered against it, cleared by the operator who is already the consenting
+/// party, via <c>kcap daemon reviewer affirm --vendor gemini</c>. A
 /// maintainer-curated set of certified versions takes the reviewer offline on every Gemini patch until a
 /// kcap release catches up. An affirmation is the weaker claim (the operator accepted this build, not a
 /// maintainer read its matcher), made by the party who carries the risk.</para>
 ///
-/// <para><b>The recorded value is a MINIMUM, not an exact match.</b> The cost: a floor assumes the
+/// <para><b>The recorded value is a MINIMUM, not an exact match</b>: a build at or above it keeps its
+/// consent across an upgrade. The cost: a floor assumes the
 /// allowlist's semantics can only improve, and it silently admits a future build that changed matching to
 /// prefix, flipped empty-list semantics, or let repository settings win. Exact-match would make the
 /// operator re-take the same acceptance on every patch. If a Gemini release is ever found to have
