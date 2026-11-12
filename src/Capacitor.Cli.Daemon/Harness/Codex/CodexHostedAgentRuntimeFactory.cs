@@ -31,7 +31,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
     /// real <c>codex app-server</c> child is spawned via <see cref="Process"/>. A test can substitute
     /// an in-process fake peer to drive the app-server route without a child process.</param>
     /// <param name="connection">The server connection whose <c>RequestAcpInteractionAsync</c> forwards an
-    /// interactive launch's approvals to the user (§2.3). Null in tests that never exercise interactive
+    /// interactive launch's approvals to the user. Null in tests that never exercise interactive
     /// approvals; reviewers (approvalPolicy:never) never build an approval bridge regardless.</param>
     /// <param name="refreshCapabilities">Asks the daemon to re-probe and re-advertise, when a launch finds the
     /// installed Codex no longer matches what was advertised. Null leaves the advertisement to the next refresh.</param>

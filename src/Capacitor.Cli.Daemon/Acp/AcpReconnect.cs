@@ -3,12 +3,12 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// <summary>
 /// Everything an <c>AcpHostedAgentRuntime</c> needs to attempt crash reconnect/resume, supplied by
 /// <c>AcpHostedAgentRuntimeFactory</c> ONLY for an eligible launch (probe-verified vendor,
-/// interactive, kill switch off — reconnect spec §4). A runtime constructed without one of these
-/// keeps today's behavior byte-for-byte: child death → read loop ends → finalize.
+/// interactive, kill switch off). A runtime constructed without one of these
+/// does not reconnect: child death → read loop ends → finalize.
 /// </summary>
 internal sealed class AcpReconnectSupport {
     /// <summary>
-    /// The pure spawn closure (spec §6.2): constructs a fresh child process + stdio streams for the
+    /// The pure spawn closure: constructs a fresh child process + stdio streams for the
     /// SAME launch shape as the original (binary, argv, env, cwd) and nothing else — no agent
     /// registration, no forwarder, no slot accounting. The factory closes this over the launch's
     /// <c>RuntimeStartContext</c> and its own connection source, so candidates and the original
@@ -34,20 +34,20 @@ internal sealed class AcpReconnectSupport {
     /// </summary>
     public AcpPidRecordCallbacks PidCallbacks { get; set; } = AcpPidRecordCallbacks.Unwired;
 
-    /// <summary>Delays BETWEEN the up-to-3 candidate spawns of one incident (spec §6: t=0, +1s, +4s).</summary>
+    /// <summary>Delays BETWEEN the up-to-3 candidate spawns of one incident (t=0, +1s, +4s).</summary>
     public IReadOnlyList<TimeSpan> AttemptDelays { get; init; } = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
 
     /// <summary>Bounded wait for the old process tree's CONFIRMED exit during corpse retirement
-    /// (spec §6.1 — unconfirmed exit is terminal for the incident, never shrugged past).</summary>
+    /// (unconfirmed exit is terminal for the incident, never shrugged past).</summary>
     public TimeSpan RetirementWait { get; init; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>Bounded wait for the incident turn's settlement after commit (spec §6.4). Generous —
+    /// <summary>Bounded wait for the incident turn's settlement after commit. Generous —
     /// the faulted turn's awaits were already faulted, so completion is prompt; a pathological hang
     /// goes terminal rather than waiting forever.</summary>
     public TimeSpan SettlementWait { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Lifetime cap of COUNTED resumes per session (spec §6.4's success linearization: a
-    /// resume counts exactly when the atomic reopen commits). The next crash past the cap
+    /// <summary>Lifetime cap of COUNTED resumes per session (a resume counts exactly when the
+    /// atomic reopen commits). The next crash past the cap
     /// finalizes — a child that dies after every resume is a broken installation, not a transient.</summary>
     public int MaxResumesPerSession { get; init; } = 5;
 }
@@ -57,7 +57,7 @@ internal sealed class AcpReconnectSupport {
 /// never two setters.</summary>
 internal sealed record AcpPidRecordCallbacks(Action<int> Record, Action Clear) {
     /// <summary>The fail-closed pre-wiring state: recording throws (an attempt racing the
-    /// orchestrator's wiring window fails honestly, per §6.2's record-before-any-handshake MUST),
+    /// orchestrator's wiring window fails honestly: the PID record must precede any handshake),
     /// clearing is a no-op (there is no record to clear).</summary>
     public static readonly AcpPidRecordCallbacks Unwired = new(
         _ => throw new InvalidOperationException(

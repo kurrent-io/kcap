@@ -59,8 +59,8 @@ internal sealed record ResolvedBorrowedReviewPolicy(
 /// <para><b>Why the platform key.</b> The verification above was performed on one platform. Tool
 /// identifiers and path-trust semantics are the security boundary here, and nothing establishes they
 /// are identical elsewhere, so an unverified platform gets no entry and advertises no borrowed
-/// review. This is NOT the version-keyed certification that was removed — a vendor build
-/// auto-updates underneath a user and that gate died within days; an OS and architecture do not
+/// review. This is NOT a version-keyed certification — a vendor build auto-updates underneath a user,
+/// so such a gate withdraws the capability silently; an OS and architecture do not
 /// change under a running daemon, and this encodes a fact nobody has measured rather than
 /// re-deriving one that was deliberately trusted.</para>
 /// </summary>

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
 
-/// <summary>Phase B2-b (sequenced-settlement design §4.2.4): durable marker-candidate sources for
+/// <summary>Durable marker-candidate sources for
 /// RECORDLESS prior-epoch survivors. Kill authority is marker-based (the live env triple, re-read at
 /// kill time); there is NO spawn-bound start-identity and NO trusted flow identity (the env is
 /// mutable). Same atomic temp+rename + hashed-filename discipline as
@@ -47,7 +47,7 @@ internal sealed partial class MarkerCandidateStore(string stateDir, ILogger logg
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(agentId ?? ""))).ToLowerInvariant() + ".json");
 }
 
-/// <summary>Phase B2-b (sequenced-settlement design §4.2.4): the durable marker-candidate source
+/// <summary>The durable marker-candidate source
 /// tuple. Marker-based kill authority for a fully recordless prior-epoch survivor — no start-identity
 /// token, no trusted flow identity.</summary>
 internal readonly record struct MarkerCandidate(string AgentId, string DaemonId, string OldEpoch, int Pid);

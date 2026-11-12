@@ -1119,11 +1119,10 @@ public partial class WorktreeManager(
     /// then replaces the live contents — the source repository is never used as the reviewer's cwd, and
     /// reviewer-created git metadata cannot survive into the next round. Vendor config is excluded along
     /// the ancestor chain of <paramref name="sourceCwd"/>.
-    /// <para><b>Takes a SOURCE cwd, not a target execution path.</b> The overloads this replaces took only
-    /// a target-side path, which left no way to obtain the git-derived prefix except by re-deriving it from
-    /// the target filesystem — the derivation that lets the launch and the classifier disagree. They had no
-    /// production callers, so removing them is cheaper than preserving an unsafe inference. There is no
-    /// fallback: a caller that cannot supply a source cwd cannot use this.</para></summary>
+    /// <para><b>Takes a SOURCE cwd, not a target execution path.</b> From a target-side path the only way
+    /// to obtain the git-derived prefix is to re-derive it from the target filesystem — the derivation that
+    /// lets the launch and the classifier disagree. There is no fallback: a caller that cannot supply a
+    /// source cwd cannot use this.</para></summary>
     public async Task SyncFromSourceAsync(
             string sourceRepoRoot, string sourceCwd, string targetWorktreePath,
             string[] excludePaths, CancellationToken ct) {

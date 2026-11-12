@@ -148,7 +148,7 @@ public static partial class DaemonRunner {
             }
         }
 
-        // Phase B (D3): reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
+        // Reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
         config.ReviewerMaxLifetime = ParseSecondsEnv("KCAP_REVIEWER_MAX_LIFETIME", config.ReviewerMaxLifetime);
         config.RestartTurnWait = ParseSecondsEnv("KCAP_RESTART_TURN_WAIT_SECONDS", config.RestartTurnWait);
         config.ResumeMaxAge = ParseSecondsEnv("KCAP_RESUME_MAX_AGE_SECONDS", config.ResumeMaxAge);
@@ -157,7 +157,7 @@ public static partial class DaemonRunner {
             config.ResumeConcurrency = resumeConcurrency;
         config.ReviewerIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_IDLE_TIMEOUT", config.ReviewerIdleTimeout);
         config.ReviewerResumableIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_RESUMABLE_IDLE_TIMEOUT", config.ReviewerResumableIdleTimeout);
-        // Task 12: daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
+        // Daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
         // of the server's own Flows:TurnWedgeCeilingSeconds — see DaemonConfig.ReviewerTurnWedgeCeiling.
         config.ReviewerTurnWedgeCeiling = ParseSecondsEnv("KCAP_REVIEWER_TURN_WEDGE_CEILING", config.ReviewerTurnWedgeCeiling);
 
@@ -321,7 +321,7 @@ public static partial class DaemonRunner {
             );
         }
 
-        // Phase B2-b (sequenced-settlement design §4.2.3): the durable per-daemon state root — used by
+        // The durable per-daemon state root — used by
         // the pre-host boot-check block immediately below AND (further down) by the coverage journal /
         // reviewer-home sweeps. Computed once here so every consumer agrees on the exact same directory.
         var coverageStateDir = config.Store.StateDirectory(config.Name);
@@ -334,12 +334,12 @@ public static partial class DaemonRunner {
         // daemon never gets far enough to touch the network or spawn anything.
         if (await RunBootChecksAsync(config, time) is { } bootCheckExit) return bootCheckExit;
 
-        // Phase B2-b (sequenced-settlement design): pin the per-boot epoch here, before any service is
+        // Pin the per-boot epoch here, before any service is
         // built, so the epoch advertised on DaemonConnect and the orchestrator's own _daemonEpoch (which
         // falls back to config.DaemonEpoch) are provably the same value.
         config.DaemonEpoch ??= Guid.NewGuid().ToString("N");
 
-        // Phase B2-b (sequenced-settlement design §4.2.3): fold the durable coverage boot-chain BEFORE any
+        // Fold the durable coverage boot-chain BEFORE any
         // Connect/spawn. this_epoch_contained is true only where OS containment leaves NO recordless
         // survivor class (the Windows Job Object). Fail-closed inside RecordBoot. NullLogger is acceptable
         // this early — the host's logging pipeline isn't built yet.
@@ -457,7 +457,7 @@ public static partial class DaemonRunner {
         if (OperatingSystem.IsWindows()) {
             builder.Services.AddSingleton<IPtyProcessFactory, WinPtyProcessFactory>();
         } else {
-            // L1-managed(a)/(b): one dedicated, daemon-lifetime native thread runs EVERY Unix
+            // One dedicated, daemon-lifetime native thread runs EVERY Unix
             // pty_spawn call (never a thread-pool thread — see UnixSpawnerThread's own doc
             // comment for why). Registered with no factory delegate so DI resolves it via its
             // parameterless constructor, which already starts the thread. host.StopAsync() only
@@ -737,7 +737,7 @@ public static partial class DaemonRunner {
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
-        // agents from the user's own terminal (AI local-attach Phase 1).
+        // agents from the user's own terminal.
         builder.Services.AddSingleton<LocalControlServer>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalControlServer>());
 
@@ -837,9 +837,9 @@ public static partial class DaemonRunner {
         // without any comparison against a validated-build record.
         LogUnattendedVendorIdentities(logger, startupCapabilities);
 
-        // The counterpart of the line above. A withheld vendor used to vanish from advertisement in
-        // silence: the refusal text existed, but only the launch path threw it — and advertisement is
-        // what stops that launch being attempted, so the explanation could never be produced.
+        // The counterpart of the line above. Without it a withheld vendor vanishes from advertisement
+        // in silence: only the launch path throws the refusal text, and advertisement is what stops
+        // that launch being attempted, so the explanation would never be produced.
         foreach (var withheld in unattendedStatuses.Where(s => s.WithheldReason is not null))
             LogUnattendedVendorWithheld(logger, withheld.Vendor, withheld.WithheldReason!);
 
@@ -916,7 +916,7 @@ public static partial class DaemonRunner {
                 LogStartupPhase(logger, "socket bound");
                 startupWatch.Entering("reaping agents a prior run left behind");
 
-                // Phase B (D4 §6.4(3)): resolve the orchestrator (which wires OnLaunchAgent +
+                // Resolve the orchestrator (which wires OnLaunchAgent +
                 // GetLiveAgents in its ctor) and reap any hosted-agent children that outlived a
                 // PRIOR daemon run — all BEFORE ConnectAsync advertises this daemon and the server
                 // can dispatch launches. Doing it after connect would let new work be admitted
@@ -1286,7 +1286,7 @@ public static partial class DaemonRunner {
         config.MaxConcurrentAgents = max;
     }
 
-    /// <summary>Phase B (D3): parse a seconds-valued env var into a <see cref="TimeSpan"/>
+    /// <summary>Parse a seconds-valued env var into a <see cref="TimeSpan"/>
     /// (<c>0</c> → <see cref="TimeSpan.Zero"/>, which disables the bound). Unset/blank/invalid/negative
     /// → the supplied <paramref name="fallback"/>.</summary>
     internal static TimeSpan ParseSecondsEnv(string name, TimeSpan fallback) {
@@ -1348,74 +1348,24 @@ public static partial class DaemonRunner {
     internal static int NameInUseExit(bool supervised) => supervised ? 0 : 3;
 
     /// <summary>
-    /// Whether a reviewer vendor is permitted on this daemon. **Absent means ENABLED** — this is an
-    /// opt-OUT, and it used to be an opt-in. Same polarity as
-    /// <see cref="ParseAcpReconnectFlag"/> now, where it used to be deliberately the opposite.
+    /// Whether a reviewer vendor is permitted on this daemon. **Absent means ENABLED** — an opt-OUT,
+    /// the same polarity as <see cref="ParseAcpReconnectFlag"/>.
     ///
-    /// <para><b>Why the default flipped.</b> The reviewer vendor is a caller-chosen parameter, and
-    /// Claude, Codex, Cursor and Copilot have never been gated at all — each running with FULL tool
-    /// access (shell and write) in the same worktree. <b>On any daemon that also ADVERTISES one of
-    /// those</b> — the overwhelmingly common case — the gate did not widen the CAPABILITY CLASS a
-    /// requester could reach: one it blocked from a gated vendor simply asked for an ungated one with
-    /// more capability, while the honest path paid a service-unit edit and a restart. Two of the four
-    /// gated vendors (Kiro, OpenCode) also run READ-ONLY reviewers, so the strictest policy sat on the
-    /// least dangerous configurations.</para>
+    /// <para>Claude, Codex, Cursor and Copilot are never gated, and each runs with full tool access in
+    /// the same worktree, so on a daemon that advertises one of them a gate here does not narrow the
+    /// capability class a requester can reach. It does still add binaries, vendor permission models and
+    /// credentials, and on a daemon that advertises ONLY a gated vendor these variables are the sole
+    /// separation between the hosted role and the unattended-reviewer role. What compensates: the
+    /// opt-out, which <c>ServiceEnvironment</c> carries into the service unit (frozen at
+    /// <c>kcap daemon service install</c>, so a later opt-out needs a reinstall), and
+    /// <c>kcap daemon consent</c>, which defaults to allow. The version floor constrains which build
+    /// runs, not whether a launch happens.</para>
     ///
-    /// <para><b>Three precisions, because earlier revisions of this comment overstated all three</b> —
-    /// review caught each. (1) The predicate is ADVERTISED, not installed: a vendor must also be
-    /// certified and above its version floor, so a daemon with an uncertified Claude advertises no
-    /// ungated vendor either. (2) "Did not widen the capability class" is the true claim, not "excluded
-    /// nobody": even where an ungated vendor exists, this flip adds execution paths with different
-    /// binaries, different vendor-side permission models and different CREDENTIALS — a Gemini reviewer
-    /// burns the operator's Gemini credentials, which is not a subset of "Claude was already
-    /// available". (3) On a daemon that advertises ONLY a gated vendor — installed for hosted work, the
-    /// ordinary reason — these variables were the sole separation between the hosted role and the
-    /// unattended-reviewer role, and the flip genuinely widens what a non-operator requester can cause
-    /// to run with no human in the loop.</para>
-    ///
-    /// <para><b>What actually compensates, stated without inflation.</b> Exactly two things, and the
-    /// floor in the DEFAULT configuration is worth saying plainly: on a fresh daemon that has not been
-    /// configured further, the only thing between a non-operator requester and an unattended gated-vendor
-    /// launch is that the vendor be installed, certified and above its version floor.
-    /// <list type="number">
-    /// <item>The operator keeps an explicit opt-out — and it is REACHABLE on the supported install path:
-    /// <c>ServiceEnvironment</c> carries these four variables into a service unit on
-    /// every platform, DERIVED from the affirmable-reviewer registry so a new vendor cannot be omitted.
-    /// The caveat is timing, not reachability: a supervised daemon's environment is FROZEN at
-    /// <c>kcap daemon service install</c>, so an opt-out set afterwards needs a reinstall to take
-    /// effect.</item>
-    /// <item><c>kcap daemon consent</c> is the only control that scopes unattended launches as such — but
-    /// it DEFAULTS TO ALLOW, so it compensates only for an operator who has configured it, not for the
-    /// average daemon.</item>
-    /// </list></para>
-    ///
-    /// <para><b>The version floor is deliberately NOT a third entry</b>, though it is easy to count as
-    /// one. It constrains which BUILD runs, never whether a non-operator can cause an unattended launch;
-    /// it is seeded automatically at first boot precisely so it never blocks a first launch. It is real
-    /// protection against a different failure — several of these vendors' containment is environment-based
-    /// and fails SILENTLY when a build stops honouring it, which is what
-    /// <c>kcap daemon reviewer affirm</c> exists to remediate. Remediation, not permission.</para>
-    ///
-    /// <para><b>Unset means enabled; a value we cannot read means DISABLED.</b></para>
-    ///
-    /// <para>Those two are not in tension, and the asymmetry is the point. Since unset already enables,
-    /// the only reason to set one of these variables at all is to turn a reviewer OFF — enabling needs no
-    /// variable. So an unrecognised value is not an ambiguous input, it is a FAILED ATTEMPT TO SAY OFF,
-    /// and honouring the evident intent means failing closed. Review caught this: an earlier revision
-    /// failed open here, reasoning from the general "a typo must not take a feature offline" rule, which
-    /// does not transfer to a setting whose only use is to disable.</para>
-    ///
-    /// <para>The direction is also cheap in the wrong case: a typo'd ENABLE attempt (<c>=y</c>,
-    /// <c>=enabled</c>) lands on the pre-change behaviour, which is the safe side, and the operator still
-    /// gets the warning either way.</para>
-    ///
-    /// <para><b>That justification does not generalise, so do not reuse this from anywhere else.</b> It
-    /// rests on TWO facts specific to the four reviewer variables: unset already means enabled, and
-    /// disabling is therefore the only possible intent behind setting one. A setting where unset means
-    /// disabled, or where fail-open was chosen deliberately, needs its own parse and its own reasoning —
-    /// inheriting this one by name would silently import an argument that does not hold. The four
-    /// <c>KCAP_*_UNATTENDED_REVIEWER</c> variables in <see cref="RunAsync"/>'s apply loop are the only
-    /// production callers.</para>
+    /// <para><b>Unset means enabled; a value we cannot read means DISABLED.</b> Since unset already
+    /// enables, the only reason to set one of these variables is to turn a reviewer OFF, so an
+    /// unrecognised value is a failed attempt to say off and fails closed. That argument rests on both
+    /// facts and does not generalise: the four <c>KCAP_*_UNATTENDED_REVIEWER</c> variables in
+    /// <see cref="RunAsync"/>'s apply loop are the only production callers.</para>
     /// </summary>
     internal static bool ParseConsentFlag(string? value) => ReviewerConsent.IsEnabled(value);
 

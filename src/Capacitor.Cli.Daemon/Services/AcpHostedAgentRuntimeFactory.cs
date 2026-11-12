@@ -196,21 +196,20 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
 
         // Nullable: a post-spawn/pre-StartAsync construction failure below (acpConnection or the
         // runtime itself) must still be able to tear down what THIS launch already obtained, even
-        // though no AcpHostedAgentRuntime exists yet to own that ordered cleanup. Widened region —
-        // design spec §3.2's "post-spawn/pre-protected-region construction failure currently leaks
-        // the child" fix.
+        // though no AcpHostedAgentRuntime exists yet to own that ordered cleanup; otherwise such a
+        // failure leaks the child.
         AcpConnection? acpConnection = null;
         AcpHostedAgentRuntime runtime;
 
         try {
             acpConnection = new AcpConnection(input, output, connLogger, config.DebugFrames);
 
-            // Reconnect eligibility (reconnect spec §4), decided at construction: probe-verified
+            // Reconnect eligibility, decided at construction: probe-verified
             // vendor AND an interactive launch AND the kill switch off. The remaining conjuncts
             // (advertised loadSession, the resume cap) are runtime facts the runtime itself gates on
             // per incident. The spawn closure re-invokes THIS launch's connection source, so a
             // candidate is spawned by the same code path — argv, env, cwd — as the original child, and
-            // carries no registration/forwarder/slot side effects (§6.2's pure-spawn contract).
+            // carries no registration/forwarder/slot side effects.
             var reconnect = descriptor.SupportsReconnectResume && !ctx.IsReviewFlow && config.AcpReconnectEnabled
                 ? new AcpReconnectSupport { Spawn = () => _connectionSource(ctx), TimeProvider = _timeProvider }
                 : null;
@@ -410,10 +409,10 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
             // reap, confirm exit, then delete), and deleting again afterwards would bypass exactly
             // the exit-confirmed gate that ordering exists to enforce. DisposeAsync now unconditionally
             // awaits any claimed reap, so a Verdict checked immediately afterward is final. Its
-            // teardown fault is contained (finding 3) so it cannot bypass reclassification below.
+            // teardown fault is contained so it cannot bypass reclassification below.
             await DisposeRuntimeContainedAsync(runtime).ConfigureAwait(false);
 
-            // Design spec §3.2: the deadline catch consults the verdict IDENTICALLY to the general
+            // The deadline catch consults the verdict IDENTICALLY to the general
             // catch below — a reap racing the launch deadline must not bypass reclassification and
             // surface the generic timeout text instead of the coded reason.
             if (ReclassifyIfReaped(runtime, ex) is { } deadlineReclassified) throw deadlineReclassified;
@@ -430,10 +429,10 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
             // so a half-started child process is never leaked.
             // As above: disposal owns the exit-confirmed deletion, and now unconditionally awaits any
             // claimed reap first, so the Verdict check right after is never racing it. Its teardown
-            // fault is contained (finding 3) so it cannot bypass reclassification below.
+            // fault is contained so it cannot bypass reclassification below.
             await DisposeRuntimeContainedAsync(runtime).ConfigureAwait(false);
 
-            // Design spec §3.2: the single reclassification seam — a published Verdict means this
+            // The single reclassification seam — a published Verdict means this
             // launch was reaped, and its coded reason becomes the exception's headline instead of
             // whatever StartAsync actually threw. No verdict ⇒ ex propagates byte-identically.
             if (ReclassifyIfReaped(runtime, ex) is { } reclassified) throw reclassified;
@@ -463,8 +462,8 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     }
 
     /// <summary>
-    /// A reviewer launch reaped by a containment tripwire during <see cref="StartAsync"/> (design
-    /// spec §3.2) — the daemon's coded <see cref="TerminationVerdict"/>
+    /// A reviewer launch reaped by a containment tripwire during <see cref="StartAsync"/> — the
+    /// daemon's coded <see cref="TerminationVerdict"/>
     /// reclassified as the launch failure's headline, with the transport-level cause folded in
     /// parenthetically rather than lost. <see cref="Exception.InnerException"/> is whatever
     /// <see cref="AcpHostedAgentRuntime.StartAsync"/> (or the launch deadline) actually threw, so
@@ -474,7 +473,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
         : InvalidOperationException(message, inner);
 
     /// <summary>
-    /// Disposes the runtime with its teardown fault CONTAINED (design spec §3.2 / finding 3).
+    /// Disposes the runtime with its teardown fault CONTAINED.
     /// <see cref="AcpHostedAgentRuntime.DisposeAsync"/> can propagate a connection/process disposal
     /// fault; letting that escape a launch-failure catch would skip <see cref="ReclassifyIfReaped"/>
     /// and replace the coded verdict with a teardown exception. The published verdict is already final
@@ -491,7 +490,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     }
 
     /// <summary>
-    /// The single reclassification seam (design spec §3.2): after ordered disposal — which now
+    /// The single reclassification seam: after ordered disposal — which now
     /// unconditionally awaits any claimed reap (<see cref="AcpHostedAgentRuntime.DisposeAsync"/>) — a
     /// published <see cref="AcpHostedAgentRuntime.Verdict"/> means this launch was reaped, and its
     /// coded reason becomes the exception's headline instead of whatever the caller actually caught.
@@ -520,14 +519,14 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     /// <summary>
     /// Disposes whatever a launch already obtained when no <see cref="AcpHostedAgentRuntime"/> was
     /// ever built to own ordered teardown — the widened pre-StartAsync construction-failure guard's
-    /// cleanup unit (design spec §3.2: "a post-spawn/pre-protected-region construction failure
+    /// cleanup unit ("a post-spawn/pre-protected-region construction failure
     /// currently leaks the child"). Best-effort throughout: a launch that already failed must not be
     /// masked by a cleanup fault. <paramref name="process"/> is terminated before either is disposed,
     /// mirroring <see cref="AcpHostedAgentRuntime.DisposeAsync"/>'s own ordering (a reap is not a
     /// disposal — releasing handles under a still-alive child just leaves it running).
     /// </summary>
     internal static async Task DisposeUnclaimedSpawnAsync(AcpConnection? connection, IAcpProcess? process) {
-        // Each cleanup step is INDEPENDENTLY guarded (finding 4): a throwing connection disposal must
+        // Each cleanup step is INDEPENDENTLY guarded: a throwing connection disposal must
         // neither skip the process disposal below it nor escape to mask the construction failure that
         // brought us here — the "best-effort throughout" contract. The prior shape awaited
         // connection.DisposeAsync with no guard, so a throwing stream disposal did both.
@@ -557,9 +556,9 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     }
 
     /// <summary>
-    /// Design spec §3.5's non-empty-reason fallback formula: <c>launch_failed:{exception type name}
-    /// — see daemon log</c> for a null/whitespace reason, else the reason verbatim. Task 4's
-    /// orchestrator mapping owns APPLYING this to whatever a launch failure ultimately reports, but a
+    /// The non-empty-reason fallback formula: <c>launch_failed:{exception type name}
+    /// — see daemon log</c> for a null/whitespace reason, else the reason verbatim. The
+    /// orchestrator's mapping owns APPLYING this to whatever a launch failure ultimately reports, but a
     /// pre-StartAsync factory failure — thrown before any runtime (hence any verdict) exists — is
     /// exactly the case the fallback exists to cover, so the formula lives here rather than being
     /// duplicated at every call site.
@@ -568,7 +567,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
         string.IsNullOrWhiteSpace(ex.Message) ? FormatFallbackLaunchReason(ex.GetType().Name) : ex.Message;
 
     /// <summary>
-    /// The SINGLE owner of the §3.5 fallback reason format (finding 5). Both the exception-backed
+    /// The SINGLE owner of the fallback reason format. Both the exception-backed
     /// path (<see cref="DescribeLaunchFailure"/>) and the reason-backed path
     /// (<see cref="AgentOrchestrator.MapLaunchFailureReason"/>) route their fallback through here, so
     /// the two can never drift to different <c>launch_failed:…</c> shapes. <paramref name="token"/> is
@@ -1289,9 +1288,8 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     }
 
     /// <summary>
-    /// The REAL, production process-spawning path — unchanged in behavior from this factory's
-    /// prior Cursor-only shape, just descriptor-parameterized and delegating its argv/ProcessStartInfo
-    /// construction to the pure <see cref="BuildProcessStartInfo"/> (spec-review Finding 4). Spawns
+    /// The REAL, production process-spawning path, descriptor-parameterized and delegating its
+    /// argv/ProcessStartInfo construction to the pure <see cref="BuildProcessStartInfo"/>. Spawns
     /// the descriptor's binary + argv and returns its stdio streams plus an
     /// <see cref="AcpChildProcess"/> lifecycle wrapper.
     /// </summary>

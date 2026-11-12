@@ -62,15 +62,13 @@ public partial class WorktreeManager {
     /// exposure is created here and is fixed here, once, rather than in each vendor's argv where a new
     /// vendor starts unprotected.</para>
     ///
-    /// <para><b>Never follow a link; remove the ROUTING ENTRY instead.</b> An earlier revision resolved each
-    /// path physically and skipped anything landing outside the worktree. Review found that fails open: a
-    /// branch committing <c>.kiro</c> as a symlink pointing outside keeps its symlink — we decline to touch
-    /// it — and the vendor follows it anyway. Resolving at all was the mistake. This walks components
+    /// <para><b>Never follow a link; remove the ROUTING ENTRY instead.</b> Resolving each path physically
+    /// and skipping anything landing outside the worktree fails open: a branch committing <c>.kiro</c> as a
+    /// symlink pointing outside keeps its symlink and the vendor follows it anyway. This walks components
     /// WITHOUT following, and unlinks the first component that is a link. Removing a link never touches its
     /// target, so the operator's own <c>~/.gemini</c> is safe by construction rather than by a containment
-    /// check, and the branch's routing into it is gone. The containment comparison this replaces also
-    /// inferred case sensitivity from the OS, which is wrong on a case-sensitive APFS volume — deleting the
-    /// question removes that too.</para>
+    /// check (which would also have to infer case sensitivity, wrong on a case-sensitive APFS volume), and
+    /// the branch's routing into it is gone.</para>
     ///
     /// <para><b>Fail closed.</b> A path that is present but cannot be removed throws. Continuing would hand
     /// the vendor a tree it executes; a launch that fails loudly is strictly better than one that runs
