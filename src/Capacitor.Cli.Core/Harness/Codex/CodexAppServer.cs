@@ -8,8 +8,8 @@ namespace Capacitor.Cli.Core.Harness.Codex;
 internal static class CodexAppServer {
     static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(2);
 
-    /// <summary>Runs in the temp directory, under the Codex home <paramref name="directory"/>.</summary>
-    public static ProcessStartInfo StartInfo(string exe, string directory, UserHome home) {
+    /// <summary>Runs in the temp directory, under the Codex home <paramref name="directory"/>, or the inherited one when null.</summary>
+    public static ProcessStartInfo StartInfo(string exe, string? directory, UserHome home) {
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var psi  = new ProcessStartInfo {
             FileName               = exe,
@@ -23,7 +23,7 @@ internal static class CodexAppServer {
             CreateNoWindow         = true,
         };
         psi.ArgumentList.Add("app-server");
-        VendorProcess.PlanHome(psi, HarnessId.Codex, directory, home);
+        if (directory is not null) VendorProcess.PlanHome(psi, HarnessId.Codex, directory, home);
 
         return psi;
     }

@@ -1,30 +1,31 @@
-using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness;
 
 namespace Capacitor.App.ViewModels.Composer;
 
-public sealed partial class SlashCompletion(Func<ComposerContext, Task<IReadOnlyList<HostedAgentCommand>>> list) {
+/// "/" opens the list for every harness, and so does the harness's own sigil; a pick goes in under that sigil.
+public sealed class CommandCompletion(
+        Func<ComposerContext, Task<IReadOnlyList<HostedAgentCommand>>> list,
+        Func<HarnessId?, char> sigilOf) {
     Task<IReadOnlyList<HostedAgentCommand>>? _listed;
 
-    [GeneratedRegex(@"^/(\S*)$")]
-    private static partial Regex Query();
-
-    /// Null when the text is not a slash query.
+    /// Null when the text is not a command query.
     public async Task<IReadOnlyList<object>?> RowsAsync(string text, ComposerContext context) {
-        if (Query().Match(text) is not { Success: true } query) {
+        var sigil = sigilOf(context.Harness);
+        if (text is not [var opener, .. var query] || opener != '/' && opener != sigil || query.Any(char.IsWhiteSpace)) {
             Reset();
             return null;
         }
 
-        return [.. Rank(await (_listed ??= list(context)), query.Groups[1].Value)];
+        return [.. Rank(await (_listed ??= list(context)), query).Select(command => new CommandRow(command, sigil))];
     }
 
     public void Reset() => _listed = null;
 
     public void Prefetch(ComposerContext context) => _ = list(context);
 
-    public static (string Text, int Caret) Insert(HostedAgentCommand command) {
-        var line = $"/{command.Name} ";
+    public static (string Text, int Caret) Insert(CommandRow row) {
+        var line = $"{row.Text} ";
         return (line, line.Length);
     }
 

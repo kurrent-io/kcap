@@ -4,5 +4,5 @@ namespace Capacitor.App.Services.Composer;
 
 public sealed class ComposerPickers(FileCatalog files, CommandCatalog commands) {
     public ComposerPicker Create(IObservable<ComposerContext?> contexts) =>
-        new(contexts, new SlashCompletion(commands.ListAsync), new MentionCompletion(files.InRepoAsync, files.InFolderAsync));
+        new(contexts, new CommandCompletion(commands.ListAsync, commands.SigilOf), new MentionCompletion(files.InRepoAsync, files.InFolderAsync));
 }

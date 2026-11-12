@@ -12,9 +12,9 @@ public class ComposerPickerTests {
 
     static ComposerPicker Picker(
             IReadOnlyList<HostedAgentCommand>? commands = null, IReadOnlyList<string>? repo = null,
-            Func<string, IReadOnlyList<string>>? folder = null, List<string>? reads = null) =>
-        new(Observable.Return<ComposerContext?>(Repo),
-            new SlashCompletion(_ => Task.FromResult(commands ?? [])),
+            Func<string, IReadOnlyList<string>>? folder = null, List<string>? reads = null, ComposerContext? context = null) =>
+        new(Observable.Return<ComposerContext?>(context ?? Repo),
+            new CommandCompletion(_ => Task.FromResult(commands ?? []), harness => harness == HarnessId.Codex ? '$' : '/'),
             new MentionCompletion(
                 _ => {
                     reads?.Add("repo");
@@ -35,7 +35,7 @@ public class ComposerPickerTests {
             new("review", null, null),
         ];
 
-        var names = SlashCompletion.Rank(commands, "review").Select(c => c.Name);
+        var names = CommandCompletion.Rank(commands, "review").Select(c => c.Name);
 
         await Assert.That(names).IsEquivalentTo(["review", "pr:review", "prereview", "described"], CollectionOrdering.Matching);
     }
@@ -70,7 +70,7 @@ public class ComposerPickerTests {
             .IsEqualTo(("@./src/", 7));
         await Assert.That(ComposerPicker.Insert(new FileMention("./my dir/"), "@./m", 4))
             .IsEqualTo(("@\"./my dir/", 11));
-        await Assert.That(ComposerPicker.Insert(new HostedAgentCommand("review", null, null), "/rev", 4))
+        await Assert.That(ComposerPicker.Insert(new CommandRow(new("review", null, null), '/'), "/rev", 4))
             .IsEqualTo(("/review ", 8));
     }
 
@@ -108,10 +108,10 @@ public class ComposerPickerTests {
         var context = new BehaviorSubject<ComposerContext?>(new("/a", HarnessId.Claude));
         var reads = new List<string>();
         using var picker = new ComposerPicker(context,
-            new SlashCompletion(c => {
+            new CommandCompletion(c => {
                 reads.Add($"commands {c.Directory}");
                 return Task.FromResult<IReadOnlyList<HostedAgentCommand>>([]);
-            }),
+            }, _ => '/'),
             new MentionCompletion(
                 dir => {
                     reads.Add($"files {dir}");
@@ -131,8 +131,28 @@ public class ComposerPickerTests {
         var picker = Picker(commands: [new("review", null, null)]);
 
         await picker.UpdateAsync("/re", 3);
-        await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new HostedAgentCommand("review", null, null)]);
+        await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new CommandRow(new("review", null, null), '/')]);
         await picker.UpdateAsync("say /re", 7);
+        await Assert.That(picker.Rows).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_codex_skill_opens_on_slash_or_dollar_and_goes_in_as_dollar() {
+        var picker = Picker(commands: [new("review", null, null)], context: new("/repo", HarnessId.Codex));
+
+        await picker.UpdateAsync("$re", 3);
+        await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new CommandRow(new("review", null, null), '$')]);
+        await picker.UpdateAsync("/re", 3);
+        await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new CommandRow(new("review", null, null), '$')]);
+        await Assert.That(ComposerPicker.Insert(picker.Rows[0], "/re", 3)).IsEqualTo(("$review ", 8));
+    }
+
+    [Test]
+    public async Task A_dollar_opens_nothing_for_claude() {
+        var picker = Picker(commands: [new("review", null, null)]);
+
+        await picker.UpdateAsync("$re", 3);
+
         await Assert.That(picker.Rows).IsEmpty();
     }
 }

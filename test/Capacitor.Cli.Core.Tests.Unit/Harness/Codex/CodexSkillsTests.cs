@@ -1,12 +1,10 @@
 using System.Text.Json;
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Daemon.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Codex;
 
-namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
+namespace Capacitor.Cli.Core.Tests.Unit.Harness.Codex;
 
-/// <summary>Pins the defensive Codex <c>skills/list</c> mapping: a flat array or a hooks/list-style
-/// grouping both yield <c>{name, description}</c> commands, and an absent or unexpected shape yields
-/// an empty list rather than throwing, so the picker fails safe to empty.</summary>
+/// <summary>Pins the <c>skills/list</c> mapping: flat or per-cwd skills become commands, a disabled one is
+/// left out, and an unexpected shape yields an empty list rather than throwing.</summary>
 public class CodexSkillsTests {
     static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -29,6 +27,13 @@ public class CodexSkillsTests {
 
         await Assert.That(commands.Count).IsEqualTo(2);
         await Assert.That(commands[1]).IsEqualTo(new HostedAgentCommand("b", "B", null));
+    }
+
+    [Test]
+    public async Task Extract_skips_a_disabled_skill() {
+        var result = Parse("""{ "data": [ { "skills": [ { "name": "on", "enabled": true }, { "name": "off", "enabled": false } ] } ] }""");
+
+        await Assert.That(CodexSkills.Extract(result).Select(c => c.Name)).IsEquivalentTo(["on"]);
     }
 
     [Test]

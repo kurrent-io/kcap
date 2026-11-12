@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels.Composer"
-             xmlns:core="clr-namespace:Capacitor.Cli.Core;assembly=Capacitor.Cli.Core"
              x:Class="Capacitor.App.Views.ComposerPickerPopup">
     <UserControl.Styles>
         <Style Selector="Button.pickerRow">
@@ -22,12 +21,12 @@
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
-                <DataTemplate DataType="core:HostedAgentCommand">
+                <DataTemplate DataType="vm:CommandRow">
                     <Button Classes="kcapGhost pickerRow" Focusable="False" Click="OnRowClick">
                         <Grid ColumnDefinitions="220,*">
-                            <TextBlock Text="{Binding Name, StringFormat='/{0}'}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                            <TextBlock Text="{Binding Text}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapTextBrush}" />
-                            <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="12,0,0,0" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                            <TextBlock Grid.Column="1" Text="{Binding Command.Description}" Margin="12,0,0,0" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         </Grid>
                     </Button>

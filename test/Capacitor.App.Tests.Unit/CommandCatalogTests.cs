@@ -14,11 +14,11 @@ public class CommandCatalogTests {
 
     static CommandCatalog Catalog(ScriptedLocalControlOps ops, string[] capabilities, Func<IReadOnlyList<HostedAgentCommand>> probe, List<string> probes) =>
         new(ops, Observable.Return(new AttachStatus(AttachState.Connected, null, capabilities)),
-            new Dictionary<HarnessId, CommandCatalog.Probe> {
-                [HarnessId.Claude] = (directory, _) => {
+            new Dictionary<HarnessId, CommandCatalog.Source> {
+                [HarnessId.Claude] = new((directory, _) => {
                     probes.Add(directory);
                     return Task.FromResult(probe());
-                },
+                }),
             }, CancellationToken.None);
 
     [Test]
