@@ -5,15 +5,23 @@
 # A path maps to the project whose directory holds it; every project that references that one,
 # directly or transitively, is selected. TestSelectionDirectory items declare directories read by
 # source-scanning tests without a project reference; their paths are relative to the .csproj.
-# A path in no project directory (build files, workflows,
-# scripts, the plugin) selects all, since nothing proves it is unread by a test. Markdown outside
-# kcap/ is skipped: the workflow trigger already treats it as unable to affect a test.
+# A path in no project directory (build files, workflows, scripts, the plugin) selects all, since
+# nothing proves it is unread by a test. So does anything that cannot be resolved here: a reference
+# built from MSBuild properties, an item whose Include is not on its opening line, a declared
+# directory that does not exist. Markdown outside kcap/ is skipped: the workflow trigger already
+# treats it as unable to affect a test.
 #
 # Usage: select-test-projects.sh [repo-root] < changed-paths
 set -euo pipefail
 set -f
 root="${1:-.}"
 cd "$root"
+
+# Read whole before anything can exit: a writer still blocked on the pipe when this script exits
+# dies on SIGPIPE, which fails a caller running under pipefail.
+changed="$(cat)"
+
+all() { echo all; exit 0; }
 
 # Collapses `.` and `..` segments; bash 3.2 compatible, no realpath -m on macOS.
 normalize() {
@@ -25,29 +33,39 @@ normalize() {
       *) out+=("$seg") ;;
     esac
   done
-  printf '%s\n' "${out[*]}"
+  printf '%s\n' "${out[*]-}"
+}
+
+# includes <item> <project> — the item's Include values, one per line, a `;` list split up.
+# Fails when it read fewer values than the project has such items.
+includes() {
+  local found
+  found="$(grep -oE "<$1[^>]*Include=\"[^\"]+\"" "$2" || true)"
+  [ "$(grep -o "<$1" "$2" | grep -c . || true)" -eq "$(printf '%s' "$found" | grep -c . || true)" ] || return 1
+  printf '%s\n' "$found" | sed -E 's/.*Include="([^"]+)"/\1/' | tr ';' '\n'
 }
 
 projects="$(git ls-files '*.csproj')"
 [ -n "$projects" ] || { echo "no .csproj files tracked under $root" >&2; exit 1; }
 
-# One "dependent dependency" pair per line.
+# edges: one "dependent dependency" pair per line. inputs: one "scanner directory/" pair per line,
+# the directory empty for the repo root.
 edges=""
 inputs=""
 while IFS= read -r proj; do
   dir="$(dirname "$proj")"
-  refs="$(grep -oE '<ProjectReference[^>]*Include="[^"]+"' "$proj" | sed -E 's/.*Include="([^"]+)"/\1/' || true)"
+  refs="$(includes ProjectReference "$proj")" || all
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
-    # A reference built from MSBuild properties cannot be resolved here.
-    case "$ref" in *'$('*) echo all; exit 0 ;; esac
+    case "$ref" in *'$('*) all ;; esac
     edges+="$proj $(normalize "$dir/${ref//\\//}")"$'\n'
   done <<< "$refs"
-  dirs="$(grep -oE '<TestSelectionDirectory[^>]*Include="[^"]+"' "$proj" | sed -E 's/.*Include="([^"]+)"/\1/' || true)"
+  dirs="$(includes TestSelectionDirectory "$proj")" || all
   while IFS= read -r input; do
     [ -n "$input" ] || continue
-    case "$input" in *'$('*) echo all; exit 0 ;; esac
-    inputs+="$proj $(normalize "$dir/${input//\\//}")/"$'\n'
+    scanned="$(normalize "$dir/${input//\\//}")"
+    [ -d "${scanned:-.}" ] || all
+    inputs+="$proj ${scanned:+$scanned/}"$'\n'
   done <<< "$dirs"
 done <<< "$projects"
 
@@ -64,7 +82,7 @@ owner() {
 }
 
 selected=""
-while IFS= read -r path || [ -n "$path" ]; do
+while IFS= read -r path; do
   path="${path%$'\r'}"
   [ -n "$path" ] || continue
   case "$path" in
@@ -72,7 +90,7 @@ while IFS= read -r path || [ -n "$path" ]; do
     *.md) continue ;;
   esac
   proj="$(owner "$path" || true)"
-  if [ -z "$proj" ]; then echo all; exit 0; fi
+  [ -n "$proj" ] || all
   printf '%s\n' "$selected" | grep -Fxq -- "$proj" || selected+="$proj"$'\n'
   while read -r scanner directory; do
     [ -n "$scanner" ] || continue
@@ -82,7 +100,7 @@ while IFS= read -r path || [ -n "$path" ]; do
         ;;
     esac
   done <<< "$inputs"
-done
+done <<< "$changed"
 
 # Reverse-dependency closure.
 changed=1

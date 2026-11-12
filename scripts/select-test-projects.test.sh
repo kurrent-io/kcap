@@ -55,12 +55,20 @@ assert "only markdown"            'README.md'                               ''
 assert "plugin markdown counts"   'kcap/skills/x/SKILL.md'                  'all'
 assert "CRLF input"               'src/App/A.cs\r'                          'test/App.Tests.Unit/App.Tests.Unit.csproj'
 
-csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj
-csproj test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj
-csproj test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj
-sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="..\\..\\src\\" /></ItemGroup>|' "$repo/test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj"
-sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="../../test" /></ItemGroup>|' "$repo/test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj"
-sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="../../src/App/View" /></ItemGroup>|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
+# More input than a pipe holds, with the path that selects all on the first line: the writer is
+# still blocked when the answer is known, and must not be left to die on SIGPIPE.
+big="$(echo .github/workflows/ci.yml; i=0; while [ "$i" -lt 2000 ]; do echo "src/App/Views/Generated/Fixture$i.cs"; i=$((i + 1)); done)"
+if ! printf '%s\n' "$big" | bash "$sh" "$repo" > /dev/null; then echo "FAIL: writer killed by an early exit"; fail=1; fi
+
+# scans <project> <item xml> — gives a test project its scanned-directory declaration.
+scans() {
+  mkdir -p "$repo/test/$1"
+  printf '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>\n%s\n</ItemGroup></Project>\n' "$2" > "$repo/test/$1/$1.csproj"
+}
+mkdir -p "$repo/src/App/View"
+scans SourceGuards.Tests.Unit '<TestSelectionDirectory Include="..\..\src\" />'
+scans TestGuards.Tests.Unit   '<TestSelectionDirectory Include="../../test" />'
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/App/View" />'
 git -C "$repo" add -A
 
 assert "source scanner without a reference" 'src/App/A.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
@@ -72,12 +80,26 @@ assert "nested scanner directory" 'src/App/View/Main.cs' 'test/App.Tests.Unit/Ap
 assert "scanner preserves markdown skip" 'src/App/README.md' ''
 assert "scanner preserves global fallback" 'Directory.Build.props' 'all'
 
-sed -i.bak 's|../../src/App/View|$(RepoRoot)/src/App/View|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
-assert "unresolvable scanner directory" 'src/App/A.cs' 'all'
-sed -i.bak 's|$(RepoRoot)/src/App/View|../../src/App/View|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/Service;../../src/Daemon" />'
+assert "scanner list in one Include" 'src/Service/Svc.cs' 'test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj test/Service.Tests.Unit/Service.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../.." />'
+assert "scanner of the whole repo" 'test/App.Tests.Unit/A.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj'
+
+# A declaration that would match nothing must not quietly unselect its suite.
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="$(RepoRoot)/src/App/View" />'
+assert "scanner directory from a property" 'src/App/A.cs' 'all'
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/**/*.cs" />'
+assert "scanner glob" 'src/App/A.cs' 'all'
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/Gone" />'
+assert "scanner directory that does not exist" 'src/App/A.cs' 'all'
+scans PrefixGuards.Tests.Unit "$(printf '<TestSelectionDirectory\n    Include="../../src" />')"
+assert "scanner Include on its own line" 'src/App/A.cs' 'all'
+scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/App/View" />'
 
 csproj src/Odd/Odd.csproj '$(RepoRoot)/src/Core/Core.csproj'
 git -C "$repo" add -A
-assert "unresolvable reference"   'src/App/A.cs'                            'all'
+assert "reference from a property" 'src/App/A.cs' 'all'
+printf '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>\n<ProjectReference\n    Include="../Core/Core.csproj" />\n</ItemGroup></Project>\n' > "$repo/src/Odd/Odd.csproj"
+assert "reference Include on its own line" 'src/App/A.cs' 'all'
 
 [ "$fail" -eq 0 ] && echo "ok" || exit 1
