@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Pi;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Harness.Pi;
@@ -38,16 +39,8 @@ internal static partial class PiModelCatalogProbe {
         Directory.CreateDirectory(dir);
     }
 
-    // --offline stops Pi's startup network work (a configured package install runs even with
-    // --no-extensions); --no-extensions keeps third-party extensions from starting.
     internal static ProcessStartInfo BuildStartInfo(string piPath, string workingDirectory) {
-        var psi = new ProcessStartInfo(piPath, ["--mode", "rpc", "--offline", "--no-extensions", "--no-session"]) {
-            WorkingDirectory       = workingDirectory,
-            RedirectStandardInput  = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute        = false,
-        };
+        var psi = PiRpcProbe.StartInfo(piPath, workingDirectory);
         PiLaunchEnvironment.Apply(psi.Environment);
         return psi;
     }
@@ -144,8 +137,7 @@ internal static partial class PiModelCatalogProbe {
         try { doc = JsonDocument.Parse(line); } catch (JsonException) { return PiModelCatalogParse.NotResponse; }
         using (doc) {
             var root = doc.RootElement;
-            if (!root.IsObject || root.Str("type") != "response" || root.Str("command") != Command)
-                return PiModelCatalogParse.NotResponse;
+            if (!PiRpcProbe.Answers(root, Command)) return PiModelCatalogParse.NotResponse;
             // An invalid envelope is null, never empty: an empty catalog would suppress every fallback.
             if (root.Bool("success") != true || root.Obj("data")?.Arr("models") is not { } models)
                 return new(true, null);

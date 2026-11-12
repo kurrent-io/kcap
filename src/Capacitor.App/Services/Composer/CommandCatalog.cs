@@ -4,6 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.App.Services.Composer;
@@ -11,7 +12,6 @@ namespace Capacitor.App.Services.Composer;
 public sealed class CommandCatalog {
     internal delegate Task<IReadOnlyList<HostedAgentCommand>> Probe(string directory, CancellationToken ct);
 
-    /// <param name="Sigil">What the harness runs a listed command by, typed ahead of its name.</param>
     internal sealed record Source(Probe Probe, char Sigil = '/');
 
     static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(30);
@@ -36,6 +36,7 @@ public sealed class CommandCatalog {
         new Dictionary<HarnessId, Source> {
             [HarnessId.Claude] = new((directory, ct) => ClaudeCommandProbe.ProbeAsync(harnesses, directory, null, home, time, ProbeTimeout, Log, ct)),
             [HarnessId.Codex] = new((directory, ct) => CodexSkillProbe.ProbeAsync(harnesses, directory, home, time, ProbeTimeout, Log, ct), CodexSkills.Sigil),
+            [HarnessId.Pi] = new((directory, ct) => PiCommandProbe.ProbeAsync(harnesses, directory, time, ProbeTimeout, Log, ct)),
         }.ToFrozenDictionary();
 
     public char SigilOf(HarnessId? harness) => harness is { } known && _sources.TryGetValue(known, out var source) ? source.Sigil : '/';

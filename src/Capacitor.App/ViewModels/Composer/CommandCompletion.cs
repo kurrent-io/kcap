@@ -3,7 +3,6 @@ using Capacitor.Cli.Core.Harness;
 
 namespace Capacitor.App.ViewModels.Composer;
 
-/// "/" opens the list for every harness, and so does the harness's own sigil; a pick goes in under that sigil.
 public sealed class CommandCompletion(
         Func<ComposerContext, Task<IReadOnlyList<HostedAgentCommand>>> list,
         Func<HarnessId?, char> sigilOf) {

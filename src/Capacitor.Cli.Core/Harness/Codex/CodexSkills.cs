@@ -2,8 +2,6 @@ using System.Text.Json;
 
 namespace Capacitor.Cli.Core.Harness.Codex;
 
-/// <summary>Maps a <c>skills/list</c> result to picker commands. An absent or unexpected shape yields an
-/// empty list rather than throwing, so the picker shows nothing instead of failing a launch.</summary>
 public static class CodexSkills {
     /// <summary>Codex runs a skill named as <c>$name</c>, and refuses an unknown <c>/name</c>.</summary>
     public const char Sigil = '$';

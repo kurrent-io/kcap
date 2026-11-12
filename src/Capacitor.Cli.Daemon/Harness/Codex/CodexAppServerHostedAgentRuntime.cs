@@ -395,7 +395,6 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         return CodexHookTrust.ParseHooksList(result);
     }
 
-    // An app-server without skills/list, or an unexpected answer, must not fail the launch.
     async Task TryPublishSkillsAsync(CancellationToken ct) {
         try {
             var listParams = new JsonObject { ["cwds"] = new JsonArray((JsonNode?) _launch.Cwd) };

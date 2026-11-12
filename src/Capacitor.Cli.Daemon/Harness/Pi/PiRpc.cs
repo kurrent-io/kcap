@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Daemon.Harness.Pi;
 
@@ -341,6 +342,12 @@ internal static class PiRpc {
             ["type"]      = "extension_ui_response",
             ["id"]        = id,
             ["cancelled"] = true,
+        }.ToJsonString();
+
+    public static string GetCommandsCommand(string id) =>
+        new System.Text.Json.Nodes.JsonObject {
+            ["id"]   = id,
+            ["type"] = PiCommands.Command,
         }.ToJsonString();
 
     public static string GetStateCommand(string id) =>

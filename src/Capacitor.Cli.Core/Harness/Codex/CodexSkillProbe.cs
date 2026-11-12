@@ -1,7 +1,8 @@
+using Capacitor.Cli.Core.Accounts;
+
 namespace Capacitor.Cli.Core.Harness.Codex;
 
-/// <summary>Lists Codex's skills for a directory through a short-lived <c>codex app-server</c>, without starting a
-/// thread, so no model call is made. Every failure returns an empty list.</summary>
+/// <summary>Never starts a thread, so no model call is made.</summary>
 public static class CodexSkillProbe {
     public static async Task<IReadOnlyList<HostedAgentCommand>> ProbeAsync(
             HarnessRegistry   harnesses,
@@ -34,7 +35,7 @@ public static class CodexSkillProbe {
             log($"codex skill probe failed: {ex.Message}");
             return [];
         } finally {
-            await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            await VendorProcess.ShutDownAsync(process, time).ConfigureAwait(false);
         }
     }
 }
