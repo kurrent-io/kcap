@@ -5,10 +5,12 @@ using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
+using TUnit.Core.Enums;
 using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
@@ -51,11 +53,12 @@ public class VendorWorkspaceSpanTests : IDisposable {
             .Handle(new StringReader(payload), new CodexHookEnvironment(TextWriter.Null, TextWriter.Null, Skip: false, HostedAppServer: false));
     }
 
-    Task<int> CopilotAsync(string eventName) {
+    Task<int> CopilotAsync(string eventName, string? transcriptPath = null) {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         var watchers = new WatcherManager(Config.Root, profiles, http, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
         var payload  = new JsonObject { ["sessionId"] = Session, ["cwd"] = Repo.Path, ["reason"] = "user_exit" };
+        if (transcriptPath is not null) payload["transcriptPath"] = transcriptPath;
         return new CopilotHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home),
                 HostedAgent.Terminal, http, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
             .Handle(new StringReader(payload.ToJsonString()), ["--event", eventName]);
@@ -81,6 +84,291 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var posts = PostedPaths();
         await Assert.That(posts).Contains("/hooks/workspace-changes");
         await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
+    /// <summary>A Copilot hook that handed its end to the finalizer leaves the span to it as well.</summary>
+    [Test]
+    public async Task The_Copilot_finalizer_closes_the_span_after_the_end_it_posts() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("events.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+        var end        = new JsonObject { ["session_id"] = Session.Replace("-", ""), ["reason"] = "user_exit" }.ToJsonString();
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync(Session.Replace("-", ""), transcript, end, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        var posts = PostedPaths();
+        await Assert.That(posts).Contains("/hooks/workspace-changes");
+        await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
+    /// <summary>The drain ahead of every hook spends nothing on spans: under Copilot's shared shutdown budget, closing
+    /// another chat's span there would starve this hook's own end.</summary>
+    [Test]
+    public async Task A_drained_Copilot_end_does_no_span_work() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical = Session.Replace("-", "");
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString();
+        CopilotSpanClose.Record(WatcherPaths.FromEnvironment(Config.Root), canonical, _server.Url, end);
+        spool.Append(canonical, "session-end/copilot", end);
+
+        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, canonical);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+        await Assert.That(CopilotSpanClose.IsDelivered(WatcherPaths.FromEnvironment(Config.Root), canonical)).IsTrue();
+    }
+
+    /// <summary>A delivery the drain could not mark would lose the span close, so the end stays spooled for a retry,
+    /// which the server takes as the same end.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task A_Copilot_end_stays_spooled_when_its_delivery_cannot_be_marked() {
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end);
+        spool.Append(canonical, "session-end/copilot", end);
+        File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainSpoolsNowAsync(spool, canonical);
+
+            await Assert.That(spool.HasBacklog(canonical)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(paths.Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    /// <summary>A watcher still stopping may yet spool the tail its end must follow, so drains hold that end until the
+    /// watcher is gone.</summary>
+    [Test]
+    public async Task A_drain_holds_a_Copilot_end_while_its_watcher_runs() {
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var profiles  = Resolutions.At(_server.Url!, Config.Root);
+        var http      = new FixedCapacitorHttpClient();
+        var spool     = new HookSpool(Config.Root, _time, _server.Url);
+        spool.Append(canonical, "session-end/copilot", new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit", ["ended_at"] = _time.GetUtcNow().ToString("O") }.ToJsonString());
+
+        Directory.CreateDirectory(paths.Directory);
+        var watcher = DummyProcess.StartSleep(30);
+        await File.WriteAllTextAsync(paths.PidFile(canonical), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
+        var poster = new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time);
+
+        await poster.DrainSpoolsNowAsync(spool, canonical);
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/session-end/copilot");
+
+        watcher.Kill();
+        watcher.WaitForExit(TimeSpan.FromSeconds(5));
+        watcher.Dispose();
+
+        await poster.DrainSpoolsNowAsync(spool, canonical);
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+    }
+
+    /// <summary>A close owed by an earlier run's end closes only that run's spans: one a new run opened while the close was
+    /// on its way is left open.</summary>
+    [Test]
+    public async Task An_owed_span_close_leaves_a_later_runs_span_open() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end, new FakeTimeProvider(_time.GetUtcNow() - TimeSpan.FromMinutes(1)));
+        CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("other.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync("another-session", transcript, endBody: null, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>The finalizer closes only the spans of the run whose end it carries: one a new run opened while it waited
+    /// is that run's.</summary>
+    [Test]
+    public async Task The_Copilot_finalizer_leaves_a_span_a_new_run_opened_while_it_waited() {
+        var finalizerTime = new FakeTimeProvider(_time.GetUtcNow());
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical  = Session.Replace("-", "");
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("events.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+        var end        = new JsonObject { ["session_id"] = canonical, ["reason"] = "user_exit" }.ToJsonString();
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), finalizerTime)
+            .RunAsync(canonical, transcript, end, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>A watcher's own end closes only the spans of the run it watched: one a replacement run opened after the stop
+    /// is that run's.</summary>
+    [Test]
+    public async Task A_Copilot_watchers_end_leaves_a_span_a_replacement_run_opened() {
+        var stoppedAt = _time.GetUtcNow();
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var watch    = new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(), TestWatchers.For(Config.Root, profiles, http),
+            new GitProviderRouter(), _time, TestAccounts.None, Home, new(_server.Url, Config.Root, profiles));
+
+        await watch.PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited", new WorkspaceRunCutoff(null, stoppedAt));
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>Recording turned off while the watcher stopped: its end, which names the session's paths, is not sent.</summary>
+    [Test]
+    public async Task A_Copilot_watchers_end_is_not_sent_for_a_session_disabled_meanwhile() {
+        var session = Session.Replace("-", "");
+        DisabledSessions.Mark(session, Config.Root);
+
+        await Watch().PostCopilotEndAsync(session, Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited",
+            new WorkspaceRunCutoff(null, _time.GetUtcNow()));
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/session-end/copilot");
+    }
+
+    const string RunStart  = """{"type":"session.start","data":{},"id":"evt-start","timestamp":1}""";
+    const string RunResume = """{"type":"session.resume","data":{},"id":"evt-resume","timestamp":2}""";
+
+    WatchCommand Watch() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        return new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(), TestWatchers.For(Config.Root, profiles, http),
+            new GitProviderRouter(), _time, TestAccounts.None, Home, new(_server.Url, Config.Root, profiles));
+    }
+
+    /// <summary>VS Code can quit while a run's sessionStart hook is still on its way, so the stop comes before that run's
+    /// span opens. The span still carries the run it opened in, and the run's end closes it.</summary>
+    [Test]
+    public async Task A_Copilot_end_closes_its_runs_span_opened_after_the_stop() {
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n");
+        var stoppedAt  = _time.GetUtcNow();
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited",
+            new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), stoppedAt));
+
+        await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
+    }
+
+    /// <summary>A span a resumed run opened has the resume's later boundary, so the earlier run's end leaves it.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_the_span_of_a_run_resumed_after_it() {
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n");
+        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
+        await File.AppendAllTextAsync(transcript, RunResume + "\n");
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited", ended);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/session-end/copilot");
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>VS Code's Restore checkpoint rewrites the transcript in place, shorter than the stop found it, and a run
+    /// resumed after it may land where the stopped run's lines were. The earlier run's end still leaves the resumed run's span.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_the_span_of_a_run_resumed_after_a_restore() {
+        const string turn = """{"type":"assistant.message","data":{"content":"long turn"},"id":"evt-turn","timestamp":3}""";
+        var transcript = Home.CreateFile("run/events.jsonl", RunStart + "\n" + turn + "\n" + turn + "\n" + turn + "\n");
+        var ended      = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcript), _time.GetUtcNow() + TimeSpan.FromHours(1));
+        await File.WriteAllTextAsync(transcript, RunStart + "\n" + RunResume + "\n");
+        await CopilotAsync("sessionStart", transcript);
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), transcript, Repo.Path, repository: null, "parent_exited", ended);
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>A span whose sessionStart could not read the transcript is no known run's, so an end that knows its own run
+    /// leaves it for the next run's start to replace.</summary>
+    [Test]
+    public async Task A_Copilot_end_leaves_a_span_whose_run_was_unreadable() {
+        await CopilotAsync("sessionStart", Home.PathTo("absent/events.jsonl"));
+        Repo.CreateFile("made.txt", "x");
+
+        await Watch().PostCopilotEndAsync(Session.Replace("-", ""), Home.CreateFile("events.jsonl", ""), Repo.Path, repository: null, "parent_exited",
+            new WorkspaceRunCutoff("evt-start", _time.GetUtcNow() + TimeSpan.FromHours(1)));
+
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+    }
+
+    /// <summary>Copilot fires sessionStart once per run, so a baseline an earlier run's close could not end is replaced at
+    /// the start rather than carried into the new run.</summary>
+    [Test]
+    public async Task A_Copilot_sessionStart_starts_a_fresh_baseline_over_a_surviving_one() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("earlier.txt", "x");
+        _time.Advance(TimeSpan.FromMinutes(1));
+
+        var spool   = new WorkspaceSpool(Config.Root, _server.Url, _time);
+        Directory.CreateDirectory(spool.DirectoryPath);
+        var blocker = Path.Join(spool.DirectoryPath, Session.Replace("-", ""));
+        File.WriteAllText(blocker, "");
+        await CopilotAsync("sessionStart");
+        File.Delete(blocker);
+
+        var baselines = Directory.EnumerateFiles(Config.Root.Path(WorkspaceSpanStore.DirectoryName), "*.json", SearchOption.AllDirectories)
+            .Select(file => JsonSerializer.Deserialize(File.ReadAllText(file), WorkspaceJsonContext.Default.WorkspaceSpan)!)
+            .ToList();
+
+        await Assert.That(baselines).HasSingleItem();
+        await Assert.That(baselines[0].OpenedAt).IsEqualTo(_time.GetUtcNow());
+    }
+
+    /// <summary>The finalizer runs detached, so it pays what drains owed.</summary>
+    [Test]
+    public async Task The_Copilot_finalizer_closes_an_owed_span() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+
+        var canonical = Session.Replace("-", "");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var end       = new JsonObject { ["session_id"] = canonical, ["reason"] = "parent_exited" }.ToJsonString();
+        CopilotSpanClose.Record(paths, canonical, _server.Url, end);
+        CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
+
+        var profiles   = Resolutions.At(_server.Url!, Config.Root);
+        var http       = new FixedCapacitorHttpClient();
+        var transcript = Home.CreateFile("other.jsonl", """{"type":"session.shutdown","data":{},"id":"evt-shutdown","timestamp":1}""" + "\n");
+
+        await new CopilotFinalizeDrainCommand(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .RunAsync("another-session", transcript, endBody: null, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        await Assert.That(PostedPaths()).Contains("/hooks/workspace-changes");
+        await Assert.That(CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(canonical);
     }
 
     [Test]

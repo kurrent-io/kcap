@@ -10,6 +10,8 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 
+using Capacitor.Cli.Recording.Harness.Copilot;
+
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
@@ -222,7 +224,7 @@ internal sealed class AgentHookPoster(
     /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
     /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
     /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>
+    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?)"/>
     /// directly instead.
     ///
     /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
@@ -248,9 +250,17 @@ internal sealed class AgentHookPoster(
     ///
     /// Never throws — a spool-drain hiccup must not disrupt the vendor's own hook.
     /// </summary>
-    public Task DrainSpoolsAsync(HookSpool lifecycle, TranscriptSpool transcript, string? sessionId)
+    /// <param name="sweepCopilotPendingEnds">False inside a Copilot hook: Copilot shares one shutdown budget across every
+    /// session it ends, and a pending end's transcript read cannot be bounded. Its detached finalizer sweeps instead.</param>
+    public Task DrainSpoolsAsync(HookSpool lifecycle, TranscriptSpool transcript, string? sessionId, bool sweepCopilotPendingEnds = true)
         => DrainSpoolsCoreAsync(lifecycle, transcript, sessionId,
-            http.ForHookAsync);
+            http.ForHookAsync, sweepCopilotPendingEnds);
+
+    static readonly TimeSpan PendingEndSweepBudget = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>A drain that ignores the throttle, for a caller holding an end it must deliver now. Never throws.</summary>
+    public Task DrainSpoolsNowAsync(HookSpool lifecycle, string sessionId, Action<string, string, DrainOutcome>? onLifecycleOutcome = null) =>
+        DrainSpoolsUnthrottledAsync(lifecycle, new TranscriptSpool(config, time, Url), sessionId, http.ForHookAsync, sweepPendingEnds: true, onLifecycleOutcome);
 
     /// <summary>
     /// The drain itself, with the client factory handed in. Separate from
@@ -260,11 +270,11 @@ internal sealed class AgentHookPoster(
     /// </summary>
     internal async Task DrainSpoolsCoreAsync(
             HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
-            Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
+            Func<CancellationToken, Task<AuthAttempt>> clientFactory, bool sweepPendingEnds = true) {
         if (IsDrainThrottled(lifecycle.DirectoryPath)) return; // a recent drain finished
 
         try {
-            await DrainSpoolsUnthrottledAsync(lifecycle, transcript, sessionId, clientFactory);
+            await DrainSpoolsUnthrottledAsync(lifecycle, transcript, sessionId, clientFactory, sweepPendingEnds);
         } finally {
             // Only once the drain returned: one killed with its hook process must not hold the next back.
             StampDrain(lifecycle.DirectoryPath);
@@ -273,7 +283,7 @@ internal sealed class AgentHookPoster(
 
     async Task DrainSpoolsUnthrottledAsync(
             HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
-            Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
+            Func<CancellationToken, Task<AuthAttempt>> clientFactory, bool sweepPendingEnds, Action<string, string, DrainOutcome>? onLifecycleOutcome = null) {
         // Retention runs even when delivery cannot: the reap lives here, and Program.cs skips this
         // whole call while the URL is unacceptable, so an indefinitely broken config would otherwise
         // never reap anything.
@@ -282,6 +292,10 @@ internal sealed class AgentHookPoster(
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
         MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
+        // No record is waited for, and the sweep stops early. The daemon, the Copilot finalizer and the next drain take what
+        // is left.
+        if (sweepPendingEnds)
+            CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, time, lockWait: TimeSpan.Zero, budget: PendingEndSweepBudget);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.
@@ -309,7 +323,13 @@ internal sealed class AgentHookPoster(
                 await LifecycleSpoolDrain.RunAsync(
                     config, new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
-                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
+                    onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr),
+                    (route, body, outcome) => {
+                        var stands = CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(config), route, body, outcome);
+                        onLifecycleOutcome?.Invoke(route, body, stands ? outcome : DrainOutcome.TransientStop);
+                        return stands;
+                    },
+                    (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(config), route, body, time));
 
             }
         } catch {

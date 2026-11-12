@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -216,15 +218,18 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
 
     HookSpool Spool() => new(Config.Root, TimeProvider.System, _server.Url);
 
-    async Task MarkWatcherAlive(string sessionId) {
-        var paths = WatcherPaths.FromEnvironment(Config.Root);
+    /// <summary>A real process stands in for the watcher, since the finalizer may stop the one it finds.</summary>
+    async Task<DummyProcess> MarkWatcherAlive(string sessionId) {
+        var watcher = DummyProcess.StartSleep(60);
+        var paths   = WatcherPaths.FromEnvironment(Config.Root);
         Directory.CreateDirectory(paths.Directory);
-        await File.WriteAllTextAsync(paths.PidFile(sessionId), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}");
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
         WatcherHeartbeat.Touch(paths.StartedFile(sessionId), DateTimeOffset.UtcNow);
         WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
+        return watcher;
     }
 
-    Task RunQuickly(string sessionId, string path, string? endBody = EndBody) =>
+    Task<bool> RunQuickly(string sessionId, string path, string? endBody = EndBody) =>
         Finalizer().RunAsync(sessionId, path, endBody, pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(100), watcherStopGrace: TimeSpan.FromMilliseconds(300));
 
     [Test]
@@ -259,31 +264,6 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Assert.That(TranscriptPostCount()).IsEqualTo(0);
     }
 
-    // A live watcher owns the end: a resumed run must stay open, and a watcher the hook never stopped
-    // sends its own parent-exit end. A terminal shutdown proves nothing here, since a resumed run may not
-    // have written yet.
-    [Test]
-    [Arguments("no-shutdown")]
-    [Arguments("terminal-shutdown")]
-    [Arguments("earlier-runs-shutdown")]
-    public async Task LeavesTheEnd_ToALiveWatcher(string transcript) {
-        using var tmp = new TempDir();
-        var sessionId = $"test-finalize-watcher-{transcript}";
-        StubServer(sessionId);
-        StubSessionEnd();
-        await MarkWatcherAlive(sessionId);
-
-        var lines = transcript switch {
-            "no-shutdown"       => AssistantLine + "\n",
-            "terminal-shutdown" => ShutdownLine + "\n",
-            _                   => ShutdownLine + "\n" + AssistantLine + "\n"
-        };
-
-        await RunQuickly(sessionId, NewTranscript(tmp, lines));
-
-        await Assert.That(SessionEndBodies()).IsEmpty();
-    }
-
     [Test]
     public async Task EndsNothing_OfADisabledSession() {
         using var tmp = new TempDir();
@@ -304,7 +284,7 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         const string sessionId = "test-finalize-disabled-stopping";
         StubServer(sessionId);
         StubSessionEnd();
-        await MarkWatcherAlive(sessionId);
+        using var watcher = await MarkWatcherAlive(sessionId);
 
         var run = Finalizer().RunAsync(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), EndBody,
             pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.FromSeconds(30));
@@ -316,14 +296,13 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Assert.That(SessionEndBodies()).IsEmpty();
     }
 
-    // A watcher the hook is stopping sends no end of its own.
     [Test]
     public async Task EndsTheSession_OnceAWatcherBeingStoppedHasGone() {
         using var tmp = new TempDir();
         const string sessionId = "test-finalize-stopping";
         StubServer(sessionId);
         StubSessionEnd();
-        await MarkWatcherAlive(sessionId);
+        using var watcher = await MarkWatcherAlive(sessionId);
 
         var run = Finalizer().RunAsync(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), EndBody,
             pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.FromSeconds(30));
@@ -333,6 +312,119 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await run;
 
         await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
+    }
+
+    static string WatcherIgnoringStops(TempDir tmp, out Process watcher) {
+        var ready = tmp.PathTo("ready");
+        watcher = Process.Start(new ProcessStartInfo("sh", ["-c", $"trap '' TERM; touch \"{ready}\"; while :; do sleep 0.1; done"]) { UseShellExecute = false })!;
+        for (var i = 0; i < 50 && !File.Exists(ready); i++) Thread.Sleep(100);
+        return $"{watcher.Id}\n{PidIdentity.Capture(watcher.Id)}";
+    }
+
+    /// <summary>The hook only asks its watcher to stop. The one it asked, still running after the grace, is stopped, so
+    /// the end does not overtake lines it has yet to send.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    public async Task StopsTheWatcherThatOutlivesTheGrace_AndEndsTheSession() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-handed-watcher";
+        StubServer(sessionId);
+        StubSessionEnd();
+
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), WatcherIgnoringStops(tmp, out var started));
+        using var watcher = started;
+
+        try {
+            await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
+
+            await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
+            await Assert.That(watcher.WaitForExit(TimeSpan.FromSeconds(5))).IsTrue();
+        } finally {
+            if (!watcher.HasExited) watcher.Kill();
+        }
+    }
+
+    /// <summary>A watcher started after the finalizer follows a resumed run, which is not this process's to stop. The
+    /// end stays spooled, where the resumed run's start supersedes it.</summary>
+    [Test, RunOn(OS.Linux | OS.MacOs)]
+    public async Task LeavesAWatcherStartedAfterTheFinalizerRunning() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-resumed-watcher";
+        StubServer(sessionId);
+        StubSessionEnd();
+
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), "999999\nan-earlier-watcher");
+        using var resumed = DummyProcess.StartSleep(30);
+
+        var run = RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), $"{resumed.Pid}\n{PidIdentity.Capture(resumed.Pid)}");
+        WatcherHeartbeat.Touch(paths.StartedFile(sessionId), DateTimeOffset.UtcNow);
+        WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
+        await run;
+
+        await Assert.That(SessionEndBodies()).IsEmpty();
+        await Assert.That(resumed.HasExited).IsFalse();
+        await Assert.That(Spool().HasBacklog(sessionId)).IsTrue();
+    }
+
+    /// <summary>The finalizer ignores termination signals until its end is durable, so a stalled server cannot hold it
+    /// past its caps: the end goes to the spool, and the signals are honoured again.</summary>
+    [Test]
+    public async Task SpoolsTheEnd_WhenTheServerStallsPastThePostCap() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-stalled-end";
+        StubServer(sessionId);
+        _server.Given(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithDelay(TimeSpan.FromSeconds(20)));
+
+        var durableWithBacklog = false;
+        var clock = Stopwatch.StartNew();
+
+        await Finalizer().RunAsync(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), EndBody,
+            pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.Zero,
+            postCap: TimeSpan.FromMilliseconds(500), endDurable: () => durableWithBacklog = Spool().HasBacklog(sessionId));
+
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
+        await Assert.That(durableWithBacklog).IsTrue();
+    }
+
+    [Test]
+    public async Task EndsTheSession_WhenTheTailDrainStallsPastItsCap() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-stalled-drain";
+        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"last_line_number": -1}"""));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithDelay(TimeSpan.FromSeconds(20)));
+        StubSessionEnd();
+
+        var clock = Stopwatch.StartNew();
+
+        await Finalizer().RunAsync(sessionId, NewTranscript(tmp, AssistantLine + "\n" + ShutdownLine + "\n"), EndBody,
+            pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.Zero,
+            drainCap: TimeSpan.FromMilliseconds(500));
+
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
+        await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
+    }
+
+    /// <summary>An end the finalizer posts itself settles the span close it owes, as a drain's delivery would.</summary>
+    [Test]
+    public async Task SettlesTheSpanClose_OfAnEndItPostsItself() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-direct-close";
+        StubServer(sessionId);
+        StubSessionEnd();
+        var end   = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, sessionId, _server.Url, end);
+
+        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: end);
+
+        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(sessionId);
     }
 
     [Test]
@@ -361,17 +453,90 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
     }
 
     [Test]
-    public async Task QueuesTheEnd_BehindASpooledStart() {
+    public async Task SendsTheEnd_BehindASpooledStart() {
         using var tmp = new TempDir();
         const string sessionId = "test-finalize-backlog";
         StubServer(sessionId);
         StubSessionEnd();
+        _server.Given(Request.Create().WithPath("/hooks/session-start/copilot").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
         Spool().Append(sessionId, "session-start/copilot", "{}");
 
         await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
 
+        var lifecycle = _server.LogEntries.Select(entry => entry.RequestMessage.Path).Where(path => path.Contains("session-", StringComparison.Ordinal)).ToList();
+        await Assert.That(string.Join(" ", lifecycle)).IsEqualTo("/hooks/session-start/copilot /hooks/session-end/copilot");
+        await Assert.That(Spool().HasBacklog(sessionId)).IsFalse();
+    }
+
+    /// <summary>The hook spools its end before anything else, so the finalizer delivers what it finds there.</summary>
+    [Test]
+    public async Task SendsTheEndTheHookSpooled_AfterTheTail() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-spooled-end";
+        StubServer(sessionId);
+        StubSessionEnd();
+        Spool().Append(sessionId, "session-end/copilot", EndBody);
+
+        await RunQuickly(sessionId, NewTranscript(tmp, AssistantLine + "\n" + ShutdownLine + "\n"), endBody: null);
+
+        await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
+        await Assert.That(Spool().HasBacklog(sessionId)).IsFalse();
+
+        var posts = _server.LogEntries.Select(entry => entry.RequestMessage.Path).Where(path => path.StartsWith("/hooks/", StringComparison.Ordinal)).ToList();
+        await Assert.That(string.Join(" ", posts)).IsEqualTo("/hooks/transcript /hooks/session-end/copilot");
+    }
+
+    /// <summary>A spooled end the server rejects is gone from the spool without having been taken, so nothing that
+    /// waits on a taken end, such as closing the workspace span, may follow.</summary>
+    [Test]
+    public async Task ReportsNoEnd_WhenTheServerRejectsTheSpooledOne() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-spooled-rejected";
+        StubServer(sessionId);
+        StubSessionEnd(400);
+        var end = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        Spool().Append(sessionId, "session-end/copilot", end);
+
+        var taken = await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: null);
+
+        await Assert.That(SessionEndBodies()).IsEquivalentTo([end]);
+        await Assert.That(taken).IsFalse();
+    }
+
+    [Test]
+    public async Task ReportsTheEnd_WhenTheServerTakesTheSpooledOne() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-spooled-taken";
+        StubServer(sessionId);
+        StubSessionEnd();
+        var end = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
+        Spool().Append(sessionId, "session-end/copilot", end);
+
+        await Assert.That(await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: null)).IsTrue();
+    }
+
+    /// <summary>A watcher a daemon's claim keeps the kill from reaching is still streaming, so the end waits in the spool
+    /// rather than overtaking the lines it has yet to send.</summary>
+    [Test]
+    public async Task LeavesTheEndSpooled_WhenTheWatcherCannotBeStopped() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-unstoppable";
+        StubServer(sessionId);
+        StubSessionEnd();
+
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        using var watcher = DummyProcess.StartSleep(30);
+        await File.WriteAllTextAsync(paths.PidFile(sessionId), $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
+        WatcherHeartbeat.Touch(paths.StartedFile(sessionId), DateTimeOffset.UtcNow);
+        WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
+        new RecorderClaims(paths.Directory, TimeProvider.System).TryTake(sessionId, "daemon", isHosted: false);
+
+        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
+
+        await Assert.That(watcher.HasExited).IsFalse();
         await Assert.That(SessionEndBodies()).IsEmpty();
-        await Assert.That(await File.ReadAllTextAsync(Path.Combine(Spool().DirectoryPath, $"{sessionId}.jsonl"))).Contains("session-end/copilot");
+        await Assert.That(Spool().HasBacklog(sessionId)).IsTrue();
     }
 
     // A hook from an older install starts this command with no end to deliver.
