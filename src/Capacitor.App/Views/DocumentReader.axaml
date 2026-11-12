@@ -6,7 +6,7 @@
              x:DataType="vm:DocumentReaderViewModel"
              Background="{StaticResource KcapCanvasBrush}">
     <Grid RowDefinitions="Auto,*">
-        <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="24,12">
+        <Border BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1" Padding="24,12">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                     <TextBlock x:Name="DocumentPath" Text="{Binding Path}" FontSize="12.5"

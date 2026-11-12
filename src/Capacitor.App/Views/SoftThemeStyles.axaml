@@ -1,0 +1,156 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views"
+        xmlns:mv="clr-namespace:MarkView.Avalonia;assembly=MarkView.Avalonia">
+    <!-- Added to Application.Styles after App.axaml's own, so these win over app-level styles only.
+         Styles declared inside a view outrank them; those read their radii from DynamicResources
+         AppearanceApplier sets instead. -->
+
+    <!-- Headings in sentence case at a normal weight: a label, not a shout. -->
+    <Style Selector="TextBlock">
+        <Setter Property="views:Eyebrow.Upper" Value="False" />
+    </Style>
+    <Style Selector="TextBlock.eyebrow">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="LetterSpacing" Value="0" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <!-- No rule line down the side of each section body: spacing groups it. -->
+    <Style Selector="Border.sectionBody">
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Margin" Value="0,2,0,0" />
+        <Setter Property="Padding" Value="2,6,0,2" />
+    </Style>
+
+    <Style Selector="Button.kcapChip">
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Border.kcapSegment">
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem">
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <Style Selector="Border.chatSystemCard, Border.chatPromptCard">
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+    </Style>
+
+    <!-- Fields are a fill at rest; the edge appears only with focus, so nothing shifts. -->
+    <Style Selector="TextBox.kcapField /template/ Border#PART_BorderElement,
+                     TextBox.kcapField:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="TextBox.kcapField:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="Button.kcapField">
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+
+    <!-- ===== Chat: the reading column ===== -->
+    <Style Selector="Border.chatSystemCard">
+        <Setter Property="MaxWidth" Value="760" />
+    </Style>
+    <!-- A tool group is a line of activity, not a card. -->
+    <Style Selector="Border.toolGroup.chatSystemCard">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0,2" />
+    </Style>
+    <!-- Who spoke and what kind of step it was: a quiet label, not a bold heading. -->
+    <Style Selector="TextBlock.toolKindChip">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <Style Selector="TextBlock.chatTime">
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-paragraph, mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
+        <Setter Property="FontSize" Value="15.5" />
+        <Setter Property="LineHeight" Value="26" />
+    </Style>
+
+    <!-- ===== Session header ===== -->
+    <!-- Status is the rail's dot; the header names the session and its checkout only. -->
+    <!-- The mark binds its own IsVisible, so it collapses to no width instead; the subtitle takes back the column gap. -->
+    <Style Selector="views|AgentStatusMark#WorkspaceStatus">
+        <Setter Property="MaxWidth" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="TextBlock#WorkspaceSubtitle">
+        <Setter Property="Margin" Value="-8,0,0,0" />
+    </Style>
+
+    <!-- ===== Pull request card ===== -->
+    <!-- Chevrons appear under the pointer only. -->
+    <Style Selector="views|AppIcon.prChevron">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.prStatusRow:pointerover views|AppIcon.prChevron">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- Stop rests quiet and turns red only under the pointer. -->
+    <Style Selector="Button#StopButton.kcapDanger">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Button#StopButton.kcapDanger /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Button#StopButton.kcapDanger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
+    </Style>
+
+    <!-- The launcher's "picked up" nudge: a quiet ring, not the accent. -->
+    <Style Selector="Border.goalNudgeRing">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+    </Style>
+
+    <!-- ===== Scrollbars ===== -->
+    <!-- Fluent squeezes a collapsed thumb to an eighth of its width, a hairline; keeping the bar
+         expanded leaves a steady 6px pill. The pill's fill is set in its template, which only a
+         style with a pseudo-class outranks, hence :vertical / :horizontal on every rule here. -->
+    <Style Selector="ScrollViewer">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+    <Style Selector="ScrollBar:vertical /template/ Rectangle#TrackRect, ScrollBar:horizontal /template/ Rectangle#TrackRect">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="ScrollBar:vertical /template/ Thumb /template/ Border#ThumbPill, ScrollBar:horizontal /template/ Thumb /template/ Border#ThumbPill">
+        <Setter Property="Background" Value="{StaticResource KcapBorderStrongBrush}" />
+        <Setter Property="Opacity" Value="0.9" />
+    </Style>
+    <Style Selector="ScrollBar:vertical /template/ Thumb:pointerover /template/ Border#ThumbPill, ScrollBar:horizontal /template/ Thumb:pointerover /template/ Border#ThumbPill">
+        <Setter Property="Background" Value="{StaticResource KcapFaintBrush}" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- Hover and press fade instead of snapping. -->
+    <Style Selector="Button /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.14" />
+                <BrushTransition Property="Foreground" Duration="0:0:0.14" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Border.railSession">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.14" />
+            </Transitions>
+        </Setter>
+    </Style>
+</Styles>

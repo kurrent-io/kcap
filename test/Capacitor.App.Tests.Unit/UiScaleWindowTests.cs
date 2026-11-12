@@ -140,7 +140,7 @@ public class UiScaleWindowTests {
             new FakeDaemonClientService(), new ScriptedLocalControlOps(), (_, _) => Task.FromResult(false),
             (_, _) => Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded()),
             (_, _) => Task.FromResult(false), _ => Task.FromResult(false), true, Task.CompletedTask, (_, _) => Task.FromResult(true)) {
-            Appearance = new AppearanceSettingsViewModel(setting),
+            Appearance = new AppearanceSettingsViewModel(setting, await AppearanceSetting.LoadAsync(new AppStateStore(Config.Root.Path("app-state.json")))),
         };
         var window = new SettingsWindow { DataContext = vm, ContentScale = setting };
         try {

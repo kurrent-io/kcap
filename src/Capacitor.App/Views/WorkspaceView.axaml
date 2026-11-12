@@ -12,7 +12,7 @@
     <Grid Grid.Column="0" RowDefinitions="Auto,*">
         <!-- Header: title over checkout · Chat/Terminal switch · actions.
              Harness/transport live in the work-context pane; leaving is the rail's job. -->
-        <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+        <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1"
                 Padding="20,16,16,16" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -73,7 +73,7 @@
                                        IsHitTestVisible="{Binding IsTerminalActive}"
                                        Opacity="{Binding IsTerminalActive, Converter={x:Static views:BoolToOpacityConverter.Instance}}"
                                        AutomationProperties.IsOffscreenBehavior="{Binding IsTerminalActive, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
-                                       FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                       FontFamily="{DynamicResource KcapMonoFont}"
                                        CaretBrush="{StaticResource KcapTextBrush}"
                                        Model="{Binding Terminal.Surface, Converter={x:Static views:TerminalSurfaceModelConverter.Instance}}" />
 
@@ -82,13 +82,13 @@
             <Panel x:Name="TerminalBanners" IsVisible="{Binding ShowsTerminalBanners}">
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalPhaseIsConverter.Instance}, ConverterParameter=Connecting}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0">
                     <TextBlock Text="Connecting…" Foreground="{StaticResource KcapMutedBrush}" />
                 </Border>
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalPhaseIsConverter.Instance}, ConverterParameter=Resuming}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0">
                     <TextBlock x:Name="ResumingNote" Text="The daemon is restarting. Waiting for this session to resume…"
                                Foreground="{StaticResource KcapMutedBrush}" />
@@ -109,7 +109,7 @@
                 </Border>
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalDetachedOrFailedVisibleConverter.Instance}}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <StackPanel Spacing="10" HorizontalAlignment="Center">
                         <TextBlock Text="{Binding Terminal.State, Converter={x:Static views:TerminalDetachedOrFailedMessageConverter.Instance}}"
@@ -121,14 +121,14 @@
                 </Border>
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalPhaseIsConverter.Instance}, ConverterParameter=Exited}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBlock Text="{Binding Terminal.State.ExitCode, StringFormat='Session exited (code {0})'}"
                                Foreground="{StaticResource KcapTextBrush}" />
                 </Border>
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalPhaseIsConverter.Instance}, ConverterParameter=NotFound}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <StackPanel Spacing="10" HorizontalAlignment="Center">
                         <TextBlock Text="{Binding Terminal.State.Detail}" Foreground="{StaticResource KcapTextBrush}" />
@@ -145,7 +145,7 @@
                 </Border>
 
                 <Border IsVisible="{Binding Terminal.State, Converter={x:Static views:TerminalPhaseIsConverter.Instance}, ConverterParameter=SessionEnded}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBlock x:Name="SessionEndedNote" Text="This session has ended." Foreground="{StaticResource KcapMutedBrush}" />
                 </Border>
@@ -172,7 +172,7 @@
                  stage line is the only sign the launch is alive during a handshake that can run
                  for many seconds. -->
             <Border x:Name="StartingPanel" IsVisible="{Binding IsStarting}"
-                    Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                    Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                     CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel Spacing="6" HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">

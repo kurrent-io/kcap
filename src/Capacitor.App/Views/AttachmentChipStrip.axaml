@@ -13,7 +13,7 @@
             <DataTemplate x:DataType="vm:StagedAttachmentViewModel">
                 <Border Classes="attachmentChip" Margin="0,0,6,4" Padding="5,4" CornerRadius="8"
                         Background="{StaticResource KcapSurfaceRaisedBrush}"
-                        BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         ToolTip.Tip="{Binding FileName}">
                     <StackPanel Orientation="Horizontal" Spacing="7">
                         <Panel Width="32" Height="32" VerticalAlignment="Center">

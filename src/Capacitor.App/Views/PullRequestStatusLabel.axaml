@@ -14,6 +14,8 @@
         <Style Selector="TextBlock.statusText.success"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
         <Style Selector="TextBlock.statusText.warning"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
         <Style Selector="TextBlock.statusText.danger"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <!-- Soft themes: the icon carries the tone, the words stay muted. -->
+        <Style Selector="Window.calm TextBlock.statusText"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="Auto,*" ToolTip.Tip="{Binding Tip}">
         <Panel Width="12" Height="16" VerticalAlignment="Top">

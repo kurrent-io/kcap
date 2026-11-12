@@ -36,7 +36,7 @@
             </Border>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="24,8,24,0">
-            <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1">
+            <Border BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1">
                 <TabStrip x:Name="ReaderTabs" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}" IsEnabled="{Binding CanNavigate}"
                           ItemContainerTheme="{StaticResource PullRequestTabTheme}" AutomationProperties.Name="Pull request sections">
                     <TabStrip.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></TabStrip.ItemsPanel>
@@ -200,7 +200,7 @@
             </StackPanel>
         </ScrollViewer>
         <!-- Status only: refresh lives on the About this work pane, which reloads this view too. -->
-        <Border Grid.Row="3" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="24,8">
+        <Border Grid.Row="3" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,1,0,0" Padding="24,8">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <Grid VerticalAlignment="Center">
                     <TextBlock x:Name="FreshnessText" Text="{Binding FreshnessLabel}" Classes="prNote" IsVisible="{Binding !ShowsRefreshing}" HorizontalAlignment="Left">

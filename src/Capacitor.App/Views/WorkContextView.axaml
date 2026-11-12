@@ -134,9 +134,9 @@
         </Style>
         <Style Selector="Border.card">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource KcapFilledBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="CornerRadius" Value="{DynamicResource KcapCardRadius}" />
             <Setter Property="Padding" Value="13" />
         </Style>
         <Style Selector="Button.toggle:disabled /template/ ContentPresenter#PART_ContentPresenter">
@@ -166,6 +166,79 @@
         </Style>
         <Style Selector="TextBlock.planTask.settled">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <!-- The classic block, then the soft themes' variant: quieter key and state, one bright title,
+             muted lists, and sections grouped by a larger gap instead of a rule. -->
+        <Style Selector="StackPanel.ctxSection"><Setter Property="Margin" Value="0,18,0,0" /></Style>
+        <Style Selector="TextBlock#WorkContextKey">
+            <Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="TextBlock#WorkContextTitle">
+            <Setter Property="FontSize" Value="14" /><Setter Property="LineHeight" Value="20" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="TextBlock#OverviewText">
+            <Setter Property="FontSize" Value="13" /><Setter Property="LineHeight" Value="19" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock#PartOfLine">
+            <Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Border#BlockedByBlock">
+            <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" /><Setter Property="Padding" Value="12,10" />
+        </Style>
+        <Style Selector="TextBlock.blockedLabel"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
+        <Style Selector="TextBlock.blockedItem">
+            <Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" />
+            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+        </Style>
+        <Style Selector="TextBlock.personName">
+            <Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+
+        <Style Selector="Window.calm StackPanel.ctxSection"><Setter Property="Margin" Value="0,30,0,0" /></Style>
+        <Style Selector="Window.calm TextBlock#WorkContextKey">
+            <Setter Property="FontSize" Value="12.5" /><Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Window.calm Border.pill">
+            <Setter Property="Background" Value="Transparent" /><Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="Window.calm Border.pill > TextBlock">
+            <Setter Property="FontSize" Value="12.5" /><Setter Property="FontWeight" Value="Normal" /><Setter Property="LetterSpacing" Value="0" />
+        </Style>
+        <Style Selector="Window.calm TextBlock#WorkContextTitle">
+            <Setter Property="FontSize" Value="15" /><Setter Property="LineHeight" Value="21" /><Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Window.calm TextBlock#OverviewText">
+            <Setter Property="FontSize" Value="13.5" /><Setter Property="LineHeight" Value="21" />
+        </Style>
+        <Style Selector="Window.calm TextBlock#PartOfLine">
+            <Setter Property="FontSize" Value="12.5" /><Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Window.calm Border#BlockedByBlock">
+            <Setter Property="Background" Value="Transparent" /><Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.blockedLabel">
+            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /><Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="LetterSpacing" Value="0" /><Setter Property="FontSize" Value="12.5" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.blockedItem">
+            <Setter Property="FontSize" Value="13.5" /><Setter Property="LineHeight" Value="20" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.personName">
+            <Setter Property="FontSize" Value="13.5" /><Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.planTask">
+            <Setter Property="FontSize" Value="13.5" /><Setter Property="LineHeight" Value="20" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.planTask.settled">
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
         </Style>
     </UserControl.Styles>
     <UserControl.Resources>
@@ -307,7 +380,7 @@
                 <!-- Header: full-width drag chrome; refresh stays a button (handler skips Buttons). -->
                 <Grid ColumnDefinitions="*,Auto" MinHeight="30" Background="Transparent"
                       PointerPressed="OnHeaderPointerPressed">
-                    <TextBlock Grid.Column="0" Text="ABOUT THIS WORK" Classes="eyebrow"
+                    <TextBlock Grid.Column="0" views:Eyebrow.Text="About this work" Classes="eyebrow"
                                VerticalAlignment="Center" />
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <Ellipse x:Name="StaleDot" Width="6" Height="6" Fill="{StaticResource KcapWarningBrush}"
@@ -351,36 +424,31 @@
                         <StackPanel IsVisible="{Binding IsReady}" Spacing="22">
                             <StackPanel Spacing="8">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" FontSize="15" FontWeight="SemiBold"
-                                               Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center"
+                                    <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" VerticalAlignment="Center"
                                                IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <Border x:Name="StatePill" Grid.Column="1" Classes="pill" VerticalAlignment="Center"
                                             Classes.shipped="{Binding IsShipped}" Classes.closed="{Binding IsClosed}"
                                             IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                        <TextBlock Text="{Binding StateLabel}" />
+                                        <TextBlock views:Eyebrow.Text="{Binding StateLabel}" />
                                     </Border>
                                 </Grid>
-                                <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" FontSize="14" LineHeight="20"
-                                           Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap"
+                                <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" TextWrapping="Wrap"
                                            IsVisible="{Binding DisplayTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock x:Name="OverviewText" Text="{Binding Overview}" FontSize="13" LineHeight="19"
-                                           Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                                <TextBlock x:Name="OverviewText" Text="{Binding Overview}" TextWrapping="Wrap"
                                            IsVisible="{Binding Overview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock x:Name="PartOfLine" Text="{Binding PartOfTitle, StringFormat='Part of {0}'}" FontSize="12"
-                                           Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                                <TextBlock x:Name="PartOfLine" Text="{Binding PartOfTitle, StringFormat='Part of {0}'}" TextWrapping="Wrap"
                                            IsVisible="{Binding PartOfTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             </StackPanel>
 
                             <StackPanel Spacing="8" IsVisible="{Binding HasTopologyNotes}">
-                                <Border x:Name="BlockedByBlock" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="7" Padding="12,10"
+                                <Border x:Name="BlockedByBlock" CornerRadius="7"
                                         IsVisible="{Binding HasBlockers}">
                                     <StackPanel Spacing="6">
-                                        <TextBlock Text="BLOCKED BY" Classes="cardEyebrow" Foreground="{StaticResource KcapWarningBrush}" />
+                                        <TextBlock views:Eyebrow.Text="Blocked by" Classes="cardEyebrow blockedLabel" />
                                         <ItemsControl ItemsSource="{Binding BlockedBy}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="x:String">
-                                                    <TextBlock Text="{Binding}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
-                                                               Foreground="{StaticResource KcapWarningBrush}" />
+                                                    <TextBlock Text="{Binding}" Classes="blockedItem" TextWrapping="Wrap" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -395,7 +463,7 @@
                                 <Button x:Name="PartsToggle" Command="{Binding TogglePartsCommand}" Classes="sectionHeader expandable"
                                         AutomationProperties.Name="{Binding PartsAccessibleName}">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                        <TextBlock Text="PARTS" Classes="eyebrow" />
+                                        <TextBlock views:Eyebrow.Text="Parts" Classes="eyebrow" />
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <TextBlock x:Name="PartsHeaderText" Text="{Binding PartsHeader}" Classes="sectionMeta"
                                                        IsVisible="{Binding PartsExpanded}" />
@@ -468,11 +536,11 @@
                 </Border>
 
                 <!-- Keep the identity strip anchored while the header reveals names and activity below it. -->
-                <StackPanel x:Name="WhoSection" Margin="0,18,0,0" IsVisible="{Binding ShowsPeople}">
+                <StackPanel x:Name="WhoSection" Classes="ctxSection" IsVisible="{Binding ShowsPeople}">
                     <Button x:Name="WhoToggle" Command="{Binding TogglePeopleCommand}" Classes="sectionHeader expandable"
                             AutomationProperties.Name="Who's on it">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="WHO'S ON IT" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="Who's on it" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="WhoCountText" Text="{Binding WhoCountText}" Classes="sectionMeta"
                                            IsVisible="{Binding WhoCountText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -514,8 +582,7 @@
                                             <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
                                                     HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
                                                 <StackPanel>
-                                                    <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" Classes="personName" TextTrimming="CharacterEllipsis" />
                                                     <TextBlock Text="{Binding LastActivityText}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0"
                                                                IsVisible="{Binding LastActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                 </StackPanel>
@@ -536,8 +603,7 @@
                                         HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
                                         AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Requester}" FontSize="13" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Requester}" Classes="personName" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding RequesterRole}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0" />
                                     </StackPanel>
                                 </Button>
@@ -548,11 +614,11 @@
 
                 <!-- Pull request: the card with its picker and live status, or link cards where the
                      server has no reader, or the empty note once both reads have settled. -->
-                <StackPanel x:Name="PullRequestSection" Margin="0,18,0,0" IsVisible="{Binding ShowsPullRequestSection}">
+                <StackPanel x:Name="PullRequestSection" Classes="ctxSection" IsVisible="{Binding ShowsPullRequestSection}">
                     <StackPanel IsVisible="{Binding ShowsPullRequestCard}">
                         <Button x:Name="PullRequestHeader" Classes="sectionHeader" AutomationProperties.Name="Pull requests">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBlock Text="{Binding PullRequests.SectionEyebrow}" Classes="eyebrow" />
+                                <TextBlock views:Eyebrow.Text="{Binding PullRequests.SectionEyebrow}" Classes="eyebrow" />
                                 <TextBlock x:Name="PullRequestNumberMeta" Grid.Column="1"
                                            Text="{Binding PullRequests.SectionMeta}" Classes="sectionMeta"
                                            IsVisible="{Binding PullRequests.SectionMeta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -576,7 +642,7 @@
                     </ItemsControl>
                     <StackPanel IsVisible="{Binding ShowsPullRequestEmpty}">
                         <Button x:Name="PullRequestToggle" Classes="sectionHeader">
-                            <TextBlock Text="PULL REQUESTS" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="Pull requests" Classes="eyebrow" />
                         </Button>
                         <Border Classes="sectionBody">
                             <TextBlock x:Name="PullRequestEmptyText" Text="{x:Static vm:WorkContextViewModel.PullRequestEmptyNote}"
@@ -585,13 +651,13 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel x:Name="IssueSection" Margin="0,18,0,0" IsVisible="{Binding HasSeparateIssue}">
+                <StackPanel x:Name="IssueSection" Classes="ctxSection" IsVisible="{Binding HasSeparateIssue}">
                     <Button x:Name="IssueHeader" Classes="sectionHeader"
                             Classes.expandable="{Binding IssuesOverflows}"
                             Command="{Binding ToggleIssuesCommand}"
                             ToolTip.Tip="{Binding SeparateIssue.Url}" AutomationProperties.Name="Issues">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="{Binding IssueSectionEyebrow}" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="{Binding IssueSectionEyebrow}" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="IssueKey" Text="{Binding IssueSectionMeta}" Classes="sectionMeta"
                                            IsVisible="{Binding IssueSectionMeta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -648,11 +714,11 @@
                     </Border>
                 </StackPanel>
 
-                <StackPanel x:Name="PagesSection" Margin="0,18,0,0" IsVisible="{Binding Artefacts.HasPages, FallbackValue=False}">
+                <StackPanel x:Name="PagesSection" Classes="ctxSection" IsVisible="{Binding Artefacts.HasPages, FallbackValue=False}">
                     <Button x:Name="PagesHeader" Classes="sectionHeader" Classes.expandable="{Binding Artefacts.PagesOverflow}"
                             Command="{Binding Artefacts.TogglePagesCommand}" AutomationProperties.Name="Pages">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="PAGES" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="Pages" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="PagesCount" Text="{Binding Artefacts.PagesMeta}" Classes="sectionMeta" />
                                 <Panel Width="12" Height="12" IsVisible="{Binding Artefacts.PagesOverflow}">
@@ -689,7 +755,7 @@
                 </StackPanel>
 
                 <!-- Plan: read from the server, so unlike AGENTS it shows nothing while signed out. -->
-                <StackPanel x:Name="PlanSection" IsVisible="{Binding Plan.ShowsPlan}" Margin="0,18,0,0">
+                <StackPanel x:Name="PlanSection" IsVisible="{Binding Plan.ShowsPlan}" Classes="ctxSection">
                     <TextBlock Text="Loading plan…" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
                                Margin="0,4,0,0" IsVisible="{Binding Plan.IsLoading}" />
                     <TextBlock x:Name="PlanUnavailableText" Text="Couldn't load the plan. It loads again once the server is reachable."
@@ -698,7 +764,7 @@
                     <Button x:Name="PlanToggle" Command="{Binding Plan.ToggleCommand}" Classes="sectionHeader expandable"
                             IsVisible="{Binding Plan.HasPlan}" AutomationProperties.Name="Plan">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="PLAN" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="Plan" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="PlanHeaderText" Text="{Binding Plan.HeaderText}" Classes="sectionMeta">
                                     <TextBlock.IsVisible>
@@ -789,11 +855,11 @@
                 </StackPanel>
 
                 <!-- Subagents: read from the transcript, so it renders in every pane phase. -->
-                <StackPanel x:Name="SubagentsSection" IsVisible="{Binding HasSubagents}" Margin="0,18,0,0">
+                <StackPanel x:Name="SubagentsSection" IsVisible="{Binding HasSubagents}" Classes="ctxSection">
                     <Button x:Name="SubagentsToggle" Command="{Binding ToggleSubagentsCommand}" Classes="sectionHeader expandable"
                             AutomationProperties.Name="Agents">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="AGENTS" Classes="eyebrow" />
+                            <TextBlock views:Eyebrow.Text="Agents" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="SubagentsHeaderText" Text="{Binding SubagentsHeader}" Classes="sectionMeta"
                                            IsVisible="{Binding SubagentsExpanded}" />
@@ -875,13 +941,23 @@
                             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
                             <Setter Property="VerticalAlignment" Value="Center" />
                         </Style>
+                        <Style Selector="Window.calm TextBlock.factLabel">
+                            <Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Normal" />
+                            <Setter Property="LetterSpacing" Value="0" />
+                        </Style>
+                        <Style Selector="Window.calm SelectableTextBlock.factValue">
+                            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                        </Style>
+                        <Style Selector="Window.calm TextBlock.factValue">
+                            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                        </Style>
                     </StackPanel.Styles>
 
-                    <StackPanel x:Name="UsageSection" Margin="0,18,0,0">
+                    <StackPanel x:Name="UsageSection" Classes="ctxSection">
                         <Button x:Name="UsageToggle" Command="{Binding ToggleUsageCommand}" Classes="sectionHeader expandable"
                                 AutomationProperties.Name="{Binding UsageToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBlock Text="USAGE" Classes="eyebrow" />
+                                <TextBlock views:Eyebrow.Text="Usage" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding UsageExpanded}" />
                                     <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !UsageExpanded}" />
@@ -890,12 +966,12 @@
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding UsageExpanded}">
                             <Grid x:Name="SessionUsage" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="TOKENS" Classes="factLabel" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" views:Eyebrow.Text="Tokens" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Tokens}" Classes="factValue" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="COST" Classes="factLabel" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" views:Eyebrow.Text="Cost" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Cost}" Classes="factValue"
                                                      ToolTip.Tip="Estimated from list prices" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CONTEXT" Classes="factLabel"
+                                <TextBlock Grid.Row="2" Grid.Column="0" views:Eyebrow.Text="Context" Classes="factLabel"
                                            IsVisible="{Binding ShowsCurrentContext}" />
                                 <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="6"
                                       IsVisible="{Binding ShowsCurrentContext}">
@@ -908,18 +984,18 @@
                                                        Foreground="{StaticResource KcapWarningBrush}" />
                                     </Button>
                                 </Grid>
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="PEAK CONTEXT" Classes="factLabel" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" views:Eyebrow.Text="Peak context" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
                                                      ToolTip.Tip="Highest use this session. Compaction does not lower it" />
                             </Grid>
                         </Border>
                     </StackPanel>
 
-                    <StackPanel x:Name="CheckoutSection" Margin="0,18,0,0">
+                    <StackPanel x:Name="CheckoutSection" Classes="ctxSection">
                         <Button x:Name="CheckoutToggle" Command="{Binding ToggleCheckoutCommand}" Classes="sectionHeader expandable"
                                 AutomationProperties.Name="{Binding CheckoutToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBlock Text="CHECKOUT" Classes="eyebrow" />
+                                <TextBlock views:Eyebrow.Text="Checkout" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding CheckoutExpanded}" />
                                     <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !CheckoutExpanded}" />
@@ -928,7 +1004,7 @@
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding CheckoutExpanded}">
                             <Grid x:Name="CheckoutFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="REPOSITORY" Classes="factLabel" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" views:Eyebrow.Text="Repository" Classes="factLabel" />
                                 <Panel Grid.Row="0" Grid.Column="1">
                                     <Button x:Name="RepositoryButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding RepositoryPath}"
                                             IsVisible="{Binding CanCopyRepository}"
@@ -939,7 +1015,7 @@
                                     <SelectableTextBlock Text="{Binding Repository}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopyRepository}" />
                                 </Panel>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="WORKTREE" Classes="factLabel" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" views:Eyebrow.Text="Worktree" Classes="factLabel" />
                                 <!-- The label is the worktree's leaf name; a click copies its full path. -->
                                 <Panel Grid.Row="1" Grid.Column="1">
                                     <Button x:Name="WorktreeButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding WorktreePath}"
@@ -951,7 +1027,7 @@
                                     <SelectableTextBlock Text="{Binding Worktree}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopyWorktree}" />
                                 </Panel>
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="BRANCH" Classes="factLabel" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" views:Eyebrow.Text="Branch" Classes="factLabel" />
                                 <Panel Grid.Row="2" Grid.Column="1">
                                     <Button x:Name="BranchButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Branch}"
                                             IsVisible="{Binding CanCopyBranch}"
@@ -966,11 +1042,11 @@
                         </Border>
                     </StackPanel>
 
-                    <StackPanel x:Name="SessionSection" Margin="0,18,0,0">
+                    <StackPanel x:Name="SessionSection" Classes="ctxSection">
                         <Button x:Name="SessionToggle" Command="{Binding ToggleSessionCommand}" Classes="sectionHeader expandable"
                                 AutomationProperties.Name="{Binding SessionToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBlock Text="SESSION" Classes="eyebrow" />
+                                <TextBlock views:Eyebrow.Text="Session" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
                                     <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
@@ -990,11 +1066,11 @@
                                     <SelectableTextBlock Text="{Binding SessionIdText}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopySessionId}" />
                                 </Panel>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" views:Eyebrow.Text="Harness" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" views:Eyebrow.Text="Session sharing" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" views:Eyebrow.Text="Agent sharing" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
                             </Grid>
                         </Border>

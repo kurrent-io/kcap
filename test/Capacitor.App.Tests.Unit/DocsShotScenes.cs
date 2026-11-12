@@ -161,11 +161,12 @@ static partial class DocsShotScenes {
             Action<FeedbackCategory>? openFeedback = null, Action? requestSetup = null,
             bool openSession = true, bool localServerDown = false, WorkContextRead? workContext = null,
             SessionPlansRead? plan = null, bool moreSessions = false, bool remoteMachine = false,
-            Func<MainWindowViewModel, Task>? arrange = null, ViewModels.NextWork.NextWorkBandViewModel? nextWork = null) {
+            Func<MainWindowViewModel, Task>? arrange = null, string[]? transcript = null,
+            ViewModels.NextWork.NextWorkBandViewModel? nextWork = null) {
         var scene = new DocsShotScene();
         try {
             var vm = await BuildMainWindowAsync(scene, pendingIds, permissionRequests, openFeedback, requestSetup, openSession,
-                localServerDown, workContext ?? PaymentsWorkContext(), plan, moreSessions, remoteMachine, nextWork);
+                localServerDown, workContext ?? PaymentsWorkContext(), plan, moreSessions, remoteMachine, transcript ?? Transcript, nextWork);
             if (arrange is not null) await arrange(vm);
             return scene;
         } catch {
@@ -215,10 +216,46 @@ static partial class DocsShotScenes {
         return scene;
     }
 
+    /// A longer payments conversation for comparing looks: prose with a list and inline code, a
+    /// code block, a run of tool calls and their results.
+    static readonly string[] ShowcaseTranscript = [
+        """{"type":"user","message":{"role":"user","content":"The payments gateway drops requests on a 503 during deploys. Add a retry with backoff, but never charge a card twice."}}""",
+        """{"type":"assistant","message":{"content":[{"type":"text","text":"I'll start by finding where the gateway client is built and how charges are keyed today."}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Grep","input":{"pattern":"GatewayClient","path":"src"}}]}}""",
+        """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"src/Payments/Gateway/GatewayClient.cs\nsrc/Payments/Charges/ChargeService.cs"}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/Users/maya/dev/northwind/payments-api/src/Payments/Gateway/GatewayClient.cs"}}]}}""",
+        """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"public sealed class GatewayClient { ... }"}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"text","text":"The client sends each charge once and surfaces a 503 straight to the caller. Charges already carry an `Idempotency-Key`, so retrying is safe as long as every attempt reuses the same key.\n\nThe plan:\n\n- Retry only **transient** failures: 502, 503, 504 and timeouts.\n- Three attempts with exponential backoff and jitter, capped at 4 seconds.\n- Reuse the idempotency key on every attempt, so the gateway deduplicates.\n\nHere is the policy:\n\n```csharp\nstatic readonly ResiliencePipeline Retry = new ResiliencePipelineBuilder()\n    .AddRetry(new() {\n        MaxRetryAttempts = 3,\n        BackoffType = DelayBackoffType.Exponential,\n        UseJitter = true,\n        MaxDelay = TimeSpan.FromSeconds(4),\n        ShouldHandle = args => ValueTask.FromResult(IsTransient(args.Outcome)),\n    })\n    .Build();\n```"}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/Users/maya/dev/northwind/payments-api/src/Payments/Gateway/GatewayClient.cs","old_string":"await _http.SendAsync(request, ct)","new_string":"await Retry.ExecuteAsync(token => _http.SendAsync(request, token), ct)"}}]}}""",
+        """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"The file has been updated."}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"dotnet test test/Payments.Gateway.Tests"}}]}}""",
+        """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","content":"Passed! 52 tests, 0 failed"}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"text","text":"All 52 gateway tests pass, including four new ones that replay a 503 burst and assert a single charge. I'd like to push the branch so the integration suite runs."}]}}""",
+    ];
+
+    /// The payments session mid-conversation, its push waiting for approval, with the work context
+    /// read in full: blocker, parts, people, pull request and plan.
+    public static async Task<DocsShotScene> ShowcaseAsync() {
+        var scene = await MainWindowAsync(pendingIds: new HashSet<string> { "a1" },
+            permissionRequests: [PermissionEntries.Entry("r1", "a1", toolName: "Bash",
+                toolInputJson: """{"command":"git push origin feat/gateway-retry"}""")],
+            workContext: PaymentsWorkContextInFull(), plan: PaymentsPlan(), transcript: ShowcaseTranscript,
+            arrange: async vm => {
+                var context = ((WorkspaceViewModel)vm.CurrentWorkspace!).WorkContext;
+                await WorkspaceFixtures.WaitUntilAsync(() => context.IsReady && context.HasParts && context.Plan.HasTasks, what: "the work context");
+                await context.TogglePeopleCommand.Execute();
+                await context.Plan.ToggleCommand.Execute();
+            });
+        scene.Window.Width = 1440;
+        scene.Window.Height = 1120;
+        return scene;
+    }
+
     static async Task<MainWindowViewModel> BuildMainWindowAsync(DocsShotScene scene, IReadOnlySet<string>? pendingIds,
             IReadOnlyList<PendingPermissionRequest>? permissionRequests, Action<FeedbackCategory>? openFeedback,
             Action? requestSetup, bool openSession, bool localServerDown, WorkContextRead workContextRead,
-            SessionPlansRead? plan, bool moreSessions, bool remoteMachine, ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
+            SessionPlansRead? plan, bool moreSessions, bool remoteMachine, string[] transcriptLines,
+            ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
         var transcript = openSession ? scene.Own(new TempDir()) : null;
         var homeState = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
         var service = new FakeDaemonClientService();
@@ -275,7 +312,7 @@ static partial class DocsShotScenes {
         });
 
         if (transcript is not null) {
-            var transcriptPath = transcript.CreateFile("transcript.jsonl", string.Join('\n', Transcript));
+            var transcriptPath = transcript.CreateFile("transcript.jsonl", string.Join('\n', transcriptLines));
             vm.OpenSession("a1");
             Dispatcher.UIThread.RunJobs();
             service.Agents.AddOrUpdate(service.Agents.Lookup("a1").Value with { TranscriptPath = transcriptPath });

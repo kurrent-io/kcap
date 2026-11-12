@@ -17,7 +17,7 @@
                        Text="Updates download in the background. kcap asks before restarting to install them."
                        FontSize="13.5" LineHeight="21" Foreground="{StaticResource KcapMutedBrush}" />
             <Border Margin="0,18,0,0" Padding="14,12" CornerRadius="8" BorderThickness="1"
-                    Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}">
+                    Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}">
                 <StackPanel Spacing="12">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Text="{Binding Message}" FontSize="13" LineHeight="19" TextWrapping="Wrap"

@@ -44,7 +44,7 @@
 
                     <Border x:Name="HistoryPanel" Margin="0,16,0,0" Padding="12,9" CornerRadius="8" BorderThickness="1"
                             IsVisible="{Binding DetailsExpanded}"
-                            Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}">
+                            Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}">
                         <Panel>
                             <ItemsControl x:Name="ReceiptList" ItemsSource="{Binding Receipt}" IsVisible="{Binding IsFinished}"
                                           Margin="0,3">

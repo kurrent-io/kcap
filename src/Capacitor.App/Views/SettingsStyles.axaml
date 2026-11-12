@@ -32,7 +32,7 @@
                     </Border>
                     <Grid Grid.Column="1" RowDefinitions="40,*">
                         <!-- The page title shrinks into this strip once its large title scrolls away. -->
-                        <Border Name="PART_CompactHeader" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+                        <Border Name="PART_CompactHeader" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1"
                                 IsHitTestVisible="False">
                             <TextBlock Name="PART_CompactTitle" Margin="32,0" VerticalAlignment="Center"
                                        FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
@@ -151,9 +151,9 @@
     </Style>
     <Style Selector="Border.settingsCard">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource KcapFilledBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="{DynamicResource KcapSettingsCardRadius}" />
         <Setter Property="ClipToBounds" Value="True" />
     </Style>
     <Style Selector="Border.settingsCardBody">

@@ -280,7 +280,7 @@
                         <StackPanel Classes="settingsHeader">
                             <TextBlock Classes="kcapTitle" Text="Appearance" />
                             <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
-                                       Text="Make kcap easier to read. Changes apply immediately and save on this computer." />
+                                       Text="Choose how kcap looks. Changes apply immediately and save on this computer." />
                         </StackPanel>
 
                         <Border Classes="settingsCard">
@@ -307,6 +307,67 @@
                                     <Button x:Name="TextResetButton" Classes="kcapGhost settingsCompact" Content="Reset"
                                             Margin="4,0,0,0"
                                             Command="{Binding Appearance.ResetCommand, FallbackValue={x:Null}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="settingsCard">
+                            <StackPanel Margin="16,14" Spacing="18">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Classes="settingsRowText">
+                                        <TextBlock Classes="kcapLabel" Text="Theme" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="Classic is the original look. The others are flatter, with softer colors and rounder corners." />
+                                    </StackPanel>
+                                    <Border Classes="kcapSegment" HorizontalAlignment="Left">
+                                        <ItemsControl ItemsSource="{Binding Appearance.Themes, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel ItemSpacing="2" LineSpacing="2" /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="vm:AppearanceOptionViewModel">
+                                                    <Button Classes="kcapSegmentItem" Classes.active="{Binding IsSelected}"
+                                                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel Spacing="10">
+                                    <TextBlock Classes="kcapLabel" Text="Interface font" />
+                                    <Border Classes="kcapSegment" HorizontalAlignment="Left">
+                                        <ItemsControl ItemsSource="{Binding Appearance.UiFonts, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel ItemSpacing="2" LineSpacing="2" /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="vm:AppearanceOptionViewModel">
+                                                    <Button Classes="kcapSegmentItem" Classes.active="{Binding IsSelected}"
+                                                            Command="{Binding SelectCommand}">
+                                                        <TextBlock Text="{Binding Label}" FontFamily="{Binding Preview}" />
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel Spacing="10">
+                                    <TextBlock Classes="kcapLabel" Text="Code font" />
+                                    <Border Classes="kcapSegment" HorizontalAlignment="Left">
+                                        <ItemsControl ItemsSource="{Binding Appearance.CodeFonts, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel ItemSpacing="2" LineSpacing="2" /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="vm:AppearanceOptionViewModel">
+                                                    <Button Classes="kcapSegmentItem" Classes.active="{Binding IsSelected}"
+                                                            Command="{Binding SelectCommand}">
+                                                        <TextBlock Text="{Binding Label}" FontFamily="{Binding Preview}" />
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
                                 </StackPanel>
                             </StackPanel>
                         </Border>

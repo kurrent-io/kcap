@@ -3,7 +3,7 @@
              xmlns:views="clr-namespace:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.CommandChip"
              x:Name="Root" VerticalAlignment="Center">
-    <Border Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+    <Border Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
             BorderThickness="1" CornerRadius="6" Padding="8,0,2,0">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
             <!-- Scrolls rather than wraps: a break at a flag's hyphen reads as a different command. -->

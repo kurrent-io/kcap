@@ -110,6 +110,7 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    readonly AppearanceSetting _appearance;
     readonly BetaUpdatesSetting _betaUpdates;
 
     // Set only in a copy started to uninstall; nothing of the normal app is built in it.
@@ -133,6 +134,7 @@ public partial class App : Application {
         _appState = new AppStateStore(_config.Path("app-state.json"));
 #pragma warning restore RS0030
         _uiScale = UiScaleSetting.LoadAsync(_appState).GetAwaiter().GetResult();
+        _appearance = AppearanceSetting.LoadAsync(_appState).GetAwaiter().GetResult();
         _betaUpdates = BetaUpdatesSetting.LoadAsync(_appState).GetAwaiter().GetResult();
     }
 
@@ -324,6 +326,10 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        var applier = new AppearanceApplier(this);
+        // Applied before any window exists so the first frame is already themed.
+        applier.Apply(_appearance.Current);
+        _ = _appearance.Changes.Skip(1).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(applier.Apply);
         LineSelection.Install();
         ToolTipFocusGate.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
@@ -1699,7 +1705,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _appearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service),

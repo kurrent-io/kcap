@@ -43,7 +43,7 @@
     <Border x:Name="SearchBackground" Background="{StaticResource KcapCanvasBrush}" PointerPressed="OnBackgroundPointerPressed">
         <DockPanel MaxWidth="760" Margin="24,20,24,16">
             <Border DockPanel.Dock="Top" Background="{StaticResource KcapSurfaceBrush}"
-                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" CornerRadius="10">
+                    BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1" CornerRadius="10">
                 <StackPanel>
                     <Grid Height="52" ColumnDefinitions="Auto,*,Auto" Margin="14,0">
                         <views:AppIcon Kind="Search" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
@@ -124,7 +124,7 @@
                                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                             <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
                                             <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
-                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                                                     AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
                                                 <Panel>
                                                     <TextBlock Text="{Binding OwnerInitials}" FontSize="9" FontWeight="SemiBold"

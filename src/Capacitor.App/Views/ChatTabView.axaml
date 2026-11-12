@@ -120,7 +120,7 @@
         <!-- A command's detail is its text, set like a command in a tool row. -->
         <Style Selector="TextBlock.runDetail.shell">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{DynamicResource KcapMonoFont}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
         </Style>
         <!-- A card's body is inset from its header on both sides, so a row's status pill reads as
@@ -138,7 +138,7 @@
                          TextBlock.toolLine">
             <Setter Property="FontSize" Value="13.5" />
             <Setter Property="LineHeight" Value="18" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{DynamicResource KcapMonoFont}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -197,7 +197,7 @@
         <Border x:Name="HandoffOutcomeCard" Grid.Row="0" Margin="22,14,22,0" Padding="13,10"
                 DataContext="{Binding HandoffOutcome}" x:DataType="vm:HandoffOutcomeViewModel"
                 IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
-                Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                 BorderThickness="1" CornerRadius="8">
             <StackPanel Spacing="6">
                 <TextBlock x:Name="HandoffOutcomeHeader" Text="{Binding Header}" FontSize="13.5" FontWeight="SemiBold"
@@ -238,7 +238,8 @@
                             <!-- ItemsPanel does not reach the presenter on its own: without this
                                  template binding it falls back to its own default StackPanel and
                                  every row is realized. -->
-                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="22,18,22,0" />
+                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="{DynamicResource KcapChatPresenterMargin}"
+                                            MaxWidth="{DynamicResource KcapChatMaxWidth}" />
                             <!-- Inside the scroll, so it sits under the last message and follows the tail. -->
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="14,0,22,8" IsVisible="{Binding ShowsLiveNote}">
                                 <views:OuroMascot Width="32" Height="32" Margin="0,-5" IsPlaying="{Binding ShowsLiveNote}" />
@@ -291,7 +292,7 @@
                                                                     CommandParameter="{Binding}" />
                                             <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
                                                     Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                                                    BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
                                                                    Foreground="{StaticResource KcapMutedBrush}" />
@@ -314,7 +315,7 @@
                     </Border>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
+                    <StackPanel MaxWidth="{DynamicResource KcapAgentTextMaxWidth}" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Classes="toolKindChip"
                                        Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
@@ -328,7 +329,7 @@
                     </StackPanel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
+                    <StackPanel MaxWidth="{DynamicResource KcapAgentTextMaxWidth}" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
                         <Button Classes="toolSummary thinkingSummary" HorizontalAlignment="Left"
                                 Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                 AutomationProperties.Name="{Binding HeaderLabel}">
@@ -598,14 +599,14 @@
 
         <!-- Everything about the next turn — runs, queue, in-flight note, composer — shares one band,
              so the transcript's last card never reads as part of the input area. -->
-        <Border x:Name="ComposerBand" Grid.Row="2" Padding="22,15,22,16"
-                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+        <Border x:Name="ComposerBand" Grid.Row="2" Padding="{DynamicResource KcapComposerBandPadding}"
+                Background="{DynamicResource KcapComposerBandBrush}" BorderBrush="{DynamicResource KcapDividerBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" MaxWidth="{DynamicResource KcapChatMaxWidth}">
                 <!-- The subagents and commands that outlive the turn, folded to a count until opened. 5px
                      here plus the toggle's 8px puts the title where the queue banner puts its text. -->
                 <Border x:Name="BackgroundTasksBanner" Grid.Row="0" Margin="0,0,0,8" Padding="5,4"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                         BorderThickness="1" CornerRadius="8"
                         DataContext="{Binding Tasks}" x:DataType="vm:BackgroundTasksViewModel"
                         IsVisible="{Binding HasRows}">
@@ -682,7 +683,7 @@
                 </Border>
 
                 <Border x:Name="QueuedMessagesBanner" Grid.Row="1" Margin="0,0,0,8" Padding="13,10"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                         BorderThickness="1" CornerRadius="8" IsVisible="{Binding HasQueuedMessages}">
                     <StackPanel Spacing="6">
                         <TextBlock Text="{Binding QueueSummary}" FontSize="13.5" FontWeight="SemiBold"
@@ -733,7 +734,7 @@
 
                 <!-- Messages held for the owner's approval: the owner decides each, a sender may withdraw their own. -->
                 <Border x:Name="HeldMessagesBanner" Grid.Row="2" Margin="0,0,0,8" Padding="13,10"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                         BorderThickness="1" CornerRadius="8" IsVisible="{Binding Held.HasItems, FallbackValue=False}">
                     <StackPanel Spacing="6">
                         <TextBlock Text="Held messages" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}" />
@@ -846,7 +847,7 @@
                                            Foreground="{StaticResource KcapTextBrush}"
                                            IsVisible="{Binding TerminalMenuPrompt, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <SelectableTextBlock x:Name="TerminalMenuFallback" Text="{Binding TerminalMenuScreen}" FontSize="12" TextWrapping="Wrap"
-                                                     FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                                     FontFamily="{DynamicResource KcapMonoFont}"
                                                      Foreground="{StaticResource KcapTextBrush}"
                                                      IsVisible="{Binding TerminalMenuScreen, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <ItemsControl ItemsSource="{Binding TerminalMenuChoices}">
@@ -857,7 +858,7 @@
                                         <DataTemplate x:DataType="vm:TerminalMenuChoiceViewModel">
                                             <Button Classes="kcapGhost" Command="{Binding Choose}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                     Padding="12,8" CornerRadius="8" Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" Cursor="Hand">
+                                                    BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1" Cursor="Hand">
                                                 <TextBlock Text="{Binding Label}" FontSize="13.5" TextWrapping="Wrap"
                                                            Foreground="{StaticResource KcapTextBrush}" />
                                             </Button>

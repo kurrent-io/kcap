@@ -50,6 +50,7 @@
         <AvaloniaResource Include="Assets\kcap-tray-icon.png" />
         <AvaloniaResource Include="Assets\kcap-logo-on-dark.png" />
         <AvaloniaResource Include="Assets\ouro.svg" />
+        <AvaloniaResource Include="Assets\Fonts\**\*.ttf" />
         <!-- Embed icon licenses so they also travel with the single-file macOS bundle. -->
         <AvaloniaResource Include="Assets\Lucide*-LICENSE.txt" />
         <AvaloniaResource Include="Assets\LobeHub-Icons-LICENSE.txt" />

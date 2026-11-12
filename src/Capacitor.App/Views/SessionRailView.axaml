@@ -27,7 +27,7 @@
         </Style>
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="CornerRadius" Value="{DynamicResource KcapRowRadius}" />
         </Style>
         <Style Selector="Border.railSession.selected">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
@@ -54,8 +54,25 @@
         <Style Selector="Button.selected">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
+        <Style Selector="TextBlock.rowTitle">
+            <Setter Property="FontSize" Value="14.5" />
+            <Setter Property="LineHeight" Value="20" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
         <Style Selector="Button.selected TextBlock.rowTitle">
             <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <!-- Soft themes: only the open session is bright; the rest step back, at one weight. -->
+        <Style Selector="Window.calm TextBlock.rowTitle">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Window.calm Button.selected TextBlock.rowTitle">
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Window.calm TextBlock.railMeta">
+            <Setter Property="FontSize" Value="12" />
         </Style>
         <!-- Two segments share one line only at the rail's default width or wider. -->
         <Style Selector="Button.railSegmentItem">
@@ -155,7 +172,7 @@
                 <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
                 <Button x:Name="RailNewSessionButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="10,0,10,10"
                         Command="{Binding NewSessionCommand}"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                         BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="New session">
                     <DockPanel>
                         <TextBlock x:Name="RailNewSessionShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.NewSession}" FontSize="11"
@@ -280,7 +297,7 @@
 
             <!-- The footer always states the connection: Connected while healthy, the alert otherwise.
                  Settings › About holds each component's status and version. -->
-            <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{StaticResource KcapBorderBrush}">
+            <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource KcapDividerBrush}">
                 <StackPanel x:Name="RailFooterPanel" Margin="16,10,16,10" Spacing="2">
                     <!-- A daemon launchd holds in the background band throttles every hosted agent; the
                          block offers the reload and keeps its last outcome readable until a success clears it. -->
@@ -468,7 +485,7 @@
                                                 <!-- A mixed count ("1 live · 3 ended") is wide: the name wraps
                                                      to a second line before it gives up characters. -->
                                                 <TextBlock x:Name="RailRepoHeaderLabel" Grid.Column="1"
-                                                           Text="{Binding Label, Converter={x:Static views:UppercaseConverter.Instance}}"
+                                                           views:Eyebrow.Text="{Binding Label}"
                                                            Classes="eyebrow" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                                            VerticalAlignment="Center" />
                                             </Grid>
@@ -486,7 +503,7 @@
                                             </StackPanel>
                                         </Grid>
                                     </Button>
-                                    <Border Classes="sectionBody" IsVisible="{Binding IsExpanded}" Padding="8,2,0,2">
+                                    <Border Classes="sectionBody" IsVisible="{Binding IsExpanded}" Padding="{DynamicResource KcapRailBodyPadding}" Margin="{DynamicResource KcapRailBodyMargin}">
                                         <ItemsControl ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
@@ -514,15 +531,15 @@
                                                                     </StackPanel>
                                                                 </ToolTip.Tip>
                                                                 <StackPanel Spacing="3">
-                                                                    <TextBlock Text="{Binding Primary}" FontSize="14.5" LineHeight="20"
+                                                                    <TextBlock Text="{Binding Primary}"
                                                                                Classes="rowTitle" IsVisible="{Binding HasTitle}"
-                                                                               Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                                               TextTrimming="CharacterEllipsis" />
                                                                     <!-- Reserve the measured PR link width so machine and age never paint beneath its hit target. -->
                                                                     <Grid ColumnDefinitions="*,Auto">
                                                                         <WrapPanel VerticalAlignment="Center">
                                                                             <!-- Another user's row shows their picture, or their initials until it loads or when it never does. -->
                                                                             <Border Width="16" Height="16" CornerRadius="8" Margin="0,0,6,0" VerticalAlignment="Center" ClipToBounds="True"
-                                                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                                                                                     IsVisible="{Binding ShowsOwner}" ToolTip.Tip="{Binding OwnerTooltip}"
                                                                                     AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="Content">
                                                                                 <Panel>

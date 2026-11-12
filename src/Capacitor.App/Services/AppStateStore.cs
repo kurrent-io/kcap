@@ -25,6 +25,10 @@ public sealed record AppState(
     IReadOnlyDictionary<string, ViewModels.RailPreferences>? RailPreferencesByUser = null,
     IReadOnlyDictionary<string, string>? LastUserByProfile = null,
     double? UiScale = null,
+    // AppTheme names; null is the classic look.
+    string? Theme = null,
+    string? UiFont = null,
+    string? CodeFont = null,
     double? RailWidth = null,
     bool RailCollapsed = false,
     double? ContextPaneWidth = null,

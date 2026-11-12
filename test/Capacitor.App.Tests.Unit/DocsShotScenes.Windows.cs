@@ -34,9 +34,16 @@ static partial class DocsShotScenes {
     /// only with `localSearch`, the local edition's built-in embedding model being offered and in use; Usage data
     /// only with `usageData`, usage data being sent; Harnesses only with `harnesses`, Claude Code and
     /// Codex wired and Cursor found but not; About only with `about`.
+    static async Task<AppearanceSettingsViewModel> Appearance(TempConfigRoot config, AppearanceChoice choice) {
+        var state = new AppStateStore(config.PathTo("app-state.json"));
+        var setting = await AppearanceSetting.LoadAsync(state);
+        await setting.SetAsync(choice);
+        return new AppearanceSettingsViewModel(await UiScaleSetting.LoadAsync(state), setting);
+    }
+
     public static async Task<DocsShotScene> SettingsAsync(TempConfigRoot config, string tab, double height,
             bool localSearch = false, bool usageData = false, bool harnesses = false, bool about = false,
-            double width = SettingsWidth) {
+            AppearanceChoice? appearance = null, double width = SettingsWidth) {
         var scene = new DocsShotScene();
         try {
             await ConfigMutator.MutateAsync(config.Root, c => c with {
@@ -86,6 +93,7 @@ static partial class DocsShotScenes {
                 Search = localSearch ? LocalSearch(scene) : null,
                 Privacy = usageData ? UsageData(scene, config) : null,
                 About = about ? await About(service) : null,
+                Appearance = appearance is null ? null : await Appearance(config, appearance),
             });
             if (vm.Search is { } search) scene.Settled = () => !search.Choice.Checking && (search.Choice.OllamaMissing || search.Choice.OllamaEnabled);
             var window = scene.Present(new SettingsWindow { DataContext = vm, Width = width, Height = height });

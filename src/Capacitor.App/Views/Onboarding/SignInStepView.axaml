@@ -39,7 +39,7 @@
         <!-- Browser fallback lives at the foot: open + selectable URL, not buried in the log. -->
         <Border DockPanel.Dock="Bottom" Margin="0,16,0,0"
                 Background="{StaticResource KcapSurfaceBrush}"
-                BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                 CornerRadius="12" Padding="16,14"
                 IsVisible="{Binding BrowserUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <StackPanel Spacing="10">
@@ -85,7 +85,7 @@
             <StackPanel Spacing="16">
                 <StackPanel Spacing="10">
                     <Border Background="{StaticResource KcapSurfaceBrush}"
-                            BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                            BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                             CornerRadius="12" Padding="16,14"
                             IsVisible="{Binding DeviceCode, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <StackPanel Spacing="10">

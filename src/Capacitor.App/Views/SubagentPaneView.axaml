@@ -6,7 +6,7 @@
              x:DataType="vm:SubagentPaneViewModel"
              Background="{StaticResource KcapCanvasBrush}">
     <DockPanel>
-        <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="14,8">
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1" Padding="14,8">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
                 <Button x:Name="BackToSessionButton" Classes="kcapGhost" Command="{Binding BackCommand}" Padding="6,4"
                         Cursor="Hand" AutomationProperties.Name="Back to the session" ToolTip.Tip="Back to the session">

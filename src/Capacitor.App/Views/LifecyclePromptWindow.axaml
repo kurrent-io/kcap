@@ -47,7 +47,7 @@
                         <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
                                 IsVisible="{Binding ShowInstalledVersion}"
                                 Background="{StaticResource KcapSurfaceBrush}"
-                                BorderBrush="{StaticResource KcapBorderBrush}">
+                                BorderBrush="{DynamicResource KcapFilledBorderBrush}">
                             <TextBlock Text="{Binding InstalledVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         </Border>
@@ -55,7 +55,7 @@
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
                                 Background="{StaticResource KcapSurfaceBrush}"
-                                BorderBrush="{StaticResource KcapBorderBrush}">
+                                BorderBrush="{DynamicResource KcapFilledBorderBrush}">
                             <TextBlock Text="{Binding UpdateVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
                                        Foreground="{StaticResource KcapTextBrush}" />
                         </Border>
@@ -65,7 +65,7 @@
                         <TextBlock Text="Installed version" VerticalAlignment="Center" FontSize="12.5"
                                    Foreground="{StaticResource KcapMutedBrush}" />
                         <Border Padding="10,3" CornerRadius="999" BorderThickness="1"
-                                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}">
+                                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}">
                             <TextBlock Text="{Binding InstalledVersion}" FontSize="12" FontFamily="{StaticResource OnboardingMonoFont}"
                                        Foreground="{StaticResource KcapTextBrush}" />
                         </Border>

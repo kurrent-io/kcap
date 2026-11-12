@@ -41,7 +41,9 @@ internal static class AvaloniaSession {
         // The image fetcher is process-global and would reach for the network; a test that
         // wants bytes back installs its own for the duration.
         MarkdownImages.Fetch = static (_, _) => Task.FromResult<byte[]?>(null);
-        return DispatchAsync(static () => { });
+        // Tests pin the classic look, whatever this machine's default theme is; the gallery applies each look itself.
+        return DispatchAsync(static () => new AppearanceApplier(Application.Current!).Apply(
+            new AppearanceChoice(AppTheme.Find(AppTheme.ClassicId), AppFont.FindUi("inter"), AppFont.FindCode("menlo"))));
     }
 
     static AvaloniaScheduler? _uiScheduler;

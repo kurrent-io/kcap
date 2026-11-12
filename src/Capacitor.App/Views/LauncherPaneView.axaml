@@ -277,7 +277,7 @@
                                  built for it. -->
                             <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
                                     ToolTip.Tip="{Binding NextWorkSource.ContextSummary, FallbackValue={x:Null}}"
-                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                                     IsVisible="{Binding NextWorkSource, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <views:AppIcon Kind="Lightbulb" Size="12" Foreground="{StaticResource KcapMutedBrush}" />

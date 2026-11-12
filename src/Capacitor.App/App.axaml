@@ -54,6 +54,11 @@
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPressed" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollViewerScrollBarsSeparatorBackground" Color="#00000000" />
+            <!-- Read as DynamicResource: AppearanceApplier replaces them when the theme or code font changes. -->
+            <FontFamily x:Key="KcapMonoFont">Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace</FontFamily>
+            <CornerRadius x:Key="KcapCardRadius">10</CornerRadius>
+            <CornerRadius x:Key="KcapSettingsCardRadius">8</CornerRadius>
+            <CornerRadius x:Key="KcapRowRadius">7</CornerRadius>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="avares://kcap-desktop/Views/PendingCardTemplates.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingResources.axaml" />

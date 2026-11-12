@@ -10,7 +10,7 @@
          streams, and the two actions that reach across. -->
     <Grid x:Name="SplitGrid" ColumnDefinitions="*,320">
     <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
-        <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+        <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,0,0,1"
                 Padding="20,16,16,16" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -56,7 +56,7 @@
         </Border>
 
         <Border x:Name="AccessBanner" Grid.Row="1" Margin="20,10,20,0"
-                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}"
                 BorderThickness="1" CornerRadius="10" Padding="13,10"
                 IsVisible="{Binding AccessNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <TextBlock x:Name="AccessNoteText" Text="{Binding AccessNote}" TextWrapping="Wrap"
@@ -81,19 +81,19 @@
                 <views:RemoteTerminalViewport x:Name="TerminalViewport" Grid.Row="0">
                     <views:RemoteTerminalControl x:Name="TerminalHost"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                               FontFamily="{DynamicResource KcapMonoFont}"
                                                CaretBrush="{StaticResource KcapTextBrush}"
                                                SourceColumns="{Binding Terminal.SourceColumns}"
                                                SourceRows="{Binding Terminal.SourceRows}"
                                                Model="{Binding Terminal.Surface, Converter={x:Static views:TerminalSurfaceModelConverter.Instance}}" />
                 </views:RemoteTerminalViewport>
                 <Border Grid.Row="0" IsVisible="{Binding Terminal.ShowsBanner}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{DynamicResource KcapFilledBorderBrush}" BorderThickness="1"
                         CornerRadius="8" Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0">
                     <TextBlock x:Name="TerminalPhaseNote" Text="{Binding Terminal.PhaseNote}" Foreground="{StaticResource KcapMutedBrush}" />
                 </Border>
                 <!-- Read-only: the keys the daemon accepts are the only input that crosses. -->
-                <Border Grid.Row="1" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+                <Border Grid.Row="1" BorderBrush="{DynamicResource KcapDividerBrush}" BorderThickness="0,1,0,0" Padding="20,8">
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="TerminalControlRefusal" Text="{Binding Terminal.ControlRefusal}" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding Terminal.ShowsControlRefusal, FallbackValue=False}" />
