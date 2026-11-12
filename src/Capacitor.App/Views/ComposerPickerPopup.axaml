@@ -24,24 +24,22 @@
             <ItemsControl.DataTemplates>
                 <DataTemplate DataType="core:HostedAgentCommand">
                     <Button Classes="kcapGhost pickerRow" Focusable="False" Click="OnRowClick">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Left" Text="{Binding Name, StringFormat='/{0}'}" MaxWidth="260"
-                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
-                            <TextBlock DockPanel.Dock="Left" Text="{Binding ArgumentHint}" MaxWidth="200" Margin="8,0,0,0"
-                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapMutedBrush}" />
-                            <TextBlock Text="{Binding Description}" Margin="12,0,0,0" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                        <Grid ColumnDefinitions="220,*">
+                            <TextBlock Text="{Binding Name, StringFormat='/{0}'}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource KcapTextBrush}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="12,0,0,0" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
-                        </DockPanel>
+                        </Grid>
                     </Button>
                 </DataTemplate>
                 <DataTemplate DataType="vm:FileMention">
                     <Button Classes="kcapGhost pickerRow" Focusable="False" Click="OnRowClick">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" MaxWidth="260"
-                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
-                            <TextBlock Text="{Binding Folder}" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                        <Grid ColumnDefinitions="220,*">
+                            <TextBlock Text="{Binding Name}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource KcapTextBrush}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Folder}" Margin="12,0,0,0" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
-                        </DockPanel>
+                        </Grid>
                     </Button>
                 </DataTemplate>
             </ItemsControl.DataTemplates>
