@@ -3,6 +3,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Composer;
 using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 
@@ -15,8 +16,8 @@ public class CommandCatalogTests {
     static CommandCatalog Catalog(ScriptedLocalControlOps ops, string[] capabilities, Func<IReadOnlyList<HostedAgentCommand>> probe, List<string> probes) =>
         new(ops, Observable.Return(new AttachStatus(AttachState.Connected, null, capabilities)),
             new Dictionary<HarnessId, CommandCatalog.Source> {
-                [HarnessId.Claude] = new((directory, _) => {
-                    probes.Add(directory);
+                [HarnessId.Claude] = new((directory, account, _) => {
+                    probes.Add(account is null ? directory : $"{directory} as {account.Directory}");
                     return Task.FromResult(probe());
                 }),
             }, CancellationToken.None);
@@ -33,16 +34,17 @@ public class CommandCatalogTests {
     }
 
     [Test]
-    public async Task A_daemon_without_the_capability_falls_back_to_one_kept_probe_per_checkout() {
+    public async Task A_daemon_without_the_capability_falls_back_to_one_kept_probe_per_checkout_and_account() {
         var probes = new List<string>();
         var catalog = Catalog(new ScriptedLocalControlOps { ListCommands = _ => [Listed] }, [], () => [Probed], probes);
 
         await catalog.ListAsync(new ComposerContext("/wt", HarnessId.Claude, "a1"));
         var commands = await catalog.ListAsync(new ComposerContext("/wt", HarnessId.Claude));
         await catalog.ListAsync(new ComposerContext("/other", HarnessId.Claude));
+        await catalog.ListAsync(new ComposerContext("/wt", HarnessId.Claude, Account: new ResolvedAccount("/acct", "id", "work")));
 
         await Assert.That(commands).IsEquivalentTo([Probed]);
-        await Assert.That(probes).IsEquivalentTo(["/wt", "/other"]);
+        await Assert.That(probes).IsEquivalentTo(["/wt", "/other", "/wt as /acct"]);
     }
 
     [Test]

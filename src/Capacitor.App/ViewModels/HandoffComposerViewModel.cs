@@ -6,6 +6,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Composer;
 using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.Harness;
@@ -179,8 +180,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
             .DisposeWith(_disposables);
         Picker = pickers?.Create(this.WhenAnyValue(x => x.ResumeVisible)
-                .CombineLatest(_choices.WhenAnyValue(x => x.RepoPath), _choices.WhenAnyValue(x => x.SelectedVendor), (resume, repo, vendor) =>
-                    resume ? PickerContext(_session.Cwd, _session.Vendor) : PickerContext(repo, vendor)))
+                .CombineLatest(_choices.WhenAnyValue(x => x.RepoPath, x => x.SelectedVendor, x => x.AccountRows,
+                        (repo, vendor, accounts) => PickerContext(repo, vendor, ComposerContext.AccountOf(accounts))),
+                    (resume, handoff) => resume ? PickerContext(_session.Cwd, _session.Vendor, null) : handoff))
             .DisposeWith(_disposables);
         // A pick answers the refusal of the one before it.
         _choices.WhenAnyValue(x => x.AccountRows)
@@ -285,8 +287,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     public ComposerPicker? Picker { get; }
 
-    static ComposerContext? PickerContext(string? repo, string? vendor) =>
-        repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor)) : null;
+    static ComposerContext? PickerContext(string? repo, string? vendor, ResolvedAccount? account) =>
+        repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor), Account: account) : null;
 
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }

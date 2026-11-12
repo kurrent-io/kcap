@@ -7,6 +7,7 @@ public static class CodexSkillProbe {
     public static async Task<IReadOnlyList<HostedAgentCommand>> ProbeAsync(
             HarnessRegistry   harnesses,
             string            workingDir,
+            string?           accountDirectory,
             UserHome          home,
             TimeProvider      time,
             TimeSpan          timeout,
@@ -14,7 +15,7 @@ public static class CodexSkillProbe {
             CancellationToken ct) {
         if (harnesses.ResolveLaunchable(HarnessId.Codex) is not { } exe) return [];
 
-        using var process = CliProcess.TryStart(CodexAppServer.StartInfo(exe, null, home), log);
+        using var process = CliProcess.TryStart(CodexAppServer.StartInfo(exe, accountDirectory, home), log);
         if (process is null) return [];
         process.BeginErrorReadLine();
 

@@ -857,8 +857,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             .DisposeWith(_disposables);
 
         Picker = pickers?.Create(_selectedRepoPathChanges
-                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), _machineSelectionChanges, (repo, vendor, machine) =>
-                    !machine.Remote && repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor)) : null)
+                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), this.WhenAnyValue(x => x.AccountRows), _machineSelectionChanges, (repo, vendor, accounts, machine) =>
+                    !machine.Remote && repo is { Length: > 0 }
+                        ? new ComposerContext(repo, HarnessId.From(vendor), Account: ComposerContext.AccountOf(accounts))
+                        : null)
                 .ObserveOn(RxSchedulers.MainThreadScheduler))
             .DisposeWith(_disposables);
 
