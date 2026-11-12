@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.SourceGuards.Tests.Unit;
 
 /// <summary>Source text for a guard that matches code shapes, with every comment removed and every string literal's content
 /// blanked, so neither can spell the shape or hide its absence. One left-to-right scan takes whichever starts first, so a
