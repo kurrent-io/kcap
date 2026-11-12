@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
-using TUnit.Core.Enums;
 using WireMock.Logging;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// exercising <c>ClaudeHookCommand.HandleCore</c>'s own pre-dispatch spool drain, which runs on
 /// every client-backed Claude hook and is not subject to the cross-process drain throttle.</para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class PolicyHookDecisionTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }

@@ -1,7 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Cursor;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -17,7 +16,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// contract: the server-side suppression (not the CLI) is what prevents the duplicate lifecycle
 /// append — the CLI must keep sending the hook regardless. Models on <see cref="CursorImportPrTests"/>.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class CursorSuppressedRepoImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

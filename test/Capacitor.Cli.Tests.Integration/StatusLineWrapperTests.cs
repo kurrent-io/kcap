@@ -6,7 +6,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -14,7 +13,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// command line, with no server configured and every proxy variable aimed at a local listener that
 /// must see no connection.</summary>
 [ParallelLimiter<SubprocessLimit>]
-[RunOn(OS.Linux | OS.MacOs)]
 public class StatusLineWrapperTests : IDisposable {
     const string AccountId = "acct1";
     const string Marker    = "KCAP_STATUSLINE_TEST_MARKER";

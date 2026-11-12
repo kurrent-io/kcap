@@ -1,6 +1,5 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Commands;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,7 +12,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// puts the answer on the negotiate request, so a stub that only answers negotiate is enough to see
 /// what a real connect would have carried.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherHubCredentialTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

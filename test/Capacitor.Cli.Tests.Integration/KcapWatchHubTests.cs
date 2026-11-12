@@ -1,5 +1,4 @@
 using Capacitor.Cli.Core;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -8,7 +7,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// rather than inferred: lines arrive in order, a stop or a signal drains before the process leaves, and a
 /// hub that is late or drops the connection costs nothing.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class KcapWatchHubTests {
     [TempDir]         public required TempDir         Tmp     { get; init; }
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }

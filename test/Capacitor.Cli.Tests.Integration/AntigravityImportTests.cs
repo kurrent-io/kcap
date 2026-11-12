@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Harness.Antigravity;
 using Microsoft.Data.Sqlite;
 using TUnit.Assertions.Enums;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// session-start/antigravity → parent transcript → subagent-start → child transcript (routed
 /// by agent_id) → subagent-stop → session-end/antigravity, all tagged vendor=antigravity.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class AntigravityImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

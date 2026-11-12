@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// The watcher spawn that normally follows the POST is neutralized by pre-seeding a live
 /// watcher pid file so <c>EnsureWatcherRunning</c> no-ops.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class AntigravitySessionStartTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

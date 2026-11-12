@@ -2,7 +2,6 @@ using System.Net;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Antigravity;
 using Capacitor.Cli.Harness.Gemini;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -37,7 +36,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// is a CREATE-time hint, and by definition an already-ingested session already exists.
 /// </para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class RoutedReplayPrivatizeTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

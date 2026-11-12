@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -20,7 +19,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// every current (v2) config and ignore per-profile <c>private</c>
 /// settings.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class SessionStartVisibilityTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

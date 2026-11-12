@@ -5,14 +5,12 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>The transport over a real <see cref="HubConnection"/>, because the behaviour at stake is
 /// <c>InvokeAsync</c>'s: given a token, it completes locally the moment that token fires, with the server's
 /// <c>WatcherConnect</c> still running. No fake of the transport can show that, since the fault would be in the fake.</summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class HubRecorderTransportTests {
     static readonly RecordingSource Source = new("session", "agent", "/t.jsonl", "claude", null);
 

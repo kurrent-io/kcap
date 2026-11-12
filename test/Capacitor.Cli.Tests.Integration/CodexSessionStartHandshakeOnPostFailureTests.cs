@@ -1,7 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -16,7 +15,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// whether the host can proceed. The non-zero exit still reports that the session was not recorded.
 /// </summary>
 [ParallelLimiter<SubprocessLimit>]
-[RunOn(OS.Linux | OS.MacOs)]
 public class CodexSessionStartHandshakeOnPostFailureTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

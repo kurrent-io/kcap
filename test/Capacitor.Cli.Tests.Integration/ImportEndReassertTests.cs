@@ -1,5 +1,4 @@
 using Capacitor.Cli.Commands;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>ImportSingleSessionAsync</c> — the same internal entry point
 /// <c>ImportChainsTests</c> (Tests.Unit) drives for the New branch.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class ImportEndReassertTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 
