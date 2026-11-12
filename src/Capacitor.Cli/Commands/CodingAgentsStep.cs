@@ -672,7 +672,7 @@ internal static class CodingAgentsStep {
             writeLine(AlreadyInstalledLine("Copilot hooks"));
         } else {
             writeLine($"  [green]✓[/] Copilot hooks installed ({Markup.Escape(paths.CopilotHooksPath)})");
-            writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session to pick them up.[/]");
+            writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session, and quit and reopen VS Code, to pick them up.[/]");
         }
 
         return true;

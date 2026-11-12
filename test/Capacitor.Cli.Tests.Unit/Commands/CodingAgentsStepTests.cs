@@ -1815,7 +1815,7 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CopilotHooksInstalled).IsTrue();
         await Assert.That(calls.CopilotHooksArg).IsEqualTo("/fake/.copilot/hooks/kcap.json");
         await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot hooks installed"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session, and quit and reopen VS Code"));
     }
 
     [Test]

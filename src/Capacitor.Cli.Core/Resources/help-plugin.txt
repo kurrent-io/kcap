@@ -258,7 +258,8 @@ Notes:
   kcap-owned steering block into ~/.copilot/copilot-instructions.md (see
   --skip-copilot-instructions to opt out). All three are non-destructive and
   idempotent. Copilot loads hook + MCP + instructions config at startup, so
-  restart any running copilot session after install. Copilot has no project-scope
+  restart any running copilot session, and quit and reopen VS Code, after
+  install. Copilot has no project-scope
   hooks dir, so --project has no effect with --copilot.
 
   --gemini merges SessionStart/SessionEnd/Notification entries into the shared
