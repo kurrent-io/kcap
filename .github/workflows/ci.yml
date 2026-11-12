@@ -121,21 +121,13 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
 
-      - name: Run tests
+      # A selection runs through a solution filter, so the module and width caps apply to it unchanged.
+      - name: Pick the test solution
+        id: tests
         if: needs.changes.outputs.projects != ''
         shell: bash
         env:
-          # The live launchd/systemd test loads a uniquely named unit; a disposable runner is the place for it.
-          KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
           PROJECTS: ${{ needs.changes.outputs.projects }}
-        # Assemblies and per-assembly width are per-leg, above: the ceiling is what the runner can
-        # carry without the wall-clock budgets inside the code under test expiring. Five modules
-        # starved those and vanished an Integration test's temp working directory on Linux, a
-        # cross-assembly sharing point no in-assembly [NotInParallel] key can serialise. A keyed
-        # [NotInParallel] test still runs concurrently with every disjoint-key class, so anything
-        # touching process-global state must hold the same key as every other toucher.
-        # --hangdump writes a mini dump after 10m with no test-host activity. A selection runs through
-        # a solution filter, so the module and width caps apply to it unchanged.
         run: |
           set -euo pipefail
           solution=Capacitor.slnx
@@ -145,10 +137,27 @@ jobs:
             printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
             cat "$solution"
           fi
-          dotnet test --solution "$solution" --no-build \
-            --max-parallel-test-modules ${{ matrix.modules }} \
-            -- --maximum-parallel-tests ${{ matrix.tests }} \
-            --hangdump --hangdump-timeout 10m --hangdump-type Mini
+          echo "solution=$solution" >> "$GITHUB_OUTPUT"
+
+      # The runner's default shell, not bash: on Windows, Git Bash puts its own usr/bin ahead of
+      # System32 on PATH, and a test that runs `timeout` through cmd.exe then gets the GNU one.
+      - name: Run tests
+        if: needs.changes.outputs.projects != ''
+        env:
+          # The live launchd/systemd test loads a uniquely named unit; a disposable runner is the place for it.
+          KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
+        # Assemblies and per-assembly width are per-leg, above: the ceiling is what the runner can
+        # carry without the wall-clock budgets inside the code under test expiring. Five modules
+        # starved those and vanished an Integration test's temp working directory on Linux, a
+        # cross-assembly sharing point no in-assembly [NotInParallel] key can serialise. A keyed
+        # [NotInParallel] test still runs concurrently with every disjoint-key class, so anything
+        # touching process-global state must hold the same key as every other toucher.
+        # --hangdump writes a mini dump after 10m with no test-host activity.
+        run: >
+          dotnet test --solution ${{ steps.tests.outputs.solution }} --no-build
+          --max-parallel-test-modules ${{ matrix.modules }}
+          -- --maximum-parallel-tests ${{ matrix.tests }}
+          --hangdump --hangdump-timeout 10m --hangdump-type Mini
 
       # Kept on success too: the console prints nothing between banner and summary, so these are the
       # only per-test timing record. File kinds and not the directory: upload-artifact roots the
