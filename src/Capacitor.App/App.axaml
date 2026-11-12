@@ -54,6 +54,26 @@
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPressed" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollViewerScrollBarsSeparatorBackground" Color="#00000000" />
+            <!-- Fluent's template, with the background held inside Padding so Linux's drawn frame and shadow stay clear. -->
+            <ControlTheme x:Key="{x:Type Window}" TargetType="Window" BasedOn="{StaticResource {x:Type Window}}">
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <Panel>
+                            <Border Name="PART_TransparencyFallback" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" />
+                            <Border Background="{TemplateBinding Background}" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" />
+                            <Panel Background="Transparent" Margin="{TemplateBinding WindowDecorationMargin}" />
+                            <VisualLayerManager Name="PART_VisualLayerManager">
+                                <ContentPresenter Name="PART_ContentPresenter"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  Content="{TemplateBinding Content}"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            </VisualLayerManager>
+                        </Panel>
+                    </ControlTemplate>
+                </Setter>
+            </ControlTheme>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="avares://kcap-desktop/Views/PendingCardTemplates.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingResources.axaml" />
