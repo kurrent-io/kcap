@@ -23,17 +23,16 @@ public partial class ComposerPickerPopup : UserControl {
         _flyout.FlyoutPresenterClasses.Add("kcapPanel");
     }
 
-    /// The host routes its composer's tunnelled KeyDown through <see cref="HandleKey"/> first, so the
-    /// picker sees Enter before the host sends with it.
-    public static ComposerPickerPopup Attach(TextBox input, Func<ComposerPicker?> picker) {
+    /// Call before the host adds its own KeyDown handlers: handlers run in the order they were added, and the
+    /// picker must take Enter before the host sends with it.
+    public static void Attach(TextBox input, Func<ComposerPicker?> picker) {
         var popup = new ComposerPickerPopup { _input = input, _picker = picker };
+        input.AddHandler(KeyDownEvent, (_, e) => e.Handled |= popup.HandleKey(e), RoutingStrategies.Tunnel);
         // Posted: the caret moves after TextChanged, and the query is the text before it.
         input.TextChanged += (_, _) => Dispatcher.UIThread.Post(popup.Update);
         input.PropertyChanged += (_, e) => {
             if (e.Property == TextBox.CaretIndexProperty) Dispatcher.UIThread.Post(popup.Update);
         };
-
-        return popup;
     }
 
     async void Update() {
@@ -63,7 +62,7 @@ public partial class ComposerPickerPopup : UserControl {
         _input.Focus();
     }
 
-    public bool HandleKey(KeyEventArgs e) {
+    bool HandleKey(KeyEventArgs e) {
         if (!_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _rows is not { Count: > 0 and var count }) return false;
         switch (e.Key) {
             case Key.Up or Key.Down:

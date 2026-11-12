@@ -21,7 +21,7 @@ namespace Capacitor.App.ViewModels;
 /// start, and what launches is exactly what the strip shows. The strip is read from the checkout's own
 /// refs; origin is contacted only once the user starts the hand-off, since showing the composer is no
 /// request to reach off the machine.
-public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAttachmentSink {
+public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IComposer {
     public const string NeedsFullAccess = "You need full access to this session to hand it off";
     public const string ServerTooOld = "Your kcap server doesn't support hand-off yet";
     public const string DaemonTooOld = "Your local kcap daemon doesn't support hand-off yet. Update kcap to use it.";

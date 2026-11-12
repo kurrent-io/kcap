@@ -30,10 +30,9 @@ public partial class LauncherPaneView : UserControl {
         set => SetValue(HistoryImportProperty, value);
     }
 
-    AttachmentDropPaste? _attachments;
+    readonly Composer _composer;
     Flyout? _openMenu;
     IDisposable? _nudgeEnd;
-    readonly ComposerPickerPopup _picker;
 
     static readonly TimeSpan NudgeFadeOutAfter = TimeSpan.FromMilliseconds(450);
     readonly Transitions _nudgeFadeIn = [new DoubleTransition { Property = OpacityProperty, Duration = TimeSpan.FromMilliseconds(250), Easing = new CubicEaseOut() }];
@@ -41,11 +40,11 @@ public partial class LauncherPaneView : UserControl {
 
     public LauncherPaneView() {
         InitializeComponent();
+        _composer = Composer.Attach(GoalCard, GoalInput, AttachButton);
         // Tunnel, not bubble: the TextBox marks Enter handled on the bubble route, so bare-Enter
         // submit must see the key on the way down. Shift+Enter falls through untouched, so the
         // TextBox inserts a newline (AcceptsReturn is true).
         GoalInput.AddHandler(KeyDownEvent, OnGoalKeyDown, RoutingStrategies.Tunnel);
-        _picker = ComposerPickerPopup.Attach(GoalInput, () => (DataContext as HomeViewModel)?.Picker);
     }
 
     public void FocusComposer() => GoalInput.Focus();
@@ -95,7 +94,7 @@ public partial class LauncherPaneView : UserControl {
         FocusComposer();
     }
 
-    internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
+    internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     internal Flyout? OpenMenuForTesting => _openMenu;
 
@@ -105,14 +104,9 @@ public partial class LauncherPaneView : UserControl {
         base.OnAttachedToVisualTree(e);
         _historyAttached = true;
         BindHistoryNotice();
-        _attachments ??= AttachmentDropPaste.Attach(
-            GoalCard, GoalInput, AttachButton,
-            () => (DataContext as HomeViewModel)?.Attachments, TimeProvider.System);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
-        _attachments?.Dispose();
-        _attachments = null;
         _historyAttached = false;
         _historyLease?.Dispose();
         _historyLease = null;
@@ -123,10 +117,6 @@ public partial class LauncherPaneView : UserControl {
     /// not leave a stray newline. Shift+Enter is left for the TextBox to insert a newline. Mirrors
     /// the Start button: connection readiness from CanExecute, repository from SelectedRepoPath.
     void OnGoalKeyDown(object? sender, KeyEventArgs e) {
-        if (_picker.HandleKey(e)) {
-            e.Handled = true;
-            return;
-        }
         if (e.Key != Key.Enter) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
         e.Handled = true;
