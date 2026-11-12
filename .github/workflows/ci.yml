@@ -23,8 +23,42 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # On a PR, the test projects its change can reach through the project graph; `all` otherwise.
+  # The checkout is the PR's merge commit, so its first parent is the base it will merge onto.
+  changes:
+    name: Select test projects
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.select.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Select
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            # --no-renames lists both sides of a move, so the project a file left is selected too.
+            selected="$(git diff --name-only --no-renames HEAD^1 HEAD | bash scripts/select-test-projects.sh)"
+          else
+            selected=all
+          fi
+          projects="$(printf '%s' "$selected" | tr '\n' ' ' | sed 's/ *$//')"
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Test projects'
+            if [ "$projects" = all ]; then echo 'All of them.'
+            elif [ -z "$projects" ]; then echo 'None: nothing in this change reaches a test project.'
+            else printf -- '- `%s`\n' $projects; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-and-test:
     name: Build and test (${{ matrix.os }})
+    needs: changes
     runs-on: ${{ matrix.os }}
     # Roughly 2.5x the longest observed leg (17m); this only has to catch a wedge, and GitHub's
     # kill takes the uploaded reports with it.
@@ -87,7 +121,28 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
 
+      # A selection runs through a solution filter, so the module and width caps apply to it unchanged.
+      - name: Pick the test solution
+        id: tests
+        if: needs.changes.outputs.projects != ''
+        shell: bash
+        env:
+          PROJECTS: ${{ needs.changes.outputs.projects }}
+        run: |
+          set -euo pipefail
+          solution=Capacitor.slnx
+          if [ "$PROJECTS" != all ]; then
+            solution=selected-tests.slnf
+            list="$(printf '"%s",' $PROJECTS)"
+            printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
+            cat "$solution"
+          fi
+          echo "solution=$solution" >> "$GITHUB_OUTPUT"
+
+      # The runner's default shell, not bash: on Windows, Git Bash puts its own usr/bin ahead of
+      # System32 on PATH, and a test that runs `timeout` through cmd.exe then gets the GNU one.
       - name: Run tests
+        if: needs.changes.outputs.projects != ''
         env:
           # The live launchd/systemd test loads a uniquely named unit; a disposable runner is the place for it.
           KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
@@ -99,7 +154,7 @@ jobs:
         # touching process-global state must hold the same key as every other toucher.
         # --hangdump writes a mini dump after 10m with no test-host activity.
         run: >
-          dotnet test --solution Capacitor.slnx --no-build
+          dotnet test --solution ${{ steps.tests.outputs.solution }} --no-build
           --max-parallel-test-modules ${{ matrix.modules }}
           -- --maximum-parallel-tests ${{ matrix.tests }}
           --hangdump --hangdump-timeout 10m --hangdump-type Mini
@@ -194,7 +249,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [build-and-test, lint-linear-ids, cli, desktop]
+    needs: [changes, build-and-test, lint-linear-ids, cli, desktop]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to succeed

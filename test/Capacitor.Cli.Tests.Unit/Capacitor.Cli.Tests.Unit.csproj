@@ -1,4 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <!-- Architecture guards scan all production source; container guards scan all test source. -->
+        <TestSelectionDirectory Include="../../src" />
+        <TestSelectionDirectory Include="../../test" />
+    </ItemGroup>
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <OutputType>Exe</OutputType>
