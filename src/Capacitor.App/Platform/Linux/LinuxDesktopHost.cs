@@ -25,11 +25,11 @@ public sealed class LinuxDesktopHost(
             EnableDrawnDecorations = true,
             RenderingMode = LinuxRenderingOrder.Resolve(Environment.GetEnvironmentVariable(LinuxRenderingOrder.EnvVar)),
         });
-    }
 
-    static void KeepInsideDrawnFrame(Window window) {
-        var margin = window.WindowDecorationMargin;
-        window.Padding = new Thickness(margin.Left, margin.Bottom, margin.Right, margin.Bottom);
+        static void KeepInsideDrawnFrame(Window window) {
+            var margin = window.WindowDecorationMargin;
+            window.Padding = new Thickness(margin.Left, margin.Bottom, margin.Right, margin.Bottom);
+        }
     }
 
     public override bool TrayAnnouncesMenuOpen => false;
