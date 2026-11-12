@@ -3898,7 +3898,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     async Task ProbeClaudeCommandsAsync(string agentId, string worktreePath, ResolvedAccount? account) {
         try {
-            var commands = await Harness.Claude.ClaudeCommandProbe.ProbeAsync(
+            var commands = await ClaudeCommandProbe.ProbeAsync(
                 _harnesses, worktreePath, account, _config.Home, _time, TimeSpan.FromSeconds(30), LogClaudeCommandProbe, _shutdownCts.Token);
 
             if (commands.Count > 0) ReportCommands(agentId, commands);

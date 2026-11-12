@@ -9,6 +9,9 @@ using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.App.ViewModels.Composer;
+using Capacitor.App.Services.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -173,6 +176,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
+    /// Null where nothing can list commands or files.
+    public ComposerPicker? Picker { get; }
+
     public string SelectedRepoPath {
         get => _selectedRepoPath;
         set {
@@ -778,8 +784,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             IObservable<DaemonListing>? listing = null, IObservable<IReadOnlyList<DaemonAccountsDto>>? daemonAccounts = null,
             IObservable<AccountsSnapshotDto?>? localAccounts = null, Func<Task>? retryListing = null,
-            AccountReadings? readings = null, IBranchReader? branches = null, Action<string>? launchFailed = null) {
+            AccountReadings? readings = null, IBranchReader? branches = null,
+            ComposerPickers? pickers = null,
+            Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
+        Picker = pickers?.Create(() => !RemoteMachineSelected && SelectedRepoPath is { Length: > 0 } repo
+            ? new ComposerContext(repo, HarnessId.From(SelectedVendor))
+            : null);
         _branches = branches;
         _daemon = daemon;
         _state = state;

@@ -9,6 +9,7 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -489,6 +490,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// channel accepts the prompt. A reply answers the session's open questions, and no permission
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
+    /// Null where nothing can list the agent's commands or files.
+    public ComposerPicker? Picker { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;

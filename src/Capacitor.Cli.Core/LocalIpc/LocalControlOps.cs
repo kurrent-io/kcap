@@ -36,6 +36,8 @@ public interface ILocalControlOps {
     Task<HandoffOutcomeDto?> ReadHandoffOutcomeAsync(string sessionId, CancellationToken ct);
     /// Null when the request or the reply never crossed the socket.
     Task<ResumeProbeReplyDto?> ProbeResumeAsync(ResumeProbeRequestDto request, CancellationToken ct);
+    /// Empty when the agent reported none or the exchange failed.
+    Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct);
 }
 
 /// One-shot Core IPC operations behind a fresh socket per call — no Hello negotiation (callers
@@ -320,6 +322,21 @@ public sealed class LocalControlOps(DaemonStore store, string daemonName, TimePr
             return JsonSerializer.Deserialize(reply.Text, ResumeInPlaceIpcJsonContext.Default.ResumeProbeReplyDto);
         } catch (JsonException) {
             return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct) {
+        LocalFrame reply;
+        try {
+            reply = await ExchangeAsync(LocalFrame.AgentCommands(agentId), ReplyTimeout, ct);
+        } catch (LocalControlOpsException) {
+            return [];
+        }
+        if (reply is not { Type: FrameType.AgentCommandsReply, Text.Length: > 0 }) return [];
+        try {
+            return JsonSerializer.Deserialize(reply.Text, AgentCommandsIpcJsonContext.Default.HostedAgentCommandArray) ?? [];
+        } catch (JsonException) {
+            return [];
         }
     }
 

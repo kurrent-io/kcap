@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels.Composer"
+             xmlns:core="clr-namespace:Capacitor.Cli.Core;assembly=Capacitor.Cli.Core"
+             x:Class="Capacitor.App.Views.ComposerPickerPopup">
+    <UserControl.Styles>
+        <Style Selector="Button.pickerRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="ContentPresenter.active Button.pickerRow /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+    </UserControl.Styles>
+    <ScrollViewer x:Name="Scroller" MaxHeight="280" Padding="6">
+        <ItemsControl x:Name="Rows">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.DataTemplates>
+                <DataTemplate DataType="core:HostedAgentCommand">
+                    <Button Classes="kcapGhost pickerRow" Focusable="False" Click="OnRowClick">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding Name, StringFormat='/{0}'}" MaxWidth="260"
+                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding ArgumentHint}" MaxWidth="200" Margin="8,0,0,0"
+                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapMutedBrush}" />
+                            <TextBlock Text="{Binding Description}" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource KcapMutedBrush}" />
+                        </DockPanel>
+                    </Button>
+                </DataTemplate>
+                <DataTemplate DataType="vm:FileMention">
+                    <Button Classes="kcapGhost pickerRow" Focusable="False" Click="OnRowClick">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" MaxWidth="260"
+                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
+                            <TextBlock Text="{Binding Folder}" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource KcapMutedBrush}" />
+                        </DockPanel>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.DataTemplates>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>

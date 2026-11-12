@@ -55,12 +55,14 @@ public partial class ChatTabView : UserControl {
     bool _restoringAnchor;
     int _anchorPasses;
     bool _anchorLaidOut;
+    readonly ComposerPickerPopup _picker;
 
     public ChatTabView() {
         InitializeComponent();
         // Tunnel, not bubble: TextBox's own class handler runs first on the bubbling route, where
         // it inserts the newline and marks Enter handled before any instance handler sees it.
         ComposerInput.AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
+        _picker = ComposerPickerPopup.Attach(ComposerInput, () => (DataContext as ChatTabViewModel)?.Picker);
         FindInput.AddHandler(KeyDownEvent, OnFindKeyDown, RoutingStrategies.Tunnel);
         // Press and release both: a click's command runs on the release, in a later dispatcher turn
         // than the press, by which time a flag armed on the press alone has been released.
@@ -642,6 +644,10 @@ public partial class ChatTabView : UserControl {
     /// TextBox's own newline. ↑/↓ recall sent prompts only from the first/last line, so inside a
     /// multi-line recall they stay the TextBox's own caret moves until the caret reaches an edge.
     void OnComposerKeyDown(object? sender, KeyEventArgs e) {
+        if (_picker.HandleKey(e)) {
+            e.Handled = true;
+            return;
+        }
         if (e.Key is Key.PageUp or Key.PageDown && e.KeyModifiers == KeyModifiers.None) {
             if (PageTranscript(e.Key == Key.PageUp)) e.Handled = true;
             return;

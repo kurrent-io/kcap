@@ -3,6 +3,9 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.App.ViewModels.Composer;
+using Capacitor.App.Services.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
@@ -240,6 +243,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? workContextLayout = null,
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            ComposerPickers? pickers = null,
             Func<bool>? inAppPages = null) {
         AgentId = agentId;
         _drafts = drafts;
@@ -456,6 +460,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             .ToProperty(this, x => x.LastStatus, initialValue: null)
             .DisposeWith(_disposables);
 
+        ComposerContext? composer = null;
+        presence.Subscribe(p => composer = p.Dto is { WorktreePath: { } worktree } dto ? new ComposerContext(worktree, HarnessId.From(dto.Vendor), agentId) : null)
+            .DisposeWith(_disposables);
         presence
             .Where(p => p.Dto is not null && !LacksRuntimeMetadata(p.Dto))
             .Take(1)
@@ -477,6 +484,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
                     WorkspaceNotice = ConnectionNotice,
+                    Picker = pickers?.Create(() => composer),
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));

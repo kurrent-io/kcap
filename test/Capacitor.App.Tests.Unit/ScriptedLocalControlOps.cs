@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 
@@ -159,6 +160,12 @@ sealed class ScriptedLocalControlOps : ILocalControlOps {
     public Task<HandoffOutcomeDto?> ReadHandoffOutcomeAsync(string sessionId, CancellationToken ct) =>
         ReadHandoffOutcome?.Invoke(sessionId)
             ?? throw new InvalidOperationException("ScriptedLocalControlOps: unscripted ReadHandoffOutcome call");
+
+    /// Answers ListCommands; unset, a listing is empty.
+    public Func<string, IReadOnlyList<HostedAgentCommand>>? ListCommands { get; set; }
+
+    public Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct) =>
+        Task.FromResult(ListCommands?.Invoke(agentId) ?? []);
 
     public Task<DaemonSettingsAckDto> PutDaemonSettingsAsync(DaemonSettingsPutDto put, CancellationToken ct) {
         Record(_putSettingsPayloads, put, ref PutSettingsCalls);
