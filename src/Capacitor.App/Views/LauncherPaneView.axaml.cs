@@ -30,7 +30,7 @@ public partial class LauncherPaneView : UserControl {
         set => SetValue(HistoryImportProperty, value);
     }
 
-    AttachmentDropPaste? _attachments;
+    readonly Composer _composer;
     Flyout? _openMenu;
     IDisposable? _nudgeEnd;
 
@@ -40,6 +40,7 @@ public partial class LauncherPaneView : UserControl {
 
     public LauncherPaneView() {
         InitializeComponent();
+        _composer = Composer.Attach(GoalCard, GoalInput, AttachButton);
         // Tunnel, not bubble: the TextBox marks Enter handled on the bubble route, so bare-Enter
         // submit must see the key on the way down. Shift+Enter falls through untouched, so the
         // TextBox inserts a newline (AcceptsReturn is true).
@@ -93,7 +94,7 @@ public partial class LauncherPaneView : UserControl {
         FocusComposer();
     }
 
-    internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
+    internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     internal Flyout? OpenMenuForTesting => _openMenu;
 
@@ -103,14 +104,9 @@ public partial class LauncherPaneView : UserControl {
         base.OnAttachedToVisualTree(e);
         _historyAttached = true;
         BindHistoryNotice();
-        _attachments ??= AttachmentDropPaste.Attach(
-            GoalCard, GoalInput, AttachButton,
-            () => (DataContext as HomeViewModel)?.Attachments, TimeProvider.System);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
-        _attachments?.Dispose();
-        _attachments = null;
         _historyAttached = false;
         _historyLease?.Dispose();
         _historyLease = null;

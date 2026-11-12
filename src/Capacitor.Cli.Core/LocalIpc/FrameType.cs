@@ -64,6 +64,7 @@ public enum FrameType : byte {
     DisableSession = 39, // Text = the session's id; goes only to a daemon advertising RecordingIpc.DisableCapability; answered on DisableSessionAck
     RecordTerminalSource = 40, // Text = RecordTerminalSourceDto JSON; goes only to a daemon advertising RecordingIpc.TerminalCapability; answered on RecordSourceAck
     SteeringSet = 41, // Text = SteeringIpc.On | SteeringIpc.Off; goes only to a daemon advertising SteeringIpc.SwitchCapability; answered on SteeringSetAck
+    AgentCommands = 42, // Text = agent id; goes only to a daemon advertising AgentCommandsIpc.Capability; answered on AgentCommandsReply
     // daemon → client
     Attached  = 64,
     Stdout    = 65,
@@ -99,4 +100,5 @@ public enum FrameType : byte {
     FinishSourceAck = 93, // Text = RecordingIpc.Finished | RecordingIpc.NotHeld
     DisableSessionAck = 94, // Text = RecordingIpc.Stopped | RecordingIpc.SendInFlight | RecordingIpc.NotHeld
     SteeringSetAck = 95, // Text = SteeringSetAckDto JSON
+    AgentCommandsReply = 96, // Text = JSON array of HostedAgentCommand; empty when the agent is unknown or reported none
 }

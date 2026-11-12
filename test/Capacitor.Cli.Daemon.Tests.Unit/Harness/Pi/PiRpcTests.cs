@@ -485,18 +485,13 @@ public class PiRpcTests {
         await Assert.That(frame.Root.Str("type")).IsEqualTo("get_state");
     }
 
-    // set_model is PR-2's — see PiRpc's class doc. Its correct upstream shape
-    // ({"type":"set_model","provider":..,"modelId":..}, rpc.md ~222) will be added with the reviewer
-    // / model-selection lane; PR-1 never called SetModelCommand, so it was dead code carrying the
-    // WRONG shape ({"model":..}) and has been removed along with this test.
-
     /// <summary>Pi's RPC `bash` runs a shell whatever the tool allowlist says, and `export_html` writes a
     /// host-named path. This runtime must never be able to send either.</summary>
     [Test]
-    public async Task PiRpc_builds_only_get_state_prompt_and_abort() {
+    public async Task PiRpc_builds_only_get_state_get_commands_prompt_and_abort() {
         var builders = typeof(PiRpc).GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
             .Where(m => m.Name.EndsWith("Command", StringComparison.Ordinal)).Select(m => m.Name).OrderBy(n => n).ToArray();
 
-        await Assert.That(builders).IsEquivalentTo(new[] { "AbortCommand", "GetStateCommand", "PromptCommand" });
+        await Assert.That(builders).IsEquivalentTo(new[] { "AbortCommand", "GetCommandsCommand", "GetStateCommand", "PromptCommand" });
     }
 }
