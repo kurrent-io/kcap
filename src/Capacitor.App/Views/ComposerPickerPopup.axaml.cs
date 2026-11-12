@@ -33,10 +33,19 @@ public partial class ComposerPickerPopup : UserControl {
         input.PropertyChanged += (_, e) => {
             if (e.Property == TextBox.CaretIndexProperty) Dispatcher.UIThread.Post(popup.Update);
         };
+        input.DataContextChanged += (_, _) => popup.Close();
+    }
+
+    void Close() {
+        _updates++;
+        _flyout.Hide();
     }
 
     async void Update() {
-        if (_picker() is not { } picker) return;
+        if (_picker() is not { } picker) {
+            Close();
+            return;
+        }
         var update = ++_updates;
         var at = Current();
         try {
