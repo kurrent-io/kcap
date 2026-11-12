@@ -19,6 +19,10 @@ source "$here/lib/pe.sh"
 
 endpoint="${ARTIFACT_SIGNING_ENDPOINT#https://}"
 endpoint="${endpoint%/}"
+# jsign uses any other scheme as given, and would send the token over it.
+case "$endpoint" in
+  ""|*/*|*:*) echo "sign-windows: ARTIFACT_SIGNING_ENDPOINT must be a host name or an https:// URL, not '$ARTIFACT_SIGNING_ENDPOINT'" >&2; exit 1 ;;
+esac
 opts=(--storetype TRUSTEDSIGNING --keystore "$endpoint" --storepass env:KCAP_SIGN_TOKEN
       --alias "$ARTIFACT_SIGNING_ACCOUNT/$ARTIFACT_SIGNING_PROFILE")
 

@@ -84,6 +84,13 @@ layout "$tmp/d"
 check no-token                [ "$(run "$tmp/d" KCAP_SIGN_TOKEN=)" != 0 ]
 check no-token-no-call        [ ! -s "$tmp/java.log" ]
 
+for endpoint in http://eus.codesigning.azure.net ftp://eus.codesigning.azure.net eus.codesigning.azure.net:80; do
+  layout "$tmp/endpoint"
+  check "endpoint-refused:$endpoint" [ "$(run "$tmp/endpoint" ARTIFACT_SIGNING_ENDPOINT="$endpoint")" != 0 ]
+  check "endpoint-refused-no-call:$endpoint" [ ! -s "$tmp/java.log" ]
+  rm -rf "$tmp/endpoint"
+done
+
 mkdir -p "$tmp/e"; make_pe "$tmp/e/kcap-server.exe" 00080000
 check nothing-to-sign         [ "$(run "$tmp/e")" = 0 ]
 check nothing-to-sign-no-call [ ! -s "$tmp/java.log" ]
