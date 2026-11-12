@@ -10,3 +10,4 @@ public static class StatusColors {
     /// Work in progress that needs nothing, in the launcher spinner's muted grey.
     public const string Pending     = "#B0B7C6";
 }
+// CI selection probe, to be discarded.
