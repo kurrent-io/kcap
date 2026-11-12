@@ -6,6 +6,7 @@ namespace Capacitor.App.ViewModels.Composer;
 /// Rows are <see cref="HostedAgentCommand"/>s or <see cref="FileMention"/>s.
 public sealed class ComposerPicker(Func<ComposerContext?> context, SlashCompletion slash, MentionCompletion mention) : ReactiveObject {
     int _generation;
+    ComposerContext? _context;
     IReadOnlyList<object> _rows = [];
 
     public IReadOnlyList<object> Rows {
@@ -17,7 +18,13 @@ public sealed class ComposerPicker(Func<ComposerContext?> context, SlashCompleti
         var generation = ++_generation;
         caret = Math.Clamp(caret, 0, text.Length);
         IReadOnlyList<object> rows = [];
-        if (context() is { } at) {
+        var current = context();
+        if (current != _context) {
+            slash.Reset();
+            mention.Reset();
+            _context = current;
+        }
+        if (current is { } at) {
             var commands = await slash.RowsAsync(text, at);
             var files = await mention.RowsAsync(text, caret, at);
             rows = commands ?? files ?? [];

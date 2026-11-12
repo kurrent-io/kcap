@@ -12,12 +12,14 @@ public sealed partial class SlashCompletion(Func<ComposerContext, Task<IReadOnly
     /// Null when the text is not a slash query.
     public async Task<IReadOnlyList<object>?> RowsAsync(string text, ComposerContext context) {
         if (Query().Match(text) is not { Success: true } query) {
-            _listed = null;
+            Reset();
             return null;
         }
 
         return [.. Rank(await (_listed ??= list(context)), query.Groups[1].Value)];
     }
+
+    public void Reset() => _listed = null;
 
     public static (string Text, int Caret) Insert(HostedAgentCommand command) {
         var line = $"/{command.Name} ";

@@ -11,6 +11,9 @@ public partial class ComposerPickerPopup : UserControl {
     TextBox _input = null!;
     Func<ComposerPicker?> _picker = () => null;
     int _active;
+    int _updates;
+    IReadOnlyList<object> _rows = [];
+    (ComposerPicker? Picker, string Text, int Caret) _shownFor;
 
     public ComposerPickerPopup() {
         InitializeComponent();
@@ -26,27 +29,33 @@ public partial class ComposerPickerPopup : UserControl {
         var popup = new ComposerPickerPopup { _input = input, _picker = picker };
         // Posted: the caret moves after TextChanged, and the query is the text before it.
         input.TextChanged += (_, _) => Dispatcher.UIThread.Post(popup.Update);
+        input.PropertyChanged += (_, e) => {
+            if (e.Property == TextBox.CaretIndexProperty) Dispatcher.UIThread.Post(popup.Update);
+        };
 
         return popup;
     }
 
     async void Update() {
         if (_picker() is not { } picker) return;
-        var text = _input.Text ?? "";
+        var update = ++_updates;
+        var at = Current();
         try {
-            await picker.UpdateAsync(text, _input.CaretIndex);
+            await picker.UpdateAsync(at.Text, at.Caret);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: composer picker: {ex.Message}");
             picker.Dismiss();
         }
-        if ((_input.Text ?? "") != text) return;
+        if (update != _updates || Current() != at) return;
 
         if (picker.Rows.Count == 0 || !_input.IsFocused) {
             _flyout.Hide();
             return;
         }
         _active = 0;
-        Rows.ItemsSource = picker.Rows;
+        _rows = picker.Rows;
+        _shownFor = at;
+        Rows.ItemsSource = _rows;
         Scroller.Width = _input.Bounds.Width;
         Scroller.Offset = default;
         if (_flyout.IsOpen) return;
@@ -55,7 +64,7 @@ public partial class ComposerPickerPopup : UserControl {
     }
 
     public bool HandleKey(KeyEventArgs e) {
-        if (!_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _picker() is not { Rows.Count: > 0 and var count } picker) return false;
+        if (!_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _rows is not { Count: > 0 and var count }) return false;
         switch (e.Key) {
             case Key.Up or Key.Down:
                 Rows.ContainerFromIndex(_active)?.Classes.Set("active", false);
@@ -64,10 +73,10 @@ public partial class ComposerPickerPopup : UserControl {
                 Rows.ContainerFromIndex(_active)?.Classes.Set("active", true);
                 return true;
             case Key.Enter or Key.Tab:
-                Pick(picker.Rows[Math.Min(_active, count - 1)]);
+                Pick(_rows[_active]);
                 return true;
             case Key.Escape:
-                picker.Dismiss();
+                _picker()?.Dismiss();
                 _flyout.Hide();
                 return true;
             default:
@@ -77,7 +86,11 @@ public partial class ComposerPickerPopup : UserControl {
 
     void OnRowClick(object? sender, RoutedEventArgs e) => Pick(((Button)sender!).DataContext!);
 
+    (ComposerPicker? Picker, string Text, int Caret) Current() => (_picker(), _input.Text ?? "", _input.CaretIndex);
+
+    /// Rows answer the text, caret and picker they were listed for. Until a pending update catches up, a pick does nothing.
     void Pick(object row) {
+        if (Current() != _shownFor) return;
         if (row is not FileMention { Path: [.., '/'] }) _flyout.Hide();
         var (text, caret) = ComposerPicker.Insert(row, _input.Text ?? "", _input.CaretIndex);
         _input.Text = text;

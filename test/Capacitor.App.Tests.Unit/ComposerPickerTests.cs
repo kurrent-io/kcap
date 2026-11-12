@@ -66,6 +66,8 @@ public class ComposerPickerTests {
             .IsEqualTo(("@\"my dir/a b.cs\" ", 17));
         await Assert.That(ComposerPicker.Insert(new FileMention("./src/"), "@./s", 4))
             .IsEqualTo(("@./src/", 7));
+        await Assert.That(ComposerPicker.Insert(new FileMention("./my dir/"), "@./m", 4))
+            .IsEqualTo(("@\"./my dir/", 11));
         await Assert.That(ComposerPicker.Insert(new HostedAgentCommand("review", null, null), "/rev", 4))
             .IsEqualTo(("/review ", 8));
     }
@@ -86,6 +88,37 @@ public class ComposerPickerTests {
         await picker.UpdateAsync("@a", 2);
 
         await Assert.That(reads).IsEquivalentTo(["repo", "./", "repo"], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_quoted_folder_query_lists_that_folder() {
+        var reads = new List<string>();
+        var picker = Picker(folder: _ => ["a b.cs"], reads: reads);
+
+        await picker.UpdateAsync("@\"./my dir/a", 12);
+
+        await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new FileMention("./my dir/a b.cs")]);
+        await Assert.That(reads).IsEquivalentTo(["./my dir/"], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_new_context_reads_its_own_listing() {
+        var context = new ComposerContext("/a", HarnessId.Claude);
+        var reads = new List<string>();
+        var picker = new ComposerPicker(() => context,
+            new SlashCompletion(_ => Task.FromResult<IReadOnlyList<HostedAgentCommand>>([])),
+            new MentionCompletion(
+                dir => {
+                    reads.Add(dir);
+                    return Task.FromResult<IReadOnlyList<string>>([]);
+                },
+                (_, _) => Task.FromResult<IReadOnlyList<string>>([])));
+
+        await picker.UpdateAsync("@a", 2);
+        context = new ComposerContext("/b", HarnessId.Claude);
+        await picker.UpdateAsync("@ab", 3);
+
+        await Assert.That(reads).IsEquivalentTo(["/a", "/b"], CollectionOrdering.Matching);
     }
 
     [Test]

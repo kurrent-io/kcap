@@ -11,18 +11,17 @@ public sealed partial class MentionCompletion(
     readonly Dictionary<string, Task<IReadOnlyList<string>>> _folders = new(StringComparer.Ordinal);
     Task<IReadOnlyList<string>>? _repo;
 
-    [GeneratedRegex(@"(?:^|\s)@(\S*)$")]
+    [GeneratedRegex(@"(?:^|\s)(@(?:""(?<q>[^""]*)|(?<q>\S*)))$")]
     private static partial Regex Query();
 
     /// Null when no "@query" ends at the caret.
     public async Task<IReadOnlyList<object>?> RowsAsync(string text, int caret, ComposerContext context) {
         if (Query().Match(text[..caret]) is not { Success: true } match) {
-            _repo = null;
-            _folders.Clear();
+            Reset();
             return null;
         }
 
-        var query = match.Groups[1].Value;
+        var query = match.Groups["q"].Value;
         if (query is ['/', ..] or ['.', '/', ..] or ['.', '.', '/', ..] or ['~', '/', ..]) {
             var cut = query.LastIndexOf('/') + 1;
             var folder = query[..cut];
@@ -34,11 +33,17 @@ public sealed partial class MentionCompletion(
         return [.. RankRepo(await (_repo ??= repoFiles(context.Directory)), query)];
     }
 
-    /// A folder goes in without a trailing space, so the query carries on into it.
+    public void Reset() {
+        _repo = null;
+        _folders.Clear();
+    }
+
+    /// A folder goes in without a trailing space or closing quote, so the query carries on into it.
     public static (string Text, int Caret) Insert(FileMention mention, string text, int caret) {
-        var start = caret - Query().Match(text[..caret]).Groups[1].Length - 1;
+        var start = Query().Match(text[..caret]).Groups[1].Index;
         var path = mention.Path;
-        var inserted = path.EndsWith('/') ? $"@{path}" : path.Any(char.IsWhiteSpace) ? $"@\"{path}\" " : $"@{path} ";
+        var quote = path.Any(char.IsWhiteSpace) ? "\"" : "";
+        var inserted = path.EndsWith('/') ? $"@{quote}{path}" : $"@{quote}{path}{quote} ";
 
         return (text[..start] + inserted + text[caret..], start + inserted.Length);
     }
