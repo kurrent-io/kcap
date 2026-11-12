@@ -6,11 +6,11 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Harness.Codex;
 
 /// <summary>
-/// The §2.4 bounded forward buffer that decouples the codex app-server stdout reader from SignalR
+/// The bounded forward buffer that decouples the codex app-server stdout reader from SignalR
 /// envelope forwarding. Envelopes are emitted synchronously from the single notification-handling path
 /// (the app-server read loop); the SignalR forwarder drains <see cref="Reader"/> independently.
 ///
-/// <para>Overflow policy, fixed by §2.4:</para>
+/// <para>Overflow policy:</para>
 /// <list type="bullet">
 /// <item><description><b>Canonical envelopes are NEVER dropped.</b> When the buffer is full a canonical
 /// emit BLOCKS the caller — the read loop stops consuming stdout and the app-server blocks on its

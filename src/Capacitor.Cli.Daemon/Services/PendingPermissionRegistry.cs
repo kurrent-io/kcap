@@ -5,12 +5,11 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <summary>
 /// Correlates a hosted-agent permission request with the server's later decision push.
 ///
-/// Background: the daemon used to obtain a permission decision as the return value of
-/// a <c>RequestPermission</c> hub invocation that stayed pending for the entire elicitation
-/// wait. Under SignalR's default <c>MaximumParallelInvocationsPerClient = 1</c> that single
-/// in-flight invocation starved the daemon's <c>DaemonPing</c>, tripped the 5s ping deadline,
-/// and sent the daemon into a reconnect storm (garbled terminal + spurious deny). The new model
-/// has the daemon call <c>RequestPermission2</c> — a short invocation returning a
+/// A permission decision must not be the return value of a hub invocation that stays pending for
+/// the whole elicitation wait: under SignalR's default <c>MaximumParallelInvocationsPerClient = 1</c>
+/// that in-flight invocation starves the daemon's <c>DaemonPing</c>, trips the 5s ping deadline,
+/// and sends the daemon into a reconnect storm (garbled terminal + spurious deny). So the daemon
+/// calls <c>RequestPermission2</c> — a short invocation returning a
 /// <c>requestId</c> — and the server pushes the decision via a <c>PermissionResolved</c>
 /// server→client message when the user responds. This registry holds the awaiting
 /// <see cref="TaskCompletionSource{T}"/> keyed by requestId and bridges the push back to it.

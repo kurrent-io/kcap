@@ -219,11 +219,9 @@ public sealed class ConPtyProcess : IPtyProcess {
         // OWNERSHIP / CLEANUP SCOPE: hPC (the pseudoconsole) and the two parent-side pipe ends
         // (ptyInputWrite, ptyOutputRead) belong to THIS method until the success path transfers
         // them into the returned ConPtyProcess — hPC into the object, and the pipe ends into its
-        // stdio FileStreams (via SafeFileHandles). Every fail-closed exit AFTER CreatePseudoConsole
-        // used to leak all three: each throw path disposed the JOB handle but never released the
-        // pseudoconsole or the pipe ends. Because a CreateProcessW failure is a NORMAL fail-closed
-        // outcome (bad path / blocked nesting / the fail-closed UI-restricted-job case exercised by
-        // the W5 test), repeated failed launches leaked one pseudoconsole + two kernel handles each.
+        // stdio FileStreams (via SafeFileHandles). A CreateProcessW failure is a NORMAL fail-closed
+        // outcome (bad path / blocked nesting / a UI-restricted job), so a throw path that disposed
+        // only the JOB handle would leak one pseudoconsole + two kernel handles per failed launch.
         // The outer catch below releases them on ANY failure; `committed` flips true only once
         // ownership has been handed to the returned object, so the success path never double-closes
         // a now-owned handle. The raw pipe locals are additionally zeroed the instant their
@@ -232,7 +230,7 @@ public sealed class ConPtyProcess : IPtyProcess {
         var committed = false;
 
         try {
-            // §4.1: bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
+            // Bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
             // PROC_THREAD_ATTRIBUTE_JOB_LIST attribute below), not by AssignProcessToJobObject
             // after the fact — there is no window where the child exists uncontained.
             var hJob = CreateJobObjectW(IntPtr.Zero, null);

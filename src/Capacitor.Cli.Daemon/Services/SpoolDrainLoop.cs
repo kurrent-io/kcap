@@ -26,7 +26,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// AOT exes referencing each other as libraries risks a duplicate-entry-point/bloated-trim-graph mess).
 /// It composes the same Core primitives (<see cref="HookSpool"/>, <see cref="TranscriptSpool"/>,
 /// <see cref="LifecycleSpoolDrain"/>) directly, and — mirroring the CLI's own
-/// generate_whats_done wiring (BLOCKER-2) — passes the daemon's OWN pre-existing
+/// generate_whats_done wiring — passes the daemon's OWN pre-existing
 /// <c>AgentOrchestrator.SpawnWhatsDoneGenerator</c> as the callback (the daemon already duplicates
 /// that "spawn `kcap generate-whats-done`" subprocess logic rather than sharing
 /// <c>WatcherManager</c>, for the same decoupling reason).</para>

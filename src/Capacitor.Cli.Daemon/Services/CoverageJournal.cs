@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B2-b (sequenced-settlement design §4.2.3): the durable boot-chain attestation that
+/// The durable boot-chain attestation that
 /// drives <c>RecordlessSurvivorsImpossible</c>. A boolean alone cannot witness boots by UNAWARE
 /// binaries, so this folds across the lock file's persistent per-boot <c>InstanceId</c> nonce
 /// (the only marker every shipped version rewrites at boot and never deletes):

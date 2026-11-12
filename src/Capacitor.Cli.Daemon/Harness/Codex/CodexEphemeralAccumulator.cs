@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Daemon.Harness.Codex;
 /// <summary>
 /// Accumulates codex app-server per-item deltas (<c>item/agentMessage/delta</c>, reasoning deltas,
 /// <c>item/commandExecution/outputDelta</c>, …) into the CUMULATIVE content-so-far that each ephemeral
-/// envelope carries. §2.4 fixes the contract: ephemeral payloads are the item's whole accumulated
+/// envelope carries. Ephemeral payloads are the item's whole accumulated
 /// content (idempotent replacement at the viewer), never an increment — so a dropped or duplicated
 /// ephemeral is harmless, and the canonical <c>item/completed</c> snapshot supersedes it. There is no
 /// increment reassembly anywhere; <see cref="Complete"/> drops the item's transient state once its
