@@ -21,15 +21,13 @@ public sealed class LinuxDesktopHost(
     public override AppBuilder ConfigureAvalonia(AppBuilder builder) {
         Window.WindowDecorationMarginProperty.Changed.AddClassHandler<Window>((window, _) => KeepInsideDrawnFrame(window));
         return builder.With(new X11PlatformOptions {
-#pragma warning disable AVALONIA_X11_CSD // Experimental, without it X11 ignores ExtendClientAreaToDecorationsHint and the WM adds its own title bar
+#pragma warning disable AVALONIA_X11_CSD
             EnableDrawnDecorations = true,
 #pragma warning restore AVALONIA_X11_CSD
             RenderingMode = LinuxRenderingOrder.Resolve(Environment.GetEnvironmentVariable(LinuxRenderingOrder.EnvVar)),
         });
     }
 
-    // The margin is frame and shadow on every side plus the title bar on top. The app paints its own
-    // title bar, so only the frame is inset, and the top frame matches the bottom one.
     static void KeepInsideDrawnFrame(Window window) {
         var margin = window.WindowDecorationMargin;
         window.Padding = new Thickness(margin.Left, margin.Bottom, margin.Right, margin.Bottom);
