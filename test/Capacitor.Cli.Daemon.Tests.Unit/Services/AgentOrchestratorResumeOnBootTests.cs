@@ -1122,6 +1122,21 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Orch.ResumingClaims()).IsEmpty();
     }
 
+    /// <summary>A run this daemon did not launch is reported with no holding process: the server holds the ledger's
+    /// process unless a resume claim re-stamped it, which the ledger cannot tell, and a wrong id hides the failure.
+    /// The current process's id is never one the server holds for it.</summary>
+    [Test]
+    public async Task A_predecessors_run_failed_at_boot_names_no_holding_process() {
+        var f = Build(configure: c => c.AutoResume = false);
+        await using var _ = f.Orch;
+        Entry(f, "off-1", state: ResumeState.Running, predecessor: null, daemonInstanceId: "instance-killed");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Server.ShutdownReportRunInstances).IsEquivalentTo([("off-1", (string?)null)]);
+    }
+
     /// <summary>A zero age cap means no cap, as the environment knob documents.</summary>
     [Test]
     public async Task A_zero_age_cap_resumes_an_entry_of_any_age() {

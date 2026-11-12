@@ -1333,19 +1333,23 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     ///
     /// <para>Best-effort by contract: every step is contained, and a failure in one does not skip the
     /// rest. Nothing here retries — the caller is holding a shutdown open.</para>
+    ///
+    /// <para><paramref name="runInstanceId"/> is the daemon process that holds the run on the server, null when the
+    /// caller cannot be sure which one does; see <see cref="AgentRunStopped"/>.</para>
     /// </summary>
     public Task ReportAgentEndedForShutdownAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) =>
-        SendShutdownReportAsync(agentId, sessionId, status, reason, exitCode, endSession: !EndsNoSession(agentId, sessionId), ct);
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, CancellationToken ct) =>
+        SendShutdownReportAsync(agentId, sessionId, status, reason, exitCode, runInstanceId, endSession: !EndsNoSession(agentId, sessionId), ct);
 
     protected virtual async Task SendShutdownReportAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, bool endSession, CancellationToken ct) {
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, bool endSession,
+            CancellationToken ct) {
         await SafeShutdownStepAsync(
             () => _hub.InvokeAsync("AgentStatusChanged", new AgentStatusChanged(agentId, status, sessionId), cancellationToken: ct),
             agentId, "status");
 
         await SafeShutdownStepAsync(
-            () => _eventQueue.PostDirectAsync(agentId, new AgentRunStopped(reason, exitCode), ct), agentId, "run-stopped");
+            () => _eventQueue.PostDirectAsync(agentId, new AgentRunStopped(reason, exitCode, runInstanceId), ct), agentId, "run-stopped");
 
         if (endSession) {
             await SafeShutdownStepAsync(

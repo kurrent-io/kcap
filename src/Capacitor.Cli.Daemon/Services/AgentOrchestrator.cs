@@ -4134,7 +4134,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (!agent.IsServerSilent) {
             _ = _server.LaunchFailedAsync(agent.Id, reason);
             TrySendAgentStatus(agent, "Failed", null, out _);
-            _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped("failed", null));
+            _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped("failed", null, _config.InstanceId));
         }
 
         // The wedged process is still ALIVE on the dialog (unlike an ordinary startup failure, which
@@ -4291,7 +4291,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     try {
                         var stopReason = status == "Completed" ? "exited" : "failed";
 
-                        await _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(stopReason, exitCode));
+                        await _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(stopReason, exitCode, _config.InstanceId));
                     } catch (Exception ex) {
                         LogCleanupStepFailed(ex, "recording the run's stop", agent.Id);
                     }
@@ -5015,7 +5015,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             TrySendAgentStatus(agent, "Completed", null, out _);
         }
 
-        _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(gone ? "user" : "failed", null));
+        _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(gone ? "user" : "failed", null, _config.InstanceId));
     }
 
     /// <summary>Observes an abandoned graceful-stop send (see <see cref="StopAgentCoreAsync"/>) so its
@@ -6945,7 +6945,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             try {
                 await _server.ReportAgentEndedForShutdownAsync(
-                    agent.Id, agent.SessionId, "Failed", DaemonShutdownStopReason, agent.Runtime.ExitCode, budget.Token)
+                    agent.Id, agent.SessionId, "Failed", DaemonShutdownStopReason, agent.Runtime.ExitCode, _config.InstanceId, budget.Token)
                     .WaitAsync(budget.Token);
 
                 LogShutdownReported(agent.Id);

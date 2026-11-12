@@ -103,6 +103,34 @@ public class AgentRunEventQueueTests {
         await Assert.That(credentials.Refused).IsEquivalentTo(new string?[] { "old" });
     }
 
+    /// <summary>A stop names the daemon process that holds its run, as the stop was built, never the process
+    /// sending it: a restarted daemon reports its predecessor's runs too. The field is additive: a server that
+    /// predates it ignores it.</summary>
+    [Test]
+    [Arguments("proc-1", """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":"proc-1"}}""")]
+    [Arguments(null, """{"event_type":"AgentRunStopped","data":{"reason":"done","exit_code":0,"daemon_instance_id":null}}""")]
+    public async Task A_stop_carries_the_process_that_holds_its_run(string? holder, string body) {
+        var bodies = new List<string>();
+        var config = new DaemonConfig {
+            Name = "queue-test", ServerUrl = "http://server.test", Profiles = Resolutions.None(Config.Root), InstanceId = "proc-sender"
+        };
+
+        using var queue = new AgentRunEventQueue(
+            config, new FixedCredentialSource(), TimeProvider.System, new CapturingLogger(), new HttpClient(new BodyCapture(bodies)));
+
+        await queue.PostDirectAsync("agent-1", new AgentRunStopped("done", 0, holder), CancellationToken.None);
+
+        await Assert.That(bodies).IsEquivalentTo([body]);
+    }
+
+    sealed class BodyCapture(List<string> bodies) : HttpMessageHandler {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            bodies.Add(await request.Content!.ReadAsStringAsync(ct));
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     sealed class HeaderCapture(List<string?> sent, Queue<HttpStatusCode>? statuses = null) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             sent.Add(request.Headers.Authorization?.ToString());
