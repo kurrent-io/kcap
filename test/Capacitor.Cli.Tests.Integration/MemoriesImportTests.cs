@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -9,6 +10,7 @@ namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>Spawns the built CLI for <c>kcap memories import</c> against a stubbed server: every note but the index is
 /// saved, homed at the working directory's repository, and a dry run or an unconfirmable run sends nothing.</summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class MemoriesImportTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

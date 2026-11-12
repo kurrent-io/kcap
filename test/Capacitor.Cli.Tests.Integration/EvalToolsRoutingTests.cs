@@ -1,8 +1,10 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
+[RunOn(OS.Linux | OS.MacOs)]
 public class EvalToolsRoutingTests {
     // VERIFIED against EvalQuestionMetadata.All (NeedsTools == true) on the rebased main:
     // the FOUR tool-routed questions are exactly these (category → id):

@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -16,6 +17,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>reason: parent_exited</c>. The server's idempotent HandleSessionEnd writes
 /// SessionEnded and tells us whether to spawn the what's-done generator.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherParentExitPostTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

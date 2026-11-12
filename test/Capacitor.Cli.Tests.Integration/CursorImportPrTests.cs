@@ -1,6 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Cursor;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -15,6 +16,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// when many sessions share the same cwd. Drives the real discover → classify → import path
 /// against a stub server, mirroring <see cref="PiImportSourceImportTests"/>.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class CursorImportPrTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

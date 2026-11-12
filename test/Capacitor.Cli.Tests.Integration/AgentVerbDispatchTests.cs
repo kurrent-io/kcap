@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -11,6 +12,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// tombstone" would pass for any other pre-dispatch guard that exits 1 (the missing-server gate
 /// did exactly that), which would leave this file green while the group stayed shadowed.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class AgentVerbDispatchTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

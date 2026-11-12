@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,6 +14,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// for longer than the hook is allowed to live, so the only way the POST can arrive is from a
 /// process that outlived the hook.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class ClaudeSessionEndHandoffTests : IDisposable {
     /// <summary>Long enough that a hook which waited for the POST could not be mistaken for a slow
     /// one: the bound below sits halfway between the two.</summary>

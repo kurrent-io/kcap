@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Harness.Grok;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,6 +14,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>kcap import --grok</c> against a stub server: a parent session and the subagent its transcript
 /// names, laid out as Grok writes them, sibling session directories under the encoded cwd.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class GrokImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

@@ -2,6 +2,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -45,6 +46,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// </list>
 /// </summary>
 [NotInParallel] // KCAP_WATCHER_DIR is process-global, and other classes pin it too.
+[RunOn(OS.Linux | OS.MacOs)]
 public class CursorTailingWatcherTests {
     TestRecorders Recorders => field ??= new(Config.Root);
 

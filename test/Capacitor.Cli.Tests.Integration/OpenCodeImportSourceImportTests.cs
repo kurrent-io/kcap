@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.OpenCode;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -11,6 +12,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// discover → classify → import path against a stub server, covering lifecycle order,
 /// strict-send abort, subagent routing, repair-above-HWM, and ledger skip-on-rerun.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class OpenCodeImportSourceImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

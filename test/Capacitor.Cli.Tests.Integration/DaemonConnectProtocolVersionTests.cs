@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -10,6 +11,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// The checked-in fixture is the golden artifact shared with a server-side test that deserializes
 /// it into <c>DaemonConnectArgs</c> and asserts <c>EvalProtocolVersion == 2</c>.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class DaemonConnectProtocolVersionTests {
     static string FixturePath => Path.Combine(AppContext.BaseDirectory, "fixtures", "daemon-connect.v2.json");
 

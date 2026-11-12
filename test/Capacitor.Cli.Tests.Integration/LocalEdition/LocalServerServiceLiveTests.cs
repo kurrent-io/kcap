@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.LocalEdition;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration.LocalEdition;
 
@@ -16,6 +17,7 @@ namespace Capacitor.Cli.Tests.Integration.LocalEdition;
 /// since systemd reads user units only from there.
 /// </summary>
 [NotInParallel(nameof(LocalServerServiceLiveTests))]
+[RunOn(OS.Linux | OS.MacOs)]
 public class LocalServerServiceLiveTests {
     const string CheckEnvVar = "KCAP_LOCAL_SERVICE_CHECK";
 

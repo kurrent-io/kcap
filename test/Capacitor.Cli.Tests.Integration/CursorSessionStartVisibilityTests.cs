@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -16,6 +17,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// set so the enrichment reserialization actually runs — the round-trip the stamp must survive.
 /// See #579.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class CursorSessionStartVisibilityTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

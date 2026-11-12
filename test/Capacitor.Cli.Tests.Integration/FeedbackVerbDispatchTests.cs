@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -12,6 +13,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// rather than merely "not Unknown command" — a bare "not the tombstone" check would pass for any
 /// other pre-dispatch guard that exits non-zero with unrelated text.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class FeedbackVerbDispatchTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }
