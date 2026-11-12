@@ -3199,3 +3199,4 @@ install [--codex|--cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravit
 ## License
 
 [Kurrent License v1](LICENSE.md)
+<!-- CI selection probe, to be discarded. -->
