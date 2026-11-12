@@ -7,8 +7,6 @@ using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.App.Services.Composer;
 
-/// The commands a composer's / offers: a running agent's own, from its daemon, else what its harness
-/// reports before launch. A harness gets a pre-launch list by adding its probe to <see cref="Probes"/>.
 public sealed class CommandCatalog {
     internal delegate Task<IReadOnlyList<HostedAgentCommand>> Probe(string directory, CancellationToken ct);
 
@@ -35,8 +33,7 @@ public sealed class CommandCatalog {
             [HarnessId.Claude] = (directory, ct) => ClaudeCommandProbe.ProbeAsync(harnesses, directory, null, home, time, ProbeTimeout, Log, ct),
         }.ToFrozenDictionary();
 
-    /// A probe's list is kept per checkout, since each one starts the harness; an empty one is probed again.
-    /// Called on the UI thread only.
+    /// UI thread only. A probe's list is kept per checkout, since each probe starts the harness.
     public async Task<IReadOnlyList<HostedAgentCommand>> ListAsync(ComposerContext context) {
         if (context.AgentId is { } agentId && _daemonLists && await _ops.ListCommandsAsync(agentId, _shutdown) is { Count: > 0 } listed)
             return listed;

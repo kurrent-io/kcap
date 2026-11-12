@@ -176,7 +176,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
-    /// Null where nothing can list commands or files.
     public ComposerPicker? Picker { get; }
 
     public string SelectedRepoPath {

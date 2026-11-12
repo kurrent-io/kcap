@@ -6,7 +6,6 @@ using Capacitor.App.ViewModels.Composer;
 
 namespace Capacitor.App.Views;
 
-/// The / and @ picker flyout over a composer TextBox.
 public partial class ComposerPickerPopup : UserControl {
     readonly Flyout _flyout;
     TextBox _input = null!;

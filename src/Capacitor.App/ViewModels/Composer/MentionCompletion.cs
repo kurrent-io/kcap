@@ -2,9 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Capacitor.App.ViewModels.Composer;
 
-/// "@query" before the caret, completed from the context's checkout: a query starting with "/",
-/// "./", "../" or "~/" lists that folder, anything else ranks the repository's files. Each listing
-/// is read once per query and dropped when it ends, so the next one sees files created since.
+/// Each listing is read once per query and dropped when it ends, so the next one sees files created since.
 public sealed partial class MentionCompletion(
         Func<string, Task<IReadOnlyList<string>>> repoFiles,
         Func<string, string, Task<IReadOnlyList<string>>> folderEntries) {
@@ -45,7 +43,6 @@ public sealed partial class MentionCompletion(
         return (text[..start] + inserted + text[caret..], start + inserted.Length);
     }
 
-    /// Dotfiles stay hidden until the typed part itself starts with ".".
     internal static IEnumerable<FileMention> RankFolder(IReadOnlyList<string> names, string folder, string part) =>
         names.Where(name => name.Contains(part, StringComparison.OrdinalIgnoreCase) && (part.StartsWith('.') || !name.StartsWith('.')))
             .OrderBy(name => !name.StartsWith(part, StringComparison.OrdinalIgnoreCase))

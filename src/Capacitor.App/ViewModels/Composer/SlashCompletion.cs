@@ -3,8 +3,6 @@ using Capacitor.Cli.Core;
 
 namespace Capacitor.App.ViewModels.Composer;
 
-/// "/query" as the composer's whole text, completed from the context's commands. The list is read
-/// once per query.
 public sealed partial class SlashCompletion(Func<ComposerContext, Task<IReadOnlyList<HostedAgentCommand>>> list) {
     Task<IReadOnlyList<HostedAgentCommand>>? _listed;
 

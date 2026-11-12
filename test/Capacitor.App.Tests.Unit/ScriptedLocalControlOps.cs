@@ -161,7 +161,6 @@ sealed class ScriptedLocalControlOps : ILocalControlOps {
         ReadHandoffOutcome?.Invoke(sessionId)
             ?? throw new InvalidOperationException("ScriptedLocalControlOps: unscripted ReadHandoffOutcome call");
 
-    /// Answers ListCommands; unset, a listing is empty.
     public Func<string, IReadOnlyList<HostedAgentCommand>>? ListCommands { get; set; }
 
     public Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct) =>

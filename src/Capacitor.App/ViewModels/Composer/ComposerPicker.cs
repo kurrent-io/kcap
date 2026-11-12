@@ -3,7 +3,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Composer;
 
-/// One composer's / and @ picker. Rows are <see cref="HostedAgentCommand"/>s or <see cref="FileMention"/>s.
+/// Rows are <see cref="HostedAgentCommand"/>s or <see cref="FileMention"/>s.
 public sealed class ComposerPicker(Func<ComposerContext?> context, SlashCompletion slash, MentionCompletion mention) : ReactiveObject {
     int _generation;
     IReadOnlyList<object> _rows = [];
@@ -30,7 +30,6 @@ public sealed class ComposerPicker(Func<ComposerContext?> context, SlashCompleti
         Rows = [];
     }
 
-    /// The composer's text and caret once <paramref name="row"/> replaces the query it was picked for.
     public static (string Text, int Caret) Insert(object row, string text, int caret) => row switch {
         HostedAgentCommand command => SlashCompletion.Insert(command),
         FileMention file => MentionCompletion.Insert(file, text, Math.Clamp(caret, 0, text.Length)),
