@@ -3,9 +3,12 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Composer;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
@@ -152,7 +155,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
             AccountReadings? accounts = null, AppStateStore? accountMemory = null,
-            CancellationToken shutdown = default) {
+            ComposerPickers? pickers = null, CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
         _launch = launch;
@@ -174,6 +177,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _localMachineId = localMachineId;
         _shutdown = shutdown;
         _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        Picker = pickers?.Create(_choices.WhenAnyValue(x => x.RepoPath, x => x.SelectedVendor, (repo, vendor) =>
+                repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor)) : null))
             .DisposeWith(_disposables);
         // A pick answers the refusal of the one before it.
         _choices.WhenAnyValue(x => x.AccountRows)
@@ -275,6 +281,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+
+    public ComposerPicker? Picker { get; }
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }

@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -13,6 +14,8 @@ public partial class HandoffComposerView : UserControl {
 
     public HandoffComposerView() {
         InitializeComponent();
+        var picker = ComposerPickerPopup.Attach(HandoffInput, () => (DataContext as HandoffComposerViewModel)?.Picker);
+        HandoffInput.AddHandler(KeyDownEvent, (_, e) => e.Handled |= picker.HandleKey(e), RoutingStrategies.Tunnel);
     }
 
     internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
