@@ -190,6 +190,8 @@ dotnet build src/Capacitor.Cli/Capacitor.Cli.csproj
 - Never assert that an environment variable is *absent* from a built `ProcessStartInfo`: its environment is seeded from the current process, and the repo's own `.envrc` exports several. Assert what the code under test contributed, by comparing against the inherited value.
 - Do not write tests for test-only fakes/mocks, dedicated test files for one-line wrappers/constants already exercised by their callers, or headless XAML smoke tests that only assert `x:Name` lookups, static typography/margin values, or Avalonia layout math. Keep `*SmokeTests` to real view interactions (focus, keyboard/pointer routing, flyouts, accessibility peers) and keep data-projection permutations in ViewModel unit tests.
 
+Tests that scan files outside their project-reference graph must declare each scanned directory in their `.csproj` with `<TestSelectionDirectory Include="../../src" />` (paths are project-relative directories, not globs). CI uses these alongside project references to select affected suites. A guard scanning all test source also declares `../../test`.
+
 **Parallelism:** bare `[NotInParallel]` is exclusive against the whole assembly and its tests run last, one at a time; keyed `[NotInParallel("k")]` excludes only tests carrying `k`.
 
 - Bare is what process-global state needs: an environment variable, `Console`, a mutable static in production code, the working directory. Keyed is sound only when every *reader* is in the cohort too, not just every writer — an env var fails that as soon as a concurrent peer spawns a child (it inherits) or calls a path helper (it reads).

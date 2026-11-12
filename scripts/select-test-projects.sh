@@ -3,7 +3,9 @@
 # affect, one .csproj path per line, or the single word `all`.
 #
 # A path maps to the project whose directory holds it; every project that references that one,
-# directly or transitively, is selected. A path in no project directory (build files, workflows,
+# directly or transitively, is selected. TestSelectionDirectory items declare directories read by
+# source-scanning tests without a project reference; their paths are relative to the .csproj.
+# A path in no project directory (build files, workflows,
 # scripts, the plugin) selects all, since nothing proves it is unread by a test. Markdown outside
 # kcap/ is skipped: the workflow trigger already treats it as unable to affect a test.
 #
@@ -31,6 +33,7 @@ projects="$(git ls-files '*.csproj')"
 
 # One "dependent dependency" pair per line.
 edges=""
+inputs=""
 while IFS= read -r proj; do
   dir="$(dirname "$proj")"
   refs="$(grep -oE '<ProjectReference[^>]*Include="[^"]+"' "$proj" | sed -E 's/.*Include="([^"]+)"/\1/' || true)"
@@ -40,6 +43,12 @@ while IFS= read -r proj; do
     case "$ref" in *'$('*) echo all; exit 0 ;; esac
     edges+="$proj $(normalize "$dir/${ref//\\//}")"$'\n'
   done <<< "$refs"
+  dirs="$(grep -oE '<TestSelectionDirectory[^>]*Include="[^"]+"' "$proj" | sed -E 's/.*Include="([^"]+)"/\1/' || true)"
+  while IFS= read -r input; do
+    [ -n "$input" ] || continue
+    case "$input" in *'$('*) echo all; exit 0 ;; esac
+    inputs+="$proj $(normalize "$dir/${input//\\//}")/"$'\n'
+  done <<< "$dirs"
 done <<< "$projects"
 
 # Longest project directory that is a prefix of the path.
@@ -65,6 +74,14 @@ while IFS= read -r path || [ -n "$path" ]; do
   proj="$(owner "$path" || true)"
   if [ -z "$proj" ]; then echo all; exit 0; fi
   printf '%s\n' "$selected" | grep -Fxq -- "$proj" || selected+="$proj"$'\n'
+  while read -r scanner directory; do
+    [ -n "$scanner" ] || continue
+    case "$path" in
+      "$directory"*)
+        printf '%s\n' "$selected" | grep -Fxq -- "$scanner" || selected+="$scanner"$'\n'
+        ;;
+    esac
+  done <<< "$inputs"
 done
 
 # Reverse-dependency closure.

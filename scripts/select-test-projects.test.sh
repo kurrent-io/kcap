@@ -55,6 +55,27 @@ assert "only markdown"            'README.md'                               ''
 assert "plugin markdown counts"   'kcap/skills/x/SKILL.md'                  'all'
 assert "CRLF input"               'src/App/A.cs\r'                          'test/App.Tests.Unit/App.Tests.Unit.csproj'
 
+csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj
+csproj test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj
+csproj test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj
+sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="..\\..\\src\\" /></ItemGroup>|' "$repo/test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj"
+sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="../../test" /></ItemGroup>|' "$repo/test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj"
+sed -i.bak 's|</ItemGroup>|<TestSelectionDirectory Include="../../src/App/View" /></ItemGroup>|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
+git -C "$repo" add -A
+
+assert "source scanner without a reference" 'src/App/A.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
+assert "source scanner and transitive dependents" 'src/Daemon/A.cs' "$daemon_tests test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj"
+assert "scanner covers added or deleted source" 'src/App/New.cs\nsrc/App/Deleted.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
+assert "test scanner without a reference" 'test/App.Tests.Unit/A.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/TestGuards.Tests.Unit/TestGuards.Tests.Unit.csproj'
+assert "scanner does not match a sibling prefix" 'src/App/Views/Main.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
+assert "nested scanner directory" 'src/App/View/Main.cs' 'test/App.Tests.Unit/App.Tests.Unit.csproj test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
+assert "scanner preserves markdown skip" 'src/App/README.md' ''
+assert "scanner preserves global fallback" 'Directory.Build.props' 'all'
+
+sed -i.bak 's|../../src/App/View|$(RepoRoot)/src/App/View|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
+assert "unresolvable scanner directory" 'src/App/A.cs' 'all'
+sed -i.bak 's|$(RepoRoot)/src/App/View|../../src/App/View|' "$repo/test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj"
+
 csproj src/Odd/Odd.csproj '$(RepoRoot)/src/Core/Core.csproj'
 git -C "$repo" add -A
 assert "unresolvable reference"   'src/App/A.cs'                            'all'
