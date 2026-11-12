@@ -29,8 +29,9 @@ public sealed class TranscriptRecorder(
     readonly Lock           _ackCursorGate = new();
     int _ackCursorWritten = -1;
 
-    readonly OnceLog _parseErrors  = new(context.Log);
-    readonly OnceLog _kiroWarnings = new(context.Log);
+    readonly OnceLog _parseErrors          = new(context.Log);
+    readonly OnceLog _kiroWarnings         = new(context.Log);
+    readonly OnceLog _copilotLocalWarnings = new(context.Log);
 
     // Each loop over lines ticks it: a large backlog can take longer than a host's threshold before its first send, and a
     // source restarted for that resumes from the same cursor and takes as long again.
@@ -1075,6 +1076,11 @@ public sealed class TranscriptRecorder(
                 KiroLiveUsage.AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, log);
             }
 
+            // The chat log lags the transcript, so this runs on drains that read no new transcript line too.
+            if (vendor == "copilot" && agentId is null && state.ThresholdReached && CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+                CopilotLocalUsage.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, _copilotLocalWarnings.Write);
+            }
+
             if (newLines.Count > 0) {
                 state.LastActivityAt          = time.GetUtcNow();
                 // New activity restarts the idle measure, so discard disconnected time accrued
@@ -1418,6 +1424,8 @@ public sealed class TranscriptRecorder(
 
                 foreach (var anchor in state.KiroUsagePendingAnchors)
                     state.KiroUsageEmittedAnchors.Add(anchor);
+
+                state.CopilotLocalUsage?.Commit();
 
                 if (repoToSend is not null) {
                     state.LastSentRepository = repoToSend;

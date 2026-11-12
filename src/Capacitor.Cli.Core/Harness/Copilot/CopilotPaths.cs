@@ -7,8 +7,24 @@ namespace Capacitor.Cli.Core.Harness.Copilot;
 /// otherwise <c>~/.copilot</c> on every OS.
 /// </summary>
 public sealed class CopilotPaths {
-    public CopilotPaths(UserHome home, string? copilotHome) =>
+    public CopilotPaths(UserHome home, string? copilotHome) {
         Root = !string.IsNullOrEmpty(copilotHome) ? copilotHome : Path.Combine(home.Path, ".copilot");
+
+#pragma warning disable RS0030 // Roaming AppData is not derivable from a UserHome
+        var appData = OperatingSystem.IsWindows() ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) : "";
+#pragma warning restore RS0030
+
+        // An AppData the OS declines to name would leave the paths relative, read against the working directory.
+        string? userData = OperatingSystem.IsMacOS() ? Path.Combine(home.Path, "Library", "Application Support")
+                         : OperatingSystem.IsWindows() ? (appData.Length > 0 ? appData : null)
+                         : Path.Combine(home.Path, ".config");
+
+        VsCodeWorkspaceStorageDirs = userData is null
+            ? []
+            : VsCodeEditions.Select(edition => Path.Combine(userData, edition, "User", "workspaceStorage")).ToArray();
+    }
+
+    static readonly string[] VsCodeEditions = ["Code", "Code - Insiders"];
 
     public string Root { get; }
 
@@ -65,6 +81,27 @@ public sealed class CopilotPaths {
     /// has no agent process above its hooks, so its end can only be read from the file going quiet.</summary>
     public static bool IsVsCodeLocalTranscript(string transcriptPath)
         => !string.Equals(Path.GetFileName(transcriptPath), "events.jsonl", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>VS Code's per-workspace storage roots on this host, stable then Insiders. Each workspace's
+    /// <c>GitHub.copilot-chat/transcripts/</c> holds its Local sessions' transcripts, <c>chatSessions/</c> the chat logs
+    /// with their usage and titles, and <c>workspace.json</c> the folder it is open on.</summary>
+    public IReadOnlyList<string> VsCodeWorkspaceStorageDirs { get; }
+
+    /// <summary>The chat log VS Code keeps beside a Local transcript, <c>{workspace}/chatSessions/{id}.jsonl</c>, or
+    /// null for a transcript not in that layout.</summary>
+    public static string? ChatSessionLogFor(string transcriptPath) {
+        var transcripts = Path.GetDirectoryName(transcriptPath);
+        var extension   = Path.GetDirectoryName(transcripts);
+        var workspace   = Path.GetDirectoryName(extension);
+
+        if (workspace is null
+         || !string.Equals(Path.GetFileName(transcripts), "transcripts", StringComparison.OrdinalIgnoreCase)
+         || !string.Equals(Path.GetFileName(extension), "GitHub.copilot-chat", StringComparison.OrdinalIgnoreCase)) {
+            return null;
+        }
+
+        return Path.Combine(workspace, "chatSessions", Path.GetFileName(transcriptPath));
+    }
 
     public string WorkspaceYaml(string sessionStateDir, string sessionDirName)
         => Path.Combine(sessionStateDir, sessionDirName, "workspace.yaml");
