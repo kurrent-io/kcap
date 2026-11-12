@@ -5,7 +5,7 @@ namespace Capacitor.Tests.Helpers.Guards;
 /// <summary>
 /// Assembly-wide pin for the daemons directory. Unpinned, a spawned <c>kcap</c> resolves the
 /// developer's real <c>~/.config/kcap/daemons/</c> — one test SIGKILLed a live daemon that way.
-/// The value cannot be created on purpose: <see cref="KcapProcess"/> pins a usable one per spawn,
+/// The value cannot be created on purpose: <c>KcapProcess</c> pins a usable one per spawn,
 /// so whatever reaches this has bypassed it.
 /// </summary>
 public class DaemonPathsGlobalSetup {

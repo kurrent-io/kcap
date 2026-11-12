@@ -1,9 +1,9 @@
 using System.Diagnostics;
 
-namespace Capacitor.Cli.Core.Tests.Unit;
+namespace Capacitor.Cli.Tests.Unit;
 
 /// <summary>
-/// The Helpers project stamps the CLI's output directory in at compile time. Nothing else would
+/// <c>Capacitor.Tests.Helpers.Kcap</c> stamps the CLI's output directory in at compile time. Nothing else would
 /// notice that stamp going stale until the integration suite ran, and that one skips on Windows.
 /// </summary>
 public class KcapProcessTests {

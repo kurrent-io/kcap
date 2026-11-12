@@ -8,6 +8,7 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
+        <ProjectReference Include="..\Capacitor.Tests.Helpers.Kcap\Capacitor.Tests.Helpers.Kcap.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.Cli\Capacitor.Cli.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.Cli.Daemon\Capacitor.Cli.Daemon.csproj" />
         <ProjectReference Include="..\Capacitor.Cli.Tests.Unit.NativeTestHost\Capacitor.Cli.Tests.Unit.NativeTestHost.csproj" />

@@ -21,6 +21,7 @@
     <File Path="test\Directory.Build.props" />
     <Project Path="test\Capacitor.App.Tests.Unit\Capacitor.App.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
+    <Project Path="test\Capacitor.Tests.Helpers.Kcap\Capacitor.Tests.Helpers.Kcap.csproj" />
     <Project Path="test\Capacitor.Cli.Core.Tests.Unit\Capacitor.Cli.Core.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Daemon.Tests.Unit\Capacitor.Cli.Daemon.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Recording.Tests.Unit\Capacitor.Cli.Recording.Tests.Unit.csproj" />

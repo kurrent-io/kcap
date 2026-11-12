@@ -6,7 +6,7 @@ using Capacitor.Cli.Core.Config;
 namespace Capacitor.Tests.Helpers;
 
 /// <summary>
-/// Starts the built <c>kcap</c> binary from its own output directory, which the Helpers project
+/// Starts the built <c>kcap</c> binary from its own output directory, which this project
 /// stamps in at compile time. Both contexts are required rather than optional: a child inherits
 /// nothing in-process, and unpinned it finds the real daemons and config directories.
 ///
