@@ -54,7 +54,6 @@
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPressed" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollViewerScrollBarsSeparatorBackground" Color="#00000000" />
-            <!-- Fluent's template, with the background held inside Padding so Linux's drawn frame and shadow stay clear. -->
             <ControlTheme x:Key="{x:Type Window}" TargetType="Window" BasedOn="{StaticResource {x:Type Window}}">
                 <Setter Property="Template">
                     <ControlTemplate>

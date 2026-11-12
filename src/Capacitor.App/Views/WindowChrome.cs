@@ -10,7 +10,6 @@ namespace Capacitor.App.Views;
 public static class WindowChrome {
     public static void BeginDrag(Visual host, PointerPressedEventArgs e) {
         if (!e.GetCurrentPoint(host).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(host) is not Window window) return;
-        // A Linux window manager treats a client-started move as a drag, never as a title-bar double-click.
         if (OperatingSystem.IsLinux() && e.ClickCount == 2 && window.CanMaximize) {
             window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
             return;

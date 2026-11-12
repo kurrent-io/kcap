@@ -429,7 +429,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     }
 
     // Outside macOS the caption buttons sit over the top-right of the extended client area, so the
-    // content pane starts below the title bar there. Linux's drawn frame, the bottom margin, is already the window's padding.
+    // content pane starts below the title bar there.
     void KeepContentClearOfCaptionButtons() {
         if (OperatingSystem.IsMacOS()) return;
         this.GetObservable(WindowDecorationMarginProperty)
