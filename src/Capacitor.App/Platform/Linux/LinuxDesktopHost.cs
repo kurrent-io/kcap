@@ -1,6 +1,5 @@
 #pragma warning disable AVALONIA_X11_CSD
 using Avalonia;
-using Avalonia.Controls;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core;
@@ -19,18 +18,11 @@ public sealed class LinuxDesktopHost(
         return new LinuxDesktopHost(cliDirectory, updateRelaunch, appImage, failure, singleInstance);
     }
 
-    public override AppBuilder ConfigureAvalonia(AppBuilder builder) {
-        Window.WindowDecorationMarginProperty.Changed.AddClassHandler<Window>((window, _) => KeepInsideDrawnFrame(window));
-        return builder.With(new X11PlatformOptions {
+    public override AppBuilder ConfigureAvalonia(AppBuilder builder) =>
+        builder.With(new X11PlatformOptions {
             EnableDrawnDecorations = true,
             RenderingMode = LinuxRenderingOrder.Resolve(Environment.GetEnvironmentVariable(LinuxRenderingOrder.EnvVar)),
         });
-
-        static void KeepInsideDrawnFrame(Window window) {
-            var margin = window.WindowDecorationMargin;
-            window.Padding = new Thickness(margin.Left, margin.Bottom, margin.Right, margin.Bottom);
-        }
-    }
 
     public override bool TrayAnnouncesMenuOpen => false;
 
