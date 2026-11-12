@@ -460,9 +460,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             .ToProperty(this, x => x.LastStatus, initialValue: null)
             .DisposeWith(_disposables);
 
-        ComposerContext? composer = null;
-        presence.Subscribe(p => composer = p.Dto is { WorktreePath: { } worktree } dto ? new ComposerContext(worktree, HarnessId.From(dto.Vendor), agentId) : null)
-            .DisposeWith(_disposables);
         presence
             .Where(p => p.Dto is not null && !LacksRuntimeMetadata(p.Dto))
             .Take(1)
@@ -484,7 +481,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
                     WorkspaceNotice = ConnectionNotice,
-                    Picker = pickers?.Create(() => composer),
+                    Picker = pickers?.Create(presence.Select(p =>
+                            p.Dto is { WorktreePath: { } worktree } dto ? new ComposerContext(worktree, HarnessId.From(dto.Vendor), agentId) : null))
+                        .DisposeWith(_disposables),
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));

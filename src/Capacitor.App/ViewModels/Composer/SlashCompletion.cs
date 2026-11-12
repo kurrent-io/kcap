@@ -21,6 +21,8 @@ public sealed partial class SlashCompletion(Func<ComposerContext, Task<IReadOnly
 
     public void Reset() => _listed = null;
 
+    public void Prefetch(ComposerContext context) => _ = list(context);
+
     public static (string Text, int Caret) Insert(HostedAgentCommand command) {
         var line = $"/{command.Name} ";
         return (line, line.Length);

@@ -787,9 +787,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             ComposerPickers? pickers = null,
             Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
-        Picker = pickers?.Create(() => !RemoteMachineSelected && SelectedRepoPath is { Length: > 0 } repo
-            ? new ComposerContext(repo, HarnessId.From(SelectedVendor))
-            : null);
         _branches = branches;
         _daemon = daemon;
         _state = state;
@@ -857,6 +854,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                 (machine, server, account) => WithAccountCatalog(MergeCatalogs(machine.Models, server), machine.ByAccount, account))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.EffectiveModelCatalog, ServerVendorModelCatalog.Empty)
+            .DisposeWith(_disposables);
+
+        Picker = pickers?.Create(_selectedRepoPathChanges
+                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), _machineSelectionChanges, (repo, vendor, machine) =>
+                    !machine.Remote && repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor)) : null)
+                .ObserveOn(RxSchedulers.MainThreadScheduler))
             .DisposeWith(_disposables);
 
         // A model the previous catalog listed and the next one withdraws resets to the default. A

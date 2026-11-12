@@ -29,7 +29,7 @@
                                        TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
                             <TextBlock DockPanel.Dock="Left" Text="{Binding ArgumentHint}" MaxWidth="200" Margin="8,0,0,0"
                                        TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapMutedBrush}" />
-                            <TextBlock Text="{Binding Description}" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                            <TextBlock Text="{Binding Description}" Margin="12,0,0,0" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         </DockPanel>
                     </Button>

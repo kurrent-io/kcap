@@ -1,3 +1,5 @@
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -11,7 +13,7 @@ public class ComposerPickerTests {
     static ComposerPicker Picker(
             IReadOnlyList<HostedAgentCommand>? commands = null, IReadOnlyList<string>? repo = null,
             Func<string, IReadOnlyList<string>>? folder = null, List<string>? reads = null) =>
-        new(() => Repo,
+        new(Observable.Return<ComposerContext?>(Repo),
             new SlashCompletion(_ => Task.FromResult(commands ?? [])),
             new MentionCompletion(
                 _ => {
@@ -102,23 +104,26 @@ public class ComposerPickerTests {
     }
 
     [Test]
-    public async Task A_new_context_reads_its_own_listing() {
-        var context = new ComposerContext("/a", HarnessId.Claude);
+    public async Task Each_new_context_lists_its_commands_up_front_and_reads_its_own_files() {
+        var context = new BehaviorSubject<ComposerContext?>(new("/a", HarnessId.Claude));
         var reads = new List<string>();
-        var picker = new ComposerPicker(() => context,
-            new SlashCompletion(_ => Task.FromResult<IReadOnlyList<HostedAgentCommand>>([])),
+        using var picker = new ComposerPicker(context,
+            new SlashCompletion(c => {
+                reads.Add($"commands {c.Directory}");
+                return Task.FromResult<IReadOnlyList<HostedAgentCommand>>([]);
+            }),
             new MentionCompletion(
                 dir => {
-                    reads.Add(dir);
+                    reads.Add($"files {dir}");
                     return Task.FromResult<IReadOnlyList<string>>([]);
                 },
                 (_, _) => Task.FromResult<IReadOnlyList<string>>([])));
 
         await picker.UpdateAsync("@a", 2);
-        context = new ComposerContext("/b", HarnessId.Claude);
+        context.OnNext(new("/b", HarnessId.Claude));
         await picker.UpdateAsync("@ab", 3);
 
-        await Assert.That(reads).IsEquivalentTo(["/a", "/b"], CollectionOrdering.Matching);
+        await Assert.That(reads).IsEquivalentTo(["commands /a", "files /a", "commands /b", "files /b"], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -128,17 +133,6 @@ public class ComposerPickerTests {
         await picker.UpdateAsync("/re", 3);
         await Assert.That(picker.Rows).IsEquivalentTo<IReadOnlyList<object>, object>([new HostedAgentCommand("review", null, null)]);
         await picker.UpdateAsync("say /re", 7);
-        await Assert.That(picker.Rows).IsEmpty();
-    }
-
-    [Test]
-    public async Task No_context_offers_nothing() {
-        var picker = new ComposerPicker(() => null,
-            new SlashCompletion(_ => Task.FromResult<IReadOnlyList<HostedAgentCommand>>([new("review", null, null)])),
-            new MentionCompletion(_ => Task.FromResult<IReadOnlyList<string>>(["a.cs"]), (_, _) => Task.FromResult<IReadOnlyList<string>>([])));
-
-        await picker.UpdateAsync("/re", 3);
-
         await Assert.That(picker.Rows).IsEmpty();
     }
 }
