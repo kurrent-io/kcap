@@ -19,6 +19,9 @@ public sealed class LinuxDesktopHost(
 
     public override AppBuilder ConfigureAvalonia(AppBuilder builder) =>
         builder.With(new X11PlatformOptions {
+#pragma warning disable AVALONIA_X11_CSD // Experimental, without it X11 ignores ExtendClientAreaToDecorationsHint and the WM adds its own title bar
+            EnableDrawnDecorations = true,
+#pragma warning restore AVALONIA_X11_CSD
             RenderingMode = LinuxRenderingOrder.Resolve(Environment.GetEnvironmentVariable(LinuxRenderingOrder.EnvVar)),
         });
 
