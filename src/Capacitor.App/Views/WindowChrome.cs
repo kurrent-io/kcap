@@ -9,7 +9,12 @@ namespace Capacitor.App.Views;
 /// in a strip mark their presses handled, so a wired handler only fires on the blank stretch.
 public static class WindowChrome {
     public static void BeginDrag(Visual host, PointerPressedEventArgs e) {
-        if (e.GetCurrentPoint(host).Properties.IsLeftButtonPressed && TopLevel.GetTopLevel(host) is Window window)
-            window.BeginMoveDrag(e);
+        if (!e.GetCurrentPoint(host).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(host) is not Window window) return;
+        // A Linux window manager treats a client-started move as a drag, never as a title-bar double-click.
+        if (OperatingSystem.IsLinux() && e.ClickCount == 2 && window.CanMaximize) {
+            window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            return;
+        }
+        window.BeginMoveDrag(e);
     }
 }
