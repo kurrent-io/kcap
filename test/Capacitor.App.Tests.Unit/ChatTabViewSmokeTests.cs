@@ -738,9 +738,12 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
+    /// A narrower window and a narrower agent's lane both reflow the rows above the reader.
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
-    public Task Resizing_uneven_history_preserves_the_readers_visible_row() => RunOnUiAsync(async () => {
+    public Task Resizing_uneven_history_preserves_the_readers_visible_row(bool lane) => RunOnUiAsync(async () => {
         var host = new Host();
         try {
             var lines = UnevenHistory();
@@ -764,7 +767,8 @@ public class ChatTabViewSmokeTests {
             var item = row.DataContext!;
             var beforeY = row.TranslatePoint(default, host.Scroll)!.Value.Y;
             var heights = items.GetRealizedContainers().ToDictionary(container => container.DataContext!, container => container.Bounds.Height);
-            host.Window.Width = 360;
+            if (lane) host.View.ColumnSizing.UseShares(PaneLayout.ChatColumnDefaultFraction, 0.4);
+            else host.Window.Width = 360;
             host.Settle();
             await Assert.That(heights.Any(entry => items.ContainerFromItem(entry.Key) is { } container && Math.Abs(container.Bounds.Height - entry.Value) > 20)).IsTrue();
             var ordered = items.Items.Cast<object>().Select(items.ContainerFromItem).OfType<Control>().ToArray();
@@ -835,6 +839,17 @@ public class ChatTabViewSmokeTests {
             var wide = column / 1000 * 1400;
             await LaidOut(wide, laneWidth / column * wide, 1400);
 
+            // A full-width lane leaves the column's right edge to the column's handle.
+            Drag("ChatLaneHandle", 5000);
+            await LaidOut(wide, wide, 1400);
+            Drag("ChatColumnRightHandle", -50);
+            wide -= 100;
+            await LaidOut(wide, wide, 1400);
+            Drag("ChatLaneHandle", -wide / 2);
+            laneWidth = wide / 2;
+            column = wide;
+            await LaidOut(wide, laneWidth, 1400);
+
             Drag("ChatColumnLeftHandle", 5000);
             await LaidOut(PaneLayout.ChatColumnMinWidth, laneWidth / column * PaneLayout.ChatColumnMinWidth, 1400);
 
@@ -842,6 +857,26 @@ public class ChatTabViewSmokeTests {
             host.Window.Width = 700;
             host.Settle();
             await LaidOut(PaneLayout.ChatColumnMinWidth / 1400 * 700, laneWidth / column * (PaneLayout.ChatColumnMinWidth / 2), 700);
+        } finally { await host.CloseAsync(); }
+    });
+
+    [Test]
+    [Arguments("ChatColumnLeftHandle")]
+    [Arguments("ChatColumnRightHandle")]
+    [Arguments("ChatLaneHandle")]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wheel_over_a_resize_handle_scrolls_the_chat(string name) => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            await host.LoadAsync(Tmp.CreateFile("handle-wheel.jsonl", Enumerable.Repeat(UserLine, 40).ToArray()));
+            var at = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
+            var before = host.Scroll.Offset.Y;
+            host.Window.MouseWheel(at, new Vector(0, 1));
+            for (var frame = 0; frame < 30; frame++) {
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                host.Settle();
+            }
+            await Assert.That(host.Scroll.Offset.Y).IsLessThan(before - 5);
         } finally { await host.CloseAsync(); }
     });
 
@@ -1410,7 +1445,7 @@ public class ChatTabViewSmokeTests {
                 await host.LoadAsync(Tmp.CreateFile("paths.jsonl", [call, ReadResultLine]));
                 host.View.ColumnSizing.UseShares(1, 1);
 
-                foreach (var width in new[] { 320, 460, 640, 980, 460 }) {
+                foreach (var width in new[] { 320, 460, 640, 700, 460 }) {
                     host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
@@ -1444,7 +1479,7 @@ public class ChatTabViewSmokeTests {
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
                 host.View.ColumnSizing.UseShares(1, 1);
 
-                foreach (var width in new[] { 460, 640, 980, 460 }) {
+                foreach (var width in new[] { 460, 640, 700, 460 }) {
                     host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");

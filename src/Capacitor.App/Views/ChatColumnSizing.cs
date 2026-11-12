@@ -160,6 +160,7 @@ public sealed class ChatColumnSizing {
         var left = (available - column) / 2;
         _leftHandle.Margin = new Thickness(left - HandleWidth, 0, 0, 0);
         _rightHandle.Margin = new Thickness(left + column, 0, 0, 0);
-        _laneHandle.Margin = new Thickness(left + lane, 0, 0, 0);
+        // A full-width lane's edge is the column's: its handle steps inside, clear of the column's.
+        _laneHandle.Margin = new Thickness(left + Math.Min(lane, column - HandleWidth), 0, 0, 0);
     }
 }
