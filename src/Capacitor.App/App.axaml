@@ -82,6 +82,10 @@
     </Application.Resources>
     <Application.Styles>
         <FluentTheme />
+        <!-- The template sets this brush itself, which outranks a plain setter; the pseudoclass lifts this one above it. -->
+        <Style Selector="WindowDrawnDecorations:has-border /template/ Border#PART_WindowBorder">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
         <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/MarkdownStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/PullRequestStyles.axaml" />
