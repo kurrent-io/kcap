@@ -10,10 +10,10 @@ namespace Capacitor.App.Views;
 public static class WindowChrome {
     public static void BeginDrag(Visual host, PointerPressedEventArgs e) {
         if (!e.GetCurrentPoint(host).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(host) is not Window window) return;
-        if (OperatingSystem.IsLinux() && e.ClickCount == 2 && window.CanMaximize) {
-            window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-            return;
-        }
-        window.BeginMoveDrag(e);
+        if (e.ClickCount == 2 && OperatingSystem.IsLinux() && window.CanMaximize) Toggle(window, WindowState.Maximized);
+        else window.BeginMoveDrag(e);
     }
+
+    public static void Toggle(Window window, WindowState state) =>
+        window.WindowState = window.WindowState == state ? WindowState.Normal : state;
 }
