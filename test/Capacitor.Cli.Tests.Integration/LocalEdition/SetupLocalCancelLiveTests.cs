@@ -4,6 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.LocalEdition;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -17,6 +18,7 @@ namespace Capacitor.Cli.Tests.Integration.LocalEdition;
 /// is skipped, since the preflight would refuse before the stall.
 /// </summary>
 [NotInParallel(nameof(SetupLocalCancelLiveTests))]
+[RunOn(OS.Linux | OS.MacOs)]
 public class SetupLocalCancelLiveTests {
     const string CheckEnvVar = "KCAP_LOCAL_SETUP_CHECK";
 

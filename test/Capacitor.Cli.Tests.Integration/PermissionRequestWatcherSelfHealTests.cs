@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -15,6 +16,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// spawning the watcher's child process corrupts TUnit's Console capture.
 /// </summary>
 [NotInParallel]
+[RunOn(OS.Linux | OS.MacOs)]
 public class PermissionRequestWatcherSelfHealTests {
     static readonly TempDir Tmp = new();
     static readonly TempDir Transcripts = new();

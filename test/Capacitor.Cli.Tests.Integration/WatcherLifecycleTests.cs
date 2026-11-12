@@ -2,10 +2,12 @@ using System.Diagnostics;
 using System.Globalization;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 [NotInParallel]
+[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherLifecycleTests {
     static readonly TempDir Tmp = new();
     // Not Tmp: that is KCAP_WATCHER_DIR, which the watcher enumerates.

@@ -1,6 +1,7 @@
 using System.Text;
 using Capacitor.Cli.Core.Http;
 using Microsoft.AspNetCore.SignalR.Client;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,6 +14,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// handler sat outside it, every report would read "no bearer sent" and hide the one fact it exists for.
 /// The WebSocket upgrade bypasses every message handler, so it is reported by the WebSocket factory.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class HubBearerRejectionReportTests : IDisposable {
     readonly WireMockServer _server = WireMockServer.Start();
 

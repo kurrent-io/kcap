@@ -2,6 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -15,6 +16,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <para>Linux containers only: on CI it runs on the Linux leg alone, and anywhere no container
 /// engine answers it is skipped.</para>
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class WorkOSEmulatorSignInTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 

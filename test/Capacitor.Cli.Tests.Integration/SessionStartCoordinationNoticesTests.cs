@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -27,6 +28,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// profile write can't leak across tests; payloads omit <c>transcript_path</c>/<c>session_id</c>
 /// so no watcher spawns and no memory-index GET fires.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class SessionStartCoordinationNoticesTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

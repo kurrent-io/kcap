@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -14,6 +15,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// and the <c>search_memories</c> routing cue can't be silently dropped. Mirrors the sessions
 /// integration harness.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class McpMemoryServerTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -12,6 +13,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// config dir (<c>KCAP_CONFIG_DIR</c>). Mirrors the harness in
 /// <see cref="McpFlowsServerTests"/> / <see cref="McpSessionsServerTests"/>.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class McpReviewServerTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

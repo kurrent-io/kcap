@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -10,6 +11,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <summary>The real binary answers <c>kcap mcp knowledge</c>: the subcommand dispatches, the server
 /// resolves from DI, its handshake names it, it lists the eleven tools, and a read scopes to the
 /// working directory's repo resolved on the first call.</summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class McpKnowledgeServerStdioTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

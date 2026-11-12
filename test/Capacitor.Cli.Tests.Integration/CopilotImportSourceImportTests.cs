@@ -1,6 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Copilot;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -16,6 +17,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// recognized by <see cref="ImportCommand.IsLifecycleOnlyRoutedReplay"/> (vendor-neutral) and
 /// suppressed so it doesn't double-count on top of the classify-time AlreadyLoaded bucket.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class CopilotImportSourceImportTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

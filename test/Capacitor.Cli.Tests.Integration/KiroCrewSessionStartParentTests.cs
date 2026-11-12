@@ -4,6 +4,7 @@ using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Recording.PrDetection;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -14,6 +15,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// A Kiro Crew sub-agent's agentSpawn names the session that spawned it, joined from Crew's own files,
 /// so the server can nest it. The session id rides the payload: <c>KIRO_SESSION_ID</c> is unset here.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class KiroCrewSessionStartParentTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome]       public required TempHome       Home   { get; init; }

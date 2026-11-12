@@ -4,12 +4,14 @@ using System.Net.Sockets;
 using Docker.DotNet;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Containers;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>Every container a test starts is published below Linux's ephemeral range, from which Docker's own choice
 /// and a port-0 bind are drawn, on a port nothing here holds. The pick walks a process-wide cursor, so the test that
 /// needs to know which port comes next runs alone.</summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class ContainerHostPortsTests {
     const int EphemeralFloor = 32768;
 

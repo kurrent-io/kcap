@@ -2,6 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,6 +14,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>/api/sessions/{id}/evals/v4</c> (not v3) and the body must carry outcomes, a null score for
 /// an unassessed question, the coverage policy version, and coded failures.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class EvalRunnerV4PostTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

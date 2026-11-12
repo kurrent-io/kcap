@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -12,6 +13,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// in-process test can reach. The control case runs the same invocation without Grok's variable and
 /// must stamp — otherwise the absence asserted under Grok proves nothing.</para>
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class ForeignHookUnderGrokTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

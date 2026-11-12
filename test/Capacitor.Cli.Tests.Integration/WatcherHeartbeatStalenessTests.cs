@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -17,6 +18,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// fast and deterministic.
 /// </summary>
 [NotInParallel]
+[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherHeartbeatStalenessTests {
     static readonly TempDir Tmp = new();
     static readonly TempDir Transcripts = new();

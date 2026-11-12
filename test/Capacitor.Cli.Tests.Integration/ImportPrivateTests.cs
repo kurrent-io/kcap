@@ -1,10 +1,12 @@
 using Capacitor.Cli.Commands;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Integration;
 
+[RunOn(OS.Linux | OS.MacOs)]
 public class ImportPrivateTests : IDisposable {
     readonly WireMockServer _server  = WireMockServer.Start();
     readonly TempDir        _tmp     = new();

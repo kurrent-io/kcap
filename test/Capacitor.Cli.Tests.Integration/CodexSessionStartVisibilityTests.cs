@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,6 +19,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// org-visibility fallback) and ignore per-profile exclusions.
 /// </summary>
 [ParallelLimiter<SubprocessLimit>]
+[RunOn(OS.Linux | OS.MacOs)]
 public class CodexSessionStartVisibilityTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

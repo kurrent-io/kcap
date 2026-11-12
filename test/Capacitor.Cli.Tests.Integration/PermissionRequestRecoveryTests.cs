@@ -3,6 +3,7 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -17,6 +18,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// failure as its result.
 /// </summary>
 [NotInParallel]
+[RunOn(OS.Linux | OS.MacOs)]
 public class PermissionRequestRecoveryTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 

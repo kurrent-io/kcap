@@ -1,6 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Antigravity;
 using Microsoft.Data.Sqlite;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -14,6 +15,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// them via <c>/hooks/transcript</c> BEFORE <c>/hooks/session-end/antigravity</c> — for every
 /// classification, including AlreadyLoaded (which sends zero real transcript lines).
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class AntigravityImportUsagePassTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

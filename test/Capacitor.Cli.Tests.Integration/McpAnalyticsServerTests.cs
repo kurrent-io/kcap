@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -12,6 +13,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// memory integration harness: spawn the real binary, drive initialize/tools-list over
 /// stdio, and pin the server info + the call-schema-first routing cue.
 /// </summary>
+[RunOn(OS.Linux | OS.MacOs)]
 public class McpAnalyticsServerTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }
