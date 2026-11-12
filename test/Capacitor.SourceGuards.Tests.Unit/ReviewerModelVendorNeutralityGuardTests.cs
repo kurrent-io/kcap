@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.SourceGuards.Tests.Unit;
 
 /// <summary>
 /// An architectural guard locking in vendor-neutrality for the

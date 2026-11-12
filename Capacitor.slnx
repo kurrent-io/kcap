@@ -31,5 +31,6 @@
     <Project Path="test\Capacitor.Cli.Tests.Unit\Capacitor.Cli.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Tests.Unit.NativeTestHost\Capacitor.Cli.Tests.Unit.NativeTestHost.csproj" />
     <Project Path="test\Capacitor.Models.Transcripts.Tests.Unit\Capacitor.Models.Transcripts.Tests.Unit.csproj" />
+    <Project Path="test\Capacitor.SourceGuards.Tests.Unit\Capacitor.SourceGuards.Tests.Unit.csproj" />
   </Folder>
 </Solution>

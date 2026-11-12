@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.SourceGuards.Tests.Unit;
 
 /// <summary>
 /// Testcontainers parses an image string with a regex whose 5-second match timeout a starved runner can exceed; only

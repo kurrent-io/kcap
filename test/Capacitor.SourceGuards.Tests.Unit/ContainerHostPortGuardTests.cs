@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.SourceGuards.Tests.Unit;
 
 /// <summary>
 /// Docker's own host-port choice, and a port-0 bind, share Linux's ephemeral range with a loaded runner's sockets, so
