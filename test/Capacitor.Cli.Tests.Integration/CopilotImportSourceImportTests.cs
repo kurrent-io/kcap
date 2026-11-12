@@ -58,7 +58,7 @@ public class CopilotImportSourceImportTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(410).WithBody("""{"error":"session_deleted"}"""));
 
         using var client = new HttpClient();
-        var source = new CopilotImportSource(Config.Root, CopilotLayout,
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [],
             new GitProviderRouter(), TimeProvider.System);
 
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
@@ -84,7 +84,7 @@ public class CopilotImportSourceImportTests : IDisposable {
         }
 
         using var client = new HttpClient();
-        var source = new CopilotImportSource(Config.Root, CopilotLayout,
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [],
             new GitProviderRouter(), TimeProvider.System);
 
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);

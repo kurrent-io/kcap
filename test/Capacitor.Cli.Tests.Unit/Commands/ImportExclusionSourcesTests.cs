@@ -136,7 +136,7 @@ public class ImportExclusionSourcesTests {
                 var copilot = new CopilotPaths(Home, Tmp.PathTo("copilot"));
                 WriteUnder(copilot.SessionStateDir, $"{Id}/workspace.yaml", $"id: {Id}\ncwd: '{cwd.Replace("'", "''")}'\ncreated_at: {Timestamp}\n");
                 WriteUnder(copilot.SessionStateDir, $"{Id}/events.jsonl", $$$$"""{"type":"user.message","timestamp":"{{{{Timestamp}}}}","data":{"content":"hello"}}""" + "\n");
-                return new CopilotImportSource(Config.Root, copilot, router, time);
+                return new CopilotImportSource(Config.Root, copilot, [], router, time);
             case "gemini":
                 var bootstrap = JsonSerializer.Serialize($"<session_context>\nThis is the Gemini CLI.\n- **Workspace Directories:**\n  - {cwd}\n- **Directory Structure:**\n</session_context>",
                     BootstrapJson);

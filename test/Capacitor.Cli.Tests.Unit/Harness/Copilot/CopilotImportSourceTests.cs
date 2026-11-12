@@ -41,7 +41,7 @@ public class CopilotImportSourceTests {
         await File.WriteAllTextAsync(
             Path.Combine(paths.SessionStateDir, Sid2, "workspace.yaml"), $"id: {Sid2}\ncwd: /work/b\n");
 
-        var source   = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source   = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
 
         await Assert.That(sessions.Count).IsEqualTo(1);
@@ -59,7 +59,7 @@ public class CopilotImportSourceTests {
             name: "Create a file hello.txt containing 'hello world'",
             createdAt: "2026-06-10T20:23:25.556Z");
 
-        var source   = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source   = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
 
         await Assert.That(sessions.Count).IsEqualTo(1);
@@ -77,7 +77,7 @@ public class CopilotImportSourceTests {
         WriteSession(paths.LegacySessionStateDir, Sid1, cwd: "/work/legacy");
         WriteSession(paths.LegacySessionStateDir, Sid2, cwd: "/work/legacy-only");
 
-        var source   = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source   = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
 
         await Assert.That(sessions.Count).IsEqualTo(2);
@@ -94,7 +94,7 @@ public class CopilotImportSourceTests {
         WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a");
         WriteSession(paths.SessionStateDir, Sid2, cwd: "/work/b");
 
-        var source = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
 
         var byDashed = await source.DiscoverAsync(new DiscoveryFilters(null, Sid1, null, 0), CancellationToken.None);
         await Assert.That(byDashed.Count).IsEqualTo(1);
@@ -112,7 +112,7 @@ public class CopilotImportSourceTests {
         WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a");
         WriteSession(paths.SessionStateDir, Sid2, cwd: null);   // no workspace.yaml cwd
 
-        var source  = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source  = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var matched = await source.DiscoverAsync(new DiscoveryFilters("/work/a", null, null, 0), CancellationToken.None);
 
         await Assert.That(matched.Count).IsEqualTo(1);
@@ -126,7 +126,7 @@ public class CopilotImportSourceTests {
         WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a", createdAt: "2026-06-01T10:00:00Z");
         WriteSession(paths.SessionStateDir, Sid2, cwd: "/work/b", createdAt: "2026-06-09T10:00:00Z");
 
-        var source  = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source  = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var matched = await source.DiscoverAsync(
             new DiscoveryFilters(null, null, new DateOnly(2026, 6, 5), 0), CancellationToken.None);
 
@@ -177,7 +177,7 @@ public class CopilotImportSourceTests {
         server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
         using var client = new HttpClient();
 
-        var source     = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source     = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
 
@@ -207,7 +207,7 @@ public class CopilotImportSourceTests {
         await new ImportCommand(Config.Root, Resolutions.At(server.Url!, Config.Root), Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: new TestImportTerminal().Console)
             .HandleImport(
                 filterCwd:               null,
-                sources:                 [new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System)],
+                sources:                 [new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System)],
                 explicitVendorSelection: true,
                 discoverOnly:            true,
                 discoverJson:            true,
@@ -253,7 +253,7 @@ public class CopilotImportSourceTests {
         new TranscriptRenumbering(Config.Root, server.Url!).Record(Sid1.Replace("-", ""),
             new TranscriptLineMap([(0, 0), ..Pairs(segments)], Pairs(kept).Select(k => KeyValuePair.Create(k.Item1, k.Item2))));
 
-        var source     = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var source     = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
         await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
@@ -289,6 +289,70 @@ public class CopilotImportSourceTests {
     [Arguments("not json", false)]
     public async Task import_relevance_mirrors_the_server_normalizer_mapping(string line, bool expected) {
         await Assert.That(CopilotImportSource.IsImportRelevantLine(line)).IsEqualTo(expected);
+    }
+
+    /// <summary>VS Code's Local transcripts sit in each workspace's storage, under the workspace whose
+    /// <c>workspace.json</c> names the folder it was opened on; a file not named by a session id is not one.</summary>
+    [Test]
+    public async Task discovery_finds_vs_code_local_transcripts_with_their_workspace_folder() {
+        using var tmp = new TempDir();
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage").Path;
+        var folder    = tmp.CreateDir("work", "a b").Path;
+        WriteLocalSession(storage, "ws1", Sid1, new Uri(folder).AbsoluteUri);
+        WriteLocalSession(storage, "ws2", Sid2, "vscode-vfs://github/acme/repo");
+        tmp.CreateFile(Path.Combine("Code", "User", "workspaceStorage", "ws1", "GitHub.copilot-chat", "transcripts", "notes.jsonl"), "{}\n");
+
+        var source   = new CopilotImportSource(Config.Root, Layout(tmp), [storage], router: new GitProviderRouter(), time: TimeProvider.System);
+        var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+
+        await Assert.That(sessions.Select(s => (s.SessionId, s.Cwd)).ToArray()).IsEquivalentTo(new (string, string?)[] {
+            (Sid1.Replace("-", ""), folder),
+            (Sid2.Replace("-", ""), null),
+        });
+        await Assert.That(source.IsAvailable).IsTrue();
+    }
+
+    /// <summary>A Local import sends the transcript as the watcher would, then its chat log's usage above the
+    /// watermark and its title, an already loaded session included.</summary>
+    [Test]
+    public async Task an_import_of_a_vs_code_local_session_posts_its_usage_and_title() {
+        using var tmp = new TempDir();
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage").Path;
+        WriteLocalSession(storage, "ws1", Sid1, new Uri(tmp.CreateDir("work").Path).AbsoluteUri);
+        File.WriteAllText(Path.Combine(storage, "ws1", "chatSessions", Sid1 + ".jsonl"),
+            """{"kind":0,"v":{"version":3,"sessionId":"SID","requests":[{"requestId":"r1","modelState":{"value":1},"completionTokens":430,"copilotCredits":0.5,"result":{"metadata":{"resolvedModel":"gpt-6-luna"}}}]}}"""
+                .Replace("SID", Sid1) + "\n" + """{"kind":1,"k":["customTitle"],"v":"Create notes.md"}""" + "\n");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":0}"""));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new CopilotImportSource(Config.Root, Layout(tmp), [storage], router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        var types = server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")
+            .SelectMany(e => JsonNode.Parse(e.RequestMessage.Body!)!["lines"]!.AsArray())
+            .Select(l => JsonNode.Parse(l!.GetValue<string>())!["type"]!.GetValue<string>())
+            .ToArray();
+        var title = server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/harness-title");
+
+        await Assert.That(classified[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+        await Assert.That(types).IsEquivalentTo(["session.usage_record", "session.usage_checkpoint"]);
+        await Assert.That(title.RequestMessage.Body!).Contains("Create notes.md");
+    }
+
+    static void WriteLocalSession(string storage, string workspace, string dashedSid, string folderUri) {
+        var dir = Path.Combine(storage, workspace);
+        Directory.CreateDirectory(Path.Combine(dir, "GitHub.copilot-chat", "transcripts"));
+        Directory.CreateDirectory(Path.Combine(dir, "chatSessions"));
+        File.WriteAllText(Path.Combine(dir, "workspace.json"), new JsonObject { ["folder"] = folderUri }.ToJsonString());
+        File.WriteAllText(
+            Path.Combine(dir, "GitHub.copilot-chat", "transcripts", dashedSid + ".jsonl"),
+            """{"type":"session.start","data":{"sessionId":"x","producer":"copilot-agent"},"id":"11111111-1111-4111-8111-111111111111","timestamp":"2026-11-10T10:00:00Z","parentId":null}""" + "\n");
     }
 
     static void WriteSession(string root, string dashedSid, string? cwd, string? name = null, string? createdAt = null) {

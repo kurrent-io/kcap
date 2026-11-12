@@ -2333,7 +2333,7 @@ sealed class SetupCommand(
             .. claudeRoots.Select(r => (IImportSource)new ClaudeImportSource(config, r, router, time)),
             .. codexRoots.Select(r => (IImportSource)new CodexImportSource(config, r, router, time)),
             new CursorImportSource(config, cursor.ProjectsDir, cursor.WorkspaceStorageDir, router, time, titlePaths: cursor),
-            new CopilotImportSource(config, harnesses.Of<CopilotHarness>().Paths, router, time),
+            new CopilotImportSource(config, harnesses.Of<CopilotHarness>().Paths, harnesses.Of<CopilotHarness>().Paths.VsCodeWorkspaceStorageDirs, router, time),
             new GeminiImportSource(harnesses.Of<GeminiHarness>().Paths.TmpDir, time),
             new KiroImportSource(config, harnesses.Of<KiroHarness>().Paths.SessionsDir, harnesses.Of<KiroHarness>().Crew, router, time),
             new PiImportSource(config, harnesses.Of<PiHarness>().Paths.SessionsDir, router, time),

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -32,23 +33,27 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
-    const string NumberingKey = "Numbering";
+    const string NumberingKey      = "Numbering";
+    const string ChatSessionLogKey = "ChatSessionLog";
 
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
     readonly ConfigRoot                            _config;
     readonly GitProviderRouter                     _router;
+    readonly IReadOnlyList<string>                 _vsCodeWorkspaceStorageDirs;
 
     public CopilotImportSource(
         ConfigRoot                              config,
         CopilotPaths                            paths,
+        IReadOnlyList<string>                   vsCodeWorkspaceStorageDirs,
         GitProviderRouter                        router,
         TimeProvider                            time
     ) {
-        _paths  = paths;
-        _time   = time;
-        _config = config;
-        _router = router;
+        _paths                      = paths;
+        _time                       = time;
+        _config                     = config;
+        _router                     = router;
+        _vsCodeWorkspaceStorageDirs = vsCodeWorkspaceStorageDirs;
     }
 
     static StringComparison PathComparison =>
@@ -66,7 +71,7 @@ internal sealed class CopilotImportSource : IImportSource {
 
     public HarnessId Vendor => HarnessId.Copilot;
 
-    public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists);
+    public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists) || _vsCodeWorkspaceStorageDirs.Any(Directory.Exists);
 
     /// <summary>
     /// False — Copilot names every session itself (workspace.yaml <c>name</c>);
@@ -147,7 +152,74 @@ internal sealed class CopilotImportSource : IImportSource {
             ct.ThrowIfCancellationRequested();
         }
 
+        foreach (var storage in _vsCodeWorkspaceStorageDirs) {
+            DiscoverVsCodeLocal(storage, sessionFilter, normalizedCwd, sinceUtc, seen, result, ct);
+        }
+
         return Task.FromResult<IReadOnlyList<DiscoveredSession>>(result);
+    }
+
+    /// <summary>VS Code's Local sessions: <c>{workspace}/GitHub.copilot-chat/transcripts/{id}.jsonl</c>, the file
+    /// the live watcher tails, so an import numbers its lines the same way. The folder the workspace is open on is
+    /// the cwd, since the transcript does not name one.</summary>
+    static void DiscoverVsCodeLocal(
+            string storage, string? sessionFilter, string? normalizedCwd, DateTimeOffset? sinceUtc,
+            HashSet<string> seen, List<DiscoveredSession> result, CancellationToken ct) {
+        if (!Directory.Exists(storage)) return;
+
+        IEnumerable<string> workspaces;
+        try { workspaces = Directory.EnumerateDirectories(storage); } catch { return; }
+
+        foreach (var workspace in workspaces) {
+            ct.ThrowIfCancellationRequested();
+
+            try {
+                var transcripts = Path.Combine(workspace, "GitHub.copilot-chat", "transcripts");
+                if (!Directory.Exists(transcripts)) continue;
+
+                var cwd = VsCodeWorkspaceFolder(Path.Combine(workspace, "workspace.json"));
+                if (normalizedCwd is not null && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+
+                foreach (var jsonl in Directory.EnumerateFiles(transcripts, "*.jsonl")) {
+                    var stem = Path.GetFileNameWithoutExtension(jsonl);
+                    if (!Guid.TryParse(stem, out _)) continue;
+
+                    var dashless = stem.Replace("-", "");
+                    if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal)) continue;
+                    if (!seen.Add(dashless)) continue;
+
+                    DateTimeOffset? firstTimestamp = null;
+                    try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch { /* best effort */ }
+                    if (sinceUtc is { } cutoff && firstTimestamp is { } ts && ts < cutoff) continue;
+
+                    result.Add(new DiscoveredSession(
+                        SessionId:      dashless,
+                        Vendor:         HarnessId.Copilot,
+                        Cwd:            cwd,
+                        FirstTimestamp: firstTimestamp,
+                        SourceMeta:     new Dictionary<string, object?> {
+                            ["TranscriptPath"]  = jsonl,
+                            ["Cwd"]             = cwd,
+                            [ChatSessionLogKey] = CopilotPaths.ChatSessionLogFor(jsonl),
+                        }));
+                }
+            } catch {
+                // One unreadable workspace must not abort the scan.
+            }
+        }
+    }
+
+    // A multi-root workspace names a .code-workspace file instead, and a remote one a non-file URI: neither is a cwd.
+    static string? VsCodeWorkspaceFolder(string workspaceJson) {
+        try {
+            using var doc = JsonDocument.Parse(File.ReadAllTextShared(workspaceJson));
+
+            return doc.RootElement.Str("folder") is { } folder && Uri.TryCreate(folder, UriKind.Absolute, out var uri) && uri.IsFile
+                ? uri.LocalPath
+                : null;
+        } catch {
+            return null;
+        }
     }
 
     public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
@@ -332,6 +404,10 @@ internal sealed class CopilotImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
+        if (classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog) {
+            await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
+        }
+
         // Copilot auto-names every session (workspace.yaml `name`) — forward it as the title,
         // waiting out the server's projection lag. Best-effort: a title miss must not fail the import.
         if (classification.SourceMeta!.TryGetValue("Name", out var nameObj)
@@ -354,6 +430,34 @@ internal sealed class CopilotImportSource : IImportSource {
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
 
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;
+    }
+
+    /// <summary>A Local session's usage and title, from its chat log. Posted on every classification, an already
+    /// loaded one included, because the usage lines sit above the transcript watermark and dedupe by id. Best-effort:
+    /// a missing or unreadable log fails nothing.</summary>
+    async Task PostVsCodeLocalAsync(ImportContext ctx, string sessionId, string transcriptPath, string chatLog, CancellationToken ct) {
+        var cache = new VsCodeChatSessionCache(chatLog, Path.GetFileNameWithoutExtension(transcriptPath), _ => { });
+        if (cache.Current() is not { } session) return;
+
+        var usage = CopilotLocalUsage.Build(sessionId, session, FrozenSet<string>.Empty, sentNanoAiu: 0);
+        if (usage.Lines.Count > 0) {
+            var batch = new TranscriptBatch {
+                SessionId   = sessionId,
+                Lines       = [.. usage.Lines],
+                LineNumbers = [.. usage.LineNumbers],
+                Vendor      = HarnessId.Copilot.VendorId,
+                Strict      = false,
+            };
+
+            try {
+                using var content = new StringContent(JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch), Encoding.UTF8, "application/json");
+                using var resp    = await ctx.HttpClient.PostWithRetryAsync($"{ctx.BaseUrl}/hooks/transcript", content, _time, ct: ct);
+            } catch (Exception ex) when (ex is not OperationCanceledException) {
+                // Usage is best-effort; the transcript already went.
+            }
+        }
+
+        await ImportHarnessTitle.PostFromStoreAsync(new VsCodeChatTitle(cache), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
     }
 
     /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is

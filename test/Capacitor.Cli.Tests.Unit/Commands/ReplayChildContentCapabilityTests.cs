@@ -108,7 +108,7 @@ public class ReplayChildContentCapabilityTests {
         return vendor switch {
             "claude"      => new ClaudeImportSource(Config.Root, scratch, router: new GitProviderRouter(), time: TimeProvider.System),
             "codex"       => new CodexImportSource(Config.Root, scratch, router: new GitProviderRouter(), time: TimeProvider.System),
-            "copilot"     => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System),
+            "copilot"     => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System),
             "cursor"      => new CursorImportSource(Config.Root, scratch, scratch, router: new GitProviderRouter(), time: TimeProvider.System),
             "gemini"      => new GeminiImportSource(scratch, TimeProvider.System),
             "kiro"        => new KiroImportSource(Config.Root, KiroHarness.FromEnvironment(Home).Paths.SessionsDir, KiroHarness.FromEnvironment(Home).Crew, router: new GitProviderRouter(), time: TimeProvider.System),
