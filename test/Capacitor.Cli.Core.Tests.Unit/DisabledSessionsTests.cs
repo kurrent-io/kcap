@@ -5,6 +5,43 @@ public class DisabledSessionsTests {
     const string Dashed  = "01234567-89ab-cdef-0123-456789abcdef";
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+    [TempDir]        public required TempDir        Tmp    { get; init; }
+
+    /// <summary>A marker is named by the bare id, and a path names none however the file it points at exists. A Pi
+    /// agent's resume token is its session file's absolute path.</summary>
+    [Test]
+    public async Task A_path_to_a_file_that_exists_is_no_disabled_session() {
+        var sessionFile = Tmp.CreateFile("session.jsonl");
+
+        await Assert.That(DisabledSessions.IsDisabledByPerson(sessionFile, Config.Root)).IsFalse();
+        await Assert.That(DisabledSessions.IsDisabled(sessionFile, Config.Root)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_relative_path_reads_no_marker_from_another_directory() {
+        DisabledSessions.Exclude(Session, Config.Root);
+
+        await Assert.That(DisabledSessions.IsDisabledByPerson($"../excluded/{Session}", Config.Root)).IsFalse();
+    }
+
+    [Test]
+    public async Task Nothing_a_disable_writes_lands_outside_its_directory() {
+        DisabledSessions.Mark(Tmp.PathTo("marked"), Config.Root);
+        DisabledSessions.Exclude(Tmp.PathTo("excluded"), Config.Root);
+        DisabledSessions.MarkDeletedUnconfirmed(Tmp.PathTo("unconfirmed"), Config.Root);
+        DisabledSessions.MarkOnOtherServer(Tmp.PathTo("elsewhere"), "https://a.example", Config.Root);
+
+        await Assert.That(Directory.EnumerateFileSystemEntries(Tmp.Path)).IsEmpty();
+    }
+
+    [Test]
+    public async Task Lifting_an_exclusion_deletes_nothing_outside_its_directory() {
+        var sessionFile = Tmp.CreateFile("session.jsonl");
+
+        DisabledSessions.RemoveExclusion(sessionFile, Config.Root);
+
+        await Assert.That(File.Exists(sessionFile)).IsTrue();
+    }
 
     [Test]
     public async Task An_exclusion_quiets_the_hooks_and_is_no_persons_disable() {
