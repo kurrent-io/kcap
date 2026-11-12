@@ -27,3 +27,4 @@ public static class ServiceIdentity {
     /// <summary>The job a user's local server runs in; one name per user</summary>
     public static string ServerJobName(string sid) => $@"Global\kcap-server-{sid}";
 }
+// CI selection probe, to be discarded.
