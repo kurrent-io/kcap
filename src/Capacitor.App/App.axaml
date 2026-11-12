@@ -58,14 +58,14 @@
                 <Setter Property="Template">
                     <ControlTemplate>
                         <Panel>
-                            <Border Name="PART_TransparencyFallback" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" />
-                            <Border Background="{TemplateBinding Background}" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" />
+                            <Border Name="PART_TransparencyFallback" IsHitTestVisible="False" Margin="{TemplateBinding WindowDecorationMargin, Converter={x:Static views:DrawnFrameInsetConverter.Instance}}" />
+                            <Border Background="{TemplateBinding Background}" IsHitTestVisible="False" Margin="{TemplateBinding WindowDecorationMargin, Converter={x:Static views:DrawnFrameInsetConverter.Instance}}" />
                             <Panel Background="Transparent" Margin="{TemplateBinding WindowDecorationMargin}" />
                             <VisualLayerManager Name="PART_VisualLayerManager">
                                 <ContentPresenter Name="PART_ContentPresenter"
                                                   ContentTemplate="{TemplateBinding ContentTemplate}"
                                                   Content="{TemplateBinding Content}"
-                                                  Margin="{TemplateBinding Padding}"
+                                                  Margin="{TemplateBinding WindowDecorationMargin, Converter={x:Static views:DrawnFrameInsetConverter.Instance}}"
                                                   HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
                             </VisualLayerManager>
