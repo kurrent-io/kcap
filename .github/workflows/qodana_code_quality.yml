@@ -10,10 +10,12 @@ on:
 
 jobs:
   qodana:
+    # A fork PR's run gets no QODANA_TOKEN, so it is skipped even when labelled
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'labeled' && github.event.label.name == 'qodana') ||
-      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'qodana'))
+      (github.event.pull_request.head.repo.full_name == github.repository && (
+        (github.event.action == 'labeled' && github.event.label.name == 'qodana') ||
+        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'qodana'))))
     # Job-level, so a skipped run (another label added) never cancels a scan in progress
     concurrency:
       group: qodana-${{ github.event.pull_request.number || github.ref }}
