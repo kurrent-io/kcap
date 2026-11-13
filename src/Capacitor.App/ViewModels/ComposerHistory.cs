@@ -1,9 +1,9 @@
 namespace Capacitor.App.ViewModels;
 
 /// Prompts recalled with ↑/↓ the way a shell recalls commands: the input the transcript records
-/// as submitted, followed by the sends it has not echoed yet. Recall starts only from a blank
-/// composer and continues only while the box still shows the recalled text unchanged: an edit
-/// turns it back into the user's own draft.
+/// as submitted, followed by the sends it has not echoed yet. Recall continues only while the box
+/// still shows the recalled text unchanged: an edit turns it back into the user's own draft, which
+/// the next recall stashes and stepping past the newest prompt restores.
 public sealed class ComposerHistory {
     public const int Capacity = 100;
 
@@ -34,18 +34,13 @@ public sealed class ComposerHistory {
     /// turn is replayed.
     public void ClearForReplay() => _entries.Clear();
 
-    /// The next older prompt, or null when there is none or `current` is a draft of the user's own.
+    /// The next older prompt, or null when there is none.
     public string? Older(string current, IReadOnlyList<string> unechoed) {
         var all = All(unechoed);
-        int target;
-        if (IsShowing(current)) {
-            target = Locate(all).Index - 1;
-        } else {
-            if (!string.IsNullOrWhiteSpace(current)) return null;
-            _draft = current;
-            target = all.Count - 1;
-        }
+        var showing = IsShowing(current);
+        var target = showing ? Locate(all).Index - 1 : all.Count - 1;
         if (target < 0) return null;
+        if (!showing) _draft = current;
         _cursor = target;
         return _shown = all[target];
     }

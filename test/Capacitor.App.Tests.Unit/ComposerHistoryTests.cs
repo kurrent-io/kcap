@@ -32,8 +32,13 @@ public class ComposerHistoryTests {
     }
 
     [Test]
-    public async Task Older_leaves_a_typed_draft_alone() {
-        await Assert.That(Seen("first").Older("typing", None)).IsNull();
+    public async Task Older_over_a_typed_draft_stashes_it_until_newer_steps_past_the_newest() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("second");
+        await Assert.That(history.Older("second", None)).IsEqualTo("first");
+        await Assert.That(history.Newer("first", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("typing", None)).IsNull();
     }
 
     [Test]
@@ -58,13 +63,15 @@ public class ComposerHistoryTests {
         await Assert.That(history.Newer("typing", None)).IsNull();
     }
 
-    /// An edited recall is the user's own draft: neither key steps away from it.
+    /// An edited recall is the user's own draft: ↓ leaves it alone and ↑ starts over from the
+    /// newest, stashing the edit.
     [Test]
     public async Task An_edit_to_a_recalled_prompt_ends_navigation() {
         var history = Seen("first", "second");
         await Assert.That(history.Older("", None)).IsEqualTo("second");
-        await Assert.That(history.Older("second edited", None)).IsNull();
         await Assert.That(history.Newer("second edited", None)).IsNull();
+        await Assert.That(history.Older("second edited", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("second edited");
     }
 
     [Test]
@@ -137,13 +144,15 @@ public class ComposerHistoryTests {
         await Assert.That(history.Older("", None)).IsNull();
     }
 
+    /// After a clear the text on screen is a draft: ↑ starts from the newest instead of stepping on.
     [Test]
     public async Task Clear_ends_a_recall_on_screen() {
         var history = Seen("first", "second");
         await Assert.That(history.Older("", None)).IsEqualTo("second");
         history.Clear();
+        history.Observe("first");
         history.Observe("second");
         await Assert.That(history.Newer("second", None)).IsNull();
-        await Assert.That(history.Older("second", None)).IsNull();
+        await Assert.That(history.Older("second", None)).IsEqualTo("second");
     }
 }

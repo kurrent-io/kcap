@@ -2810,7 +2810,8 @@ public class ChatTabViewModelTests {
     }
 
     /// Text equality cannot prove a recall was left alone: an edit undone by hand lands on the
-    /// same string, and that string is the user's own draft now.
+    /// same string, and that string is the user's own draft now, so ↑ starts over from the newest
+    /// rather than stepping on to the older prompt.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Recall_ends_when_a_recalled_prompt_is_edited_and_restored() {
@@ -2831,9 +2832,11 @@ public class ChatTabViewModelTests {
 
             h.Chat.ComposerText = "second!";
             h.Chat.ComposerText = "second";
-            await Assert.That(h.Chat.RecallOlder()).IsFalse();
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
             await Assert.That(h.Chat.ComposerText).IsEqualTo("second");
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("first");
             await h.TeardownAsync();
         });
     }

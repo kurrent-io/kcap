@@ -1843,9 +1843,10 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// Pins the arrow keys' contract: ↑ in an empty composer recalls the last sent prompt, ↑ inside
-    /// a multi-line recall climbs to the first line before stepping older, ↓ past the newest
-    /// restores the empty box, and neither key touches a draft the user typed.
+    /// Pins the arrow keys' contract: ↑ recalls only from the start of the top line and leaves the
+    /// caret there, ↓ steps newer only from the end of the last line and leaves it there, each key
+    /// first takes the caret to that edge, lines in between stay the TextBox's own moves, and ↓
+    /// past the newest restores the draft.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Up_recalls_sent_prompts_and_down_returns_to_the_empty_draft() {
@@ -1859,25 +1860,60 @@ public class ChatTabViewSmokeTests {
 
             host.Press(PhysicalKey.ArrowUp);
             await Assert.That(host.Composer.Text).IsEqualTo(multi);
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(0);
+
+            host.Press(PhysicalKey.ArrowDown);
+            await Assert.That(host.Composer.Text).IsEqualTo(multi);
+            await Assert.That(host.Composer.CaretIndex).IsGreaterThan(3);
+            host.Press(PhysicalKey.ArrowDown);
             await Assert.That(host.Composer.CaretIndex).IsEqualTo(multi.Length);
 
             host.Press(PhysicalKey.ArrowUp);
             await Assert.That(host.Composer.Text).IsEqualTo(multi);
-            await Assert.That(host.Composer.CaretIndex).IsLessThanOrEqualTo(3);
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(3);
+            host.Press(PhysicalKey.ArrowUp);
+            await Assert.That(host.Composer.Text).IsEqualTo(multi);
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(0);
 
             host.Press(PhysicalKey.ArrowUp);
             await Assert.That(host.Composer.Text).IsEqualTo("first");
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(0);
             host.Press(PhysicalKey.ArrowUp);
             await Assert.That(host.Composer.Text).IsEqualTo("first");
 
+            host.Press(PhysicalKey.ArrowDown);
+            await Assert.That(host.Composer.Text).IsEqualTo("first");
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo("first".Length);
             host.Press(PhysicalKey.ArrowDown);
             await Assert.That(host.Composer.Text).IsEqualTo(multi);
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(multi.Length);
             host.Press(PhysicalKey.ArrowDown);
             await Assert.That(host.Composer.Text ?? "").IsEqualTo("");
+            await host.CloseAsync();
+        });
+    }
 
+    /// A typed draft takes ↑ to its start, then gives way to the newest prompt, and comes back
+    /// once ↓ steps past it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Up_over_a_typed_draft_recalls_and_down_restores_the_draft() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.AttachAsync(Tmp.CreateFile("recall-draft.jsonl", UserLine));
+            await host.SendAsync("first");
             host.Type("typing");
+
             host.Press(PhysicalKey.ArrowUp);
             await Assert.That(host.Composer.Text).IsEqualTo("typing");
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo(0);
+            host.Press(PhysicalKey.ArrowUp);
+            await Assert.That(host.Composer.Text).IsEqualTo("first");
+
+            host.Press(PhysicalKey.ArrowDown);
+            host.Press(PhysicalKey.ArrowDown);
+            await Assert.That(host.Composer.Text).IsEqualTo("typing");
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo("typing".Length);
             await host.CloseAsync();
         });
     }
@@ -1908,8 +1944,8 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// The composer wraps, so a long prompt with no newline still has rows above the caret: ↑ from
-    /// its end climbs those rows first and recalls the older prompt only from the top one.
+    /// The composer wraps, so a long prompt with no newline still has rows below and above the
+    /// caret: ↓ from the top row and ↑ from the bottom one stay the TextBox's own row moves.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Up_climbs_the_wrapped_rows_of_a_recall_before_stepping_older() {
@@ -1924,16 +1960,19 @@ public class ChatTabViewSmokeTests {
             await Assert.That(host.Composer.Text).IsEqualTo(wrapped);
             await Assert.That(host.Composer.GetLineCount()).IsGreaterThan(1);
 
-            host.Press(PhysicalKey.ArrowUp);
+            host.Press(PhysicalKey.ArrowDown);
             await Assert.That(host.Composer.Text).IsEqualTo(wrapped);
+            await Assert.That(host.Composer.CaretIndex).IsGreaterThan(0);
             await Assert.That(host.Composer.CaretIndex).IsLessThan(wrapped.Length);
 
-            var presses = 1;
+            host.Composer.CaretIndex = wrapped.Length;
+            var presses = 0;
             while (host.Composer.Text == wrapped && presses < 20) {
                 host.Press(PhysicalKey.ArrowUp);
                 presses++;
             }
             await Assert.That(host.Composer.Text).IsEqualTo("first");
+            await Assert.That(presses).IsGreaterThan(2);
             await host.CloseAsync();
         });
     }
