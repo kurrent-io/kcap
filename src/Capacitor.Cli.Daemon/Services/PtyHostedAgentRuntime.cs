@@ -116,6 +116,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
     Task                             _heldSends = Task.CompletedTask;
+    TaskCompletionSource             _dialogShown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // Unknown until a screen reader reports it: 0 unknown, 1 shown, 2 not shown.
     int                              _promptShown;
     bool                             _unconfirmed;
@@ -181,7 +182,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     public void NoteTerminalDialog(bool showing) {
         lock (_dialogGate) {
             if (showing) {
-                _dialogGone ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (_dialogGone is not null) return;
+
+                _dialogGone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _dialogShown.TrySetResult();
+                _dialogShown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             } else if (_dialogGone is { } gone) {
                 _dialogGone = null;
                 gone.TrySetResult();
@@ -471,12 +476,25 @@ internal sealed partial class PtyHostedAgentRuntime(
             waited = true;
             _lane.Release();
             _deliveryHoldsLane = false;
-            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await WaitOutDialogAsync();
             await _lane.WaitAsync(_disposal.Token);
             _deliveryHoldsLane = true;
         }
 
         return waited;
+    }
+
+    /// <summary>Returns once no dialog is on screen and the redraw after it has settled, or the agent
+    /// has exited or been asked to stop. A paste or Enter that lands in that redraw is lost, and answering
+    /// the dialog was a key press, so nothing would resubmit it. Call it without the lane: the keys that
+    /// answer a dialog shown again meanwhile need it.</summary>
+    async Task WaitOutDialogAsync() {
+        // A dialog redrawn as it is answered can read as gone for a chunk, so the wait ends only once the
+        // dialog has stayed gone through the settle.
+        while (DialogGone is not null && !pty.HasExited && !_stopRequested) {
+            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await WaitForRedrawToSettleAsync();
+        }
     }
 
     /// <summary>Returns once no dialog is on screen, or the agent has exited or been asked to stop.</summary>
@@ -491,13 +509,19 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <summary>
     /// A dispatched message that a dialog holds back, or that follows one held, is taken at once and
     /// written in order once the dialog closes: the daemon handles server messages one at a time, and
-    /// awaiting this write would hold back the keys that answer the dialog. A dialog that opens after the
-    /// write has started still holds that write until it is answered.
+    /// awaiting this write would hold back the keys that answer the dialog. One that meets a dialog
+    /// opening mid-write is let go the same way.
     /// </summary>
     public async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        Task dialogShown;
+        lock (_dialogGate) dialogShown = _dialogShown.Task;
+
         var (write, held) = Enqueue(text);
 
         if (held) return write;
+
+        // A dialog can also open between the paste and its Enter, which then waits for it.
+        if (await Task.WhenAny(write, dialogShown) != write) return write;
 
         await write;
 
@@ -529,18 +553,10 @@ internal sealed partial class PtyHostedAgentRuntime(
             // The message before reports its own loss; this one is still written.
         }
 
-        // A dialog redrawn as it is answered can read as gone for a chunk, so the hold ends only once the
-        // dialog has stayed gone through the settle.
-        while (DialogGone is not null && !pty.HasExited && !_stopRequested) {
-            await WaitWhileDialogShowsAsync(_disposal.Token);
-            await WaitForRedrawToSettleAsync();
-        }
-
         await PasteAndSubmitAsync(text);
     }
 
-    /// <summary>A closing dialog redraws the screen, and a paste that lands in the redraw is lost, so a
-    /// held message waits for the composer, the agent's prompt box where its screen is read, and a quiet
+    /// <summary>Waits for the composer, the agent's prompt box where its screen is read, and a quiet
     /// spell, as the launch prompt does. Returns at once if a dialog shows again.</summary>
     async Task WaitForRedrawToSettleAsync() {
         var started = time.GetTimestamp();
@@ -569,7 +585,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         // Once a stop is asked for, a paste would land behind its "/exit", whatever dialog came and
         // went while this waited for the lane.
         while (true) {
-            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await WaitOutDialogAsync();
             await _lane.WaitAsync(_disposal.Token);
 
             if (Ending) {

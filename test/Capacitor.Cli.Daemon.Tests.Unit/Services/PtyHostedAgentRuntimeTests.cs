@@ -126,7 +126,8 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>A dispatched message a dialog holds back is taken at once, so the key that answers the dialog is not
-    /// held behind it; the held messages are written in the order they came once the dialog closes.</summary>
+    /// held behind it; the held messages are written in the order they came once the dialog closes, each submitted
+    /// before the next is pasted.</summary>
     [Test]
     public async Task A_dispatched_message_held_by_a_dialog_is_taken_at_once_and_written_once_it_closes() {
         var pty = new RecordingScriptedPtyProcess();
@@ -145,8 +146,10 @@ public class PtyHostedAgentRuntimeTests {
         runtime.NoteTerminalDialog(false);
         await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
 
-        await Assert.That(pty.Writes.Where(w => w.StartsWith("\x1b[200~", StringComparison.Ordinal)))
-            .IsEquivalentTo(["\x1b[200~first\x1b[201~", "\x1b[200~second\x1b[201~"], CollectionOrdering.Matching);
+        var enters = Enumerable.Repeat("\r", PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length).ToList();
+        await Assert.That(pty.Writes).IsEquivalentTo(
+            ["\r", "\x1b[200~first\x1b[201~", ..enters, "\x1b[200~second\x1b[201~", ..enters], CollectionOrdering.Matching)
+            .Because("each message is submitted before the next is pasted, so two never merge into one submit");
         pty.Exit();
     }
 
@@ -194,6 +197,29 @@ public class PtyHostedAgentRuntimeTests {
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4, () => written.IsCompleted);
 
         await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~held\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>A dispatched message that meets a dialog opening between its paste and its Enter is let go at once, as
+    /// one held from the start is: the daemon handles server messages one at a time, and the key that answers the dialog
+    /// comes as the next one.</summary>
+    [Test]
+    public async Task A_dispatched_message_that_meets_a_dialog_mid_write_is_let_go() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+
+        var dispatched = runtime.SendDispatchedInputAsync("carry on", Guid.NewGuid());
+        await Task.Delay(100);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~");
+
+        runtime.NoteTerminalDialog(true);
+        var written = await dispatched.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.That(written.IsCompleted).IsFalse();
         pty.Exit();
     }
 
@@ -752,12 +778,16 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>A dialog drawn between a message's paste and its submit holds the submit Enter, which
-    /// would otherwise pick the dialog's default option.</summary>
+    /// would otherwise pick the dialog's default option, and once it closes the Enter waits out the
+    /// redraw, which would swallow it with nothing to resubmit it.</summary>
     [Test]
     public async Task A_message_submit_waits_for_a_dialog_that_appears_after_the_paste() {
         var time    = new FakeTimeProvider();
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
 
         var send = runtime.SendUserInputAsync("carry on");
         await Task.Delay(100);
@@ -766,10 +796,16 @@ public class PtyHostedAgentRuntimeTests {
         await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
         await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~");
 
+        // The daemon reads the dialog as closed from the redraw that erases it, after the read counted as output.
         await runtime.SendRawInputAsync([0x1b]).WaitAsync(TimeSpan.FromSeconds(2));
+        pty.Emit("redraw");
+        await Task.Delay(50);
         runtime.NoteTerminalDialog(false);
 
-        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 2);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\x1b");
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
         await send;
         await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\x1b|\r");
         pty.Exit();

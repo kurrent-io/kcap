@@ -140,24 +140,52 @@ internal static class ClaudeTerminalDialogDetector {
     /// a solid rule, the cursor on one of them. Ordinary output never ends the screen that way, since the
     /// prompt box is drawn below it.
     static (TerminalDialogDto? Dialog, bool IncompleteRedraw) FooterlessMenu(string[] lines, int footer, int cols) {
-        if (!IsOptionRow(lines[footer])) return (null, false);
+        if (LastOptionRow(lines, footer) is not { } last) return (null, false);
 
-        var border = Array.FindLastIndex(lines, footer, line => IsRule(line) && line.Trim()[0] is '─' or '━');
+        var border = Array.FindLastIndex(lines, last, line => IsRule(line) && line.Trim()[0] is '─' or '━');
         if (border < 0) return (null, false);
 
         var region = lines[(border + 1)..(footer + 1)];
-        if (region.Count(l => l.TrimStart().StartsWith(Cursor)) != 1) return (null, false);
 
         // A chip or tab row on top is a question's, which ends with a footer or a tab row of its own.
         if (region.FirstOrDefault(l => l.Trim().Length > 0)?.Trim() is { } first && QuestionChips.Contains(first[0])) return (null, false);
 
-        var (options, selected, firstRow, incomplete) = ReadOptions(region, cols, asked: true);
-        if (options.Count == 0) return (null, false);
+        var shown = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
+
+        // A numbered list with no cursor is output. Two cursors are a chunk that ended between drawing the new one and
+        // erasing the old: the dialog is still there.
+        var cursors = region.Count(l => l.TrimStart().StartsWith(Cursor));
+        if (cursors == 0) return (null, false);
+        if (cursors > 1) return (ScreenOnly(region, Array.FindIndex(region, IsOptionRow), shown), true);
+
+        var (options, selected, firstRow, incomplete) = ReadOptions(region, cols, asked: false);
+        if (options.Count == 0) return (ScreenOnly(region, firstRow, shown), incomplete);
 
         var paragraphs = Paragraphs(region[..firstRow].Select(l => l.Trim()));
-        var shown      = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
 
         return (new TerminalDialogDto(paragraphs.FirstOrDefault() ?? "", string.Join('\n', paragraphs.Skip(1)), options, selected, shown), incomplete);
+    }
+
+    static TerminalDialogDto ScreenOnly(string[] region, int choicesAt, string shown) {
+        var above = Paragraphs(region[..choicesAt].Select(l => l.Trim()));
+
+        return new TerminalDialogDto(above.FirstOrDefault() ?? "", string.Join('\n', above.Skip(1)), [], -1, shown);
+    }
+
+    // The last choice can wrap, so the screen may end on its continuation: rows indented past the choice's label.
+    static int? LastOptionRow(string[] lines, int footer) {
+        for (var i = footer; i >= 0 && lines[i].Trim().Length > 0; i--) {
+            if (IsOptionRow(lines[i])) return i == footer || Enumerable.Range(i + 1, footer - i).All(r => Indent(lines[r]) > LabelColumn(lines[i])) ? i : null;
+        }
+
+        return null;
+    }
+
+    static int LabelColumn(string optionRow) {
+        var text = optionRow.TrimStart();
+        if (text.StartsWith(Cursor)) text = text[1..].TrimStart();
+
+        return optionRow.Length - text.Length + text.IndexOf(". ", StringComparison.Ordinal) + 1;
     }
 
     static bool IsOptionRow(string line) {
