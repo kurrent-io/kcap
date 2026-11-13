@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Text;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -1590,8 +1591,8 @@ public partial class WorktreeManager(
     /// exotic aliases stay in the trusted-configuration residual documented on
     /// <see cref="EnsureSeparateRoots"/>.</para></summary>
     static bool IsAtOrUnder(string candidate, string root) {
-        candidate = candidate.Normalize(NormalizationForm.FormC);
-        root = root.Normalize(NormalizationForm.FormC);
+        candidate = UnicodeNormalization.ToNfc(candidate);
+        root = UnicodeNormalization.ToNfc(root);
         var prefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return candidate.Equals(root, FileSystemPathComparison) ||
                candidate.StartsWith(prefix, FileSystemPathComparison);
@@ -1654,7 +1655,7 @@ public partial class WorktreeManager(
     internal static string NormalizeRelativePath(string raw) {
         if (raw.Length == 0 || raw.StartsWith('/') || raw.Contains('\\') ||
             raw.Contains('\r') || raw.Contains('\n') ||
-            !raw.IsNormalized(NormalizationForm.FormC) ||
+            !UnicodeNormalization.IsNfc(raw) ||
             raw.Split('/').Any(p => p is "" or "." or "..") ||
             raw.Split('/').Any(p => p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"borrowed_snapshot_invalid_path: {raw}");
