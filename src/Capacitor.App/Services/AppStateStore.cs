@@ -57,7 +57,9 @@ public sealed record AppState(
     // Server URL -> the next-work target keys the launcher's band last showed, so a row can say it is new.
     IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null,
     // Set once a CloseToTrayHint toast has said that closing the main window keeps kcap running.
-    bool CloseToTrayExplained = false);
+    bool CloseToTrayExplained = false,
+    // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
+    IReadOnlyList<string>? DismissedHandoffOutcomes = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

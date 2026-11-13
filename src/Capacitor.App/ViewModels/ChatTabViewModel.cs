@@ -13,7 +13,6 @@ using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
-using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -856,7 +855,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, LocalTranscripts? transcripts = null,
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
-            IObservable<HandoffOutcomeDto?>? handoffOutcome = null, Action<string>? openLink = null,
+            IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
             IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
@@ -873,7 +872,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<IReadOnlyList<QueuedInputItem>>? serverQueue = null, PlanActivity? planActivity = null,
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, IMessageSenderSource? senders = null,
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
-            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeDto?>? handoffOutcome = null,
+            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
         _tracksAccountReadings = accountReadings is not null;
@@ -888,8 +887,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _planActivity = planActivity;
         _openCard = openCard;
         // Null clears the card: the outcome belonged to a session the chat no longer shows.
-        handoffOutcome?.Select(outcome => outcome is null ? null : new HandoffOutcomeViewModel(outcome))
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
+        handoffOutcome?.ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(card => HandoffOutcome = card, ex => LogOnce($"hand-off outcome: {ex.Message}"))
             .DisposeWith(_disposables);
         _input = input;

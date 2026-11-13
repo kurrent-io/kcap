@@ -60,7 +60,7 @@ public class ChatTabViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public Task The_outcome_shows_in_a_newly_opened_live_view() => RunOnUiAsync(async () => {
         using var session = new BehaviorSubject<ChatSessionInfo>(Session("s2"));
-        using var outcomes = new Subject<Capacitor.Cli.Core.Handoff.HandoffOutcomeDto>();
+        using var outcomes = new Subject<HandoffOutcomeViewModel?>();
         var time = new FakeTimeProvider();
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), _ => new HeldFeed(new ManualResetEventSlim(true), new ManualResetEventSlim(true)),
@@ -68,8 +68,8 @@ public class ChatTabViewModelTests {
         try {
             await Assert.That(chat.HandoffOutcome).IsNull();
 
-            outcomes.OnNext(new("s1", "Old session", "done", null,
-                [new("plan", "Plan A", "carried", null)]));
+            outcomes.OnNext(new HandoffOutcomeViewModel(new("s1", "Old session", "done", null,
+                [new("plan", "Plan A", "carried", null)])));
             await WaitUntilAsync(() => chat.HandoffOutcome is not null, what: "the outcome");
 
             await Assert.That(chat.HandoffOutcome!.Header).IsEqualTo("Continued from Old session");

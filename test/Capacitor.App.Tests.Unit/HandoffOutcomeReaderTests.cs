@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -8,6 +9,8 @@ using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 namespace Capacitor.App.Tests.Unit;
 
 public class HandoffOutcomeReaderTests {
+    [TempDir] public required TempDir Tmp { get; init; }
+
     sealed class Rig : IDisposable {
         public FakeDaemonClientService Daemon { get; } = new();
         public ScriptedLocalControlOps Ops { get; } = new();
@@ -180,5 +183,63 @@ public class HandoffOutcomeReaderTests {
         while (!rig.Completed) await rig.NextReadAsync();
 
         await Assert.That(rig.Seen.Select(o => o.State)).IsEquivalentTo(["running", "done"]);
+    }
+
+    [Test]
+    public async Task Dismissing_a_card_clears_it_and_stops_following_the_session() {
+        using var rig = new Rig();
+        rig.Answers.Enqueue(Outcome("running"));
+        var dismissals = new HandoffOutcomeDismissals(new AppStateStore(Tmp.PathTo("app-state.json")));
+        var cards = new List<Capacitor.App.ViewModels.HandoffOutcomeViewModel?>();
+        using var sub = HandoffOutcomeReader.CardFor(new HandoffOutcomeReader(rig.Daemon, rig.Ops, rig.Time, dismissals), "s2").Subscribe(cards.Add);
+        await WaitUntilAsync(() => cards.Count == 2, what: "the running card");
+
+        await cards[1]!.DismissCommand.Execute();
+        await WaitUntilAsync(() => cards.Count == 3, what: "the card cleared");
+        var reads = rig.Reads;
+        rig.Answers.Enqueue(Outcome("done"));
+        rig.Time.Advance(HandoffOutcomeReader.PollInterval * 3);
+        await Task.Delay(50);
+
+        await Assert.That(cards[2]).IsNull();
+        await Assert.That(cards.Count).IsEqualTo(3);
+        await Assert.That(rig.Reads).IsEqualTo(reads);
+    }
+
+    [Test]
+    public async Task A_session_dismissed_before_a_restart_reads_no_card_and_another_session_still_does() {
+        using var rig = new Rig();
+        var path = Tmp.PathTo("app-state.json");
+        await new HandoffOutcomeDismissals(new AppStateStore(path)).DismissAsync("s2");
+        var reader = new HandoffOutcomeReader(rig.Daemon, rig.Ops, rig.Time, new HandoffOutcomeDismissals(new AppStateStore(path)));
+
+        var dismissed = await HandoffOutcomeReader.CardFor(reader, "s2").ToList();
+        await Assert.That(dismissed).IsEquivalentTo(new Capacitor.App.ViewModels.HandoffOutcomeViewModel?[] { null });
+        await Assert.That(rig.Reads).IsEqualTo(0);
+
+        rig.Answers.Enqueue(Outcome("done"));
+        var other = await HandoffOutcomeReader.CardFor(reader, "s3").Where(card => card is not null).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
+        await Assert.That(other!.Header).IsEqualTo("Continued from Old session");
+    }
+
+    [Test]
+    public async Task A_dismissal_made_while_the_stored_dismissals_load_keeps_the_card_closed() {
+        using var rig = new Rig();
+        rig.Answers.Enqueue(Outcome("running"));
+        var store = new HeldStore();
+        var dismissals = new HandoffOutcomeDismissals(store);
+        var cards = HandoffOutcomeReader.CardFor(new HandoffOutcomeReader(rig.Daemon, rig.Ops, rig.Time, dismissals), "s2").ToList().ToTask();
+
+        await dismissals.DismissAsync("s2");
+        store.Loaded.SetResult(new AppState());
+
+        await Assert.That(await cards.WaitAsync(TimeSpan.FromSeconds(5))).IsEquivalentTo(new Capacitor.App.ViewModels.HandoffOutcomeViewModel?[] { null });
+        await Assert.That(rig.Reads).IsEqualTo(0);
+    }
+
+    sealed class HeldStore : IAppStateStore {
+        public TaskCompletionSource<AppState> Loaded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<AppState> LoadAsync() => Loaded.Task;
+        public Task<bool> UpdateAsync(Func<AppState, AppState> mutate) => Task.FromResult(true);
     }
 }
