@@ -786,8 +786,9 @@ internal sealed class CursorImportSource : IImportSource {
     /// loaded. So a posted resend counts as content that MAY be new (<c>SentContent = true</c>),
     /// same as the probe-succeeded path. The cost is a cosmetic double-count for an
     /// already-complete child that gets fail-open-resent (its AlreadyLoaded parent counted in both
-    /// Loaded and AlreadyLoaded). <c>SentContent</c> drives counting only: <c>--private</c>
-    /// captures every routed Cursor session regardless of outcome.
+    /// Loaded and AlreadyLoaded). <c>SentContent</c> drives counting and the succeeded/skipped
+    /// report, not privacy: <c>--private</c> captures every routed Cursor session regardless of
+    /// outcome.
     /// </para>
     /// </summary>
     async Task<(bool Success, bool SentContent)> SendSubagentLifecycleAsync(
@@ -906,13 +907,12 @@ internal sealed class CursorImportSource : IImportSource {
             ["strict"]                 = true,                 // fail-closed: 500 if SubagentCompleted isn't persisted
         }, ct);
 
-        // Privacy-safe by construction: whether the probe succeeded (known watermark) or failed
-        // (fail-open full resend), any lines actually POSTED count as SentContent. A probe
-        // failure is indeterminate, never a "definitely no new content" verdict — see the
-        // fail-open comment above. Known trade-off: an already-complete child that gets
-        // fail-open-resent will also report SentContent=true, which can cosmetically double-count
-        // its AlreadyLoaded parent (Loaded + AlreadyLoaded buckets) — deferred, separately
-        // tracked follow-up; privacy correctness wins over count precision.
+        // Whether the probe succeeded (known watermark) or failed (fail-open full resend), any
+        // lines actually POSTED count as SentContent: a probe failure is indeterminate, never a
+        // "definitely no new content" verdict — see the fail-open comment above. The trade-off is
+        // in the counts only: an already-complete child that gets fail-open-resent also reports
+        // SentContent=true, which can double-count its AlreadyLoaded parent (Loaded +
+        // AlreadyLoaded buckets). Privatization does not read SentContent.
         return (stopOk, stopOk && childSent > 0);
     }
 
