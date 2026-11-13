@@ -374,17 +374,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     readonly HashSet<(long Offset, string Text)> _literalInputHistory = [];
     int _recallEdits = -1;
     /// Replaces the composer text with the next older prompt; false when nothing changed.
-    public bool RecallOlder() => Recall(_history.Older(RecallStart(), Unechoed()));
+    public bool RecallOlder() => !BoxHoldsOwnSend() && Recall(_history.Older(Recallable(), Unechoed()));
     /// Replaces the composer text with the next newer prompt, or the draft past the newest.
-    public bool RecallNewer() => Recall(_history.Newer(RecallStart(), Unechoed()));
+    public bool RecallNewer() => !BoxHoldsOwnSend() && Recall(_history.Newer(Recallable(), Unechoed()));
 
-    /// A box still holding its own unsettled send is no draft: that prompt is already in the
-    /// history, so recall treats the box as blank and stashes nothing.
-    string RecallStart() {
-        var current = Recallable();
-        return !_history.IsShowing(current) && BoxHoldsOwnSend() ? "" : current;
-    }
-
+    /// Recall leaves the box alone until its own send settles: the outcome decides whether the
+    /// text is cleared or stays as a draft, and a recall in between would take it from both.
     /// The edit count, not the text, decides: retyping the same words is a new draft.
     bool BoxHoldsOwnSend() => Tracked.Any(q => !q.IsForeign && !q.Acknowledged
         && q.ComposerEdits == _composerEdits && string.Equals(q.Text, _composerText, StringComparison.Ordinal));
@@ -1523,14 +1518,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// The history dies with the tab, so its stash goes to the store: as the draft itself when the
     /// box only shows a recall, beside the draft when the box holds other text of the user's own.
-    /// Either write takes a new revision, so a send settling after teardown cannot clear it. A box
-    /// still holding its own send keeps the stored copy that send's delivery clears.
+    /// Either write takes a new revision, so a send settling after teardown cannot clear it.
     void PreserveStash() {
         if (_drafts is null) return;
-        var showing = _history.IsShowing(Recallable());
-        var stash = _history.TakeDraft();
-        if (!showing) _drafts.SetStash(_origin, _agentId, stash);
-        else if (stash.Length > 0 || !BoxHoldsOwnSend()) _drafts.Set(_origin, _agentId, stash);
+        if (_history.IsShowing(Recallable())) _drafts.Set(_origin, _agentId, _history.TakeDraft());
+        else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1723,11 +1715,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             }
             return outcome;
         }
-        if (outcome == ChatSendOutcome.Rejected) {
-            _unechoed.Remove(queued);
-            // A recall that started over this send took it out of the box without stashing it.
-            if (ownsDraft && _history.IsShowing(Recallable())) _history.Stash(snapshot);
-        }
+        if (outcome == ChatSendOutcome.Rejected) _unechoed.Remove(queued);
         else TurnSubmitted?.Invoke();
         var waits = !queued.Acknowledged && outcome switch {
             ChatSendOutcome.Accepted    => _openFeed is not null,
