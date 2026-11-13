@@ -552,9 +552,11 @@ public class ClaudeTerminalDialogDetectorTests {
         await Assert.That((dialog?.Heading, incomplete)).IsEqualTo(((string?)"Switch model?", true));
     }
 
-    /// A numbered list under a rule with no cursor on it is output, not a dialog.
+    /// A numbered list under a rule with no cursor on it decides nothing: output with no dialog open
+    /// stays output, and a footerless confirmation caught between erasing its cursor and drawing it
+    /// again stays open.
     [Test]
-    public async Task A_numbered_list_with_no_cursor_is_not_a_dialog() {
+    public async Task A_numbered_list_with_no_cursor_leaves_the_dialog_as_it_was() {
         var screen = string.Join('\n',
             "❯ summarize",
             new string('─', 120),
@@ -563,9 +565,15 @@ public class ClaudeTerminalDialogDetectorTests {
             "    1. Run the tests",
             "    2. Push the branch");
 
-        var (dialog, incomplete) = ClaudeTerminalDialogDetector.Read(screen, 120);
+        var watcher = new ClaudeScreenWatcher();
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + screen.Replace("\n", "\r\n"))).Dialog).IsNull();
 
-        await Assert.That((dialog is null, incomplete)).IsEqualTo((true, false));
+        var confirmation = string.Join("\r\n", "❯ /model", new string('─', 120), "  Switch model?", "", "  ❯ 1. Yes", "    2. No");
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation)).Dialog?.Heading).IsEqualTo("Switch model?");
+
+        var dialog = watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation.Replace("  ❯ 1.", "    1."))).Dialog;
+
+        await Assert.That(dialog?.Options.Count).IsEqualTo(2);
     }
 
     /// A footerless confirmation whose choices could be one wrapped label still holds the keyboard,

@@ -33,6 +33,8 @@ internal sealed class ClaudeScreenWatcher {
         if (read.IncompleteRedraw && dialog is not null
             && _dialog is { Options.Count: > 0 } && _dialog.Heading == dialog.Heading)
             dialog = _dialog;
+        else if (read.IncompleteRedraw && dialog is null)
+            dialog = _dialog;
         _dialog = dialog;
         return (ClaudeUsageLimitDetector.Parse(text), dialog, ClaudePromptBox.IsShown(text));
     }

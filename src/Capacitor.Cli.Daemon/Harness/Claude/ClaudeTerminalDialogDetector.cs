@@ -152,10 +152,10 @@ internal static class ClaudeTerminalDialogDetector {
 
         var shown = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
 
-        // A numbered list with no cursor is output. Two cursors are a chunk that ended between drawing the new one and
-        // erasing the old: the dialog is still there.
+        // A chunk can end between erasing the old cursor and drawing the new one, or the other way round. With no cursor
+        // the screen does not say whether a dialog is open, so it decides nothing.
         var cursors = region.Count(l => l.TrimStart().StartsWith(Cursor));
-        if (cursors == 0) return (null, false);
+        if (cursors == 0) return (null, true);
         if (cursors > 1) return (ScreenOnly(region, Array.FindIndex(region, IsOptionRow), shown), true);
 
         var (options, selected, firstRow, incomplete) = ReadOptions(region, cols, asked: false);

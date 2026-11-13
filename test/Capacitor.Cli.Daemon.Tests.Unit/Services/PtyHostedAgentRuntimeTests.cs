@@ -273,6 +273,42 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>Under steady output, a held message waits for the prompt box to have stood a quiet window, counted from
+    /// when it came back rather than from when the dialog closed.</summary>
+    [Test]
+    public async Task A_held_message_waits_for_the_prompt_box_to_stand_a_quiet_window() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.NotePromptShown(false);
+        runtime.NoteTerminalDialog(false);
+
+        bool Pasted() => pty.Writes.Contains("\x1b[200~held\x1b[201~");
+
+        async Task DrawAsync(int quarters) {
+            for (var i = 0; i < quarters; i++) {
+                pty.Emit("spinner");
+                await Task.Delay(30);
+                await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 4);
+            }
+        }
+
+        await DrawAsync(6);
+        runtime.NotePromptShown(true);
+        await DrawAsync(2);
+        await Assert.That(Pasted()).IsFalse().Because("the prompt box has stood only half a quiet window");
+
+        await DrawAsync(4);
+        await Assert.That(Pasted()).IsTrue();
+        pty.Exit();
+    }
+
     /// <summary>A message held when the agent is asked to stop is not written behind the stop, and its write reports the
     /// loss.</summary>
     [Test]

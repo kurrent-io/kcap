@@ -559,7 +559,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <summary>Waits for the composer, the agent's prompt box where its screen is read, and a quiet
     /// spell, as the launch prompt does. Returns at once if a dialog shows again.</summary>
     async Task WaitForRedrawToSettleAsync() {
-        var started = time.GetTimestamp();
+        var  started    = time.GetTimestamp();
+        long? shownSince = null;
 
         while (DialogGone is null && !pty.HasExited && !_stopRequested && time.GetElapsedTime(started) < LaunchPromptMaxWait) {
             var quietFor = time.GetElapsedTime(Volatile.Read(ref _lastOutputAt));
@@ -567,8 +568,9 @@ internal sealed partial class PtyHostedAgentRuntime(
             // A turn the dialog interrupted keeps drawing once it is answered, so a prompt box that has stood
             // through the quiet window is enough.
             var prompt = Volatile.Read(ref _promptShown);
+            shownSince = prompt == 1 ? shownSince ?? time.GetTimestamp() : null;
             if (LooksReadyForInput && prompt != 2
-             && (quietFor >= LaunchPromptQuietWindow || prompt == 1 && time.GetElapsedTime(started) >= LaunchPromptQuietWindow)) return;
+             && (quietFor >= LaunchPromptQuietWindow || shownSince is { } since && time.GetElapsedTime(since) >= LaunchPromptQuietWindow)) return;
 
             await Task.Delay(quietFor < LaunchPromptQuietWindow ? LaunchPromptQuietWindow - quietFor : LaunchPromptPoll, time, _disposal.Token);
         }
