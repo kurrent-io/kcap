@@ -53,23 +53,21 @@ public sealed class IdeCommand(
 
             await loop.RunAsync(CancellationToken.None);
         } finally {
-            host.Dispose();
-            directory.Dispose();
-            sessions.Dispose();
-
-            using var budget = new CancellationTokenSource(CloseBudget, time);
-            await CloseAsync(lane.DisposeAsync(), budget.Token);
-            await CloseAsync(daemon.DisposeAsync(), budget.Token);
+            await CloseSteps.RunAsync([
+                ("host", () => Close(host)),
+                ("agent directory", () => Close(directory)),
+                ("server sessions", () => Close(sessions)),
+                ("server connection", lane.DisposeAsync),
+                ("daemon client", daemon.DisposeAsync),
+            ], CloseBudget, time, Console.Error);
         }
 
         return 0;
     }
 
-    static async Task CloseAsync(ValueTask closing, CancellationToken budget) {
-        try {
-            await closing.AsTask().WaitAsync(budget);
-        } catch (OperationCanceledException) when (budget.IsCancellationRequested) {
-            // Left to finish on its own; the process exits without it.
-        }
+    static ValueTask Close(IDisposable disposable) {
+        disposable.Dispose();
+
+        return ValueTask.CompletedTask;
     }
 }

@@ -8,7 +8,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
@@ -507,8 +506,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.Label, b.Label);
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
-
-    internal static string WorktreeKeyFor(AgentStatusDto dto) => AgentRow.WorktreeKeyFor(dto);
 
     internal static string WorktreeKeyFor(AgentRow row) => row.CheckoutKey;
 
