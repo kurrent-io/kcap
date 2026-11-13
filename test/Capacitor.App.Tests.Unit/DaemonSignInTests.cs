@@ -1,5 +1,4 @@
 using Avalonia.Media;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
 

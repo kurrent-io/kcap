@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Microsoft.Extensions.Time.Testing;

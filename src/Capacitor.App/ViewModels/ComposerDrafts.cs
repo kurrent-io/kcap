@@ -1,5 +1,4 @@
 using System.Reactive.Disposables;
-using Capacitor.App.Services;
 
 namespace Capacitor.App.ViewModels;
 

@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 
 namespace Capacitor.App.ViewModels;
 

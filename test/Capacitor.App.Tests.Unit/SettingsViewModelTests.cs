@@ -1,7 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
-using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;

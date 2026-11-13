@@ -1,7 +1,6 @@
 using System.Reactive.Linq;
 using Avalonia.Threading;
 using Capacitor.App.Services;
-using Capacitor.App.Services.Mutation;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;

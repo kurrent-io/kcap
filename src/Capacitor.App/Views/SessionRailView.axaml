@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
+             xmlns:client="clr-namespace:Capacitor.Client;assembly=Capacitor.Client"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
              x:Class="Capacitor.App.Views.SessionRailView"
              x:DataType="vm:MainWindowViewModel">
@@ -218,10 +219,10 @@
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <Button x:Name="RailScopeMineButton" Content="Mine" Classes="kcapSegmentItem railSegmentItem"
                                         Classes.active="{Binding IsMine}" Command="{Binding SetScopeCommand}"
-                                        CommandParameter="{x:Static svc:RailScope.Mine}" AutomationProperties.Name="Mine" />
+                                        CommandParameter="{x:Static client:RailScope.Mine}" AutomationProperties.Name="Mine" />
                                 <Button x:Name="RailScopeTeamButton" Content="Team" Classes="kcapSegmentItem railSegmentItem"
                                         Classes.active="{Binding IsTeam}" Command="{Binding SetScopeCommand}"
-                                        CommandParameter="{x:Static svc:RailScope.Team}" AutomationProperties.Name="Team" />
+                                        CommandParameter="{x:Static client:RailScope.Team}" AutomationProperties.Name="Team" />
                             </StackPanel>
                         </Border>
                         <Border Grid.Column="2" Classes="kcapSegment" HorizontalAlignment="Right">
