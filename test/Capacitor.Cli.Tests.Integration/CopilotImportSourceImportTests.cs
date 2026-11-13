@@ -131,7 +131,7 @@ public class CopilotImportSourceImportTests : IDisposable {
     /// <summary>A re-import of a session the server already holds whole claims no repository backfill: the CLI cannot
     /// tell whether the replayed start changed anything, so it reports the session as already loaded.</summary>
     [Test]
-    public async Task A_reimport_of_a_loaded_session_reports_it_already_loaded_not_backfilled() {
+    public async Task A_reimport_of_a_loaded_session_claims_no_repository_backfill() {
         WriteSession();
         StubServerHoldingEveryLine();
 
@@ -143,7 +143,7 @@ public class CopilotImportSourceImportTests : IDisposable {
             .HandleImport(filterCwd: null, minLines: 0, sources: [source], scope: new ImportScope.All(), skipConfirmation: true);
 
         await Assert.That(exitCode).IsEqualTo(0);
-        await Assert.That(stdout.ToString()).Contains($"Already loaded {SessionIds.Display(DashedSid.Replace("-", ""))} (no new content)");
+        await Assert.That(stdout.ToString()).Contains($"Refreshed {SessionIds.Display(DashedSid.Replace("-", ""))} (already loaded)");
         await Assert.That(stdout.ToString()).DoesNotContain("repository backfill");
     }
 

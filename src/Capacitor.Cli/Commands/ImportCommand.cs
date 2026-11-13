@@ -1999,7 +1999,9 @@ class ImportCommand(
             // aggregate totals — so the TTY and non-TTY branches below differ ONLY in how they
             // draw. Duplicating any of it across both branches let them drift independently, and a
             // regression in just one was invisible to tests that exercise a single display mode.
-            async Task<ImportOutcome?> RecordRoutedResultAsync(SessionClassification c) {
+            // Returns the resolved outcome for the caller's switch, plus the raw one (its
+            // `null when outcome is Skipped` arm needs it).
+            async Task<(ImportOutcome? Resolved, ImportOutcome Raw)> RecordRoutedResultAsync(SessionClassification c) {
                 var result  = await ImportOne(c);
                 var outcome = result.Outcome;
 
@@ -2057,7 +2059,7 @@ class ImportCommand(
                     case ImportOutcome.Failed:                          Interlocked.Increment(ref routedErrored);  break;
                 }
 
-                return resolved;
+                return (resolved, outcome);
             }
 
             if (display.Tty) {
@@ -2072,7 +2074,7 @@ class ImportCommand(
                                 routed,
                                 new ParallelOptions { MaxDegreeOfParallelism = ImportWorkerCount },
                                 async (c, _) => {
-                                    var resolved = await RecordRoutedResultAsync(c);
+                                    var (resolved, outcome) = await RecordRoutedResultAsync(c);
 
                                     switch (resolved) {
                                         case ImportOutcome.Loaded:
@@ -2094,11 +2096,21 @@ class ImportCommand(
                                             );
 
                                             break;
-                                        case null:
-                                            // A suppressed replay re-sends the session's lifecycle, but nothing tells
-                                            // the CLI whether that changed what the server holds, so it claims nothing.
+                                        case null when outcome is ImportOutcome.Skipped:
+                                            // A suppressed Skipped replay is a plain no-op (could
+                                            // be a Cursor nested child, an Antigravity/OpenCode
+                                            // lifecycle-only repair, etc.), not always "nested
+                                            // under parent".
                                             console.Ansi.MarkupLine(
                                                 $"{display.Indented}[grey]·[/] Already loaded [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (no new content)"
+                                            );
+
+                                            break;
+                                        case null:
+                                            // The replay re-sent the session's lifecycle; nothing says whether that
+                                            // changed what the server holds, so the line claims no backfill.
+                                            console.Ansi.MarkupLine(
+                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already loaded)"
                                             );
 
                                             break;
@@ -2114,7 +2126,7 @@ class ImportCommand(
                     routed,
                     new ParallelOptions { MaxDegreeOfParallelism = ImportWorkerCount },
                     async (c, _) => {
-                        var resolved = await RecordRoutedResultAsync(c);
+                        var (resolved, outcome) = await RecordRoutedResultAsync(c);
 
                         switch (resolved) {
                             case ImportOutcome.Loaded:
@@ -2130,9 +2142,13 @@ class ImportCommand(
                                 display.Line($"Failed {SessionIds.Display(c.SessionId)}");
 
                                 break;
-                            case null:
+                            case null when outcome is ImportOutcome.Skipped:
                                 // See the Tty branch above.
                                 display.Line($"Already loaded {SessionIds.Display(c.SessionId)} (no new content)");
+
+                                break;
+                            case null:
+                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (already loaded)");
 
                                 break;
                         }
