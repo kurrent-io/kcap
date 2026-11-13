@@ -167,45 +167,47 @@ internal sealed class CopilotImportSource : IImportSource {
             HashSet<string> seen, List<DiscoveredSession> result, CancellationToken ct) {
         if (!Directory.Exists(storage)) return;
 
-        IEnumerable<string> workspaces;
-        try { workspaces = Directory.EnumerateDirectories(storage); } catch (Exception ex) when (IsUnreadable(ex)) { return; }
+        // The enumeration is lazy, so a storage root that turns unreadable mid-scan throws from the loop itself.
+        try {
+            foreach (var workspace in Directory.EnumerateDirectories(storage)) {
+                ct.ThrowIfCancellationRequested();
 
-        foreach (var workspace in workspaces) {
-            ct.ThrowIfCancellationRequested();
+                try {
+                    var transcripts = Path.Combine(workspace, "GitHub.copilot-chat", "transcripts");
+                    if (!Directory.Exists(transcripts)) continue;
 
-            try {
-                var transcripts = Path.Combine(workspace, "GitHub.copilot-chat", "transcripts");
-                if (!Directory.Exists(transcripts)) continue;
+                    var cwd = VsCodeWorkspaceFolder(Path.Combine(workspace, "workspace.json"));
+                    if (normalizedCwd is not null && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
 
-                var cwd = VsCodeWorkspaceFolder(Path.Combine(workspace, "workspace.json"));
-                if (normalizedCwd is not null && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+                    foreach (var jsonl in Directory.EnumerateFiles(transcripts, "*.jsonl")) {
+                        var stem = Path.GetFileNameWithoutExtension(jsonl);
+                        if (!Guid.TryParse(stem, out _)) continue;
 
-                foreach (var jsonl in Directory.EnumerateFiles(transcripts, "*.jsonl")) {
-                    var stem = Path.GetFileNameWithoutExtension(jsonl);
-                    if (!Guid.TryParse(stem, out _)) continue;
+                        var dashless = stem.Replace("-", "");
+                        if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal)) continue;
+                        if (!seen.Add(dashless)) continue;
 
-                    var dashless = stem.Replace("-", "");
-                    if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal)) continue;
-                    if (!seen.Add(dashless)) continue;
+                        DateTimeOffset? firstTimestamp = null;
+                        try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch (Exception ex) when (IsUnreadable(ex)) { /* best effort */ }
+                        if (sinceUtc is { } cutoff && firstTimestamp is { } ts && ts < cutoff) continue;
 
-                    DateTimeOffset? firstTimestamp = null;
-                    try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch (Exception ex) when (IsUnreadable(ex)) { /* best effort */ }
-                    if (sinceUtc is { } cutoff && firstTimestamp is { } ts && ts < cutoff) continue;
-
-                    result.Add(new DiscoveredSession(
-                        SessionId:      dashless,
-                        Vendor:         HarnessId.Copilot,
-                        Cwd:            cwd,
-                        FirstTimestamp: firstTimestamp,
-                        SourceMeta:     new Dictionary<string, object?> {
-                            ["TranscriptPath"]  = jsonl,
-                            ["Cwd"]             = cwd,
-                            [ChatSessionLogKey] = CopilotPaths.ChatSessionLogFor(jsonl),
-                        }));
+                        result.Add(new DiscoveredSession(
+                            SessionId:      dashless,
+                            Vendor:         HarnessId.Copilot,
+                            Cwd:            cwd,
+                            FirstTimestamp: firstTimestamp,
+                            SourceMeta:     new Dictionary<string, object?> {
+                                ["TranscriptPath"]  = jsonl,
+                                ["Cwd"]             = cwd,
+                                [ChatSessionLogKey] = CopilotPaths.ChatSessionLogFor(jsonl),
+                            }));
+                    }
+                } catch (Exception ex) when (IsUnreadable(ex)) {
+                    // One unreadable workspace must not abort the scan.
                 }
-            } catch (Exception ex) when (IsUnreadable(ex)) {
-                // One unreadable workspace must not abort the scan.
             }
+        } catch (Exception ex) when (IsUnreadable(ex)) {
+            // An unreadable storage root ends its own scan, not the others'.
         }
     }
 
@@ -406,8 +408,9 @@ internal sealed class CopilotImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
+        var usageOk = true;
         if (classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog) {
-            await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
+            usageOk = await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
         }
 
         // Copilot auto-names every session (workspace.yaml `name`) — forward it as the title,
@@ -427,7 +430,7 @@ internal sealed class CopilotImportSource : IImportSource {
             ctx.HttpClient, _time, ctx.BaseUrl, "session-end/copilot",
             BuildSessionEndPayload(classification.SessionId, cwd, classification.Meta.LastTimestamp),
             ct);
-        if (!endOk) return ImportOutcome.Failed;
+        if (!endOk || !usageOk) return ImportOutcome.Failed;
 
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
 
@@ -435,11 +438,14 @@ internal sealed class CopilotImportSource : IImportSource {
     }
 
     /// <summary>A Local session's usage and title, from its chat log. Posted on every classification, an already
-    /// loaded one included, because the usage lines sit above the transcript watermark and dedupe by id. Best-effort:
-    /// a missing or unreadable log fails nothing.</summary>
-    async Task PostVsCodeLocalAsync(ImportContext ctx, string sessionId, string transcriptPath, string chatLog, CancellationToken ct) {
+    /// loaded one included, because the usage lines sit above the transcript watermark and dedupe by id. False only
+    /// when the server refused the usage, so the import fails and can be run again; a missing or unreadable log fails
+    /// nothing.</summary>
+    async Task<bool> PostVsCodeLocalAsync(ImportContext ctx, string sessionId, string transcriptPath, string chatLog, CancellationToken ct) {
         var cache = new VsCodeChatSessionCache(chatLog, Path.GetFileNameWithoutExtension(transcriptPath), _ => { });
-        if (cache.Current() is not { } session) return;
+        if (cache.Current() is not { } session) return true;
+
+        var delivered = true;
 
         var usage = CopilotLocalUsage.Build(sessionId, session, FrozenSet<string>.Empty, FrozenDictionary<string, long>.Empty);
         if (usage.Lines.Count > 0) {
@@ -454,12 +460,15 @@ internal sealed class CopilotImportSource : IImportSource {
             try {
                 using var content = new StringContent(JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch), Encoding.UTF8, "application/json");
                 using var resp    = await ctx.HttpClient.PostWithRetryAsync($"{ctx.BaseUrl}/hooks/transcript", content, _time, ct: ct);
-            } catch (Exception ex) when (ex is not OperationCanceledException) {
-                // Usage is best-effort; the transcript already went.
+                delivered = resp.IsSuccessStatusCode;
+            } catch (Exception ex) when (ex is HttpRequestException or IOException) {
+                delivered = false;
             }
         }
 
         await ImportHarnessTitle.PostFromStoreAsync(new VsCodeChatTitle(cache), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
+
+        return delivered;
     }
 
     /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is

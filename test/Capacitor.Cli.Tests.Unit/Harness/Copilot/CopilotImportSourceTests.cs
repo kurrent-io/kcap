@@ -345,6 +345,31 @@ public class CopilotImportSourceTests {
         await Assert.That(title.RequestMessage.Body!).Contains("Create notes.md");
     }
 
+    /// <summary>Usage the server refuses fails the import, so it can be run again rather than read as done.</summary>
+    [Test]
+    public async Task an_import_whose_usage_the_server_refuses_fails() {
+        using var tmp = new TempDir();
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage");
+        WriteLocalSession(storage, "ws1", Sid1, new Uri(tmp.CreateDir("work").Path).AbsoluteUri);
+        storage.CreateFile(["ws1", "chatSessions", Sid1 + ".jsonl"],
+            """{"kind":0,"v":{"version":3,"sessionId":"SID","requests":[{"requestId":"r1","modelState":{"value":1},"completionTokens":430,"copilotCredits":0.5,"result":{"metadata":{"resolvedModel":"gpt-6-luna"}}}]}}"""
+                .Replace("SID", Sid1) + "\n");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":0}"""));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).AtPriority(0).RespondWith(Response.Create().WithStatusCode(400));
+        using var client = new HttpClient();
+
+        var source     = new CopilotImportSource(Config.Root, Layout(tmp), [storage.Path], router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        var result     = await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        await Assert.That(result.Outcome).IsEqualTo(ImportOutcome.Failed);
+    }
+
     static void WriteLocalSession(TempDirHandle storage, string workspace, string dashedSid, string folderUri) {
         storage.CreateDir(workspace, "chatSessions");
         storage.CreateFile([workspace, "workspace.json"], new JsonObject { ["folder"] = folderUri }.ToJsonString());
