@@ -9,6 +9,9 @@ on:
       - '**'
       - '!**.md'
       - 'kcap/**'
+  # The merge queue tests each PR on top of the main it will land on, so two PRs that pass alone cannot
+  # break main together. Paths filters do not apply to this event; the whole suite runs.
+  merge_group:
   push:
     branches: [main]
     paths-ignore:
@@ -69,7 +72,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugin-docs != 'true'
     runs-on: ${{ matrix.os }}
-    # Roughly 2.5x the longest observed leg (17m); this only has to catch a wedge, and GitHub's
+    # About 1.4x the longest observed leg (Windows, 28m); this only has to catch a wedge, and GitHub's
     # kill takes the uploaded reports with it.
     timeout-minutes: 40
     strategy:
