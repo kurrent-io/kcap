@@ -72,7 +72,8 @@ public class PiMcpExtensionInstallerTests {
 
         await Assert.That(content).Contains("const KCAP_DIRECT_TOOLS = new Set([\"kcap_memory_search_memories\", \"kcap_memory_get_memory\"]);");
         await Assert.That(content).Contains("exposure: direct ? \"direct\" : \"deferred\",");
-        await Assert.That(content).Contains("? [\"tool_search\"]");
+        await Assert.That(content).Contains("t.name === \"tool_search\" && t.exposure !== \"hidden\"");
+        await Assert.That(content).Contains("if (active.includes(\"tool_search\")) return;");
         await Assert.That(content).Contains("pi.setActiveTools([...active, ...missing]);");
         // Tool search ranks a tool by its namespace too, so each carries its server's description.
         await Assert.That(content).Contains("\"memory\": \"Team memory — search, read, and save durable learnings.\"");

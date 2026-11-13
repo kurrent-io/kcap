@@ -216,11 +216,14 @@ public static class PiMcpExtensionInstaller {
               const all: any[] = pi.getAllTools() || [];
               const deferred = all.filter((t) => t && registered.has(t.name) && t.exposure === "deferred").map((t) => t.name);
               if (!deferred.length) return;
-              const active: string[] = pi.getActiveTools() || [];
-              const add = all.some((t) => t && t.name === "tool_search")
-                ? ["tool_search"]
-                : deferred;
-              const missing = add.filter((name) => !active.includes(name));
+              let active: string[] = pi.getActiveTools() || [];
+              if (all.some((t) => t && t.name === "tool_search" && t.exposure !== "hidden")) {
+                if (!active.includes("tool_search")) pi.setActiveTools([...active, "tool_search"]);
+                // setActiveTools drops a name it will not activate without throwing, so check it took.
+                active = pi.getActiveTools() || [];
+                if (active.includes("tool_search")) return;
+              }
+              const missing = deferred.filter((name) => !active.includes(name));
               if (missing.length) pi.setActiveTools([...active, ...missing]);
             } catch (e: any) {
               console.error("[kcap-mcp] could not activate tool_search: " + ((e && e.message) || String(e)));
