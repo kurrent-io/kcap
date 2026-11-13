@@ -8,8 +8,8 @@ namespace Capacitor.App.ViewModels;
 public sealed class ComposerDrafts {
     readonly Dictionary<string, (string Text, long Revision)> _drafts = new(StringComparer.Ordinal);
     // A draft a recall replaced while the stored draft is another text the user typed; the next
-    // composer for the session takes it back.
-    readonly Dictionary<string, string> _stashes = new(StringComparer.Ordinal);
+    // composer for the session takes it back. A nonzero revision ties it to a send still carrying it.
+    readonly Dictionary<string, (string Text, long Revision)> _stashes = new(StringComparer.Ordinal);
     readonly List<(string Key, Action<string> OnChanged)> _watchers = [];
     long _revision;
 
@@ -29,12 +29,20 @@ public sealed class ComposerDrafts {
         else _drafts[Key(origin, agentId)] = (text, ++_revision);
     }
 
-    public void SetStash(AgentOrigin origin, string agentId, string text) {
-        if (text.Length > 0) _stashes[Key(origin, agentId)] = text;
+    /// A draft a closing composer hands back. `sendRevision` belongs to a send still carrying this
+    /// same text: the draft keeps it so that send's delivery still clears it. Zero takes a new one.
+    public void Restore(AgentOrigin origin, string agentId, string text, long sendRevision) {
+        if (text.Length == 0) _drafts.Remove(Key(origin, agentId));
+        else _drafts[Key(origin, agentId)] = (text, sendRevision != 0 ? sendRevision : ++_revision);
+    }
+
+    /// `sendRevision` as for <see cref="Restore"/>.
+    public void SetStash(AgentOrigin origin, string agentId, string text, long sendRevision) {
+        if (text.Length > 0) _stashes[Key(origin, agentId)] = (text, sendRevision);
     }
 
     public string TakeStash(AgentOrigin origin, string agentId) =>
-        _stashes.Remove(Key(origin, agentId), out var text) ? text : "";
+        _stashes.Remove(Key(origin, agentId), out var stash) ? stash.Text : "";
 
     /// Hands one session's draft to its other lane, keeping its revision.
     public void Move(AgentOrigin from, AgentOrigin to, string agentId) {
@@ -50,6 +58,11 @@ public sealed class ComposerDrafts {
 
     public void ClearDelivered(long revision) {
         if (revision == 0) return;
+        foreach (var (key, stash) in _stashes) {
+            if (stash.Revision != revision) continue;
+            _stashes.Remove(key);
+            break;
+        }
         foreach (var (key, draft) in _drafts) {
             if (draft.Revision != revision) continue;
             _drafts.Remove(key);

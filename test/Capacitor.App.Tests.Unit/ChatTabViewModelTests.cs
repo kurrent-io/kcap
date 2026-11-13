@@ -2183,6 +2183,42 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// Recalling the prompt still being sent stashes that same text. Teardown hands it to the store
+    /// still tied to the send, so delivery clears it and only a refusal keeps it: in the stored
+    /// draft when the recall is on screen, in the stash slot when the box holds an edit.
+    [Test]
+    [Arguments(ChatSendOutcome.Accepted, false)]
+    [Arguments(ChatSendOutcome.Rejected, false)]
+    [Arguments(ChatSendOutcome.Accepted, true)]
+    [Arguments(ChatSendOutcome.Rejected, true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_stash_of_the_prompt_in_flight_at_teardown_follows_its_delivery(ChatSendOutcome outcome, bool edited) {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var first = new Harness(TranscriptChat.Journal, input: input, drafts: drafts);
+            first.Chat.ComposerText = "typing";
+            var send = first.Chat.SendCommand.Execute().ToTask();
+            var pending = input.Pending!;
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            await Assert.That(first.Chat.ComposerText).IsEqualTo("typing");
+            if (edited) first.Chat.ComposerText = "typing!";
+            await first.TeardownAsync();
+
+            pending.SetResult(outcome);
+            await send;
+            var kept = outcome != ChatSendOutcome.Accepted;
+            var second = new Harness(TranscriptChat.Journal, input: new ScriptedInput(), drafts: drafts);
+            if (edited) {
+                await Assert.That(second.Chat.ComposerText).IsEqualTo("typing!");
+                second.Chat.ComposerText = "";
+                await Assert.That(second.Chat.RecallNewer()).IsEqualTo(kept);
+            }
+            await Assert.That(second.Chat.ComposerText).IsEqualTo(kept ? "typing" : "");
+            await second.TeardownAsync();
+        });
+    }
+
     /// Another transcript under an edited recall leaves the edit in the box and the typed draft
     /// stashed behind it.
     [Test]
