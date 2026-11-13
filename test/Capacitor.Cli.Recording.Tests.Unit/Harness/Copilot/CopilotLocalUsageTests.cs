@@ -109,6 +109,20 @@ public class CopilotLocalUsageTests {
     }
 
     [Test]
+    public async Task Forgetting_what_was_sent_keeps_what_is_staged() {
+        var state = new CopilotLocalUsageState(new VsCodeChatSessionCache(ChatLog, DashedSid, _ => { }));
+        state.StagedRequests.Add("request_1");
+        state.StagedCredits.Add(("request_1", 500000000));
+        state.SentRequests.Add("request_0");
+
+        state.ForgetSent();
+
+        await Assert.That(state.SentRequests).IsEmpty();
+        await Assert.That(state.StagedRequests).IsEquivalentTo(["request_1"]);
+        await Assert.That(state.StagedCredits.Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Usage_the_final_drain_cannot_send_marks_the_session_for_import() {
         var transcript = Transcript();
         var recorder   = Recorders.For(Sid, transcript, null, "copilot");

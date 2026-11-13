@@ -20,11 +20,11 @@ public sealed class CopilotLocalUsageState(VsCodeChatSessionCache log) {
     }
 
     /// <summary>Sends everything again on the next drain; each line's id comes from what it reports, so the server
-    /// drops what it already holds.</summary>
+    /// drops what it already holds. What is staged stays: after a failed final send it is the only sign that usage
+    /// still needs an import.</summary>
     public void ForgetSent() {
         SentRequests.Clear();
         SentCredits.Clear();
-        Unstage();
     }
 
     public void Commit() {
