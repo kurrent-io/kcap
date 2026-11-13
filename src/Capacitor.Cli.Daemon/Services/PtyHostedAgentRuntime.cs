@@ -119,6 +119,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     TaskCompletionSource             _dialogShown = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // Unknown until a screen reader reports it: 0 unknown, 1 shown, 2 not shown.
     int                              _promptShown;
+    long                             _promptShownAt;
     bool                             _unconfirmed;
     Task<bool>?                      _inputReadiness;
     int                              _deliveries;
@@ -194,7 +195,15 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    public void NotePromptShown(bool shown) => Volatile.Write(ref _promptShown, shown ? 1 : 2);
+    // The time goes in before the state, so a reader that sees the box shown never reads an older time.
+    public void NotePromptShown(bool shown) {
+        if (!shown) {
+            Volatile.Write(ref _promptShown, 2);
+        } else if (Volatile.Read(ref _promptShown) != 1) {
+            Volatile.Write(ref _promptShownAt, time.GetTimestamp());
+            Volatile.Write(ref _promptShown, 1);
+        }
+    }
 
     Task? DialogGone {
         get { lock (_dialogGate) { return _dialogGone?.Task; } }
@@ -559,8 +568,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <summary>Waits for the composer, the agent's prompt box where its screen is read, and a quiet
     /// spell, as the launch prompt does. Returns at once if a dialog shows again.</summary>
     async Task WaitForRedrawToSettleAsync() {
-        var  started    = time.GetTimestamp();
-        long? shownSince = null;
+        var started = time.GetTimestamp();
 
         while (DialogGone is null && !pty.HasExited && !_stopRequested && time.GetElapsedTime(started) < LaunchPromptMaxWait) {
             var quietFor = time.GetElapsedTime(Volatile.Read(ref _lastOutputAt));
@@ -568,9 +576,8 @@ internal sealed partial class PtyHostedAgentRuntime(
             // A turn the dialog interrupted keeps drawing once it is answered, so a prompt box that has stood
             // through the quiet window is enough.
             var prompt = Volatile.Read(ref _promptShown);
-            shownSince = prompt == 1 ? shownSince ?? time.GetTimestamp() : null;
             if (LooksReadyForInput && prompt != 2
-             && (quietFor >= LaunchPromptQuietWindow || shownSince is { } since && time.GetElapsedTime(since) >= LaunchPromptQuietWindow)) return;
+             && (quietFor >= LaunchPromptQuietWindow || prompt == 1 && time.GetElapsedTime(Volatile.Read(ref _promptShownAt)) >= LaunchPromptQuietWindow)) return;
 
             await Task.Delay(quietFor < LaunchPromptQuietWindow ? LaunchPromptQuietWindow - quietFor : LaunchPromptPoll, time, _disposal.Token);
         }

@@ -274,7 +274,7 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>Under steady output, a held message waits for the prompt box to have stood a quiet window, counted from
-    /// when it came back rather than from when the dialog closed.</summary>
+    /// when it last came back: not from when the dialog closed, nor across a moment it was gone.</summary>
     [Test]
     public async Task A_held_message_waits_for_the_prompt_box_to_stand_a_quiet_window() {
         var time    = new FakeTimeProvider();
@@ -295,7 +295,8 @@ public class PtyHostedAgentRuntimeTests {
             for (var i = 0; i < quarters; i++) {
                 pty.Emit("spinner");
                 await Task.Delay(30);
-                await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 4);
+                time.Advance(PtyHostedAgentRuntime.LaunchPromptQuietWindow / 4);
+                await Task.Delay(10);
             }
         }
 
@@ -303,6 +304,11 @@ public class PtyHostedAgentRuntimeTests {
         runtime.NotePromptShown(true);
         await DrawAsync(2);
         await Assert.That(Pasted()).IsFalse().Because("the prompt box has stood only half a quiet window");
+
+        runtime.NotePromptShown(false);
+        runtime.NotePromptShown(true);
+        await DrawAsync(3);
+        await Assert.That(Pasted()).IsFalse().Because("the prompt box went and came back three quarters of a window ago");
 
         await DrawAsync(4);
         await Assert.That(Pasted()).IsTrue();
