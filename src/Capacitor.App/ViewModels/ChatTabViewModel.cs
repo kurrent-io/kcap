@@ -73,7 +73,6 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// The send the channel has not answered yet. It is tracked like a queued message but kept out
     /// of the strip: the composer still holds its text, and one prompt must not show in both.
     QueuedChatMessage? _sending;
-    long _sendingDraftRevision;
     QueuedChatMessage? _lastSent;
     bool _sendCommandExecuting;
     // Row sends bypass SendCommand, so its IsExecuting cannot gate concurrent composer sends.
@@ -375,9 +374,20 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     readonly HashSet<(long Offset, string Text)> _literalInputHistory = [];
     int _recallEdits = -1;
     /// Replaces the composer text with the next older prompt; false when nothing changed.
-    public bool RecallOlder() => Recall(_history.Older(Recallable(), Unechoed()));
+    public bool RecallOlder() => Recall(_history.Older(RecallStart(), Unechoed()));
     /// Replaces the composer text with the next newer prompt, or the draft past the newest.
-    public bool RecallNewer() => Recall(_history.Newer(Recallable(), Unechoed()));
+    public bool RecallNewer() => Recall(_history.Newer(RecallStart(), Unechoed()));
+
+    /// A box still holding its own unsettled send is no draft: that prompt is already in the
+    /// history, so recall treats the box as blank and stashes nothing.
+    string RecallStart() {
+        var current = Recallable();
+        return !_history.IsShowing(current) && BoxHoldsOwnSend() ? "" : current;
+    }
+
+    /// The edit count, not the text, decides: retyping the same words is a new draft.
+    bool BoxHoldsOwnSend() => Tracked.Any(q => !q.IsForeign && !q.Acknowledged
+        && q.ComposerEdits == _composerEdits && string.Equals(q.Text, _composerText, StringComparison.Ordinal));
 
     List<string> Unechoed() {
         _unechoed.RemoveAll(q => q.Acknowledged);
@@ -1513,16 +1523,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// The history dies with the tab, so its stash goes to the store: as the draft itself when the
     /// box only shows a recall, beside the draft when the box holds other text of the user's own.
-    /// A stash that is the prompt still in flight keeps that send's revision, so its delivery
-    /// clears it; any other stash takes a new one, so no settling send can.
+    /// Either write takes a new revision, so a send settling after teardown cannot clear it. A box
+    /// still holding its own send keeps the stored copy that send's delivery clears.
     void PreserveStash() {
         if (_drafts is null) return;
         var showing = _history.IsShowing(Recallable());
         var stash = _history.TakeDraft();
-        var sendRevision = _sending is { } sending && string.Equals(sending.Text, stash, StringComparison.Ordinal)
-            ? _sendingDraftRevision : 0;
-        if (showing) _drafts.Restore(_origin, _agentId, stash, sendRevision);
-        else _drafts.SetStash(_origin, _agentId, stash, sendRevision);
+        if (!showing) _drafts.SetStash(_origin, _agentId, stash);
+        else if (stash.Length > 0 || !BoxHoldsOwnSend()) _drafts.Set(_origin, _agentId, stash);
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1695,7 +1703,6 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
         _lastSent = queued;
         _sending = queued;
-        _sendingDraftRevision = draftRevision;
         _unechoed.Add(queued);
         if (_unechoed.Count > ComposerHistory.Capacity) _unechoed.RemoveAt(0);
         onQueued?.Invoke(queued);
@@ -1707,10 +1714,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             LogOnce($"send: {ex.Message}");
             outcome = ChatSendOutcome.Unconfirmed;
         }
-        finally {
-            _sending = null;
-            _sendingDraftRevision = 0;
-        }
+        finally { _sending = null; }
         if (_lifetimeToken.IsCancellationRequested) {
             // The tab is gone, so nothing else will clear the stored copy of a delivered prompt.
             if (outcome == ChatSendOutcome.Accepted) {
@@ -1719,7 +1723,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             }
             return outcome;
         }
-        if (outcome == ChatSendOutcome.Rejected) _unechoed.Remove(queued);
+        if (outcome == ChatSendOutcome.Rejected) {
+            _unechoed.Remove(queued);
+            // A recall that started over this send took it out of the box without stashing it.
+            if (ownsDraft && _history.IsShowing(Recallable())) _history.Stash(snapshot);
+        }
         else TurnSubmitted?.Invoke();
         var waits = !queued.Acknowledged && outcome switch {
             ChatSendOutcome.Accepted    => _openFeed is not null,

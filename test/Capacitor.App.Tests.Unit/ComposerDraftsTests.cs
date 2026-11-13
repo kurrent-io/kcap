@@ -43,29 +43,11 @@ public class ComposerDraftsTests {
     [Test]
     public async Task A_stash_is_taken_once_wherever_its_session_moved() {
         var drafts = new ComposerDrafts();
-        drafts.SetStash(AgentOrigin.Remote, "a1", "typing", 0);
+        drafts.SetStash(AgentOrigin.Remote, "a1", "typing");
         drafts.Move(AgentOrigin.Remote, AgentOrigin.Local, "a1");
 
         await Assert.That(drafts.TakeStash(AgentOrigin.Remote, "a1")).IsEqualTo("");
         await Assert.That(drafts.TakeStash(AgentOrigin.Local, "a1")).IsEqualTo("typing");
         await Assert.That(drafts.TakeStash(AgentOrigin.Local, "a1")).IsEqualTo("");
-    }
-
-    /// A stash or restored draft tied to a send goes when that send is delivered; one tied to
-    /// nothing outlives every delivery.
-    [Test]
-    public async Task Only_the_delivery_a_stash_is_tied_to_clears_it() {
-        var drafts = new ComposerDrafts();
-        drafts.Set(AgentOrigin.Local, "a1", "typing");
-        var sent = drafts.Revision(AgentOrigin.Local, "a1");
-        drafts.Restore(AgentOrigin.Local, "a1", "typing", sent);
-        drafts.SetStash(AgentOrigin.Local, "a1", "typing", sent);
-        drafts.SetStash(AgentOrigin.Local, "b1", "other", 0);
-
-        drafts.ClearDelivered(sent);
-
-        await Assert.That(drafts.Get(AgentOrigin.Local, "a1")).IsEqualTo("");
-        await Assert.That(drafts.TakeStash(AgentOrigin.Local, "a1")).IsEqualTo("");
-        await Assert.That(drafts.TakeStash(AgentOrigin.Local, "b1")).IsEqualTo("other");
     }
 }
