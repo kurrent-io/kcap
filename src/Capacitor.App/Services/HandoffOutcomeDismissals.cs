@@ -26,7 +26,8 @@ public sealed class HandoffOutcomeDismissals(IAppStateStore state) {
             if (_thisRun.Contains(key)) return true;
             stored = _stored ??= LoadAsync();
         }
-        return (await stored.ConfigureAwait(false)).Contains(key);
+        if ((await stored.ConfigureAwait(false)).Contains(key)) return true;
+        lock (_lock) return _thisRun.Contains(key);
     }
 
     public async Task DismissAsync(string sessionId) {

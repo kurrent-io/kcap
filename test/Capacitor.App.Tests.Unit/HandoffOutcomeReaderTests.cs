@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -219,5 +220,26 @@ public class HandoffOutcomeReaderTests {
         rig.Answers.Enqueue(Outcome("done"));
         var other = await HandoffOutcomeReader.CardFor(reader, "s3").Where(card => card is not null).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
         await Assert.That(other!.Header).IsEqualTo("Continued from Old session");
+    }
+
+    [Test]
+    public async Task A_dismissal_made_while_the_stored_dismissals_load_keeps_the_card_closed() {
+        using var rig = new Rig();
+        rig.Answers.Enqueue(Outcome("running"));
+        var store = new HeldStore();
+        var dismissals = new HandoffOutcomeDismissals(store);
+        var cards = HandoffOutcomeReader.CardFor(new HandoffOutcomeReader(rig.Daemon, rig.Ops, rig.Time, dismissals), "s2").ToList().ToTask();
+
+        await dismissals.DismissAsync("s2");
+        store.Loaded.SetResult(new AppState());
+
+        await Assert.That(await cards.WaitAsync(TimeSpan.FromSeconds(5))).IsEquivalentTo(new Capacitor.App.ViewModels.HandoffOutcomeViewModel?[] { null });
+        await Assert.That(rig.Reads).IsEqualTo(0);
+    }
+
+    sealed class HeldStore : IAppStateStore {
+        public TaskCompletionSource<AppState> Loaded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<AppState> LoadAsync() => Loaded.Task;
+        public Task<bool> UpdateAsync(Func<AppState, AppState> mutate) => Task.FromResult(true);
     }
 }

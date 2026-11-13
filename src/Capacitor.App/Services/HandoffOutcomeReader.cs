@@ -50,14 +50,19 @@ public sealed class HandoffOutcomeReader(
             return Watch(sessionId).Select(outcome => (HandoffOutcomeViewModel?)new HandoffOutcomeViewModel(outcome));
 
         var key = SessionIds.Canonical(sessionId);
-        var closed = closing.Dismissed.Where(id => id == key).Take(1).Select(_ => (HandoffOutcomeViewModel?)null);
-        return Observable.FromAsync(() => closing.IsDismissedAsync(sessionId))
-            .SelectMany(dismissed => dismissed
-                ? Observable.Empty<HandoffOutcomeViewModel?>()
-                : Watch(sessionId)
-                    .Select(outcome => (HandoffOutcomeViewModel?)new HandoffOutcomeViewModel(outcome, () => closing.DismissAsync(sessionId)))
-                    .TakeUntil(closed)
-                    .Merge(closed));
+        return Observable.Defer(() => {
+            // Listening before the stored dismissals are read, so a dismissal made meanwhile still closes the card.
+            var closed = closing.Dismissed.Where(id => id == key).Take(1).Select(_ => (HandoffOutcomeViewModel?)null).Replay(1);
+            var listening = closed.Connect();
+            return Observable.FromAsync(() => closing.IsDismissedAsync(sessionId))
+                .SelectMany(dismissed => dismissed
+                    ? Observable.Empty<HandoffOutcomeViewModel?>()
+                    : Watch(sessionId)
+                        .Select(outcome => (HandoffOutcomeViewModel?)new HandoffOutcomeViewModel(outcome, () => closing.DismissAsync(sessionId)))
+                        .TakeUntil(closed)
+                        .Merge(closed))
+                .Finally(listening.Dispose);
+        });
     }
 
     IObservable<HandoffOutcomeDto> Poll(string sessionId) =>
