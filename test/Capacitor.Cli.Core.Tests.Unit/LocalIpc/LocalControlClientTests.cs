@@ -237,7 +237,7 @@ public class LocalControlClientTests {
     // to daemon_unreachable via the same catch-all), so Missing_socket_classifies_as_unreachable
     // above already exercises that code path.
 
-    [Test] // "Error frame or any unexpected frame type answering Hello" (§4.2), both flavors
+    [Test] // "Error frame or any unexpected frame type answering Hello", both flavors
     public async Task Unexpected_and_undecodable_hello_replies_classify_as_incompatible() {
         var wrongType = await RunClientAsync(
             [HelloWrongFrameType()],
@@ -250,7 +250,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)undecodable[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // same §4.2 branch, but "arriving on the subscribe connection" instead of answering Hello
+    [Test] // same branch, but "arriving on the subscribe connection" instead of answering Hello
     public async Task Unexpected_frame_type_on_subscribe_connection_classifies_as_incompatible() {
         var events = await RunClientAsync(
             [HelloThen(GoodHello("status/1")), SubscribeWrongFrameType()],
@@ -259,7 +259,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)events[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // silent peers classify via deadlines instead of hanging (spec §4.1)
+    [Test] // silent peers classify via deadlines instead of hanging
     public async Task Silent_peers_classify_as_unreachable_via_phase_deadlines() {
         var helloStall = await RunClientAsync([HelloStall()],
             evs => evs.OfType<LocalControlEvent.Unreachable>().Any());

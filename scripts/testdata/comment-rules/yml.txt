@@ -1,0 +1,118 @@
+# Phase B HIT
+name: CI # Task 1 HIT
+on: push
+env:
+  A: "a # Task 2"
+  B: 'Don''t skip # Task 3'
+  C: 'Don''t use "' # Task 4 HIT
+  D: Don't skip checks # Task 5 HIT
+  E: "esc \" # Task 6"
+  run: |
+    # Task 118
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - name: step # Task 7 HIT
+        run: |
+          # Phase C HIT
+          echo "a # Phase D" # Task 8 HIT
+          cat <<'EOF'
+          # Task 108
+          EOF
+          echo after # Task 109 HIT
+      - run: echo done # Task 9 HIT
+      - name: notes
+        with:
+          run: |
+            # Task 119
+          body: |
+            # Task 110
+            more text
+      - name: last # Task 10 HIT
+      - run: |2-
+          cat <<<"hello"
+          # Task 11 HIT
+          cat <<EOF-JSON
+          # Task 111
+          EOF-JSON
+          # Task 12 HIT
+      - 'run': |
+          echo 'Don''t use # Task 112'
+          # Task 13 HIT
+        shell: bash
+      - run: |
+          Write-Output '# Task 113'
+        shell: pwsh
+      - name: folded data
+        with:
+          body: >
+            # Task 114
+      - run: >
+          echo '# Task 115'
+      - name: last # Task 14 HIT
+      - run: |
+          echo "${{ github.ref }}" # Task 15 HIT
+          echo ${{ format('}} it''s {0}', github.ref) }}
+          # Task 16 HIT
+          cat <<E'OF'-JSON
+          # Task 116
+          EOF-JSON
+          # Task 17 HIT
+        shell: 'bash -e {0}'
+  non_bash:
+    defaults:
+      run:
+        shell: python
+    steps:
+      - run: |
+          print('''
+          # Task 117
+          ''')
+      - run: |
+          # Task 18 HIT
+        'shell': bash
+  bash:
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: |
+          # Task 19 HIT
+  windows:
+    runs-on: windows-latest
+    steps:
+      - run: |
+          if ($true) { Write-Output ok }
+          Write-Output '# Task 120'
+      - run: |
+          # Task 20 HIT
+        shell: bash
+  self_hosted_linux:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - run: |
+          # Task 21 HIT
+  unknown_matrix_shell:
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: |
+          if ($true) { Write-Output '# Task 121' }
+  group_named_like_linux:
+    runs-on:
+      group: ubuntu-latest
+    steps:
+      - run: |
+          if ($true) { Write-Output '# Task 122' }
+  self_hosted_mac:
+    runs-on:
+      group: mac-runners
+      labels: [self-hosted, macOS, ARM64]
+    steps:
+      - run: |
+          # Task 22 HIT
+  mac:
+    runs-on: macos-latest
+    steps:
+      - run: |
+          # Task 23 HIT

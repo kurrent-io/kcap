@@ -61,7 +61,7 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
     public string?                     LastThreadStartModel;
     public bool                        LastTurnStartHadModel;
     public string?                     LastTurnStartModel;
-    public string?                     LastResumeThreadId; // §2.7 B4: the threadId carried on thread/resume
+    public string?                     LastResumeThreadId; // the threadId carried on thread/resume
     public string?                     LastTurnApprovalPolicy;
     public string?                     LastTurnEffort;
     public string?                     LastSteerExpectedTurnId;

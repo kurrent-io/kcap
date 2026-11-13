@@ -13,7 +13,7 @@ public class ServiceVerifyStartGateProductionPathTests {
 
     // A duplicate top-level ProgramArguments key — never written by LaunchdUnit.Plist itself, so
     // this can only be a foreign/corrupt writer — with the gate's own consent directive baked so
-    // Phase A actually has evidence to re-parse.
+    // The start gate actually has evidence to re-parse.
     const string DuplicateKeyPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

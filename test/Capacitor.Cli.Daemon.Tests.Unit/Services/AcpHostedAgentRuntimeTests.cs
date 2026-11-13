@@ -787,7 +787,7 @@ public class AcpHostedAgentRuntimeTests {
 
         // An uncontained early fault would abort DisposeAsync before the guaranteed teardown, leaving
         // DisposeCalls at 0.
-        try { await h.Runtime.DisposeAsync(); } catch { /* pre-fix: the early fault propagates */ }
+        try { await h.Runtime.DisposeAsync(); } catch { /* an uncontained early fault propagates */ }
 
         await Assert.That(h.Process.DisposeCalls).IsGreaterThan(0);  // child disposed despite the fault
         await Assert.That(h.Runtime.ReadVerdict()).IsNotNull();      // coded verdict still surfaces
@@ -815,7 +815,7 @@ public class AcpHostedAgentRuntimeTests {
         h.Runtime.BeforeReconnectLockOnDisposeForTest =
             () => h.Runtime.CommitSuccessorIncarnationForTest(successorProcess);
 
-        try { await h.Runtime.DisposeAsync(); } catch { /* pre-fix: the owner-cancel fault propagates */ }
+        try { await h.Runtime.DisposeAsync(); } catch { /* an uncontained owner-cancel fault propagates */ }
 
         await Assert.That(successorProcess.DisposeCalls).IsGreaterThan(0);        // the LIVE successor disposed
         await Assert.That(h.Process.DisposeCalls).IsEqualTo(0);                   // the stale predecessor NOT disposed

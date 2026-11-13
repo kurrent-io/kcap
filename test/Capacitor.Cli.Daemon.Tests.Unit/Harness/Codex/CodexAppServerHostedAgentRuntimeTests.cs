@@ -320,7 +320,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
     public async Task Resume_baselines_first_usage_then_emits_a_correct_incremental_delta() {
         // On resume the runtime calls UsageBaselineOnNextNotification: the first post-resume usage snapshot
         // (thread-CUMULATIVE, round 1 included) is consumed as the baseline and emits NO token_usage; the
-        // next snapshot yields the incremental delta. Pre-fix (no baseline on resume) the first snapshot
+        // next snapshot yields the incremental delta. Without that baseline the first snapshot
         // would emit the whole cumulative total as a delta — a double-count of round 1.
         var fake = new FakeCodexAppServer { Model = "gpt-5.3-codex", EmitUsageOnTurn = (input: 120, output: 40, total: 160) };
         var (runtime, _, _) = Build(_ => fake, Launch(resumeSessionId: "thread-parked-1"), emitEnvelopes: true);

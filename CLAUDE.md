@@ -264,6 +264,10 @@ dotnet publish src/Capacitor.Cli/Capacitor.Cli.csproj -c Release 2>&1 | grep -E 
 
 Applies to every file type: source, tests, config and build files, YAML, shell scripts.
 
+`scripts/check-comment-rules.sh` fails CI on the unambiguous forms: spec coordinates (`§4.2`, `Task 3`, `Phase B`), review artifacts (`Qodo #1`, `round-2 fix`) and `pre-fix` / `an earlier revision`.
+
+The checker and its `.test.sh` need Python 3.10+ with `scripts/comment-rules-requirements.txt` installed in a virtual environment. It reads syntax-tree comments in C#, Bash and YAML, XML comments in XAML/MSBuild, and shell comments in literal (`run: |`) Bash/sh scripts in `.github/`. Other YAML scalar contents are data; embedded scripts with an unknown shell or runner are skipped. CI installs the pinned parsers through `.github/actions/setup-comment-rules`.
+
 ## Commit messages
 
 Subject: `one clause (#123)`, imperative, **at most 80 characters including the trailing reference**. No second clause, and no parenthetical other than that reference.

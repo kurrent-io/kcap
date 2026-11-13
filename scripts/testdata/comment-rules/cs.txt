@@ -1,0 +1,52 @@
+// Task 1 HIT
+class A
+{
+    int x;// Task 2 HIT
+    int y;/* Task 3 HIT */
+    void F() {}// Task 4 HIT
+    /*
+     * Finding 5 HIT
+     */
+    string a = " // Task 6";
+    string b = "https://x.test/Task 7";
+    string c = "src/**/*.cs";
+    char q = '"'; // Task 8 HIT
+    char e = '\''; // Task 9 HIT
+    string v = @"C:\ // Task 10 "" // Task 11";
+    string w = @"
+        // Task 12
+        "; // Task 13 HIT
+    string r = """
+        // Task 14
+        a " quote "" pair
+        """; // Task 15 HIT
+    string s = $"{F("""{"x":1}""")} // Task 16"; // Task 17 HIT
+    string t = $$"""{"a":{{x}}} // Task 18"""; // Task 19 HIT
+    string u = $"{{ // Task 20 }}"; // Task 21 HIT
+    string z = $@"""{p}"" // Task 22"; // Task 23 HIT
+    // a token the server no longer accepts
+    // Bounded by RFC 8628 §3.4 and SemVer §10.
+    // Parse Qodo (the HTML source).
+    // The shape of a Qodo review.
+    // Regression for Qodo (#380, finding 3). HIT
+    // Regression for a Qodo-flagged false positive. HIT
+}
+var interpolation = $"{1 /* Task 24 HIT */}";
+var nested = $"{F($"{1 /* Decision 4 HIT */}")} // Task 25";
+var multiline = $"{1 // Finding 6 HIT
+    + 2}";
+var rawHole = $$"""{{1 /* Task 26 HIT */}} // Task 27""";
+var rawQuotes = """" // Task 28 """ """"; // Task 29 HIT
+#if DEBUG
+// Task 30 HIT
+#else
+// Task 31 HIT
+#endif
+static class Extensions
+{
+    extension(string value)
+    {
+        // Task 32 HIT
+        public int Length => value.Length;
+    }
+}

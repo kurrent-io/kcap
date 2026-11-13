@@ -24,7 +24,7 @@ public class DaemonStatusReportTests {
 
         await Assert.That(report.ActiveCount).IsEqualTo(2); // a1 + a2 (a3 stopped)
         await Assert.That(report.LiveAgents.Select(x => x.Id)).IsEquivalentTo(new[] { "a1", "a2" });
-        await Assert.That(report.Quarantined).IsEmpty(); // until D4/Task 8
+        await Assert.That(report.Quarantined).IsEmpty();
     }
 
     /// <summary>A report built inside the registration bracket is dropped, so a count change there reaches

@@ -45,9 +45,9 @@ internal enum AntigravityReviewerDecision {
 /// observed auto-updating itself mid-session (1.1.8 → 1.1.10) — a downgrade below it is refused, and
 /// a build later found to be bad is excluded by raising the floor past it.</para>
 ///
-/// <para><b>Why that record is state and not configuration.</b> An earlier revision of this gate read
-/// the floor from <c>KCAP_ANTIGRAVITY_MIN_CLI_VERSION</c>. A value the operator could set from a shell
-/// profile would be re-affirmed by their dotfiles rather than by them — the same "consent that isn't
+/// <para><b>Why that record is state and not configuration.</b> A floor read from an environment
+/// variable such as <c>KCAP_ANTIGRAVITY_MIN_CLI_VERSION</c> could be set from a shell profile, and
+/// would then be re-affirmed by the operator's dotfiles rather than by them — the same "consent that isn't
 /// consent" failure the enable flag exists to avoid. Kiro and Gemini use the same model; the shared
 /// comparison lives in <see cref="Core.ReviewerVersionAffirmations"/> and the record in
 /// <see cref="Core.ReviewerVersionStore"/>.</para>

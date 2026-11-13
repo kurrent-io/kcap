@@ -380,10 +380,10 @@ public class ServiceVerifyStartTests {
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
     }
 
-    // ── gated start — Phase A (exit 28) / Phase B (exit 29) ──
+    // ── gated start — start gate (exit 28) / bootstrap step (exit 29) ──
 
     /// <summary>Test identity shared by every gated test below that needs the identity check to
-    /// PASS (Phase A) so it can exercise something past it — the digest/drift/bootout machinery.</summary>
+    /// PASS so it can exercise something past it — the digest/drift/bootout machinery.</summary>
     const string GatedServerUrl = "https://s.example";
 
     /// <summary>Minimal launchd plist whose <c>&lt;array&gt;</c> (ProgramArguments) and baked
@@ -393,7 +393,7 @@ public class ServiceVerifyStartTests {
     /// <c>KCAP_URL</c> and <c>KCAP_EXPECT_SERVER_URL</c> with that value. The identity gate fails
     /// closed without <c>KCAP_EXPECT_SERVER_URL</c>, and without <c>KCAP_URL</c> resolves the unit's
     /// server from its baked profile — which this plist does not bake, so any test that needs
-    /// Phase A's identity check to PASS must supply one (matching the invoking <c>gateEnv</c>'s own
+    /// the start gate's identity check to PASS must supply one (matching the invoking <c>gateEnv</c>'s own
     /// <c>KCAP_EXPECT_SERVER_URL</c>/<c>KCAP_PROFILE</c>).</summary>
     static string MinimalPlist(string binary, string consentSeedDefault, string? expectServerUrl = null) => $"""
         <?xml version="1.0" encoding="UTF-8"?>
@@ -412,7 +412,7 @@ public class ServiceVerifyStartTests {
         </plist>
         """;
 
-    /// <summary>Invoking env for a gated test that needs Phase A's identity check to pass: the
+    /// <summary>Invoking env for a gated test that needs the start gate's identity check to pass: the
     /// consent-seed directive plus a profile/expectation matching <see cref="MinimalPlist"/>'s
     /// <paramref name="expectServerUrl"/> — both required (fail-closed) by the identity gate.</summary>
     static Func<string, string?> GatedEnvWithIdentity(string expectServerUrl = GatedServerUrl) => k => k switch {
@@ -502,8 +502,8 @@ public class ServiceVerifyStartTests {
         var reads = 0;
         string? ReadPlist(string _) {
             reads++;
-            // Phase A observes a passing unit (identity matching GatedEnvWithIdentity so Phase A
-            // clears); the plist a foreign writer swaps in before Phase B's re-read points at a
+            // The start gate observes a passing unit (identity matching GatedEnvWithIdentity so the start gate
+            // clears); the plist a foreign writer swaps in before the bootstrap step's re-read points at a
             // different binary entirely — content drift, not just a digest failure (digestMatches
             // is stubbed to pass either way below).
             return reads == 1
@@ -521,7 +521,7 @@ public class ServiceVerifyStartTests {
         await Assert.That(exit).IsEqualTo(VerifyExit.StartGateDrift);
         await Assert.That(manager.Calls.Contains("stop")).IsTrue();
         await Assert.That(manager.StartCalls).IsEqualTo(0);
-        // The boot-out (Phase B, pre-drift-detection) ran under the "captured" phase; the
+        // The boot-out (the bootstrap step, before drift detection) ran under the "captured" phase; the
         // rollback's own stop (post-drift-detection) ran under "gate-drift" — proving the
         // marker was written BEFORE Rollback fired, not just that the exit code is 29.
         await Assert.That(stopPhases.Count).IsEqualTo(2);
@@ -537,7 +537,7 @@ public class ServiceVerifyStartTests {
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
             Task.FromResult(new HelloProbeResult(true, 1, "1.2.3", "kcap-daemon"));
 
-        // A truncated/malformed plist — exactly the foreign-writer race Phase B's own re-check
+        // A truncated/malformed plist — exactly the foreign-writer race the bootstrap step's own re-check
         // defends against — makes LaunchdPrint.Environment/BinaryFromPlist throw XmlException.
         // That must land as EvidenceUnreadable (28), not escape StartVerifiedAsync to a
         // generic, uncoded exit 1.
@@ -605,9 +605,9 @@ public class ServiceVerifyStartTests {
         var reads = 0;
         string? ReadPlist(string _) {
             reads++;
-            // Phase A reads a valid, passing plist (identity matching GatedEnvWithIdentity so
-            // Phase A clears); a foreign writer replaces it with unparseable garbage before Phase
-            // B's re-read — the parse itself must not escape StartVerifiedAsync (it would skip
+            // The start gate reads a valid, passing plist (identity matching GatedEnvWithIdentity so
+            // the start gate clears); a foreign writer replaces it with unparseable garbage before the
+            // bootstrap step's re-read — the parse itself must not escape StartVerifiedAsync (it would skip
             // Rollback entirely, since this happens AFTER the "captured" marker write and the
             // boot-out Stop, leaving the service stopped with a stuck marker instead of the
             // guaranteed unloaded-plist-retained outcome).
@@ -632,7 +632,7 @@ public class ServiceVerifyStartTests {
 
     [Test]
     public async Task Phase_b_bootout_failure_never_kickstarts_the_stale_loaded_definition() {
-        // Loaded at the fresh query, and the FIRST Stop (Phase B's boot-out) reports an error —
+        // Loaded at the fresh query, and the FIRST Stop (the bootstrap step's boot-out) reports an error —
         // a foreign writer or a launchd hiccup. The gate must never fall through to the ungated
         // Start() below on an unconfirmed bootout: that would kickstart launchd's still-loaded,
         // possibly stale definition — exactly the path this gate exists to prevent. Rollback's
@@ -692,7 +692,7 @@ public class ServiceVerifyStartTests {
         await Assert.That(exit).IsEqualTo(VerifyExit.BootoutUnknown);
         await Assert.That(manager.StartCalls).IsEqualTo(0);
         await Assert.That(manager.Calls.Contains("start")).IsFalse();
-        // Two Stop calls: Phase B's own boot-out (whose lying success exit is what this test
+        // Two Stop calls: the bootstrap step's own boot-out (whose lying success exit is what this test
         // pins), then Rollback's re-attempt, which is the one that actually confirms Absent.
         await Assert.That(manager.StopCalls).IsEqualTo(2);
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
@@ -711,7 +711,7 @@ public class ServiceVerifyStartTests {
         var reads = 0;
         string? ReadPlist(string _) {
             reads++;
-            // Phase A (read 1) and Phase B's own pre-bootstrap recheck (read 2) both see the
+            // The start gate (read 1) and the bootstrap step's own pre-bootstrap recheck (read 2) both see the
             // same passing content — readiness is then genuinely, twice confirmed. A foreign
             // writer swaps the plist only AFTER that, so the post-readiness recheck (read 3)
             // must be what catches it.
@@ -728,7 +728,7 @@ public class ServiceVerifyStartTests {
         var exit = await sut.StartVerifiedAsync(Id);
 
         await Assert.That(exit).IsEqualTo(VerifyExit.StartGateDrift);
-        // Bootstrap DID run — this is a post-mutation catch, unlike the Phase A/B drift tests
+        // Bootstrap DID run — this is a post-mutation catch, unlike the start-gate and bootstrap drift tests
         // above, which never start at all.
         await Assert.That(manager.StartCalls).IsEqualTo(1);
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
@@ -747,7 +747,7 @@ public class ServiceVerifyStartTests {
         var digestChecks = 0;
         bool DigestMatches(string _) {
             digestChecks++;
-            // Passes for Phase A and Phase B's pre-bootstrap recheck; fails from the third
+            // Passes for the start gate and the bootstrap step's pre-bootstrap recheck; fails from the third
             // check onward — the post-readiness recheck.
             return digestChecks <= 2;
         }
@@ -787,7 +787,7 @@ public class ServiceVerifyStartTests {
 
     [Test]
     public async Task Bootstrap_only_never_kickstarts_a_label_that_turned_loaded_just_before_it() {
-        // Pre-mutation query sees Absent (no Phase B boot-out needed), but a foreign writer
+        // Pre-mutation query sees Absent (no bootstrap-step boot-out needed), but a foreign writer
         // loads the label in the window right before the gate's own bootstrap-only call —
         // manager.StartBootstrapOnly must refuse rather than silently kickstart it the way the
         // generic Start() would.

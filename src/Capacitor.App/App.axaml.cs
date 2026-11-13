@@ -910,7 +910,7 @@ public partial class App : Application {
     internal static bool ShouldPromptToInstall(InstallLocationKind kind, string root, ApplicationsInstallPlan plan) =>
         !InstallLocation.Passes(kind) || Path.GetFullPath(root) != Path.GetFullPath(plan.Target) || plan.Replaces.Count > 0;
 
-    /// The installed copy finishes an update when it replaces an earlier version, or when this copy is itself the
+    /// The installed copy finishes an update when it replaces an older version, or when this copy is itself the
     /// relaunch of one, already updated in place under another name; a first install has nothing to finish.
     void RecordInstallerHandover(ApplicationsInstallPlan plan, string? previous) {
         if (plan.SourceVersion is not { } to) return;

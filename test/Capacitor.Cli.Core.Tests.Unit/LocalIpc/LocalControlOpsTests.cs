@@ -788,7 +788,7 @@ public class LocalControlOpsTests {
         });
     }
 
-    [Test] // design spec §10: "undecodable frame ... → unexpected_reply" — FrameCodec.ReadAsync's
+    [Test] // "undecodable frame ... → unexpected_reply" — FrameCodec.ReadAsync's
            // own InvalidDataException path, distinct from EndOfStreamException (Truncated_frame)
     public async Task Undecodable_frame_type() {
         if (OperatingSystem.IsWindows()) return;

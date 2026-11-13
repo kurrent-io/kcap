@@ -114,6 +114,10 @@ jobs:
           node npm/kcap/bin/resolve.test.js
           node npm/kcap/bin/refresh.test.js
 
+      - name: Set up comment rules
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-comment-rules
+
       - name: Run shell script tests
         if: runner.os == 'Linux'
         run: bash scripts/run-shell-tests.sh
@@ -228,13 +232,16 @@ jobs:
           dotnet test --solution "$solution" --no-build \
             --max-parallel-test-modules 3 -- --maximum-parallel-tests 4
 
-  lint-linear-ids:
-    name: No Linear issue IDs in C# source
+  lint-comments:
+    name: Comment rules
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Check for Linear issue ID tokens in src/**/*.cs and test/**/*.cs
+      - uses: ./.github/actions/setup-comment-rules
+      - name: No Linear issue IDs
         run: bash scripts/check-linear-ids.sh
+      - name: No banned comment tokens
+        run: bash scripts/check-comment-rules.sh
 
   # One version for the daemon, the CLI, the app and the package, so the app's CLI floor assertion
   # and Velopack's SemVer check see the same value.
@@ -296,7 +303,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [changes, build-and-test, plugin-docs, lint-linear-ids, cli, desktop]
+    needs: [changes, build-and-test, plugin-docs, lint-comments, cli, desktop]
     runs-on: ubuntu-latest
     steps:
       # build-and-test and plugin-docs are alternatives, so exactly one job is skipped: whichever of

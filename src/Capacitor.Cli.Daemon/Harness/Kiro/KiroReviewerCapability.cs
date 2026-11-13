@@ -55,12 +55,10 @@ internal static class KiroReviewerCapability {
     /// <summary>
     /// The decision, with the platform passed IN rather than read from the ambient OS.
     ///
-    /// <para>An earlier revision called <c>OperatingSystem.IsWindows()</c> inside this method while its
-    /// own summary claimed to be pure. It was not, and the cost was immediate: on the Windows CI leg
-    /// every non-platform arm short-circuited to <see cref="KiroReviewerDecision.UnsupportedPlatform"/>,
-    /// so a dozen tests asserting consent and version behaviour failed for a reason that had nothing to
-    /// do with what they were testing. Taking the platform as an argument makes every arm reachable
-    /// from any host — including the Windows arm itself, which was previously unassertable on POSIX.</para>
+    /// <para>Reading <c>OperatingSystem.IsWindows()</c> here would short-circuit every non-platform arm to
+    /// <see cref="KiroReviewerDecision.UnsupportedPlatform"/> on Windows, failing the consent and version
+    /// tests there for an unrelated reason. Taking the platform as an argument makes every arm reachable
+    /// from any host, the Windows arm included.</para>
     /// </summary>
     internal static KiroReviewerDecision Decide(
             bool posixHost, bool operatorEnabled, string? installedVersion, string? minimumVersion) {

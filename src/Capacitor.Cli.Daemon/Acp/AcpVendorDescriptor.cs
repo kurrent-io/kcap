@@ -522,11 +522,9 @@ internal static class AcpVendorDescriptors {
     /// A placeholder the FACTORY replaces, per launch, with an unguessable name — so an MCP allowlist can
     /// deny everything without the deny-all value being a literal the repository can match.
     ///
-    /// <para><b>A fixed sentinel was tried and is broken.</b> An earlier revision passed the literal
-    /// <c>kcap-none</c> and called it "a name no MCP server will ever have". A contributor controls
-    /// <c>.gemini/settings.json</c> and can simply name their server <c>kcap-none</c>; measured, that
-    /// executes, and the clamp is bypassed completely. The comment asserted a property nothing enforced —
-    /// a semantic label is not validation.</para>
+    /// <para><b>A fixed sentinel is not enough.</b> A contributor controls <c>.gemini/settings.json</c>
+    /// and can name their server after any fixed literal, such as <c>kcap-none</c>; that server then
+    /// executes and the clamp is bypassed completely.</para>
     ///
     /// <para>The value must also be non-empty: <c>--allowed-mcp-server-names ""</c> fails Gemini's config
     /// load BEFORE the session starts, which is also a verification trap — the launch then fails for a
