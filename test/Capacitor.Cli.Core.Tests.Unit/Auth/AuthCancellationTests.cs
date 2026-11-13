@@ -52,7 +52,8 @@ public class AuthCancellationTests {
         var github = new GitHubOAuthClient(new PlainHttpClientFactory(handler));
 
         await Assert.That(async () => await OAuthLoginFlow.RunDeviceFlowAsync(
-                github, "client_id", new RecordingBrowser(), TimeProvider.System, cts.Token))
+                github, "client_id", new RecordingBrowser(), TimeProvider.System, cts.Token,
+                pollDelay: new RecordingDelay().DelayAsync))
             .Throws<OperationCanceledException>();
 
         await Assert.That(pollCount).IsGreaterThanOrEqualTo(3);

@@ -92,7 +92,8 @@ public class WorkOSFlowLadderTests {
 
         var result = await OAuthLoginFlow.AcquireWorkOSAsync(
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: true, opener, NoTelemetry.Join, TimeProvider.System, browser,
-            progress: new RecordingAuthProgress(), keys: ScriptedKeyWatcher.Blind());
+            progress: new RecordingAuthProgress(), keys: ScriptedKeyWatcher.Blind(),
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
         // Not the device page either: the person entering the code is at another device.
@@ -110,7 +111,7 @@ public class WorkOSFlowLadderTests {
         var result = await OAuthLoginFlow.AcquireWorkOSAsync(
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: false, new RecordingBrowser(opens: false),
             NoTelemetry.Join, TimeProvider.System, new HangingBrowser(),
-            progress: progress, keys: keys);
+            progress: progress, keys: keys, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
         await Assert.That(progress.DeviceCodes).Count().IsEqualTo(1);
@@ -135,7 +136,7 @@ public class WorkOSFlowLadderTests {
         await OAuthLoginFlow.AcquireWorkOSAsync(
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: false, new RecordingBrowser(opens: false),
             NoTelemetry.Join, TimeProvider.System, new HangingBrowser(),
-            progress: new RecordingAuthProgress(), keys: keys);
+            progress: new RecordingAuthProgress(), keys: keys, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(keys.Drained).IsEqualTo(2);
         await Assert.That(keys.KeyAvailable).IsFalse();
@@ -152,7 +153,8 @@ public class WorkOSFlowLadderTests {
         var result = await OAuthLoginFlow.AcquireWorkOSAsync(
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: false, new RecordingBrowser(), NoTelemetry.Join, TimeProvider.System,
             FakeBrowser.NonSuccess(Duende.IdentityModel.OidcClient.Browser.BrowserResultType.UserCancel),
-            progress: new RecordingAuthProgress(), keys: ScriptedKeyWatcher.Blind());
+            progress: new RecordingAuthProgress(), keys: ScriptedKeyWatcher.Blind(),
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result).IsNull();
         await Assert.That(server.LogEntries.Any(e => e.RequestMessage.Path.Contains("authorize/device"))).IsFalse();
@@ -170,7 +172,8 @@ public class WorkOSFlowLadderTests {
         var result = await OAuthLoginFlow.AcquireWorkOSAsync(
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: false, new RecordingBrowser(opens: false),
             NoTelemetry.Join, TimeProvider.System, new FakeBrowser(_ => throw new HttpListenerException(5, "Access is denied")),
-            progress: progress, keys: ScriptedKeyWatcher.Blind());
+            progress: progress, keys: ScriptedKeyWatcher.Blind(),
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
         await Assert.That(string.Join("\n", progress.Errors)).Contains("Could not bind loopback listener");
@@ -193,7 +196,8 @@ public class WorkOSFlowLadderTests {
             workos, WorkOSClient.ApiBase, "client_d", organizationId: null, forceDevice: false,
             new RecordingBrowser(opens: false), NoTelemetry.Join, TimeProvider.System,
             new FakeBrowser(_ => throw new BrowserLaunchException()),
-            progress: progress, keys: ScriptedKeyWatcher.Blind());
+            progress: progress, keys: ScriptedKeyWatcher.Blind(),
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
         await Assert.That(string.Join("\n", progress.Notices)).Contains("use anywhere");
