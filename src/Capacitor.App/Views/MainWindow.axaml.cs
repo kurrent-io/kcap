@@ -428,13 +428,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }
 
-    // Windows draws its caption buttons over the top-right of the extended client area, so the
+    // Outside macOS the caption buttons sit over the top-right of the extended client area, so the
     // content pane starts below the title bar there.
     void KeepContentClearOfCaptionButtons() {
-        if (!OperatingSystem.IsWindows()) return;
+        if (OperatingSystem.IsMacOS()) return;
         this.GetObservable(WindowDecorationMarginProperty)
             .Subscribe(margin => {
-                _captionTop = margin.Top;
+                _captionTop = margin.Top - margin.Bottom;
                 ApplyCaptionInset();
             });
     }

@@ -55,10 +55,10 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
     NativeMenu BuildWindowMenu(Window window) {
         var menu = new NativeMenu {
             Item("Minimize", () => window.WindowState = WindowState.Minimized, new KeyGesture(Key.M, KeyModifiers.Meta)),
-            Item("Zoom", () => Toggle(window, WindowState.Maximized), enabled: window.CanResize),
+            Item("Zoom", () => WindowChrome.Toggle(window, WindowState.Maximized), enabled: window.CanResize),
             // A fixed label: renaming an exported item makes Avalonia rebuild the native menu, which
             // would drop the AppKit registration until the window next becomes key.
-            Item("Toggle Full Screen", () => Toggle(window, WindowState.FullScreen),
+            Item("Toggle Full Screen", () => WindowChrome.Toggle(window, WindowState.FullScreen),
                 new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta), window.CanResize),
         };
         if (RefreshItem(window) is { } refresh) menu.Add(refresh);
@@ -94,9 +94,6 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
             feedback,
         };
     }
-
-    static void Toggle(Window window, WindowState state) =>
-        window.WindowState = window.WindowState == state ? WindowState.Normal : state;
 
     void BringAllToFront(Window invoking) {
         foreach (var window in windows()) {
