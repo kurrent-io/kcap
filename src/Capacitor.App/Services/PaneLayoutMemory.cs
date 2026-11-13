@@ -10,7 +10,7 @@ public static class PaneLayoutMemory {
         panes.ContextWidth = Resolve(state.ContextPaneWidth, PaneLayout.ContextMinWidth);
         panes.ContextCollapsed = state.ContextPaneCollapsed;
         panes.ChatColumnFraction = Share(state.ChatColumnFraction, PaneLayout.ChatColumnDefaultFraction);
-        panes.ChatLaneFraction = Share(state.ChatLaneFraction, PaneLayout.ChatLaneDefaultFraction);
+        panes.ChatLaneWidth = Resolve(state.ChatLaneWidth, PaneLayout.ChatMessageMinWidth);
     }
 
     static double Share(double? saved, double fallback) => saved is > 0 and <= 1 ? saved.Value : fallback;
@@ -19,14 +19,14 @@ public static class PaneLayoutMemory {
         panes.Changed += (_, _) => {
             var (railWidth, railCollapsed) = (panes.RailWidth, panes.RailCollapsed);
             var (contextWidth, contextCollapsed) = (panes.ContextWidth, panes.ContextCollapsed);
-            var (chatColumnFraction, chatLaneFraction) = (panes.ChatColumnFraction, panes.ChatLaneFraction);
+            var (chatColumnFraction, chatLaneWidth) = (panes.ChatColumnFraction, panes.ChatLaneWidth);
             _ = store.UpdateAsync(s => s with {
                 RailWidth = railWidth,
                 RailCollapsed = railCollapsed,
                 ContextPaneWidth = contextWidth,
                 ContextPaneCollapsed = contextCollapsed,
                 ChatColumnFraction = chatColumnFraction,
-                ChatLaneFraction = chatLaneFraction,
+                ChatLaneWidth = chatLaneWidth,
             });
         };
 }

@@ -20,11 +20,10 @@ public sealed class PaneLayout {
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 
-    // The chat column's share of the chat's width, and the agent's lane's share of the column.
+    // The chat column's share of the chat's width; the agent's lane is a fixed width inside it.
     public const double ChatColumnDefaultFraction = 0.75;
-    public const double ChatLaneDefaultFraction = 0.85;
     // Neither gets narrower than an agent's message was before the column: this, or the chat less
-    // its 22px gutters when that is narrower.
+    // its 22px gutters when that is narrower. It is also the lane's default.
     public const double ChatMessageMinWidth = 660;
     public const double ChatMessageGutters = 44;
 
@@ -39,14 +38,14 @@ public sealed class PaneLayout {
     double _contextWidth = ContextMinWidth;
     bool _contextCollapsed;
     double _chatColumnFraction = ChatColumnDefaultFraction;
-    double _chatLaneFraction = ChatLaneDefaultFraction;
+    double _chatLaneWidth = ChatMessageMinWidth;
 
     public double RailWidth { get => _railWidth; set => Set(ref _railWidth, value); }
     public bool RailCollapsed { get => _railCollapsed; set => Set(ref _railCollapsed, value); }
     public double ContextWidth { get => _contextWidth; set => Set(ref _contextWidth, value); }
     public bool ContextCollapsed { get => _contextCollapsed; set => Set(ref _contextCollapsed, value); }
     public double ChatColumnFraction { get => _chatColumnFraction; set => Set(ref _chatColumnFraction, value); }
-    public double ChatLaneFraction { get => _chatLaneFraction; set => Set(ref _chatLaneFraction, value); }
+    public double ChatLaneWidth { get => _chatLaneWidth; set => Set(ref _chatLaneWidth, value); }
 
     /// What the rail leaves beside it: the launcher's minimum, or a session's beside the open work-context pane.
     public double RailRestMinWidth =>

@@ -39,7 +39,7 @@ public class PaneLayoutMemoryTests {
         panes.ContextWidth = 500;
         panes.ContextCollapsed = true;
         panes.ChatColumnFraction = 0.6;
-        panes.ChatLaneFraction = 0.7;
+        panes.ChatLaneWidth = 800;
         panes.RailCollapsed = true;
 
         var state = await WaitForAsync(store, s => s.RailCollapsed);
@@ -50,7 +50,7 @@ public class PaneLayoutMemoryTests {
         await Assert.That(restored.ContextWidth).IsEqualTo(500);
         await Assert.That(restored.ContextCollapsed).IsTrue();
         await Assert.That(restored.ChatColumnFraction).IsEqualTo(0.6);
-        await Assert.That(restored.ChatLaneFraction).IsEqualTo(0.7);
+        await Assert.That(restored.ChatLaneWidth).IsEqualTo(800);
     }
 
     [Test]

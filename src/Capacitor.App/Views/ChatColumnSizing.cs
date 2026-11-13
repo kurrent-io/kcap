@@ -6,7 +6,7 @@ using Capacitor.App.Services;
 namespace Capacitor.App.Views;
 
 /// Sizes a chat view's centred column as a share of the chat's width, and the agent's lane inside it
-/// as a share of the column, from its window's <see cref="PaneLayout"/>. The edge handles drag the
+/// at a fixed width that gives way only to a narrower column, from its window's <see cref="PaneLayout"/>. The edge handles drag the
 /// column about the centre; the lane handle drags the lane's right edge. A drag commits on release,
 /// so the store is written once per drag rather than on every pointer move.
 public sealed class ChatColumnSizing {
@@ -24,7 +24,7 @@ public sealed class ChatColumnSizing {
     ChatTailPanel? _tail;
     PaneLayout? _panes;
     double _column = PaneLayout.ChatColumnDefaultFraction;
-    double _lane = PaneLayout.ChatLaneDefaultFraction;
+    double _lane = PaneLayout.ChatMessageMinWidth;
     IPointer? _dragPointer;
     Control? _dragHandle;
     double _dragStartX;
@@ -48,7 +48,7 @@ public sealed class ChatColumnSizing {
             _panes = (TopLevel.GetTopLevel(view) as MainWindow)?.Panes;
             if (_panes is not null) {
                 _panes.Changed += OnPanesChanged;
-                (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneFraction);
+                (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneWidth);
             }
             Apply();
         };
@@ -65,16 +65,16 @@ public sealed class ChatColumnSizing {
             Control leftHandle, Control rightHandle, Control laneHandle) =>
         new(view, items, composerContent, leftHandle, rightHandle, laneHandle);
 
-    /// For a view outside a <see cref="MainWindow"/>, which has no layout to read the shares from.
-    internal void UseShares(double column, double lane) {
-        (_column, _lane) = (column, lane);
+    /// For a view outside a <see cref="MainWindow"/>, which has no layout to read the sizes from.
+    internal void UseLayout(double columnShare, double laneWidth) {
+        (_column, _lane) = (columnShare, laneWidth);
         Apply();
     }
 
     void OnPanesChanged(object? sender, EventArgs e) {
         if (_dragPointer is not null || _panes is null) return;
-        if (_panes.ChatColumnFraction == _column && _panes.ChatLaneFraction == _lane) return;
-        (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneFraction);
+        if (_panes.ChatColumnFraction == _column && _panes.ChatLaneWidth == _lane) return;
+        (_column, _lane) = (_panes.ChatColumnFraction, _panes.ChatLaneWidth);
         Apply();
     }
 
@@ -84,7 +84,7 @@ public sealed class ChatColumnSizing {
             if (!e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed) return;
             e.Handled = true;
             if (e.ClickCount >= 2) {
-                if (handle == _laneHandle) _lane = PaneLayout.ChatLaneDefaultFraction;
+                if (handle == _laneHandle) _lane = PaneLayout.ChatMessageMinWidth;
                 else _column = PaneLayout.ChatColumnDefaultFraction;
                 Commit();
                 return;
@@ -98,7 +98,7 @@ public sealed class ChatColumnSizing {
         handle.PointerMoved += (_, e) => {
             if (!ReferenceEquals(e.Pointer, _dragPointer)) return;
             var dx = e.GetPosition(_items).X - _dragStartX;
-            if (handle == _laneHandle) _lane = LaneFractionOf(_dragStartWidth + dx, ColumnWidth());
+            if (handle == _laneHandle) _lane = Math.Max(PaneLayout.ChatMessageMinWidth, Math.Min(_dragStartWidth + dx, ColumnWidth()));
             else _column = ColumnFractionOf(_dragStartWidth + (handle == _leftHandle ? -2 : 2) * dx);
             Apply();
             e.Handled = true;
@@ -134,16 +134,12 @@ public sealed class ChatColumnSizing {
         ? 1
         : Math.Max(MessageMinWidth, width) / _items.Bounds.Width;
 
-    double LaneWidth(double column) => Math.Min(Math.Max(_lane * column, MessageMinWidth), column);
-
-    double LaneFractionOf(double width, double column) => column <= 0 || width >= column
-        ? 1
-        : Math.Max(MessageMinWidth, width) / column;
+    double LaneWidth(double column) => Math.Min(_lane, column);
 
     void Commit() {
         if (_panes is not null) {
             _panes.ChatColumnFraction = _column;
-            _panes.ChatLaneFraction = _lane;
+            _panes.ChatLaneWidth = _lane;
         }
         Apply();
     }

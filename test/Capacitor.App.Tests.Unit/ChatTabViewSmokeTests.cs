@@ -748,7 +748,10 @@ public class ChatTabViewSmokeTests {
         var host = new Host();
         try {
             // Room for the lane to narrow above the message minimum, and paragraphs that rewrap when it does.
-            if (lane) host.Window.Width = 1600;
+            if (lane) {
+                host.Window.Width = 1600;
+                host.View.ColumnSizing.UseLayout(PaneLayout.ChatColumnDefaultFraction, 1100);
+            }
             var lines = UnevenHistory(lane ? 4 : 1);
             var path = Tmp.CreateFile("resize-scroll.jsonl", lines);
             await host.LoadAsync(path);
@@ -770,7 +773,7 @@ public class ChatTabViewSmokeTests {
             var item = row.DataContext!;
             var beforeY = row.TranslatePoint(default, host.Scroll)!.Value.Y;
             var heights = items.GetRealizedContainers().ToDictionary(container => container.DataContext!, container => container.Bounds.Height);
-            if (lane) host.View.ColumnSizing.UseShares(PaneLayout.ChatColumnDefaultFraction, 0.55);
+            if (lane) host.View.ColumnSizing.UseLayout(PaneLayout.ChatColumnDefaultFraction, PaneLayout.ChatMessageMinWidth);
             else host.Window.Width = 360;
             host.Settle();
             await Assert.That(heights.Any(entry => items.ContainerFromItem(entry.Key) is { } container && Math.Abs(container.Bounds.Height - entry.Value) > 20)).IsTrue();
@@ -786,9 +789,9 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
-    /// The column and the agent's lane inside it keep their shares as the window resizes. The edge
-    /// handles drag the column about the centre, the lane handle the lane's right edge; the composer
-    /// follows the column and a user turn keeps to its right edge.
+    /// The column keeps its share of the window and the agent's lane its width. The edge handles drag
+    /// the column about the centre, the lane handle the lane's right edge; the composer follows the
+    /// column and a user turn keeps to its right edge.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Dragging_the_chat_handles_resizes_the_column_and_the_agents_lane() => RunOnUiAsync(async () => {
@@ -820,29 +823,31 @@ public class ChatTabViewSmokeTests {
                 host.Window.MouseUp(start + new Point(dx, 0), MouseButton.Left);
                 host.Settle();
             }
+            const double message = PaneLayout.ChatMessageMinWidth;
             var column = 1400 * PaneLayout.ChatColumnDefaultFraction;
-            var lane = PaneLayout.ChatLaneDefaultFraction;
-            await LaidOut(column, lane * column, 1400);
+            await LaidOut(column, message, 1400);
+
+            Drag("ChatLaneHandle", 200);
+            const double lane = message + 200;
+            await LaidOut(column, lane, 1400);
 
             Drag("ChatColumnRightHandle", 100);
             column += 200;
-            await LaidOut(column, lane * column, 1400);
+            await LaidOut(column, lane, 1400);
 
+            // The lane keeps its width as the window changes, giving way only to a narrower column.
             host.Window.Width = 1000;
             host.Settle();
-            column = column / 1400 * 1000;
-            await LaidOut(column, lane * column, 1000);
-
-            Drag("ChatLaneHandle", -50);
-            var laneWidth = lane * column - 50;
-            await LaidOut(column, laneWidth, 1000);
-
+            await LaidOut(column / 1400 * 1000, lane, 1000);
+            host.Window.Width = 700;
+            host.Settle();
+            await LaidOut(700 - PaneLayout.ChatMessageGutters, 700 - PaneLayout.ChatMessageGutters, 700);
             host.Window.Width = 1400;
             host.Settle();
-            var wide = column / 1000 * 1400;
-            await LaidOut(wide, laneWidth / column * wide, 1400);
+            await LaidOut(column, lane, 1400);
 
             // A full-width lane leaves the column's right edge to the column's handle.
+            var wide = column;
             Drag("ChatLaneHandle", 5000);
             await LaidOut(wide, wide, 1400);
             Drag("ChatColumnRightHandle", -50);
@@ -850,7 +855,6 @@ public class ChatTabViewSmokeTests {
             await LaidOut(wide, wide, 1400);
 
             // Neither drags narrower than an agent's message was before the column.
-            const double message = PaneLayout.ChatMessageMinWidth;
             Drag("ChatLaneHandle", -5000);
             await LaidOut(wide, message, 1400);
             Drag("ChatColumnLeftHandle", 5000);
@@ -1446,7 +1450,7 @@ public class ChatTabViewSmokeTests {
                     .Replace("\"/repo/x/src/a.cs\"", encoded);
                 if (name == "get_file_context") call = call.Replace("file_path", "path");
                 await host.LoadAsync(Tmp.CreateFile("paths.jsonl", [call, ReadResultLine]));
-                host.View.ColumnSizing.UseShares(1, 1);
+                host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
 
                 foreach (var width in new[] { 320, 460, 640, 700, 460 }) {
                     host.Window.Width = width + HandleStrips;
@@ -1480,7 +1484,7 @@ public class ChatTabViewSmokeTests {
                 var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
                 var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
-                host.View.ColumnSizing.UseShares(1, 1);
+                host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
 
                 foreach (var width in new[] { 460, 640, 700, 460 }) {
                     host.Window.Width = width + HandleStrips;
