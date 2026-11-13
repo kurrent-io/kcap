@@ -28,6 +28,8 @@ exclude:
   - name: SuggestVarOrType_SimpleTypes
   - name: MoveLocalFunctionAfterJumpStatement
   - name: PreferConcreteValueOverDefault
+  # Explicit `new T()` stays allowed where the type isn't evident, though .editorconfig prefers `new()`
+  - name: ArrangeObjectCreationWhenTypeNotEvident
   # Solution-wide usage and visibility analysis can't see serialization, DI, reflection or the clients
   # that bind to public contracts
   - name: AutoPropertyCanBeMadeGetOnly.Global
