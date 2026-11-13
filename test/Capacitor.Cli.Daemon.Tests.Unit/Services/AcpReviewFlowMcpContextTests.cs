@@ -78,7 +78,7 @@ public class AcpReviewFlowMcpContextTests {
     }
 
     /// <summary>The reviewer whose HOME is the daemon user's own keeps the ambient-credential path:
-    /// its token store resolves, and nothing about the redirected case applies. Pins that the fix is
+    /// its token store resolves, and nothing about the redirected case applies. Pins that the redirect is
     /// scoped rather than silently rerouting every reviewer through the daemon.</summary>
     [Test]
     public async Task Direct_review_result_channel_keeps_server_url() {

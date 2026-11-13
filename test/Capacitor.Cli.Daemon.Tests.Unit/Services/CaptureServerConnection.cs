@@ -41,7 +41,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Completed the instant LaunchFailedAsync is entered (after recording the call) —
     /// lets a test prove the finalizer is genuinely INSIDE its verdict-report await, so a
     /// concurrent status emitter (reconnect re-registration) can be driven in exactly that
-    /// window (finding 2).</summary>
+    /// window.</summary>
     public TaskCompletionSource? LaunchFailedEntered { get; init; }
 
     /// <summary>When set, LaunchFailedAsync awaits this task before returning — holding the
@@ -164,7 +164,7 @@ sealed class CaptureServerConnection : ServerConnection {
     public int AgentRegisteredCallCount { get; private set; }
 
     /// <summary>Completed the instant AgentRegisteredAsync is entered — lets a test hold
-    /// re-registration inside that await and publish a verdict there (finding 1 refinement).</summary>
+    /// re-registration inside that await and publish a verdict there.</summary>
     public TaskCompletionSource? AgentRegisteredEntered { get; set; }
 
     /// <summary>When set, AgentRegisteredAsync awaits this before returning — holding the
@@ -174,7 +174,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>When set, every non-failure AgentStatusChanged send checks this runtime's verdict
     /// AT SEND TIME (via the lock-synchronised ReadVerdict); if a launch-window verdict is already
     /// published, <see cref="NonFailureStatusSentAfterVerdictPublished"/> latches true — the exact
-    /// "non-failure status after publication" invariant violation finding 1 closes.</summary>
+    /// "non-failure status after publication" invariant violation.</summary>
     public ITerminationVerdictSource? VerdictCaptureRuntime                     { get; set; }
     public bool                       NonFailureStatusSentAfterVerdictPublished { get; private set; }
 
@@ -235,7 +235,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return RegistrationResponse?.Invoke(agentId) ?? AgentRegisteredResponse.Accepted;
     }
 
-    // ── Option B task 4: ACP bind/forward capture ────────────────────────────────────
+    // ── ACP bind/forward capture ────────────────────────────────────
     // Overrides the RAW hub-invoke seams (mirroring AcpServerConnectionTests' TestServerConnection)
     // rather than the higher-level gated AcpSessionStartedAsync/SendAcpEventsAsync, so every call
     // still goes through the REAL ConnectionRetry/IsReady gating the production wiring relies on.
@@ -339,7 +339,7 @@ sealed class CaptureServerConnection : ServerConnection {
             ?? (envelopes.Length == 0 ? new AcpBatchAck(-1, -1) : new AcpBatchAck(envelopes[^1].Seq, envelopes[^1].Seq));
     }
 
-    // ── §2.5 source-claim / confirm seams ───────────────────────────────────────────────
+    // ── Source-claim / confirm seams ───────────────────────────────────────────────
 
     /// <summary>Outcome the raw AcpSessionSourceClaim invoke returns; default Bound@token-1. A Rejected
     /// outcome models the server declining ownership.</summary>
@@ -415,8 +415,8 @@ sealed class CaptureServerConnection : ServerConnection {
     /// CleanupAgentAsync, so a useful signal that local cleanup completed.</summary>
     public Action? OnAgentUnregistered { get; init; }
 
-    /// <summary>Every agent id passed to AgentUnregisteredAsync, in call order. Phase B
-    /// (D1): a single-flight teardown must unregister an agent exactly once even under a racing
+    /// <summary>Every agent id passed to AgentUnregisteredAsync, in call order. A
+    /// single-flight teardown must unregister an agent exactly once even under a racing
     /// launch-catch + read-loop cleanup.</summary>
     public List<string> AgentUnregisteredCalls { get; } = [];
 
@@ -568,7 +568,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>When set, the shutdown report is recorded and then held until the gate completes.</summary>
     public TaskCompletionSource? ShutdownReportGate { get; set; }
 
-    // ── Task 8: resolved-model report capture ──────────────────────────────────
+    // ── Resolved-model report capture ──────────────────────────────────
     /// <summary>Every legacy (agentId, model) pair passed to ReportAgentResolvedModelAsync — proves
     /// the no-model / vendor-only launch keeps using the unchanged legacy channel.</summary>
     public List<(string AgentId, string Model)> ReportAgentResolvedModelCalls { get; } = [];
@@ -619,7 +619,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return Task.CompletedTask;
     }
 
-    // ── §2.7 B6 arm-A: participant-park report capture ───────────────────────────────
+    // ── Participant-park report capture ───────────────────────────────
     /// <summary>The ack <see cref="ReportParticipantParkedAsync"/> returns; default
     /// <see cref="ParkAck.Parked"/>. A park state-machine test sets this to drive the three branches
     /// (Parked / Rejected / Ambiguous) deterministically.</summary>

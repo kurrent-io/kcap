@@ -6,8 +6,8 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D2): <see cref="AgentOrchestrator.BuildStatusReport"/> reports the daemon's
-/// authoritative ActiveCount + live-agent metadata (quarantine wired in D4/Task 8).
+/// <see cref="AgentOrchestrator.BuildStatusReport"/> reports the daemon's
+/// authoritative ActiveCount + live-agent metadata, quarantine included.
 /// Partial of <see cref="AgentOrchestratorVendorTests"/> to reuse its test doubles.
 /// </summary>
 public class DaemonStatusReportTests {

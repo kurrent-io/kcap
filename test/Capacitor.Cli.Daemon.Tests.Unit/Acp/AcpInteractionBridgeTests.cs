@@ -36,17 +36,9 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Round-7 spec-review Finding 5 (test consistency): the "selected" case must supply a REAL,
-    /// matching <see cref="AcpInteractionDecision.SelectedOptionId"/> — asserting `selected(thatOptionId)`
-    /// — never a null <c>SelectedOptionId</c> that happens to map to the first offered option. An
-    /// earlier draft of this test resolved with `new AcpInteractionDecision("allow", null, ...)` and
-    /// still asserted `optionId == "allow-once"` (the first offered option), which contradicted this
-    /// same file's own fail-closed tests below (`RequestPermission_AffirmativeOutcomeButNoSelectedOptionId_MapsToCancelled_NeverFirstOption`,
-    /// `RequestPermission_SingleOptionOffered_NoSelectedOptionId_StillMapsToCancelled`) — a null
-    /// <c>SelectedOptionId</c> must map to <c>cancelled</c>, NEVER <c>selected</c>/first-option. This
-    /// test now supplies an explicit, resolvable `SelectedOptionId: "allow-once"` so it proves the
-    /// GENUINE "selected" path (an id that matches one of the offered options) without relying on
-    /// the removed first-option fallback.
+    /// The "selected" case supplies a real, matching <see cref="AcpInteractionDecision.SelectedOptionId"/>:
+    /// a null <c>SelectedOptionId</c> maps to <c>cancelled</c> (see the fail-closed tests below), so
+    /// only an explicit id that matches an offered option proves the genuine "selected" path.
     /// </summary>
     [Test]
     public async Task RequestPermission_SelectedOutcome_ReturnsSelectedResultWithMatchingOptionId() {
@@ -218,15 +210,13 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Spec-review Finding 3(b): connection-closed / runtime-disposing / CT-cancelled while this
+    /// Connection-closed / runtime-disposing / CT-cancelled while this
     /// interaction is pending — the SAME path <c>AcpHostedAgentRuntime.DisposeAsync</c> triggers by
     /// cancelling its <c>_cts</c>, which flows through <c>AcpConnection</c>'s read loop into this
     /// bridge's <c>ct</c> parameter and ultimately into <c>PendingAcpInteractionRegistry.AwaitDecisionAsync</c>'s
-    /// own cancellation registration (Task B2), which throws <see cref="OperationCanceledException"/>.
-    /// PRE-FIX, this exception type was excluded from the bridge's catch clause and propagated
-    /// uncaught, letting <c>AcpConnection.HandleServerRequestAsync</c>'s generic catch-all convert
-    /// it to a JSON-RPC "Internal error" (code -32603) instead of a well-formed ACP <c>cancelled</c>
-    /// outcome. This test proves the bridge itself now produces the well-formed shape.
+    /// own cancellation registration, which throws <see cref="OperationCanceledException"/>. Left
+    /// uncaught, <c>AcpConnection.HandleServerRequestAsync</c>'s generic catch-all would turn it into
+    /// a JSON-RPC "Internal error" (-32603); the bridge must answer a well-formed ACP <c>cancelled</c>.
     /// </summary>
     [Test]
     public async Task RequestPermission_ConnectionCancelled_ReturnsCancelledResultNotUnhandledException() {
@@ -262,18 +252,14 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q1 (fail-safe hole): <c>SessionRequestPermissionParams.Options</c> is
+    /// <c>SessionRequestPermissionParams.Options</c> is
     /// typed as a non-nullable <c>PermissionOptionDto[]</c>, but System.Text.Json does NOT enforce
     /// non-nullable-reference annotations at deserialize time — an <c>options</c> field OMITTED
     /// entirely from the wire frame (the ACP spec for this method is spec-derived, NOT
     /// probe-confirmed; see <c>docs/acp-probe-findings.md</c>) yields <c>parsed.Options == null</c>.
-    /// PRE-FIX this NRE'd inside <c>.Select(...)</c>/<c>MapPermissionDecision</c>, which
-    /// <c>HandlePermissionAsync</c>'s own try/catch does NOT cover (it only wraps the
-    /// deserialize step and the <c>requestInteraction</c> call) — so the exception propagated all
-    /// the way out to <c>AcpConnection.HandleServerRequestAsync</c>'s generic catch-all,
-    /// which answers with a bare JSON-RPC "Internal error" (-32603) instead of the well-formed ACP
-    /// <c>cancelled</c> outcome every other malformed-input path in this bridge produces. This test
-    /// proves an omitted <c>options</c> field degrades to <c>cancelled</c> instead.
+    /// <c>HandlePermissionAsync</c>'s try/catch does not cover the option mapping, so an NRE there
+    /// would surface as a bare JSON-RPC "Internal error" (-32603). An omitted <c>options</c> field
+    /// must degrade to <c>cancelled</c> like every other malformed input.
     /// </summary>
     [Test]
     public async Task RequestPermission_OptionsFieldOmitted_ReturnsCancelledResultNotThrow() {
@@ -293,7 +279,7 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q1: same fail-safe hole as above, but for an explicit JSON <c>null</c>
+    /// Same fail-safe hole as above, but for an explicit JSON <c>null</c>
     /// (rather than an omitted field) for <c>options</c> — also deserializes to
     /// <c>parsed.Options == null</c> since <see cref="Capacitor.Cli.Core.Acp.PermissionOptionDto"/>[]
     /// is a reference type and System.Text.Json happily assigns <c>null</c> to it regardless of the
@@ -317,8 +303,8 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q1: an <c>options</c> array containing a JSON <c>null</c> ELEMENT (rather
-    /// than the whole array being absent/null) must also never throw — the fix's normalization
+    /// An <c>options</c> array containing a JSON <c>null</c> ELEMENT (rather
+    /// than the whole array being absent/null) must also never throw — normalization
     /// filters out null elements before building <see cref="AcpInteractionRequest.Options"/> and
     /// before <c>MapPermissionDecision</c> ever sees them.
     /// </summary>
@@ -365,16 +351,10 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q2: <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/> used to wire
-    /// <c>OnServerRequest</c> with <c>_sessionId ?? ""</c> — a server→client request handled before
-    /// <c>session/new</c>'s response assigns <c>_sessionId</c> (the read loop can start before that
-    /// completes) forwarded an <see cref="AcpInteractionRequest"/> with <c>AcpSessionId == ""</c>,
-    /// breaking server-side correlation. The fix drops that runtime-level session id entirely and
-    /// has the bridge trust <see cref="SessionRequestPermissionParams.SessionId"/> — the request's
-    /// OWN params — as the sole source of truth. This test proves the forwarded
-    /// <see cref="AcpInteractionRequest.AcpSessionId"/> comes from the request params, not from any
-    /// caller-supplied value, by using a params <c>sessionId</c> distinct from any value the old API
-    /// shape would have injected.
+    /// The forwarded <see cref="AcpInteractionRequest.AcpSessionId"/> comes from
+    /// <see cref="SessionRequestPermissionParams.SessionId"/>, the request's own params, never from
+    /// runtime state: a request can arrive before <c>session/new</c>'s response assigns the runtime's
+    /// session id, and forwarding an empty id breaks server-side correlation.
     /// </summary>
     [Test]
     public async Task RequestPermission_ForwardsAcpSessionIdFromRequestParams() {
@@ -395,7 +375,7 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q2: a <c>session/request_permission</c> whose OWN params carry no
+    /// A <c>session/request_permission</c> whose OWN params carry no
     /// resolvable session id (missing/empty <c>sessionId</c>) can't be correlated server-side at
     /// all — this must degrade to the well-formed ACP <c>cancelled</c> result (never a thrown
     /// exception, and never forwarded to the server with an empty/placeholder session id).
@@ -420,18 +400,11 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Fresh-review finding (this revision, closing the last gap in spec-review Finding 2): an
-    /// earlier draft of this fix left a "no SelectedOptionId at all → fall back to the first
-    /// offered option" defensive path for a RECOGNIZED AFFIRMATIVE outcome — e.g. a UI/decision-submit
-    /// path that only knows "the user said yes" without echoing back a specific chosen option. That
-    /// is the SAME class of silent-grant bug spec-review Finding 2 targets: an ACP options request
-    /// with two-or-more offered options (here, "allow-once" and "deny") must NEVER resolve to
-    /// `options[0]` just because a caller forgot (or was unable) to supply which option was chosen.
-    /// This test proves the FIXED behavior: `allow_always` (a recognized affirmative outcome) with
-    /// `SelectedOptionId: null` maps to `cancelled`, NEVER `selected`. There is no code path left in
-    /// `MapPermissionDecision` that can produce a `selected` result without an explicit, resolvable
-    /// `SelectedOptionId` matching one of the offered options — see the next-but-one test for the
-    /// unresolvable-id half of the same fail-closed guarantee.
+    /// A recognized affirmative outcome (`allow_always`) with `SelectedOptionId: null` maps to
+    /// `cancelled`, never `selected`: falling back to `options[0]` when a caller cannot say which
+    /// option was chosen would be a silent grant. `MapPermissionDecision` produces `selected` only
+    /// for an explicit `SelectedOptionId` matching an offered option — see the next-but-one test for
+    /// the unresolvable-id half of the same fail-closed guarantee.
     /// </summary>
     [Test]
     public async Task RequestPermission_AffirmativeOutcomeButNoSelectedOptionId_MapsToCancelled_NeverFirstOption() {
@@ -472,11 +445,11 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Spec-review Finding 6: proves resolution is by <see cref="AcpInteractionDecision.SelectedOptionId"/>,
+    /// Proves resolution is by <see cref="AcpInteractionDecision.SelectedOptionId"/>,
     /// NEVER by re-matching <see cref="AcpInteractionDecision.SelectedOptionLabel"/> — duplicate
     /// labels across two DIFFERENT offered options must resolve to the option whose
     /// <c>optionId</c> was actually selected, not "whichever option happens to have this label
-    /// first" (the old label-matching behavior this finding replaces).
+    /// first".
     /// </summary>
     [Test]
     public async Task RequestPermission_DuplicateLabels_ResolvesByOptionIdNotFirstLabelMatch() {
@@ -500,7 +473,7 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Spec-review Finding 6: an unresolvable <see cref="AcpInteractionDecision.SelectedOptionId"/>
+    /// An unresolvable <see cref="AcpInteractionDecision.SelectedOptionId"/>
     /// (doesn't match any offered option's <c>optionId</c>) is treated as CANCELLED, not a silent
     /// grant via a first-option fallback — an id that was explicitly supplied but doesn't match
     /// anything offered indicates a correlation bug or a stale/replayed decision, and granting an
@@ -522,17 +495,12 @@ public class AcpInteractionBridgeTests {
     }
 
     /// <summary>
-    /// Spec-review Finding 2 (the security-critical fail-safe half): ANY outcome string that is
+    /// Security-critical fail-safe: ANY outcome string that is
     /// neither a recognized affirmative outcome (<c>allow</c>/<c>allow_once</c>/<c>allow_always</c>/
     /// <c>answered</c>) NOR a recognized negative outcome (<c>deny</c>/<c>cancel</c>) must map to
-    /// <c>cancelled</c> — NEVER fall through to <c>selected</c>/<c>options[0]</c>. Before this fix,
-    /// <c>MapPermissionDecision</c> only special-cased the literal strings <c>"deny"</c>/<c>"cancel"</c>
-    /// and treated every other string (including a typo'd <c>"cancelled"</c>, or any future/unknown
-    /// outcome) as "select the first option" — i.e. an unrecognized outcome silently GRANTED
-    /// permission. This test uses the exact typo (<c>"cancelled"</c> instead of the canonical
-    /// <c>"cancel"</c>, per Task A2's Interfaces note) that a server-side regression would produce,
-    /// proving the daemon-side mapper is fail-safe even if the server ever sends a string outside
-    /// the documented vocabulary.
+    /// <c>cancelled</c> — NEVER fall through to <c>selected</c>/<c>options[0]</c>, which would
+    /// silently grant permission. Uses the typo <c>"cancelled"</c> (the canonical value is
+    /// <c>"cancel"</c>) that a server-side regression would produce.
     /// </summary>
     [Test]
     public async Task RequestPermission_UnrecognizedOutcome_MapsToCancelled_NeverFallsThroughToSelected() {
@@ -614,9 +582,7 @@ public class AcpInteractionBridgeTests {
 
     /// <summary>
     /// A <c>requestedSchema</c> that is not a JSON object is unrenderable: cancelled in the
-    /// stabilized shape and NEVER routed to a human (the pre-stabilization lane used to forward
-    /// it verbatim and let the server render a generic card; the stabilized classifier owns the
-    /// decision daemon-side now).
+    /// stabilized shape and NEVER routed to a human: the classifier owns the decision daemon-side.
     /// </summary>
     [Test]
     public async Task ElicitationCreate_SchemaIsNotAnObject_CancelsWithoutRouting() {
@@ -810,7 +776,7 @@ public class AcpInteractionBridgeTests {
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
         await Assert.That(routed).IsEqualTo(0);
-        // Task 2: the published reason is the forbidden-method CODING, not the bare method.
+        // The published reason is the forbidden-method CODING, not the bare method.
         await Assert.That(reaped).IsEquivalentTo([$"unattended_interaction_forbidden:{method}"]);
         if (method == "vendor/unknown_interaction")
             await Assert.That(result).IsNull();
@@ -820,10 +786,8 @@ public class AcpInteractionBridgeTests {
             await Assert.That(result!.Value.GetProperty("outcome").GetProperty("outcome").GetString()).IsEqualTo("cancelled");
     }
 
-    /// <summary>The gap Task 2 closes: pre-fix, an unadmittable frame (params missing/malformed, or
-    /// no sessionId) invoked the SAME callback with just <c>request.Method</c> — the same shape a
-    /// forbidden-method reap uses — discarding the bridge's own precise <c>why</c> entirely. The
-    /// published reason must be the frame-unadmittable coding of `why`, never the bare method and
+    /// <summary>An unadmittable frame (params missing/malformed, or no sessionId) publishes the
+    /// frame-unadmittable coding of the bridge's own `why`, never the bare method and
     /// never the forbidden-method coding (which a caller could otherwise not distinguish from this
     /// case).</summary>
     [Test]
@@ -1431,7 +1395,7 @@ public class AcpInteractionBridgeTests {
 
         await Assert.That(result!.Value.GetProperty("outcome").GetProperty("outcome").GetString())
             .IsEqualTo("cancelled");
-        // Task 2: the published reason is the forbidden-method CODING, not the bare method.
+        // The published reason is the forbidden-method CODING, not the bare method.
         await Assert.That(reaped).IsEquivalentTo(["unattended_interaction_forbidden:session/request_permission"]);
         await Assert.That(routed()).IsEqualTo(0);
     }

@@ -172,8 +172,8 @@ public class CodexSessionRolloutLocatorTests {
 
     [Test]
     public async Task IsNewEnough_creation_well_before_spawn_is_false_even_if_recently_written() {
-        // The bug: a much-older rollout must fail eligibility on creation time alone — an
-        // ongoing write to it (last-write time) is no longer part of the equation at all.
+        // A much-older rollout must fail eligibility on creation time alone — an ongoing write to
+        // it (last-write time) is not part of the equation at all.
         var spawn    = DateTime.UtcNow;
         var creation = spawn.AddMinutes(-10);
 

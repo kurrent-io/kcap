@@ -8,20 +8,19 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 5 (the capstone) — GATED live E2E that drives a REAL TOOL-USING turn
-/// against a REAL <c>cursor-agent acp</c> process, through the FULL daemon pipeline built by tasks
-/// 1–4: <see cref="AcpHostedAgentRuntimeFactory"/> (real process spawn, no <c>FakeAcpAgent</c>) →
-/// <see cref="AcpHostedAgentRuntime"/>'s ACP handshake + chunk aggregation (task 2) →
-/// <see cref="AcpEventTranslator"/> (task 1) → <see cref="IAcpTranscriptSource.Envelopes"/> (task
-/// 2/4's bind-handoff shape) — the same shape task 3/4's orchestrator wiring reads from, just read
-/// directly here instead of through the (SignalR-backed) forwarder.
+/// GATED live E2E that drives a REAL TOOL-USING turn against a REAL <c>cursor-agent acp</c> process,
+/// through the FULL daemon pipeline: <see cref="AcpHostedAgentRuntimeFactory"/> (real process spawn,
+/// no <c>FakeAcpAgent</c>) → <see cref="AcpHostedAgentRuntime"/>'s ACP handshake + chunk aggregation →
+/// <see cref="AcpEventTranslator"/> → <see cref="IAcpTranscriptSource.Envelopes"/> — the same shape
+/// the orchestrator wiring reads from, just read directly here instead of through the
+/// (SignalR-backed) forwarder.
 ///
 /// Also exercises the permission bridge for real: the python probe backing
 /// <c>docs/ai-688-cursor-prototype-findings.md</c>'s "Tool-using turn" section
 /// showed Cursor DOES send a real <c>session/request_permission</c> before running an
 /// un-allowlisted shell command, so this test's <see cref="AutoApproveServerConnection"/> answers
 /// it with a genuine "selected" decision (unlike <c>AcpHostedAgentRuntimeFactoryLiveTests</c>'s
-/// HELLO-only gap-1 test, whose <c>CaptureServerConnection</c> always cancels because that prompt
+/// HELLO-only test, whose <c>CaptureServerConnection</c> always cancels because that prompt
 /// never triggers a permission request) — proving <see cref="AcpInteractionBridge"/>'s
 /// already-implemented request/response mapping round-trips correctly against the real agent,
 /// through the daemon's own code path (not just the python probe).
@@ -61,7 +60,7 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
                 $"options=[{string.Join(",", options.Select(o => $"{o.OptionId}:{o.Kind}"))}]");
 
             // Best-effort pick of a one-shot "allow" option — matches the real Cursor shape the
-            // task 5 probe observed ({optionId:"allow-once", kind:"allow_once"}, see the findings
+            // live probe observed ({optionId:"allow-once", kind:"allow_once"}, see the findings
             // doc's "Tool-using turn" section) but doesn't hard-require that exact vocabulary, in
             // case a different tool call offers differently-worded options.
             var chosen = options.FirstOrDefault(o => string.Equals(o.Kind, "allow_once", StringComparison.OrdinalIgnoreCase));
@@ -97,7 +96,7 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
 
         using var worktreeDir = new TempDir();
 
-        // A real (console) logger factory, same rationale as the gap-1 live test: AcpHostedAgentRuntime
+        // A real (console) logger factory, same rationale as the HELLO live test: AcpHostedAgentRuntime
         // logs warnings on non-fatal model-selection failures that would otherwise be silently swallowed.
         using var liveLoggerFactory = LoggerFactory.Create(b => b
             .AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss.fff "; })
@@ -137,9 +136,9 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
         var started = await factory.StartAsync(ctx, startCts.Token).WaitAsync(HandshakeTimeout);
 
         // AcpHostedAgentRuntimeFactory.StartAsync always sets HostedRuntimeStart.Transcript to
-        // the runtime itself for the "cursor" vendor (task 4's bind-handoff shape) — reading
+        // the runtime itself for the "cursor" vendor (the bind-handoff shape) — reading
         // through this interface, rather than downcasting Runtime, exercises exactly the seam
-        // task 3/4's orchestrator wiring uses.
+        // the orchestrator wiring uses.
         var transcript = started.Transcript ?? throw new InvalidOperationException(
             "AcpHostedAgentRuntimeFactory.StartAsync did not set HostedRuntimeStart.Transcript — task 4's bind-handoff shape regressed.");
 
@@ -191,8 +190,7 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
     /// completes (the runtime disposing closes it). There is no single reliable "the turn is done"
     /// signal on this channel alone (a ToolResult isn't guaranteed — the model might not use a tool;
     /// a terminal AssistantText isn't a distinct marker from a mid-turn one), so this drains for the
-    /// whole window rather than trying to detect turn-end early — matching the reference "run
-    /// exploratory E2E for a bounded ~60-90s wall clock" pattern the task brief calls for.
+    /// whole window rather than trying to detect turn-end early.
     /// </summary>
     static async Task<List<AcpEventEnvelope>> CollectEnvelopesAsync(ChannelReader<AcpEventEnvelope> envelopes, TimeSpan timeout) {
         var collected = new List<AcpEventEnvelope>();

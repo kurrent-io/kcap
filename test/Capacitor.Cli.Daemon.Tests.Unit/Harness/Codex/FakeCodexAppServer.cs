@@ -154,7 +154,7 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
                 break;
 
             case "thread/resume": {
-                // §2.7 B4 resume-by-thread_id: echo the requested thread id back (response.thread.id ==
+                // Resume by thread_id: echo the requested thread id back (response.thread.id ==
                 // the requested id, per the app-server schema). The daemon reads it exactly as thread/start.
                 LastResumeThreadId = Str(@params, "threadId");
                 var resumedId = LastResumeThreadId ?? ThreadId;

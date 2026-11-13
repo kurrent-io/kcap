@@ -48,9 +48,8 @@ public class GeminiReviewerCapabilityTests {
     }
 
     /// <summary>
-    /// The direction that matters, and it is the inverse of what this gate used to do: a NEWER build is
-    /// admitted with no operator action. Refusing every vendor release was the treadmill the
-    /// certified-set model was abandoned for, and exact-match only relocated it onto the operator.
+    /// The direction that matters: a NEWER build is admitted with no operator action. Refusing a newer
+    /// build would take the reviewer offline on every vendor release until someone re-affirmed.
     /// </summary>
     [Test]
     [Arguments("0.55.0")]
@@ -167,12 +166,8 @@ public class GeminiReviewerCapabilityTests {
     }
 
     /// <summary>
-    /// The regression this model exists to prevent, now closed outright rather than made recoverable.
-    ///
-    /// <para>Historic case: the certified-set model made 0.54.0 unreachable against a certified 0.53.0
-    /// until a maintainer shipped a new kcap. Exact-match affirmation removed the release coupling but
-    /// still refused the upgrade until an operator re-affirmed. Under a minimum, the same pair needs
-    /// <b>no action from anyone</b> — which is the whole point of the change.</para>
+    /// A 0.54.0 build against a recorded 0.53.0 minimum needs <b>no action from anyone</b>: a vendor
+    /// upgrade must never take the reviewer offline.
     /// </summary>
     [Test]
     public async Task TheOnePatchAheadUpgrade_NeedsNoActionAtAll() {

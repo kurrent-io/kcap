@@ -167,7 +167,7 @@ public class KiroReviewerLaunchTests {
 
         var config = new DaemonConfig { Store = Daemons.Store, Name = "test-daemon", DaemonEpoch = "epoch-1" };
 
-        // Seeded exactly as a real boot seeds it, which is now unconditional.
+        // Seeded exactly as a real boot seeds it, unconditionally.
         AcpHostedAgentRuntimeFactory.VersionStoreFor(config, AcpVendorDescriptors.Kiro.Vendor)
             .Affirm(InstalledVersion);
 
@@ -177,13 +177,8 @@ public class KiroReviewerLaunchTests {
     }
 
     /// <summary>
-    /// The gate must fire on an upgrade. Asserted with the operator flag ON, so this cannot pass for
-    /// the wrong reason (a disabled daemon refuses everything).
-    /// </summary>
-    /// <summary>
-    /// An UPGRADED kiro-cli launches, with no operator action. This test used to assert the opposite,
-    /// and inverting it is the point of the change: the recorded version is a minimum, so a routine
-    /// vendor release no longer takes the reviewer offline.
+    /// An UPGRADED kiro-cli launches, with no operator action: the recorded version is a minimum, so a
+    /// routine vendor release never takes the reviewer offline.
     /// </summary>
     [Test]
     public async Task AnUpgradedKiro_LaunchesWithoutAnyOperatorAction() {

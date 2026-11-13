@@ -849,7 +849,7 @@ public class CodexLauncherTests {
         await Assert.That(argsEmpty).IsEquivalentTo(argsNull, CollectionOrdering.Matching);
     }
 
-    // === Phase A: read-only sandbox for a borrowed reviewer ===
+    // === Read-only sandbox for a borrowed reviewer ===
 
     [Test]
     public async Task BuildArgs_borrowed_cwd_uses_read_only_sandbox() {

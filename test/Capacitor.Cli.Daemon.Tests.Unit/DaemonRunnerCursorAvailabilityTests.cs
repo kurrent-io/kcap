@@ -131,9 +131,9 @@ public class DaemonRunnerCursorAvailabilityTests {
 
     // === Withheld-vendor startup diagnostic ===
     //
-    // A vendor this daemon could host unattended but is refusing used to leave advertisement in silence:
-    // the refusal text existed, but only the launch path threw it, and advertisement is exactly what stops
-    // the launch from being attempted. Classification carries the reason out so startup can log it.
+    // A vendor this daemon could host unattended but is refusing must not leave advertisement silent:
+    // only the launch path throws the refusal, and advertisement is exactly what stops the launch from
+    // being attempted. Classification carries the reason out so startup can log it.
 
     /// <summary>Counts <see cref="IHostedAgentRuntimeFactory.DescribeUnattendedSupport"/> calls, because
     /// answering it spawns the vendor binary for the gated reviewers.</summary>
@@ -328,16 +328,14 @@ public class DaemonRunnerCursorAvailabilityTests {
     }
 
     // === Trust-by-default borrowed-review advertisement ===
-    // (docs/superpowers/specs/2026-07-27-ai1528-trust-by-default-borrowed-review-design.md)
     //
-    // These replace an earlier test that pinned the opposite rule ("a Cursor build that doesn't
-    // match the validated-build record advertises BorrowedReviewSupported=false"). That gate is the
-    // bug: Cursor auto-updates, the daemon silently withdrew borrowed capability, and the server
-    // then resolved workspace_mode=fallback — reviewing a stale committed base with nobody told.
+    // Borrowed capability must never be gated on the installed build: Cursor auto-updates, so a gate
+    // would silently withdraw the capability and the server would resolve workspace_mode=fallback —
+    // reviewing a stale committed base with nobody told.
 
-    /// <summary>THE regression test for this bug. The configured Cursor path deliberately does not
-    /// resolve to the validated build (it does not resolve to any binary at all, which is a strictly
-    /// harder non-match than an updated build), and Cursor is STILL advertised borrowed-capable with
+    /// <summary>A build that does not match the validation record is still advertised. The configured
+    /// Cursor path deliberately does not resolve to the validated build (it does not resolve to any
+    /// binary at all, a strictly harder non-match than an updated build), and Cursor is STILL advertised borrowed-capable with
     /// its containment token. Note the same inputs also drive the null-CliVersion path: an
     /// unidentifiable build is still a trusted build.</summary>
     [Test]
