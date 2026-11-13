@@ -26,9 +26,11 @@ public class CopilotPathsTests {
 
     [Test]
     public async Task A_local_transcripts_chat_log_sits_in_its_workspaces_chat_sessions() {
-        var transcript = Path.Combine("/ws", "abc", "GitHub.copilot-chat", "transcripts", "s1.jsonl");
+        // A native root: on Windows GetDirectoryName rewrites a leading '/' to a backslash
+        var workspace  = Path.Combine(Path.GetFullPath("/ws"), "abc");
+        var transcript = Path.Combine(workspace, "GitHub.copilot-chat", "transcripts", "s1.jsonl");
 
-        await Assert.That(CopilotPaths.ChatSessionLogFor(transcript)).IsEqualTo(Path.Combine("/ws", "abc", "chatSessions", "s1.jsonl"));
+        await Assert.That(CopilotPaths.ChatSessionLogFor(transcript)).IsEqualTo(Path.Combine(workspace, "chatSessions", "s1.jsonl"));
         await Assert.That(CopilotPaths.ChatSessionLogFor(Path.Combine("/h", ".copilot", "session-state", "s1", "events.jsonl"))).IsNull();
     }
 
