@@ -114,6 +114,10 @@ jobs:
           node npm/kcap/bin/resolve.test.js
           node npm/kcap/bin/refresh.test.js
 
+      - name: Set up comment rules
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-comment-rules
+
       - name: Run shell script tests
         if: runner.os == 'Linux'
         run: bash scripts/run-shell-tests.sh
@@ -233,9 +237,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-comment-rules
       - name: No Linear issue IDs
         run: bash scripts/check-linear-ids.sh
-      - name: No banned comment tokens outside the baseline
+      - name: No banned comment tokens
         run: bash scripts/check-comment-rules.sh
 
   # One version for the daemon, the CLI, the app and the package, so the app's CLI floor assertion

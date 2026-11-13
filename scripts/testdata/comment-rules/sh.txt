@@ -17,3 +17,29 @@ cat <<-EOF
 	EOF
 z=$(( 1 << 2 ))
 # Task 3 HIT
+cat <<<"hello"
+# Task 4 HIT
+cat <<EOF-JSON
+# Task 111
+EOF-JSON
+# Task 5 HIT
+cat <<E'OF'-JSON
+# Task 112
+EOF-JSON
+# Task 6 HIT
+cat <<\EOF-TEXT
+# Task 113
+EOF-TEXT
+# Task 7 HIT
+cat <<'FIRST' <<SECOND
+# Task 114
+FIRST
+# Task 115
+SECOND
+# Task 8 HIT
+x="$(
+# Task 9 HIT
+ echo '# Task 116'
+)" # Task 10 HIT
+echo "$(echo "# Task 117")" # Task 11 HIT
+echo x#Task 118

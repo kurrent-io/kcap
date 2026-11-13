@@ -31,3 +31,22 @@ class A
     // Regression for Qodo (#380, finding 3). HIT
     // Regression for a Qodo-flagged false positive. HIT
 }
+var interpolation = $"{1 /* Task 24 HIT */}";
+var nested = $"{F($"{1 /* Decision 4 HIT */}")} // Task 25";
+var multiline = $"{1 // Finding 6 HIT
+    + 2}";
+var rawHole = $$"""{{1 /* Task 26 HIT */}} // Task 27""";
+var rawQuotes = """" // Task 28 """ """"; // Task 29 HIT
+#if DEBUG
+// Task 30 HIT
+#else
+// Task 31 HIT
+#endif
+static class Extensions
+{
+    extension(string value)
+    {
+        // Task 32 HIT
+        public int Length => value.Length;
+    }
+}

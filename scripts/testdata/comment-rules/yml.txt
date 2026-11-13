@@ -26,3 +26,52 @@ jobs:
             # Task 110
             more text
       - name: last # Task 10 HIT
+      - run: |2-
+          cat <<<"hello"
+          # Task 11 HIT
+          cat <<EOF-JSON
+          # Task 111
+          EOF-JSON
+          # Task 12 HIT
+      - 'run': |
+          echo 'Don''t use # Task 112'
+          # Task 13 HIT
+        shell: bash
+      - run: |
+          Write-Output '# Task 113'
+        shell: pwsh
+      - name: folded data
+        with:
+          body: >
+            # Task 114
+      - run: >
+          echo '# Task 115'
+      - name: last # Task 14 HIT
+      - run: |
+          echo "${{ github.ref }}" # Task 15 HIT
+          echo ${{ format('}} it''s {0}', github.ref) }}
+          # Task 16 HIT
+          cat <<E'OF'-JSON
+          # Task 116
+          EOF-JSON
+          # Task 17 HIT
+        shell: 'bash -e {0}'
+  non_bash:
+    defaults:
+      run:
+        shell: python
+    steps:
+      - run: |
+          print('''
+          # Task 117
+          ''')
+      - run: |
+          # Task 18 HIT
+        'shell': bash
+  bash:
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: |
+          # Task 19 HIT
