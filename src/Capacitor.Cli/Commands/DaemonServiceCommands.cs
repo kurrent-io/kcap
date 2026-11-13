@@ -299,7 +299,7 @@ sealed class DaemonServiceCommands(
 
     async Task<string?> RequestRestartAsync(string mode) {
         try {
-            using var cts = new CancellationTokenSource(Wait(TimeSpan.FromSeconds(5)), time);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5), time);
             return await DaemonRestartClient.RequestAsync(store, id, mode, cts.Token) is { Type: FrameType.RestartAck } reply ? reply.Text : null;
         } catch (Exception ex) when (ex is SocketException or IOException or OperationCanceledException) {
             return null;
@@ -599,7 +599,7 @@ sealed class DaemonServiceCommands(
     /// <c>queued</c> answer is not an acceptance.</summary>
     bool RequestLegacyRestart(string serviceId, string mode) {
         try {
-            using var cts = new CancellationTokenSource(Wait(TimeSpan.FromSeconds(5)), time);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5), time);
             var reply = DaemonRestartClient.RequestAsync(store, serviceId, mode, cts.Token).GetAwaiter().GetResult();
             return reply is { Type: FrameType.RestartAck, Text: "restarting" };
         } catch (Exception ex) when (ex is SocketException or IOException or OperationCanceledException) {
