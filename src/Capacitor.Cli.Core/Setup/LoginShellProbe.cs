@@ -4,7 +4,7 @@ namespace Capacitor.Cli.Core.Setup;
 
 /// What users mean by "the terminal" is an *interactive login* shell: `-lic` reads both
 /// `.zprofile` (login) and `.zshrc` (interactive — where nvm/npm/agent paths live), unlike the
-/// GUI's inherited launchd PATH. Spec §3.6.
+/// GUI's inherited launchd PATH.
 public interface ILoginShellProbe {
     /// Terminal PATH, or null when both probe attempts completed but neither produced one — never
     /// a fabricated value. Cached once determined; a process-start failure (not a completed probe)

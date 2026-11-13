@@ -86,7 +86,7 @@ public class PostHogPayloadTests {
         await Assert.That(PostHogPayload.OrgGroup(url)).IsNull();
     }
 
-    // Build must not graft payload fields onto the caller's event: Task 6 re-serialises spooled
+    // Build must not graft payload fields onto the caller's event: the spool re-serialises spooled
     // events on retry, so in-place mutation would compound across attempts.
     // No nested-mutation counterpart: JsonNode enforces a single-parent invariant, so a shallow
     // copy of Properties is not constructible — dropping DeepClone() makes Build throw rather

@@ -419,14 +419,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
         SourceMeta       = s.SourceMeta,
     };
 
-    // Fingerprint-schema version. The fingerprint used to cover only the parent transcript +
-    // its DIRECT QueryChildren, so an AlreadyLoaded ledger hit could skip a root wholesale
-    // forever even though its grandchildren were never imported (single-level discovery
-    // silently dropped them). The fingerprint is now recursive over EVERY descendant AND the
-    // omitted-subtree signature beyond the import cap (see below), and this version marker is
-    // fed into the hash too — bump it whenever the fingerprint's shape/inputs change, so every
-    // pre-upgrade ledger entry is cache-busted and the first post-upgrade import re-classifies
-    // and picks up whatever the old fingerprint couldn't see.
+    // Fingerprint-schema version. The fingerprint is recursive over every in-cap descendant and
+    // the omitted-subtree signature beyond the import cap (see below), so an AlreadyLoaded ledger
+    // hit cannot skip a root with an unimported in-cap descendant. Descendants beyond the cap are
+    // reported, never imported: an unchanged fingerprint does not mean they were loaded. This
+    // marker is fed into the hash too — bump it whenever the fingerprint's shape/inputs change,
+    // so every ledger entry written under an older shape is cache-busted.
     const string FingerprintSchemaVersion = "v3-recursive-descendants-with-omitted-signature";
 
     // Parent total reconstructed lines, importable lines (gates MinLines), a content
@@ -456,11 +454,10 @@ internal sealed class OpenCodeImportSource : IImportSource {
             foreach (var line in db.SynthesizeLines(d.Row.Id)) Feed(line);
         }
         // Fed too, by id — a descendant BEYOND the import cap is never imported, but its
-        // presence/absence must still invalidate the ledger: the old fingerprint hashed only
-        // the in-cap descendant list, so a newly-reachable capped
-        // descendant left the fingerprint unchanged and an AlreadyLoaded hit skipped the session
-        // wholesale forever — silently, since ImportDescendantsAsync (and its
-        // descendants_omitted diagnostic) never even ran.
+        // presence/absence must still invalidate the ledger: hashing only the in-cap list would
+        // leave a newly-reachable capped descendant unseen, and an AlreadyLoaded hit would skip
+        // the session silently, since ImportDescendantsAsync (and its descendants_omitted
+        // diagnostic) never runs.
         Feed(" omitted:" + omittedIds.Count);
         foreach (var oid in omittedIds) Feed(" omitted_child:" + oid);
         return (total, importable, Convert.ToHexString(hash.GetHashAndReset()), countTruncated);

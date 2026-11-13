@@ -174,7 +174,7 @@ public class SpoolOutageRecoveryTests : IDisposable {
 
     /// <summary>
     /// Scenario: server returns <c>generate_whats_done:true</c> for the replayed
-    /// session-end (Task 7 deferral). Asserts:
+    /// session-end. Asserts:
     /// - The session-end POST was received by the server (spool drained).
     /// - The spool file is removed (drain completed successfully).
     ///

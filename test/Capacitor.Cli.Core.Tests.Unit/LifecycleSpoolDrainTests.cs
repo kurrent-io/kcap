@@ -202,8 +202,7 @@ public class LifecycleSpoolDrainTests {
         ]);
     }
 
-    // Task 12 / BLOCKER-3: session-start/subagent-stop/session-end now share one spool
-    // file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
+    // Session-start/subagent-stop/session-end share one spool file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
     // already delivered is reachable. Same-pass, DrainRoutesAsync's phase-mismatch break already
     // withholds it correctly — but a bare re-run of RunAsync on a FRESH file containing only that
     // straggler would, without a durable "already ended" marker, treat it as an ordinary phase-1

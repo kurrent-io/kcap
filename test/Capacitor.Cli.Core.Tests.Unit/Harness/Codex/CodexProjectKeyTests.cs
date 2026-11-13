@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.Codex;
 /// case-sensitive, so a raw mixed-case worktree path is a *different* key. The write then has
 /// no effect and Codex parks on its directory-trust prompt: the hosted agent never starts a
 /// session and the dashboard sits on "Waiting for session to start…" with an empty terminal.
-/// Same failure PR #265 fixed for Claude's <c>~/.claude.json</c> trust key.
+/// Claude's <c>~/.claude.json</c> trust key has the same trap.
 /// </summary>
 public class CodexProjectKeyTests {
     [Test]

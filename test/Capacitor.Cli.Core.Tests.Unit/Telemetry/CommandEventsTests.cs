@@ -105,8 +105,8 @@ public class CommandEventsTests {
 
         await Assert.That(flags).Contains("--bug");
         await Assert.That(flags).DoesNotContain("--looks-like-a-flag");
-        // "-m" itself was never captured before this fix either — short flags don't match
-        // FlagShape's "--" prefix requirement — so this isn't a NEW gap introduced by the fix.
+        // "-m" itself is not captured — short flags don't match FlagShape's "--" prefix
+        // requirement — a known gap independent of the value-flag skip.
         await Assert.That(flags).DoesNotContain("-m");
     }
 
@@ -123,7 +123,7 @@ public class CommandEventsTests {
     }
 
     // A --message value that does NOT look like a flag must obviously still be excluded (it never
-    // starts with "--", so it was already excluded before this fix) — pinned here so a future
+    // starts with "--") — pinned here so a future
     // change to the skip mechanism can't accidentally start treating it as a flag some other way.
     [Test]
     public async Task Ordinary_message_value_is_still_excluded() {
@@ -137,7 +137,7 @@ public class CommandEventsTests {
     // Other verbs' flag extraction must be byte-for-byte unchanged by the value-flag skip —
     // none of their flags are in CommandEvents' ValueFlags set, so this is the same assertion
     // Flags_are_collected_sorted_and_deduplicated and Flag_values_are_stripped_and_never_reported
-    // already make; repeated here explicitly as the regression check for this fix.
+    // already make; repeated here explicitly as the check for the value-flag skip.
     [Test]
     public async Task Unrelated_verbs_flag_extraction_is_unchanged() {
         var setupFlags = CommandEvents.Flags(["setup", "--no-prompt", "--skip-codex-hooks", "--no-prompt"]);

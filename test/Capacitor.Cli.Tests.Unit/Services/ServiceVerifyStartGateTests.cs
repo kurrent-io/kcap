@@ -113,7 +113,7 @@ public class ServiceVerifyStartGateTests {
         await Assert.That(r).IsEqualTo(StartGateReason.IdentityMismatch);
     }
 
-    // ── fail-closed on absent required identity evidence (spec §3.4(b)) ──
+    // ── fail-closed on absent required identity evidence ──
 
     [Test]
     public async Task Fully_matching_identity_passes() {

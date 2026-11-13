@@ -453,8 +453,7 @@ public class EvalServiceTests {
 
     // ── BuildTextQuestionPrompt ─────────────────────────────
     //
-    // The legacy embedded-template BuildQuestionPrompt was removed in Phase 3.
-    // The text path now uses the catalog's server-RENDERED prompt carried on
+    // The text path uses the catalog's server-RENDERED prompt carried on
     // the reconciled question's Prompt; BuildTextQuestionPrompt fills the
     // runtime placeholders and strips any residual {CACHE_BOUNDARY}.
 
@@ -678,9 +677,8 @@ public class EvalServiceTests {
 
     [Test]
     public async Task BuildRetrospectivePrompt_substitutes_all_placeholders() {
-        // Phase 3: the template now comes from the catalog (passed in) and
-        // carries a {TRACE_JSON} placeholder the daemon fills with its already-
-        // fetched trace (SF#1).
+        // The template comes from the catalog (passed in) and carries a
+        // {TRACE_JSON} placeholder the daemon fills with its already-fetched trace.
         var template = "meta={SESSION_META} verdicts={VERDICTS_JSON} patterns={KNOWN_PATTERNS} trace={TRACE_JSON}";
         var meta     = "session-id: abc\nrun-id: xyz\nmodel: sonnet";
         var verdicts = "[{\"category\":\"safety\",\"score\":5}]";
@@ -877,7 +875,7 @@ public class EvalServiceTests {
     // The session-scoped MCP judge subprocess is spawned from the path returned
     // here. In the daemon the host process is `kcap-daemon`, which has no
     // `mcp judge` subcommand — invoking it just tries (and fails) to start a
-    // second daemon, so the judge's MCP server never comes up. The fix remaps
+    // second daemon, so the judge's MCP server never comes up. So this remaps
     // `kcap-daemon` to its sibling `kcap` binary (they ship in the same dir),
     // while leaving the `kcap eval` CLI host (ProcessPath already `kcap`)
     // untouched.

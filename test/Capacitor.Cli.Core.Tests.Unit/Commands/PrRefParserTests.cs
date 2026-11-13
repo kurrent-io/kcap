@@ -60,7 +60,7 @@ public class PrRefParserTests {
 
     [Test]
     public async Task Shorthand_rejects_slash_in_repo() {
-        // Without the fix this parsed `repo = "foo/bar"`, producing a malformed
+        // Parsing `repo = "foo/bar"` here would produce a malformed
         // API URL path segment when interpolated.
         var ok = PrRefParser.TryParse("owner/foo/bar#42", out _, out _, out _);
 
@@ -102,7 +102,7 @@ public class PrRefParserTests {
 
     [Test]
     public async Task Gitlab_nested_group_mr_url_is_parsed() {
-        // Nested groups supported (§6b): owner is the full namespace path.
+        // Nested groups supported: owner is the full namespace path.
         var ok = PrRefParser.TryParse("https://gitlab.com/group/sub/project/-/merge_requests/42",
                                       out var owner, out var repo, out var pr);
         await Assert.That(ok).IsTrue();

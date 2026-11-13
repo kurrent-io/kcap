@@ -259,10 +259,10 @@ internal sealed class CursorImportSource : IImportSource {
         // never discover the parent's Task prompt and the child would wrongly import top-level.
         // Repo detection below still runs ONLY on the filtered `sessions` slice — this widening
         // is purely a same-workspace file scan, no git/network work.
-        // Qodo fix: same-workspace discovery below is only meant to ensure a filtered/scoped
+        // Same-workspace discovery below is only meant to ensure a filtered/scoped
         // import can still SEE a parent for visibility purposes — it must also CONSTRAIN
         // correlation. Correlating across the union of every workspace touched by this classify
-        // call let a child in workspace A link to a parent in workspace B whenever their
+        // call would let a child in workspace A link to a parent in workspace B whenever their
         // canonical prompt hashes happened to match, corrupting nesting/attribution. Each
         // workspace gets its own path map and its own Correlate() call; the resulting links are
         // merged (session ids are unique across workspaces, so no collisions).
@@ -333,14 +333,13 @@ internal sealed class CursorImportSource : IImportSource {
 
             // A session already quarantined by the live watcher's runtime rewrite guard must never
             // be fed back through `kcap import` either: that's exactly the corrupted line-number
-            // source D0's quarantine exists to shut off. Quarantine is always keyed on the FAMILY
+            // source the quarantine exists to shut off. Quarantine is always keyed on the FAMILY
             // identity — the top-level (parent) session id — since CursorRewriteGuard is
             // constructed from the watcher process's own `sessionId` argument, which for a
             // spawned CHILD watcher is the parent id (ProcessWatcherSpawner.BuildSpawnArgs:
             // sessionIdOverride ?? key). ResolveQuarantineIdentity resolves that mapping — see its
-            // doc for round-2 review fix #7's fallback when `--session <child>` (or an
-            // inaccessible/omitted parent transcript) filters the parent out of `subagentLinks`
-            // entirely.
+            // doc for the fallback when the parent transcript is inaccessible or missing, so the
+            // parent is absent from `subagentLinks`.
             var quarantineIdentity = ResolveQuarantineIdentity(_config, s.SessionId, subagentLinks);
 
             if (_markers.IsQuarantined(quarantineIdentity)) {
@@ -669,10 +668,10 @@ internal sealed class CursorImportSource : IImportSource {
     /// <summary>
     /// Stamps subagent correlation onto a session's SourceMeta (SourceMeta is read-only, so every
     /// session gets a fresh copy). Children carry <c>IsSubagentChild</c> + <c>ParentSessionId</c>
-    /// (D5 — the parent id lets <see cref="ImportCommand"/> reconcile an orphaned child
+    /// (the parent id lets <see cref="ImportCommand"/> reconcile an orphaned child
     /// to standalone when the parent isn't itself part of this run's plan) so their own import
     /// no-ops (unless reconciled); parents carry <c>SubagentChildren</c> so they import them inline.
-    /// Every classification also carries <c>QuarantineIdentity</c> — review fix #6 — so
+    /// Every classification also carries <c>QuarantineIdentity</c> so
     /// <see cref="ImportSessionAsync"/> can re-check <see cref="CursorMarkers.IsQuarantined"/>
     /// FRESH immediately before any lifecycle/transcript delivery (the family identity itself is
     /// stable for the run; only the quarantine STATE needs a live re-check, since the live
@@ -741,9 +740,9 @@ internal sealed class CursorImportSource : IImportSource {
     /// discovered sessions) has a link, falling back to the persisted
     /// <see cref="CursorLiveSubagentLinker"/> marker — written independently by the LIVE hook
     /// dispatcher at the child's own <c>sessionStart</c>, so it resolves the same parent even when
-    /// a <c>--session &lt;child&gt;</c> filter (or an inaccessible/omitted parent transcript)
-    /// excludes the parent from this batch entirely and the in-batch correlator has nothing to
-    /// correlate against. Falls back to the session's own id when neither source has a link
+    /// the parent transcript is inaccessible or missing and the in-batch correlator has nothing to
+    /// correlate against. A <c>--session &lt;child&gt;</c> filter alone does not cause that: the
+    /// same-workspace scan still feeds the parent to the correlator. Falls back to the session's own id when neither source has a link
     /// (a genuine top-level session, or one never seen live and whose parent transcript isn't in
     /// this batch either — an inherent limitation the marker fallback can't close).
     /// </summary>
@@ -780,18 +779,16 @@ internal sealed class CursorImportSource : IImportSource {
     /// <para>
     /// a fail-open resend — the child subsession watermark
     /// probe itself threw, so <c>startLine</c> resets to 0 and the whole child is reposted — is
-    /// INDETERMINATE, not proof of "no new content". The round-3 fix treated a probe failure as
-    /// "definitely a duplicate resend" and forced <c>SentContent = false</c>; but when the child
-    /// is genuinely NEW and the watermark endpoint merely 500s transiently, that full resend
-    /// really does POST new content — yet the caller was told nothing new happened. For an
-    /// AlreadyLoaded parent, that meant a newly-attached child's content could stay on a public
-    /// parent under <c>--private</c>: a privacy leak. So a probe failure must NOT be treated as
-    /// "no new content"; it's indeterminate, and the safe default is to treat a posted resend as
-    /// content that MAY be new (<c>SentContent = true</c>), same as the probe-succeeded path.
-    /// This can cause a cosmetic double-count for an already-complete child that gets
-    /// fail-open-resent (its AlreadyLoaded parent counted in both Loaded and AlreadyLoaded) —
-    /// that's a known, separately-tracked follow-up (deferred P2); privacy correctness wins over
-    /// count precision.
+    /// INDETERMINATE, not proof of "no new content". Treating a probe failure as "definitely a
+    /// duplicate resend" (<c>SentContent = false</c>) breaks when the child is genuinely NEW and
+    /// the watermark endpoint merely 500s transiently: that full resend really does POST new
+    /// content, yet the caller would be told nothing new happened and count new work as already
+    /// loaded. So a posted resend counts as content that MAY be new (<c>SentContent = true</c>),
+    /// same as the probe-succeeded path. The cost is a cosmetic double-count for an
+    /// already-complete child that gets fail-open-resent (its AlreadyLoaded parent counted in both
+    /// Loaded and AlreadyLoaded). <c>SentContent</c> drives counting and the succeeded/skipped
+    /// report, not privacy: <c>--private</c> captures every routed Cursor session regardless of
+    /// outcome.
     /// </para>
     /// </summary>
     async Task<(bool Success, bool SentContent)> SendSubagentLifecycleAsync(
@@ -837,12 +834,10 @@ internal sealed class CursorImportSource : IImportSource {
         // transient 5xx) resets startLine to 0 and reposts the WHOLE child. That resend is
         // INDETERMINATE — it MAY be a duplicate of an already-complete child, or it MAY be
         // genuinely new content that a transient probe failure prevented us from resuming
-        // correctly. Treating probe failure as proof of "no new content" (the round-3 fix) is a
-        // privacy regression: a real new child attached to an AlreadyLoaded parent would then be
-        // reported as no content sent, the parent would be excluded from `--private`, and its
-        // new child content would leak on a public session. So probe failure alone is no longer
-        // tracked as a reason to suppress SentContent below — the safe default when content was
-        // actually posted is to count it, whether or not the watermark was known.
+        // correctly. Treating probe failure as proof of "no new content" would report a real new
+        // child attached to an AlreadyLoaded parent as no content sent. So probe failure alone is
+        // not a reason to suppress SentContent below — content actually posted is counted, whether
+        // or not the watermark was known. Privatization does not depend on SentContent.
         //
         // Before falling open, give a status-bearing 5xx/408 one extra local re-attempt (2
         // attempts total, fixed, no added backoff) via FetchServerLastLineWithCappedRetryAsync —
@@ -912,13 +907,12 @@ internal sealed class CursorImportSource : IImportSource {
             ["strict"]                 = true,                 // fail-closed: 500 if SubagentCompleted isn't persisted
         }, ct);
 
-        // Privacy-safe by construction: whether the probe succeeded (known watermark) or failed
-        // (fail-open full resend), any lines actually POSTED count as SentContent. A probe
-        // failure is indeterminate, never a "definitely no new content" verdict — see the
-        // fail-open comment above. Known trade-off: an already-complete child that gets
-        // fail-open-resent will also report SentContent=true, which can cosmetically double-count
-        // its AlreadyLoaded parent (Loaded + AlreadyLoaded buckets) — deferred, separately
-        // tracked follow-up; privacy correctness wins over count precision.
+        // Whether the probe succeeded (known watermark) or failed (fail-open full resend), any
+        // lines actually POSTED count as SentContent: a probe failure is indeterminate, never a
+        // "definitely no new content" verdict — see the fail-open comment above. The trade-off is
+        // in the counts only: an already-complete child that gets fail-open-resent also reports
+        // SentContent=true, which can double-count its AlreadyLoaded parent (Loaded +
+        // AlreadyLoaded buckets). Privatization does not read SentContent.
         return (stopOk, stopOk && childSent > 0);
     }
 

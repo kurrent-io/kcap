@@ -503,7 +503,7 @@ class ImportCommand(
     /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
     ///
     /// <para>
-    /// Round-2 finding 1: an <c>AlreadyLoaded</c> parent can still ship brand-new content by
+    /// An <c>AlreadyLoaded</c> parent can still ship brand-new content by
     /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
     /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
     /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
@@ -2761,7 +2761,7 @@ class ImportCommand(
     /// then promotes the read fallback if no mutation ever attributed. Import has no live tail
     /// to keep scanning, so — unlike the watcher's one-shot prefix scan — this always runs to
     /// end of file. <paramref name="findRoot"/>/<paramref name="detect"/> are injected so the
-    /// D1 gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
+    /// evidence gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
     /// </summary>
     internal static async Task<JsonObject?> TryBuildEvidenceRepositoryNodeAsync(
             string                                 vendor,
@@ -3744,7 +3744,7 @@ class ImportCommand(
             }
         }
 
-        // D1: the cwd itself isn't inside any git repo (or is missing entirely), so neither
+        // The cwd itself isn't inside any git repo (or is missing entirely), so neither
         // workspace_root above nor the cwd-based repository detection could find anything —
         // fall back to scanning the transcript's own tool-use paths for a resolvable git root,
         // same evidence rule the live watcher applies for sessions launched outside a repo.

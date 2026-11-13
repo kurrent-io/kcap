@@ -483,11 +483,10 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task DoesNotRedact_YamlStyleSecret_ProseColonAfterUpstreamKeyword() {
-        // Regression: a secret keyword anywhere earlier in a prose sentence used to reach across the
-        // old `[^:\n]*` gap to an unrelated prose colon, redacting the next 8+-char word. Here
-        // "access token" sits upstream and "model-id" (exactly 8 chars) followed "real risk:" — it
-        // was wrongly replaced with [REDACTED]. The `[\w.\-]*` gap requires the keyword to be part of
-        // the key token, so this prose now passes through untouched.
+        // A secret keyword earlier in a prose sentence must not reach across to an unrelated prose
+        // colon and redact the next 8+-char word. Here "access token" sits upstream and "model-id"
+        // (exactly 8 chars) follows "real risk:". The `[\w.\-]*` gap requires the keyword to be part
+        // of the key token, so this prose passes through untouched.
         var line = """
             {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"We send the access token. The one real risk: model-id matching is fragile here."}]}}
             """.Trim();
@@ -748,7 +747,7 @@ public class SecretRedactorTests {
         await Assert.That(result).Contains($"{header}: [REDACTED]");
     }
 
-    // Finding 4 coverage — URL query secrets and userinfo
+    // URL query secrets and userinfo
 
     [Test]
     [Arguments("https://example.com/path?access_token=at_abcdef1234567890&user=alice")]

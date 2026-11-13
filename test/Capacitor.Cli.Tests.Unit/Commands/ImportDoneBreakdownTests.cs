@@ -70,7 +70,7 @@ public class ImportDoneBreakdownTests {
     [Test]
     public async Task routed_vendor_with_all_skipped_has_zero_errored() {
         // 5 sessions, all of which the server marked as "already current".
-        // Pre-fix bug: sub-grid would show Errored=5. Post-fix: Errored=0.
+        // None of them is an error: the sub-grid must show Errored=0, not 5.
         var classifications = Enumerable.Range(0, 5)
             .Select(i => Cls($"c{i}", HarnessId.Cursor, ImportCommand.ClassificationStatus.New))
             .ToArray();
@@ -274,7 +274,7 @@ public class ImportDoneBreakdownTests {
         await Assert.That(result).IsFalse();
     }
 
-    // --- Round-2 finding 1: sentChildContent overrides the replay gate ---
+    // --- sentChildContent overrides the replay gate ---
 
     [Test]
     public async Task already_loaded_plus_resumed_outcome_with_sent_child_content_is_not_a_lifecycle_only_replay() {
@@ -296,7 +296,7 @@ public class ImportDoneBreakdownTests {
         await Assert.That(result).IsFalse();
     }
 
-    // --- Round-2 finding 2: AlreadyLoaded + Skipped is now recognized ---
+    // --- AlreadyLoaded + Skipped is a lifecycle-only replay ---
 
     [Test]
     public async Task already_loaded_plus_skipped_outcome_is_a_lifecycle_only_replay() {

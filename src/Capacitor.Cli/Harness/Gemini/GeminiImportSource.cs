@@ -403,8 +403,8 @@ internal sealed class GeminiImportSource : IImportSource {
             int subSent;
             try {
                 // failOnError: true — SentChildContent must reflect only server-ACCEPTED
-                // batches; a non-2xx now throws and is caught below, so a rejected batch
-                // never flips the signal (Qodo finding 3).
+                // batches; a non-2xx throws and is caught below, so a rejected batch
+                // never flips the signal.
                 subSent = await SessionImporter.SendTranscriptBatches(
                     httpClient: client, baseUrl: baseUrl,
                     sessionId:  parentSessionIdDashless, filePath: d.File,

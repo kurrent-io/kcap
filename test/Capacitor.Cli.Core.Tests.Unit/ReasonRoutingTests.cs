@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 public class ReasonRoutingTests {
-    // ---- ForStartGate (spec §3/§4 pinned table) ----
+    // ---- ForStartGate (pinned table) ----
 
     [Test]
     [Arguments("directive_missing", RecoverySurface.Takeover)]
@@ -15,7 +15,7 @@ public class ReasonRoutingTests {
         await Assert.That(ReasonRouting.ForStartGate(token)).IsEqualTo(expected);
     }
 
-    // ---- ForDaemonStart (spec §3/§4 pinned table) ----
+    // ---- ForDaemonStart (pinned table) ----
 
     [Test]
     [Arguments("package_inconsistent", RecoverySurface.Reinstall)]
@@ -24,7 +24,7 @@ public class ReasonRoutingTests {
         await Assert.That(ReasonRouting.ForDaemonStart(token)).IsEqualTo(expected);
     }
 
-    // ---- ForBootRefusal (spec §3/§4 pinned table) ----
+    // ---- ForBootRefusal (pinned table) ----
 
     [Test]
     [Arguments("server_expectation_mismatch", RecoverySurface.Takeover)]

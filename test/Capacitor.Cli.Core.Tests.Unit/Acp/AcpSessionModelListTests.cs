@@ -49,8 +49,7 @@ public class AcpSessionModelListTests {
     ///
     /// <para><b>The sibling is deliberately FIRST here.</b> Asserting this against
     /// <see cref="OpenCodeResult"/>, where `model` happens to lead the array, does not discriminate:
-    /// dropping the id check entirely still returns the model entry, and a mutation run confirmed
-    /// exactly that survivor. Nothing in the payload promises an order, so the order this test uses
+    /// dropping the id check entirely still returns the model entry. Nothing in the payload promises an order, so the order this test uses
     /// has to be the one that fails when the check is gone.</para>
     /// </summary>
     [Test]
@@ -152,7 +151,7 @@ public class AcpSessionModelListTests {
     /// it, and <see cref="AcpModelResolver.Resolve"/>'s prefix arm then calls <c>StartsWith</c> on null
     /// and throws past a caller whose only guard is <c>JsonException</c> — turning a malformed vendor
     /// response into a failed LAUNCH, for a feature that is never supposed to be a launch precondition.
-    /// The <c>configOptions</c> path always filtered; this one did not, which is what review caught.</para>
+    /// The <c>configOptions</c> path filters the same way.</para>
     /// </summary>
     [Test]
     public async Task AModelsEntryWithNoModelId_IsDroppedRatherThanCrashingTheResolver() {

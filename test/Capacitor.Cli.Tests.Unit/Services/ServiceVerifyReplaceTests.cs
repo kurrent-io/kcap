@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 
-/// <summary><c>install --replace --verify</c>'s ownership matrix (spec §3.4): unlike a fresh
+/// <summary><c>install --replace --verify</c>'s ownership matrix: unlike a fresh
 /// install (which refuses to touch an existing label/unit), --replace clears/takes over whatever it
 /// finds first. See <see cref="ServiceVerifyInstallTests"/> for the fresh-path/entry-recovery
 /// coverage this builds on.</summary>

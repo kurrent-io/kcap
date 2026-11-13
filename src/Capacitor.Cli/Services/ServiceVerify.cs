@@ -87,7 +87,7 @@ public static class VerifyExit {
 internal enum StartGateReason { DirectiveMissing, DirectiveInvalid, IdentityMismatch, ForeignBinary, PackageInconsistent, EvidenceUnreadable }
 
 /// <summary>
-/// Spec §3.4 transaction engine: viability → marker → mutate → ownership+readiness poll → final
+/// Service transaction engine: viability → marker → mutate → ownership+readiness poll → final
 /// recheck → commit, or rollback to the verified-safe failure state. One forward cutoff bounds the
 /// entire forward phase (viability, clear, write, bootstrap, readiness AND the final recheck); a
 /// separately reserved rollback budget guarantees time to restore. Injectable seams (manager, pid
@@ -158,7 +158,7 @@ sealed class ServiceVerify(
     }
 
     /// <summary>Whether the pinned profile resolves to a valid absolute http/https server URL — the
-    /// CLI-side enforcement of §4.1's precondition, so a <c>--replace</c> can never destroy a working
+    /// CLI-side precondition, so a <c>--replace</c> can never destroy a working
     /// unit only to install one whose daemon exits config-invalid. Default true for the engine's own
     /// tests; the command wires the real resolution.</summary>
     readonly Func<bool> _profileViable = profileViable ?? (() => true);
@@ -401,7 +401,7 @@ sealed class ServiceVerify(
                 var (confirmed, confirmedPid) = await IsReadyAsync(serviceId, deadline, requirePid: pid);
                 if (confirmedPid is not null) observedJobPids.Add(confirmedPid.Value);
                 if (confirmed) {
-                    // Post-readiness recheck (spec §3, mirrors install/replace's own final recheck):
+                    // Post-readiness recheck (mirrors install/replace's own final recheck):
                     // Phase B's pre-bootstrap recheck only bounds the recheck→exec race up to the
                     // moment bootstrap started — a foreign writer swapping the plist or the binary
                     // bytes AFTER that, but before this commit, must not ride readiness into a
@@ -574,7 +574,7 @@ sealed class ServiceVerify(
     /// baked <c>KCAP_URL</c> (precedence) or, absent that, its
     /// baked profile's <c>server_url</c> looked up via <see cref="ConfigMutator.TryLoadPure"/> under
     /// the unit's own baked <c>KCAP_CONFIG_DIR</c> (or the default config root when it baked none).
-    /// Fail-closed on absent required evidence (spec §3.4(b)): a gated launch is always app-managed,
+    /// Fail-closed on absent required evidence: a gated launch is always app-managed,
     /// so the invoking environment is expected to carry BOTH <c>KCAP_PROFILE</c> and
     /// <c>KCAP_EXPECT_SERVER_URL</c>, and the unit being gated is expected to carry its own baked
     /// <c>KCAP_EXPECT_SERVER_URL</c> — any of those missing, or the unit's server proving
@@ -1167,7 +1167,7 @@ sealed class ServiceVerify(
     }
 
     /// <summary>
-    /// install --replace's ownership matrix (spec §3.4). Called after the pre-mutation probe was
+    /// install --replace's ownership matrix. Called after the pre-mutation probe was
     /// rejected as <see cref="LabelProbe.Unknown"/>, with the "captured" marker on disk. Everything it
     /// does draws from the shared forward <paramref name="deadline"/>. Returns a non-null exit code
     /// when a clear/kill couldn't be confirmed (marker retained at its last phase); otherwise falls

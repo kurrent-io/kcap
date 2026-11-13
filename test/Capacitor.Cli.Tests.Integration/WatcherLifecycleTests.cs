@@ -95,8 +95,8 @@ public class WatcherLifecycleTests {
         await Watchers.KillWatcher(key);
     }
 
-    // Process.Kill is SIGKILL on Unix, so before this fix a "killed" watcher never ran its
-    // SIGTERM shutdown path (final drain + undelivered-tail spool). Exit code 42 from the trap
+    // Process.Kill is SIGKILL on Unix, so a watcher stopped that way never runs its SIGTERM
+    // shutdown path (final drain + undelivered-tail spool). Exit code 42 from the trap
     // proves the process saw SIGTERM and exited on its own terms.
     [Test]
     public async Task KillWatcher_sigterms_first_so_the_watcher_can_run_its_drain() {
