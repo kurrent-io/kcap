@@ -313,7 +313,12 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             });
         if (_hubLogging is { } logging) builder.ConfigureLogging(logging);
         var hub = (_reconnectDelays is { } delays ? builder.WithAutomaticReconnect(delays) : builder.WithAutomaticReconnect())
-            .AddJsonProtocol(o => LaunchHubJson.Configure(o.PayloadSerializerOptions))
+            .AddJsonProtocol(o => {
+                // Any resolver in the chain replaces SignalR's implicit reflection fallback, so where reflection is
+                // on, a hub type the generated contexts do not name would throw.
+                if (JsonSerializer.IsReflectionEnabledByDefault) LaunchHubJson.Configure(o.PayloadSerializerOptions);
+                else ConfigureHubPayload(o.PayloadSerializerOptions);
+            })
             .Build();
         hub.On(HubBroadcasts.AgentInstancesChanged, () => _agentsChanged.OnNext(Unit.Default));
         hub.On(HubBroadcasts.DaemonsChanged, () => _daemonsChanged.OnNext(Unit.Default));
@@ -343,6 +348,13 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         foreach (var name in UnusedNudges) hub.On(name, static () => { });
         foreach (var name in UnusedPings) hub.On<JsonElement>(name, static _ => { });
         return hub;
+    }
+
+    /// The hub payload options of a process with reflection-based JSON off: every type comes from a generated context.
+    internal static void ConfigureHubPayload(JsonSerializerOptions options) {
+        LaunchHubJson.Configure(options);
+        options.TypeInfoResolverChain.Insert(0, RemoteModelsJsonContext.Default);
+        options.TypeInfoResolverChain.Insert(1, ClientHubJsonContext.Default);
     }
 
     /// Pushes the app has no use for, by arity. Each still gets a handler: SignalR binds a push with
