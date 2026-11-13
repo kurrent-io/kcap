@@ -103,6 +103,7 @@ public class CopilotWorkspaceYamlTests {
     [Test]
     [Arguments("  Release\n  notes\n\n  Migration steps\n", "Release notes\nMigration steps")]
     [Arguments("  Steps:\n    one\n  done\n", "Steps:\n  one\ndone")]
+    [Arguments("  Steps:\n    one\n\n  done\n", "Steps:\n  one\n\ndone")]
     public async Task workspace_yaml_parser_folds_a_folded_scalar_name(string block, string expected) {
         using var tmp = new TempDir();
 

@@ -92,7 +92,8 @@ public sealed record CopilotWorkspaceYaml(
         return (folded ? Folded(text) : string.Join("\n", text)).Trim('\n', ' ');
     }
 
-    // A paragraph's lines join with a space, each blank line is one break, and a more-indented line keeps its breaks.
+    // A paragraph's lines join with a space and each blank line is one break; a more-indented line keeps its breaks, the one
+    // before a blank line included.
     static string Folded(List<string> lines) {
         var sb       = new StringBuilder();
         var blanks   = 0;
@@ -108,7 +109,7 @@ public sealed record CopilotWorkspaceYaml(
             var moreIndented = line[0] == ' ';
 
             if (sb.Length > 0) {
-                if (blanks > 0) sb.Append('\n', blanks);
+                if (blanks > 0) sb.Append('\n', moreIndented || indented ? blanks + 1 : blanks);
                 else sb.Append(moreIndented || indented ? '\n' : ' ');
             }
 
