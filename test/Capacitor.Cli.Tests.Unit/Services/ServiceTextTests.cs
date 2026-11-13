@@ -14,9 +14,8 @@ public class ServiceTextTests {
     }
 
     /// <summary>
-    /// SystemdValue no longer rewrites newlines to spaces — RequireNoControlCharacters refuses them at the
-    /// sink first, so the replacement was unreachable, and silently rewriting a caller's value was the wrong
-    /// behaviour: a service running with a value nobody chose is harder to diagnose than a failed install.
+    /// SystemdValue does not rewrite newlines to spaces — RequireNoControlCharacters refuses them at the
+    /// sink first, and silently rewriting a caller's value is the wrong behaviour: a service running with a value nobody chose is harder to diagnose than a failed install.
     /// </summary>
     [Test]
     public async Task SystemdValue_no_longer_rewrites_control_characters() {

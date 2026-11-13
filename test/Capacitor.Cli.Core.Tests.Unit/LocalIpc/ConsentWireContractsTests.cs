@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
-/// Wire-shape pins for the consent v2 contracts (spec §4.1, §4.4): trailing nullable
+/// Wire-shape pins for the consent v2 contracts: trailing nullable
 /// members with no C# default, nulls always written, snake_case names byte-compatible with
 /// existing daemons' output.
 public class ConsentWireContractsTests {

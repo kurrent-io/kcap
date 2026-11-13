@@ -60,7 +60,7 @@ public class McpFlowsServerSettlementRetryTests {
 
     // === SettlementBackoff: the delay schedule shared by the POST and poll lanes ===
     //
-    // Pinned formula (settlement-admission design §3.2 G): for retry n (1-based),
+    // Pinned formula: for retry n (1-based),
     // raw(n) = min(10s, 500ms · 2^(n−1)) with the cap applied BEFORE jitter, then equal jitter
     // delay(n) = raw(n)/2 + U(0, raw(n)/2), then truncation to the caller's remaining budget.
 
@@ -412,8 +412,8 @@ public class McpFlowsServerSettlementRetryTests {
         await Assert.That(text).StartsWith("Error (flow_settlement_busy)");
 
         // ...but it must NOT claim the daemon was settling. Nothing observed that: the deadline
-        // cancelled the request before any coded response was parsed, and presenting the client's own
-        // default as a server verdict is what the README used to describe.
+        // cancelled the request before any coded response was parsed, so the client's own default
+        // must not be presented as a server verdict.
         await Assert.That(text).Contains("this client's default");
         await Assert.That(text).DoesNotContain("still settling a prior launch");
     }

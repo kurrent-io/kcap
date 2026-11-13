@@ -36,8 +36,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 ///
 /// <para>The rule the rows below pin, one for all nine sources
 /// (<c>ImportContext.VisibilityStampFor</c>): <c>ForcePrivate</c> stamps <c>private</c> on every
-/// status, and the Step-3 default lands on <c>New</c> alone. Reasoning in
-/// docs/superpowers/specs/2026-08-26-ai2222-private-stamp-design.md.</para>
+/// status, and the Step-3 default lands on <c>New</c> alone.</para>
 /// Driven through each source's real <c>ImportSessionAsync</c> / <see cref="ImportCommand.ImportChainsAsync"/>
 /// / <see cref="ImportCommand.HandleImport"/> entry point — never through the private
 /// per-source <c>BuildSessionStartPayload</c> builders in isolation — per the spec's own
@@ -1135,8 +1134,7 @@ public class ImportVisibilityTests : IDisposable {
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("private");
     }
 
-    // --- Cursor: the source the 2026-07-20 spec called out, because its live hook has no
-    //     default_visibility injection at all, so the import path is the only one that stamps.
+    // --- Cursor: its live hook has no default_visibility injection at all, so the import path is the only one that stamps.
     //     Direct-logic coverage plus one full WireMock round-trip through HandleImport. ---
 
     [Test]
@@ -1235,7 +1233,7 @@ public class ImportVisibilityTests : IDisposable {
     }
 
     // =====================================================================
-    // Section E — matrix completion (review finding): AlreadyLoaded gaps,
+    // Section E — matrix completion: AlreadyLoaded gaps,
     // forcePrivate × replay-status (Partial), and defaultVisibility:null,
     // for EACH of the 7 routed sources. DRY via RoutedSourceCase + shared
     // assertion helpers across the 6 "uniform-shaped" sources (Copilot,

@@ -7,9 +7,10 @@ namespace Capacitor.Cli.Core.Tests.Unit.Config;
 /// A hand-written, truncated, or older-version config.json omits keys that a
 /// kcap-written one always contains. STJ source-gen builds these init-only
 /// records through an object initializer that assigns <c>default(T)</c> for every
-/// absent property, discarding the record's member initializers — so every such
-/// key used to deserialize to null/false/0 and crash the first command that
-/// touched it. These pin the declared defaults to the load boundary.
+/// absent property, discarding the record's member initializers — so without
+/// defaults applied at load, every such key deserializes to null/false/0 and
+/// crashes the first command that touches it. These pin the declared defaults
+/// to the load boundary.
 /// </summary>
 public class ConfigDefaultsTests {
     static ProfileConfig Load(string json) => ConfigMigration.MigrateIfNeeded(json).Config;

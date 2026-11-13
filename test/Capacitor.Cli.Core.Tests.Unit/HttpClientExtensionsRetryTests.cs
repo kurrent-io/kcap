@@ -36,7 +36,7 @@ public class HttpClientExtensionsRetryTests {
 
     [Test]
     public async Task SendWithRetry_enforces_total_timeout_even_when_per_attempt_is_larger() {
-        // Regression for Qodo finding: with total < per-attempt, a hung request
+        // With total < per-attempt, a hung request
         // must not block past totalTimeout. The implementation caps each attempt
         // at min(perAttemptTimeout, remainingBudget) instead of always using the
         // full per-attempt cap.

@@ -397,7 +397,7 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
-    /// Stops every watcher in <paramref name="keys"/> concurrently (#550, a session watcher's
+    /// Stops every watcher in <paramref name="keys"/> concurrently (a session watcher's
     /// teardown of its spawned children). <see cref="KillWatcher"/>'s SIGTERM-first gives each
     /// child its final drain; its 5s force-kill bound keeps a wedged child from stalling the caller.
     /// </summary>

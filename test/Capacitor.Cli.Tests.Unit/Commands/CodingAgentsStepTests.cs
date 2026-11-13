@@ -74,9 +74,8 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Claude_installs_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — SetupCommand's single InstallAgents decision is the
-        // only gate now, so Claude installs regardless of what a (no longer consulted) prompt
-        // delegate would return.
+        // SetupCommand's single InstallAgents decision is the only gate, so Claude installs
+        // regardless of what the (unconsulted) prompt delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: false, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
@@ -330,8 +329,8 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Agent_skills_still_installed_when_codex_hooks_fail() {
-        // Decoupling means a Codex hooks-write failure no longer suppresses the
-        // skills copy — Codex is still detected and reads ~/.agents/skills/.
+        // A Codex hooks-write failure must not suppress the skills copy — Codex is
+        // still detected and reads ~/.agents/skills/.
         var sink     = new Sink();
         var calls    = new InstallerCalls { CodexHooksReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: false, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
@@ -348,9 +347,8 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Agent_skills_install_even_if_prompt_would_decline() {
-        // The standalone "Install kcap agent skills?" prompt is gone — folded into the single
-        // InstallAgents decision — so skills install regardless of what a (no longer consulted)
-        // prompt delegate would return.
+        // Skills ride the single InstallAgents decision, so they install regardless of what the
+        // (unconsulted) prompt delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: false, SkipCopilot: true, NoPrompt: false);
@@ -682,8 +680,8 @@ public class CodingAgentsStepTests {
     }
 
     // A failed hooks write is NOT evidence about the MCP servers: hooks.json and mcp.json are
-    // different files. Registering them is what the user asked for, and dropping it would be the same
-    // silent no-op that skipping used to cause. Gemini is the one vendor where the failure IS evidence
+    // different files. Registering them is what the user asked for, and dropping it would be a
+    // silent no-op. Gemini is the one vendor where the failure IS evidence
     // — see Gemini_mcp_not_registered_when_hooks_fail.
     [Test]
     public async Task Cursor_mcp_still_registered_when_hooks_fail() {
@@ -701,8 +699,8 @@ public class CodingAgentsStepTests {
     }
 
     // "Tools without recording" — the combination the server explicitly sanctions and the browser's
-    // Agents screen offers as two independent toggles. It used to install nothing at all: the hooks
-    // were skipped, and every MCP registration was gated on the hooks having installed.
+    // Agents screen offers as two independent toggles. Skipping the hooks must not skip the MCP
+    // registrations, or this combination installs nothing at all.
     [Test]
     [Arguments("cursor")]
     [Arguments("copilot")]
@@ -1749,8 +1747,7 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Cursor_installs_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — Cursor hooks install regardless of what a (no longer
-        // consulted) prompt delegate would return.
+        // Cursor hooks install regardless of what the (unconsulted) prompt delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: false, SkipCopilot: true, NoPrompt: false);
@@ -1854,8 +1851,7 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Copilot_installs_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — Copilot hooks install regardless of what a (no longer
-        // consulted) prompt delegate would return.
+        // Copilot hooks install regardless of what the (unconsulted) prompt delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
@@ -2037,8 +2033,7 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Kiro_installs_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — Kiro hooks install regardless of what a (no longer
-        // consulted) prompt delegate would return.
+        // Kiro hooks install regardless of what the (unconsulted) prompt delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);
@@ -2326,8 +2321,8 @@ public class CodingAgentsStepTests {
 
     [Test]
     public async Task Kiro_mcp_registered_even_if_prompt_would_decline() {
-        // The per-vendor prompt is gone — Kiro MCP registers (alongside hooks) regardless of
-        // what a (no longer consulted) prompt delegate would return.
+        // Kiro MCP registers (alongside hooks) regardless of what the (unconsulted) prompt
+        // delegate would return.
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);

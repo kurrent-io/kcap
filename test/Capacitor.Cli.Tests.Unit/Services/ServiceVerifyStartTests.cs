@@ -390,8 +390,8 @@ public class ServiceVerifyStartTests {
     /// <c>KCAP_CONSENT_SEED_DEFAULT</c> are exactly what <see cref="LaunchdPrint.Binary"/>/
     /// <see cref="LaunchdPrint.Environment"/> read — real launchd never sees this content, only the
     /// gate's re-parse of it does. <paramref name="expectServerUrl"/>, when non-null, bakes BOTH
-    /// <c>KCAP_URL</c> and <c>KCAP_EXPECT_SERVER_URL</c> with that value — the identity gate now
-    /// fails closed on either being absent (spec §3.4(b)), so any test that needs Phase A's identity
+    /// <c>KCAP_URL</c> and <c>KCAP_EXPECT_SERVER_URL</c> with that value — the identity gate
+    /// fails closed on either being absent, so any test that needs Phase A's identity
     /// check to PASS must supply one (matching the invoking <c>gateEnv</c>'s own
     /// <c>KCAP_EXPECT_SERVER_URL</c>/<c>KCAP_PROFILE</c>).</summary>
     static string MinimalPlist(string binary, string consentSeedDefault, string? expectServerUrl = null) => $"""
@@ -413,7 +413,7 @@ public class ServiceVerifyStartTests {
 
     /// <summary>Invoking env for a gated test that needs Phase A's identity check to pass: the
     /// consent-seed directive plus a profile/expectation matching <see cref="MinimalPlist"/>'s
-    /// <paramref name="expectServerUrl"/> — both now required (fail-closed) by the identity gate.</summary>
+    /// <paramref name="expectServerUrl"/> — both required (fail-closed) by the identity gate.</summary>
     static Func<string, string?> GatedEnvWithIdentity(string expectServerUrl = GatedServerUrl) => k => k switch {
         "KCAP_CONSENT_SEED_DEFAULT" => "prompt",
         "KCAP_PROFILE"              => "default",

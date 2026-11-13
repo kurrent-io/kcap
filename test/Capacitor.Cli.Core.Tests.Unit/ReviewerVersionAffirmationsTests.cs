@@ -93,7 +93,7 @@ public class ReviewerVersionAffirmationsTests {
     // ── Incomparable ─────────────────────────────────────────────────────────
     //
     // Exactly one side orders. Ordinal-comparing across domains would refuse a genuine upgrade while
-    // LABELLING it "below minimum" — the bug an earlier revision of this design shipped in review.
+    // LABELLING it "below minimum".
 
     [Test]
     public async Task AnUnorderableMinimum_WithAnOrderableBuild_IsIncomparable() {
@@ -133,10 +133,9 @@ public class ReviewerVersionAffirmationsTests {
     // ── Monotonicity ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// THE property that makes this change safe: the new rule must never refuse a pair the old
-    /// ordinal-equality rule allowed. The old rule allowed exactly the ordinal-equal non-blank pairs,
-    /// so every such pair must still be admitted — including values no version parser accepts, which
-    /// an earlier revision of this design regressed.
+    /// The rule must never refuse a pair plain ordinal equality allows, so affirmations stored under
+    /// that rule stay valid: every ordinal-equal non-blank pair is admitted — including values no
+    /// version parser accepts.
     /// </summary>
     [Test]
     [Arguments("2.16.0")]          // orders
@@ -178,15 +177,12 @@ public class ReviewerVersionAffirmationsTests {
     }
 
     /// <summary>
-    /// Pins that extracting this helper did not WIDEN what the Claude certification gate admits.
+    /// Pins that this helper does not WIDEN what the Claude certification gate admits.
     ///
-    /// <para>Review flagged the risk and it was real, though by a subtler route than "trimming changes
-    /// parsing": <c>Version.TryParse</c> already tolerates surrounding whitespace, so a trim looks
+    /// <para><c>Version.TryParse</c> already tolerates surrounding whitespace, so a trim looks
     /// harmless — but it lets <c>TrimStart('v','V')</c> reach a <c>v</c> that leading whitespace was
-    /// hiding, flipping <c>" v1.2.3"</c> from refused to allowed. That is a security gate for a
-    /// different vendor being loosened as a side effect of a reviewer change, which this PR's own spec
-    /// forbids. The normalization is therefore byte-identical to what <c>CliVersionAllowed</c> did
-    /// before, and this test is what keeps it that way.</para>
+    /// hiding, flipping <c>" v1.2.3"</c> from refused to allowed and loosening another vendor's
+    /// security gate. The normalization stays byte-identical to <c>CliVersionAllowed</c>'s.</para>
     /// </summary>
     [Test]
     [Arguments(" v1.2.3")]

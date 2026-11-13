@@ -51,7 +51,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// Effect 4 is NOT a guard on <c>importedSessionIds</c> membership, and must not be read as one.
 /// The privatize set is <c>HashSet(importedSessionIds) ∪ privateScopeSessionIds</c> and this root
 /// is already in the private scope, so rewiring membership to the resolved <c>Loaded</c> outcome
-/// would union the same single id and still emit exactly one PUT — verified by mutation. The
+/// would union the same single id and still emit exactly one PUT. The
 /// Done-grid assertions do not expose it either (<c>ComputePerSourceFinalCounts</c> takes the
 /// routed early return and ignores its <c>imported</c> argument). That rule is pinned instead by
 /// <see cref="RoutedPrivatizeMembershipTests"/>, which uses a source outside the private scope so

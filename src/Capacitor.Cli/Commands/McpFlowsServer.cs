@@ -276,7 +276,7 @@ partial class McpFlowsServer(
                     _                     => await SendWithSettlementRetryAsync(client, apiRoot, (c, ct) => SubmitRoundAsync(c, apiRoot, arguments, contextArgName: "message", participant: GetRequiredArg(arguments, "participant"), async: ParseAsyncArg(arguments), ct: ct), clock, backoff, extraRetryableCode: ParticipantUnreachableCode, absoluteBudget: sendBudget)
                 };
 
-                // Settlement-admission design (§3.2 G): the elapsed deadline is mapped HERE, at the
+                // The elapsed settlement-admission deadline is mapped HERE, at the
                 // only place that builds tool results, into a normal MCP tool error carrying the last
                 // coded rejection plus attempt/elapsed diagnostics. It must never escape as an
                 // unhandled stdio fault, and must never turn a retryable busy into something a caller
@@ -610,8 +610,8 @@ partial class McpFlowsServer(
             }
 
             if (!httpResponse.IsSuccessStatusCode) {
-                // Decode coded envelopes here too (status/close previously printed the raw
-                // body) — FormatFlowStartError falls back to the raw HTTP line for uncoded bodies.
+                // Decode coded envelopes here too — FormatFlowStartError falls back to the raw HTTP
+                // line for uncoded bodies.
                 return BuildToolResult(id, FormatFlowStartError((int)httpResponse.StatusCode, body, wasDynamicStart: false), isError: true);
             }
 
@@ -1161,7 +1161,7 @@ partial class McpFlowsServer(
                     ? (ReviewerModelProtocolRequiredMessage, true)
                     : null;
 
-            // Qodo #2: an UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+            // An UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
             // old-server signal — only a clean 404/405 is (handled above). Return null so the caller's
             // FormatFlowStartError surfaces the real status/body, instead of masking a genuine
             // failure as a protocol-version skew.
@@ -1253,12 +1253,12 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Routes a review-flow start to the versioned start endpoint. §2.7 B3: a vendor-bearing,
+    /// Routes a review-flow start to the versioned start endpoint. A vendor-bearing,
     /// non-dynamic start POSTs to /api/flows/review/start/v4 (protocol 4, the resumable-park tier),
     /// falling back on HTTP 404 (old server) to /v3 when a model was given else /v2; a vendor-less or
-    /// dynamic (definition_yaml) start keeps the pre-B3 route (/v2 or the legacy generic route). Shared
+    /// dynamic (definition_yaml) start keeps the /v2 or legacy generic route. Shared
     /// by start_review_flow (reads the flow kind from the "kind" arg) and its generic alias start_flow
-    /// (reads it from "definition_id" — the server treats kind == definition id, phase C).
+    /// (reads it from "definition_id" — the server treats kind == definition id).
     /// start_flow additionally accepts an inline "definition_yaml" (dynamic flows): the MCP
     /// schema can't express the xor, so exactly-one is enforced here, BEFORE any HTTP call;
     /// start_review_flow stays catalog-only (kind remains required there). Internal (not private)
@@ -1324,7 +1324,7 @@ partial class McpFlowsServer(
                     "Pass the lowercase canonical vendor token (e.g. 'claude', 'codex') the model belongs to.");
         }
 
-        // B2: this machine's stable id, matched server-side against each connected daemon's
+        // This machine's stable id, matched server-side against each connected daemon's
         // registration id to prove the reviewer would run on the SAME host as this requester. Same
         // call the daemon reports at registration (ServerConnection), so the ids are identical — the
         // last piece that lets the server pick the borrow path instead of a mirrored worktree.
@@ -1360,9 +1360,9 @@ partial class McpFlowsServer(
             RequesterMachineId:   machineId,
             DefinitionYaml:       definitionYaml,
             Vendor:               vendor,
-            // The BASE-body protocol, used only on the pre-B3 fallback routes below: a reviewer-model
+            // The BASE-body protocol, used only on the v3/v2 fallback routes below: a reviewer-model
             // override is 3 (v3), every other catalog start is 2 (v2), a dynamic start sends none. The
-            // §2.7 B3 primary attempt overrides this to 4 for the /v4 route (see the routing below).
+            // primary attempt overrides this to 4 for the /v4 route (see the routing below).
             ClientFlowProtocolVersion: model is not null ? 3 : definitionYaml is null ? 2 : null,
             Model:                model,
             SessionTitle:         sessionTitle,
@@ -1378,14 +1378,14 @@ partial class McpFlowsServer(
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 5 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
 
-        // §2.7 B3: a participant_parked-capable client routes every non-dynamic, vendor-bearing
+        // A participant_parked-capable client routes every non-dynamic, vendor-bearing
         // start through /review/start/v4 (protocol 4), so the server returns the version-gated
         // `participant_parked` result when a resumable park crosses a round. An older server lacks the
-        // route and 404s it → fall back to the pre-B3 endpoint (protocol 3/2), where a park reports the
+        // route and 404s it → fall back to the v3/v2 endpoint (protocol 3/2), where a park reports the
         // legacy `participant_stopped`; both are resubmit triggers, so the crossed round never stalls
         // across the rollout. Only a 404 falls back — any other response (incl. a real 4xx) is returned
         // as-is, never a silent downgrade. A dynamic (definition_yaml) or vendor-less start keeps its
-        // pre-B3 route (v4 requires a vendor).
+        // v3/v2 route (v4 requires a vendor).
         if (vendor is not null && definitionYaml is null) {
             var v4Resp = await client.PostAsync(
                 $"{apiRoot}/api/flows/review/start/v4",
@@ -1395,7 +1395,7 @@ partial class McpFlowsServer(
             v4Resp.Dispose(); // old server without /v4 — fall through to the pre-B3 route below
         }
 
-        // Pre-B3 route selection (and the /v4 fallback), the server-capability signal that fails closed:
+        // v3/v2 route selection (and the /v4 fallback), the server-capability signal that fails closed:
         //  - a reviewer-model override → POST /review/start/v3 (an old server 404s it — mapped to
         //    reviewer_model_protocol_required, never downgraded to v2);
         //  - every other catalog start → POST /review/start/v2 (protocol 2);
@@ -1672,7 +1672,7 @@ partial class McpFlowsServer(
     /// (round-full starts and old servers fall through to the existing logic unchanged). Today's
     /// server never puts pending_messages on a round-less start (a brand-new run has no
     /// participants), but the path renders + exposes them anyway so every returned response obeys
-    /// the same format-then-ack rule with no carve-outs (Qodo review on #278).</summary>
+    /// the same format-then-ack rule with no carve-outs.</summary>
     internal static string? TryFormatRoundlessStart(string postBody, out IReadOnlyList<string> pendingIds) {
         pendingIds = [];
 
@@ -2031,7 +2031,7 @@ partial class McpFlowsServer(
         );
     }
 
-    /// <summary>Implements `wait: true` on the two status tools (liveness design §6): repeated bounded
+    /// <summary>Implements `wait: true` on the two status tools: repeated bounded
     /// GETs against the SAME endpoint the plain call hits, sharing <see cref="PollUntilTerminalAsync"/>'s
     /// per-attempt timeout, cadence, transient budget and 409 backoff, until the run is terminal, the
     /// current round reaches a <see cref="TerminalRoundStatuses"/> value, or <see cref="PollCap"/> elapses.
@@ -2379,7 +2379,7 @@ partial class McpFlowsServer(
 
             // Type-safe extraction: a wrong-typed field degrades to "", never throws —
             // FormatPolledRoundResult has no exception boundary, so a throw here would turn a
-            // successful terminal poll into a generic internal error (Qodo review on #278).
+            // successful terminal poll into a generic internal error.
             var id   = StringField(o, "message_id");
             var from = StringField(o, "from_participant");
             var text = StringField(o, "text");
@@ -2576,8 +2576,8 @@ partial class McpFlowsServer(
         };
 
     /// <summary>
-    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status (§6 of the
-    /// liveness design). A missing key and an explicit JSON null both default to false — the
+    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status.
+    /// A missing key and an explicit JSON null both default to false — the
     /// single-GET behavior every existing caller already gets, unchanged. A JSON boolean is used
     /// as-is; anything else throws ArgumentException, turned into a clean tool error by
     /// HandleToolCallAsync's catch, mirroring ParseAsyncArg's contract.

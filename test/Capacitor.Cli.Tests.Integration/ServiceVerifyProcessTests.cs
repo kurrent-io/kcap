@@ -6,7 +6,7 @@ using Capacitor.Cli.Services;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Real-process coverage for spec §7 "parent death &amp; stdio": guarantees fakes can't prove — the
+/// Real-process coverage for parent death and stdio: guarantees fakes can't prove — the
 /// --verify transaction never hangs or crashes when its stdio pipes close, and the service flock is
 /// released when the process exits, even orphaned. Drives <c>kcap daemon service start --verify</c>
 /// against an isolated temp HOME/KCAP_DAEMONS_DIR with no daemon/plist present, so the transaction

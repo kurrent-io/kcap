@@ -109,9 +109,9 @@ public class ServiceVerifyStartGateProductionPathTests {
     }
 
     /// <summary>A DIRECTORY at the plist path is present by every real signal but unreadable as
-    /// content. <c>File.Exists</c> (which the presence check used to compose on) reads a
-    /// directory as ABSENT — it only follows through to files — so this must still classify
-    /// <c>evidence_unreadable</c>, never the takeover-safe <c>directive_missing</c>.</summary>
+    /// content. <c>File.Exists</c> reads a directory as ABSENT — it only follows through to files — so
+    /// this must still classify <c>evidence_unreadable</c>, never the takeover-safe
+    /// <c>directive_missing</c>.</summary>
     [Test, NotInParallel]
     public async Task Directory_at_plist_path_is_evidence_unreadable_not_directive_missing() {
         Skip.When(OperatingSystem.IsWindows(), "launchd/HOME-based plist resolution is POSIX-only");

@@ -13,7 +13,7 @@ public sealed record StopAgentResult(bool Ok, string Status, string? Error);
 public sealed record SendTextResult(bool Ok, string? Reason, string? Error, string? Outcome);
 
 /// Reason ∈ daemon_unreachable | daemon_rejected | unexpected_reply | timed_out (stable
-/// identifiers, not user copy — spec §10).
+/// identifiers, not user copy).
 public sealed class LocalControlOpsException(string reason, string message) : Exception(message) {
     public string Reason { get; } = reason;
 }
@@ -44,7 +44,7 @@ public interface ILocalControlOps {
 /// already know daemon capabilities from LocalControlClient's Connected/AttachStatus), no
 /// persistent connection. Mirrors the CLI's existing socket usage (AgentCommand.SendStopAsync,
 /// DaemonConsentCommand's GetPolicyAsync/PutPolicyAsync) so the app shares the same wire
-/// behavior without depending on CLI command code. See design spec §10.
+/// behavior without depending on CLI command code.
 public sealed class LocalControlOps(DaemonStore store, string daemonName, TimeProvider time) : ILocalControlOps {
     readonly TimeProvider _time = time;
 
@@ -123,7 +123,7 @@ public sealed class LocalControlOps(DaemonStore store, string daemonName, TimePr
     public async Task<ConsentAckDto> ResolveConsentAsync(ConsentResolveDto resolve, CancellationToken ct) {
         var json = JsonSerializer.Serialize(resolve, ConsentIpcJsonContext.Default.ConsentResolveDto);
         // ConsentResolveV2, never the v1 frame: a v1 daemon must fail closed at its codec rather
-        // than resolve by id without the identity check (spec §4.1).
+        // than resolve by id without the identity check.
         var reply = await ExchangeAsync(LocalFrame.ConsentJson(FrameType.ConsentResolveV2, json), ReplyTimeout, ct);
         switch (reply.Type) {
             case FrameType.ConsentAck:
@@ -383,7 +383,7 @@ public sealed class LocalControlOps(DaemonStore store, string daemonName, TimePr
     /// One fresh socket: connect → write the request → read the single reply → close. Phase
     /// timeouts are linked CancellationTokenSources (the LocalControlClient pattern), never
     /// WaitAsync (which would abandon the socket op rather than cancel it). Catch precedence is
-    /// pinned (spec §10): caller-token cancellation propagates as-is and is checked FIRST, so it
+    /// pinned: caller-token cancellation propagates as-is and is checked FIRST, so it
     /// can never be misreported as a timeout; EndOfStreamException is checked before the general
     /// IOException branch because it derives from IOException.
     async Task<LocalFrame> ExchangeAsync(LocalFrame request, TimeSpan replyTimeout, CancellationToken ct) {

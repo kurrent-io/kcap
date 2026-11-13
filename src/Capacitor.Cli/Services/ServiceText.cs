@@ -24,12 +24,10 @@ static class ServiceText {
     /// not recognise makes it refuse to load the unit at all. <c>%%</c> is systemd's own escape for one
     /// literal percent, so this is a faithful round-trip rather than a mangling.</para>
     ///
-    /// <para>This is the same primitive <see cref="CmdValue"/> applies for cmd.exe, for the same reason, and
-    /// it was missing here while present there — the asymmetry is what review caught.</para>
+    /// <para>This is the same primitive <see cref="CmdValue"/> applies for cmd.exe, for the same reason.</para>
     ///
-    /// <para>It no longer normalises CR/LF to spaces: <see cref="RequireNoControlCharacters"/> refuses them
-    /// at the sink first, so the replacement was unreachable — and silently rewriting a caller's value was
-    /// the wrong behaviour anyway.</para>
+    /// <para>It does not normalise CR/LF to spaces: <see cref="RequireNoControlCharacters"/> refuses them
+    /// at the sink first, and silently rewriting a caller's value would be wrong anyway.</para>
     /// </summary>
     public static string SystemdValue(string value) => value.Replace("%", "%%");
 
@@ -47,8 +45,8 @@ static class ServiceText {
     /// names the variable; failing at load time produces a service that silently does not exist.</para>
     /// </summary>
     public static void RequireXmlRepresentableValue(string name, string value) {
-        // The predicate is XmlConvert's, not char.IsControl — the two are NOT equivalent, and review caught
-        // both directions of the gap. char.IsControl accepts U+FFFE, U+FFFF and lone surrogates, none of
+        // The predicate is XmlConvert's, not char.IsControl — the two are NOT equivalent, in both
+        // directions. char.IsControl accepts U+FFFE, U+FFFF and lone surrogates, none of
         // which XML can carry (a lone surrogate is not even a scalar value, so the encoder either throws or
         // substitutes), and it rejects U+007F–U+009F, which XML 1.0 permits. Deferring to the platform
         // predicate makes the code match the doc comment above instead of approximating it.

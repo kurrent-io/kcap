@@ -10,30 +10,22 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// a lifecycle failure (subagent-stop/session-end) or a no-new-
-/// content retry AFTER a Cursor session's content has already been posted must not permanently
-/// bypass <c>--private</c>. Drives the real <c>ImportCommand.HandleImport</c> orchestrator (not
-/// just <see cref="CursorImportSource.ImportSessionAsync"/> in isolation) against a stub server,
-/// because the bug lived in the routed-loop's privatize-set bookkeeping in
-/// <c>ImportCommand.cs</c>, not in <see cref="CursorImportSource"/> itself.
+/// A lifecycle failure (subagent-stop/session-end) or a no-new-content retry AFTER a Cursor
+/// session's content has already been posted must not permanently bypass <c>--private</c>. Drives
+/// the real <c>ImportCommand.HandleImport</c> orchestrator (not just
+/// <see cref="CursorImportSource.ImportSessionAsync"/> in isolation) against a stub server, because
+/// the contract lives in the routed-loop's privatize-set bookkeeping in <c>ImportCommand.cs</c>, not
+/// in <see cref="CursorImportSource"/> itself.
 ///
 /// <para>
-/// Before the fix, a Cursor session only entered <c>importedSessionIds</c> — the sole input to
-/// the end-of-run <c>--private</c> PUT /visibility pass — when its own
-/// <see cref="ImportOutcome"/> was Loaded/Resumed AND it wasn't a lifecycle-only replay
-/// (<see cref="ImportCommand.IsLifecycleOnlyRoutedReplay"/>). A lifecycle POST failing AFTER
-/// content had already persisted made <see cref="CursorImportSource.ImportSessionAsync"/> return
-/// <see cref="ImportOutcome.Failed"/> — excluded. A later retry that read the session as
-/// AlreadyLoaded-with-nothing-new was excluded too (lifecycle-only replay). Either way the
-/// session's already-public content was never privatized, even on a fresh <c>--private</c> run.
-/// </para>
-///
-/// <para>
-/// The fix adds a separate, outcome-independent tracker
-/// (<c>privateScopeSessionIds</c> in <c>ImportCommand.cs</c>) that captures every Cursor routed
-/// classification touched under <c>--private</c> regardless of outcome, and unions it into the
-/// privatize set — without touching <c>importedSessionIds</c>/the Done-grid counting (that
-/// stays deferred, untouched).
+/// <c>importedSessionIds</c> admits a session only when its <see cref="ImportOutcome"/> is
+/// Loaded/Resumed AND it is not a lifecycle-only replay
+/// (<see cref="ImportCommand.IsLifecycleOnlyRoutedReplay"/>). A lifecycle POST failing AFTER content
+/// persisted returns <see cref="ImportOutcome.Failed"/>, and a later retry that reads the session as
+/// AlreadyLoaded-with-nothing-new is a lifecycle-only replay — both excluded. So the privatize set
+/// also unions <c>privateScopeSessionIds</c> in <c>ImportCommand.cs</c>, which captures every Cursor
+/// routed classification touched under <c>--private</c> regardless of outcome, without touching
+/// <c>importedSessionIds</c> or the Done-grid counting.
 /// </para>
 /// </summary>
 public class CursorPrivatizeLifecycleFailureTests : IDisposable {
@@ -244,9 +236,8 @@ public class CursorPrivatizeLifecycleFailureTests : IDisposable {
     [Test]
     public async Task private_run_privatizes_when_child_watermark_probe_fails_both_of_its_2_attempts() {
         // The child's own SUBSESSION watermark probe (/api/sessions/{parent}/last-line?agentId=
-        // {child}) fails on EVERY call — D3's fixed 2-attempt cap exhausts both attempts, then
-        // falls open (full resend). This must not regress the r6 privacy fix: the parent still
-        // gets privatized, independent of whichever Done-grid bucket the run's outcome lands in.
+        // {child}) fails on EVERY call — the fixed 2-attempt cap exhausts both attempts, then
+        // falls open (full resend). The parent must still get privatized, independent of whichever Done-grid bucket the run's outcome lands in.
         // The classify-time TOP-LEVEL probe (no agentId param) is a separate call shape and must
         // keep succeeding (404 = fresh) so both sessions actually reach the routed import phase
         // instead of failing classification outright.

@@ -117,7 +117,6 @@ public class KcapMcpRegistryReviewFlowTests {
     }
 
     // Contract guard (static half): every auto-approvable server carries a tool classification.
-    // (The dynamic half — cross-checking each server's live tools/list — is added in Task 4.)
     [Test]
     public async Task Every_auto_approvable_server_has_a_tool_classification() {
         foreach (var srv in KcapMcpRegistry.ReviewFlowAutoApprovableServers) {

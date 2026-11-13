@@ -47,7 +47,7 @@ public class McpFlowsServerVendorOverrideTests {
 
     [Test]
     public async Task StartFlowAsync_with_vendor_posts_to_v4_with_protocol_4_and_carries_vendor() {
-        // §2.7 B3: a park-capable client routes every vendor-bearing catalog start to /v4
+        // A park-capable client routes every vendor-bearing catalog start to /v4
         // (protocol 4). A current server has the route, so a single POST lands on /v4 — no v2 hit.
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())

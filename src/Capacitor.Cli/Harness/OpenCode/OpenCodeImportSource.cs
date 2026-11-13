@@ -419,14 +419,11 @@ internal sealed class OpenCodeImportSource : IImportSource {
         SourceMeta       = s.SourceMeta,
     };
 
-    // Fingerprint-schema version. The fingerprint used to cover only the parent transcript +
-    // its DIRECT QueryChildren, so an AlreadyLoaded ledger hit could skip a root wholesale
-    // forever even though its grandchildren were never imported (single-level discovery
-    // silently dropped them). The fingerprint is now recursive over EVERY descendant AND the
-    // omitted-subtree signature beyond the import cap (see below), and this version marker is
-    // fed into the hash too — bump it whenever the fingerprint's shape/inputs change, so every
-    // pre-upgrade ledger entry is cache-busted and the first post-upgrade import re-classifies
-    // and picks up whatever the old fingerprint couldn't see.
+    // Fingerprint-schema version. The fingerprint is recursive over EVERY descendant AND the
+    // omitted-subtree signature beyond the import cap (see below), so an AlreadyLoaded ledger hit
+    // cannot skip a root whose grandchildren were never imported. This marker is fed into the
+    // hash too — bump it whenever the fingerprint's shape/inputs change, so every ledger entry
+    // written under an older shape is cache-busted and the next import re-classifies.
     const string FingerprintSchemaVersion = "v3-recursive-descendants-with-omitted-signature";
 
     // Parent total reconstructed lines, importable lines (gates MinLines), a content

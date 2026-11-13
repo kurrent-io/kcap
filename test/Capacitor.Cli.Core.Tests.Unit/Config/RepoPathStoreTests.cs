@@ -273,7 +273,7 @@ public class RepoPathStoreTests {
         await Assert.That(paths[0]).IsEqualTo(Path.GetFullPath("/tmp/project-x"));
     }
 
-    // ── Worktree resolution (GH #655) ─────────────────────────────────────────
+    // ── Worktree resolution ───────────────────────────────────────────────────
 
     /// Agent registrations persist the launch path, and review flows launch into the requester's
     /// worktree — the store, not the caller, is where that collapses to the main repository, so

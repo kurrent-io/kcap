@@ -25,7 +25,7 @@ public class WorkOSFlowLadderTests {
     }
 
     /// <summary>
-    /// The load-bearing claim of §5's ladder: nothing but an explicit request skips the browser. There
+    /// The load-bearing claim of the flow ladder: nothing but an explicit request skips the browser. There
     /// is no environment input at all, because IsHeadless() is true for every SSH session including
     /// the ones where loopback works perfectly.
     /// </summary>

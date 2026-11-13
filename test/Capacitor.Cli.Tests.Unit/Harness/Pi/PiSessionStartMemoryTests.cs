@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Pi;
 /// The Pi memory-injection contract, two halves with no compiler between them: the CLI writes a RAW
 /// fragment to stdout on session-start, and the generated kcap.ts extension captures it and appends it
 /// to each turn's chained system prompt in before_agent_start. The extension half is asserted as TEXT
-/// (PiExtensionInstallerTests / Task 2); only the gated live cert (PiMemoryIndexLiveCertTests, Task 3)
+/// (PiExtensionInstallerTests); only the gated live cert (PiMemoryIndexLiveCertTests)
 /// proves model receipt.
 /// </summary>
 public class PiSessionStartMemoryTests {

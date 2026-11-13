@@ -2303,12 +2303,11 @@ public class ClaudeHookCommandTests {
         await Assert.That(all).Contains("\"route\":\"subagent-stop\"");
     }
 
-    // Task 12 / BLOCKER-1+3 regression: the centralized ordered drain (now running on every
-    // non-Codex hook, incl. --claude) can WITHHOLD a spooled session-end in the ".ordered-*" temp
-    // namespace pending the transcript tail. ClaudeHookCommand.CurrentSessionHasBacklog must see that
-    // withheld terminal (it now delegates to HookSpool.HasBacklog, which covers ".ordered-*") so a
-    // later Claude subagent-stop for the SAME session spools BEHIND it rather than POSTing ahead of
-    // the still-withheld session-end — the exact cross-spool ordering violation the blockers prevent.
+    // The centralized ordered drain (running on every non-Codex hook, incl. --claude) can WITHHOLD a
+    // spooled session-end in the ".ordered-*" temp namespace pending the transcript tail.
+    // ClaudeHookCommand.CurrentSessionHasBacklog must see that withheld terminal (it delegates to
+    // HookSpool.HasBacklog, which covers ".ordered-*") so a later Claude subagent-stop for the SAME
+    // session spools BEHIND it rather than POSTing ahead of the still-withheld session-end.
     [Test]
     public async Task subagent_stop_spools_behind_a_session_end_withheld_in_the_ordered_namespace() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.OK); // server up — only the ordering guard can hold the post back

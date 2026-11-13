@@ -148,7 +148,7 @@ public class CursorOrphanedChildStandaloneTests {
         // PARENT in this run's routed plan but never classifies the child (excluded by the
         // --session filter) — yet ClassifyAsync's widened same-workspace scan still correlates and
         // stamps SubagentChildren=[child] onto the parent. Attaching that child in
-        // ImportSessionAsync would WIDEN the plan (contrary to D5) and ship a session the user
+        // ImportSessionAsync would WIDEN the plan and ship a session the user
         // explicitly filtered out. Reconciliation must prune it: the parent imports without ever
         // sending the excluded child's subagent-start/-stop or transcript.
         using var fx = new ProjectsDirFixture();

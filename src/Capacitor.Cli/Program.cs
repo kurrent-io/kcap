@@ -1070,9 +1070,9 @@ switch (command) {
         await Console.Error.WriteLineAsync(
             "kcap cursor import has been removed. Use 'kcap import --cursor' instead.");
         return 2;
-    // Internal: D0 phase-0 empirical append-only verification harness. Hidden —
-    // not in help-usage.txt — run manually against a live Cursor transcript while gathering
-    // the D0 evidence; not part of the normal watch/hook/import surface.
+    // Internal: empirical append-only verification harness. Hidden — not in help-usage.txt —
+    // run manually against a live Cursor transcript; not part of the normal watch/hook/import
+    // surface.
     case "cursor-verify-appendonly":
         return await CursorVerifyAppendOnlyCommand.RunAsync(args, time);
 }

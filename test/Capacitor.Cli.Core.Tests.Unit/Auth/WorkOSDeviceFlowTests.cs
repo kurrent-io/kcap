@@ -22,7 +22,7 @@ public class WorkOSDeviceFlowTests {
     const string Device = """{"device_code":"dc","user_code":"WXYZ-1234","verification_uri":"","interval":0,"expires_in":900}""";
 
     /// <summary>
-    /// Live response, 2026-08-20: WorkOS returns both, and verification_uri points at signin.kcap.ai
+    /// Measured live response: WorkOS returns both, and verification_uri points at signin.kcap.ai
     /// rather than a workos.com host. The complete form pre-fills the code, so it is what a browser
     /// should open — while the bare one is what a human retypes on another device.
     /// </summary>
@@ -117,7 +117,7 @@ public class WorkOSDeviceFlowTests {
     }
 
     /// <summary>The code is meant to be carried to another device; a silent clipboard copy invites
-    /// pasting it into whatever page is already open. §5.5.</summary>
+    /// pasting it into whatever page is already open.</summary>
     [Test]
     public async Task Does_not_decorate_the_code_with_a_clipboard_suffix() {
         using var server = WithAuthorize(Device);

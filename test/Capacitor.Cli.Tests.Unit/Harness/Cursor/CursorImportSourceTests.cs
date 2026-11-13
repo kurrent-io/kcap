@@ -198,7 +198,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task classify_keeps_file_path_empty_so_orchestrator_routes_to_ImportSessionAsync() {
-        // Qodo P1 regression test: ImportCommand splits classifications into
+        // ImportCommand splits classifications into
         // file-based (chain worker, /hooks/session-start sans vendor suffix —
         // server defaults to claude) and routed (ImportSessionAsync —
         // Cursor's path). Non-empty FilePath misroutes Cursor sessions
@@ -776,11 +776,11 @@ public class CursorImportSourceTests {
         await Assert.That(posted).DoesNotContain("/hooks/transcript");
     }
 
-    // --- round-2 review fix (finding 1): SentChildContent signal ---
+    // --- SentChildContent signal ---
 
     [Test]
     public async Task already_loaded_parent_reports_sent_child_content_when_attaching_a_new_child() {
-        // Round-2 finding 1: an AlreadyLoaded parent (nothing past its OWN watermark, so its own
+        // An AlreadyLoaded parent (nothing past its OWN watermark, so its own
         // outcome is Resumed/Skipped) can still attach a previously-unloaded nested child inline.
         // That IS real new work — ImportSessionAsync must surface it via SentChildContent so
         // ImportCommand's IsLifecycleOnlyRoutedReplay doesn't wrongly suppress it (which would
@@ -868,24 +868,18 @@ public class CursorImportSourceTests {
         await Assert.That(result.SentChildContent).IsFalse();
     }
 
-    // --- round-4 review fix (P1): probe failure is indeterminate, defaults privacy-safe ---
+    // --- probe failure is indeterminate, defaults privacy-safe ---
 
     [Test]
     public async Task already_loaded_parent_with_failing_child_watermark_probe_conservatively_reports_sent_child_content_to_preserve_privacy() {
-        // Round-4 P1 fix: the round-3 fix above (blanket-suppressing SentChildContent whenever the
-        // watermark probe failed) over-corrected into a privacy regression. A failed probe is
-        // INDETERMINATE, not proof the fail-open full resend is a duplicate — when the child is
-        // genuinely NEW and the watermark endpoint merely 500s transiently, the fail-open resend
-        // really does POST new content, yet the caller was told nothing new happened. For an
-        // AlreadyLoaded parent, that meant the parent was excluded from importedSessionIds and
-        // NOT privatized under `--private`, even though a real new child had just been attached to
-        // it — a privacy leak, not just a cosmetic miscount. So probe failure must NOT force
-        // SentChildContent=false; the conservative, privacy-safe default is to report
-        // SentChildContent=true whenever the fail-open resend actually posted lines, so the parent
-        // is counted as loaded and IS privatized. (Known, separately-tracked trade-off: this can
-        // cosmetically double-count an already-complete child that gets fail-open-resent — its
-        // AlreadyLoaded parent lands in both the Loaded and AlreadyLoaded buckets. That's accepted:
-        // privacy correctness wins over count precision.)
+        // A failed watermark probe is INDETERMINATE, not proof the fail-open full resend is a
+        // duplicate: when the child is genuinely NEW and the endpoint merely 500s transiently, the
+        // resend really does POST new content. Reporting SentChildContent=false there would drop an
+        // AlreadyLoaded parent from importedSessionIds and leave it public under `--private` — a
+        // privacy leak, not a cosmetic miscount. So SentChildContent=true whenever the fail-open
+        // resend actually posted lines. The accepted trade-off: an already-complete child that gets
+        // fail-open-resent double-counts its AlreadyLoaded parent in both the Loaded and
+        // AlreadyLoaded buckets — privacy correctness wins over count precision.
         using var fx = new ProjectsDirFixture();
 
         var parentJsonl = fx.AddSession("Users-me-proj", "11111111-1111-1111-1111-111111111111", "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n");
@@ -984,7 +978,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task cursor_watermark_probe_retries_once_on_transient_500_then_succeeds() {
-        // A single transient 500 no longer skips straight to fail-open on the first failure:
+        // A single transient 500 does not skip straight to fail-open on the first failure:
         // the status-bearing retry engages, the second attempt succeeds with a real watermark,
         // and only the genuinely-new lines beyond it are sent.
         using var fx = new ProjectsDirFixture();
@@ -1209,7 +1203,7 @@ public class CursorImportSourceTests {
     // HttpRequestException does, and GetWithRetryAsync retries every thrown HttpRequestException
     // it sees regardless of status). Driving that for real would make this one test take ~30s of
     // wall-clock time for no extra coverage; testing the shell directly with an injected probe
-    // keeps it instant while still exercising the exact acceptance criterion (finding 4): a
+    // keeps it instant while still exercising the exact acceptance criterion: a
     // statusless failure gets no second attempt.
 
     [Test]
@@ -1407,7 +1401,7 @@ public class CursorImportSourceTests {
         // the PARENT's import ingests its subagent child under the parent's
         // AgentSubsession stream (subagent-start + transcript-with-agent_id + subagent-stop),
         // and — critically — BEFORE the parent's own session-end, so a late subagent-start
-        // can't reactivate the ended parent (review finding on ordering).
+        // can't reactivate the ended parent.
         using var fx = new ProjectsDirFixture();
         var (parentId, childId, classified, src) = await SetupParentChildAsync(fx);
 
@@ -1432,7 +1426,7 @@ public class CursorImportSourceTests {
         await Assert.That(posted).Contains("/hooks/subagent-start");
         await Assert.That(posted).Contains("/hooks/subagent-stop");
 
-        // Ordering guard (the review finding): subagent-start/-stop must precede the parent's session-end.
+        // Ordering guard: subagent-start/-stop must precede the parent's session-end.
         var endIdx        = posted.IndexOf("/hooks/session-end/cursor");
         var subStartIdx   = posted.IndexOf("/hooks/subagent-start");
         var subStopIdx    = posted.LastIndexOf("/hooks/subagent-stop");
@@ -1455,7 +1449,7 @@ public class CursorImportSourceTests {
         // Strict so server-side normalization failures fail the import, not just HTTP errors.
         await Assert.That(tNode["strict"]!.GetValue<bool>()).IsTrue();
 
-        // Full SubagentStopHook + HookBase shape (review finding): the server binds all fields.
+        // Full SubagentStopHook + HookBase shape: the server binds all fields.
         var stopNode = JsonNode.Parse(bodies.First(b => b.Path == "/hooks/subagent-stop").Body)!;
         await Assert.That(stopNode["session_id"]!.GetValue<string>()).IsEqualTo(parentId);
         await Assert.That(stopNode["agent_id"]!.GetValue<string>()).IsEqualTo(childId);
@@ -1469,7 +1463,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task parent_import_fails_when_a_subagent_transcript_post_is_rejected() {
-        // Review finding (fail-closed): a rejected child transcript POST must abort the parent
+        // Fail-closed: a rejected child transcript POST must abort the parent
         // import (return Failed) BEFORE the parent session-end, so a re-run repairs it — rather
         // than posting subagent-stop + session-end over a child whose transcript wasn't accepted.
         using var fx = new ProjectsDirFixture();
@@ -1648,11 +1642,10 @@ public class CursorImportSourceTests {
         } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { } }
     }
 
-    // the round-2 fix above only re-checked quarantine
-    // immediately BEFORE SendTranscriptBatches; that method itself streamed the (mutable) file and
-    // posted one request per 100 lines with NO quarantine check at all, so a quarantine written by
-    // the live watcher's runtime rewrite guard AFTER the first transcript POST still let every
-    // remaining batch post. This test drives a transcript large enough to need TWO batches (150
+    // A quarantine check only BEFORE SendTranscriptBatches is not enough: that method streams the
+    // (mutable) file and posts one request per 100 lines, so a quarantine written by the live
+    // watcher's runtime rewrite guard AFTER the first transcript POST must still stop every
+    // remaining batch. This test drives a transcript large enough to need TWO batches (150
     // lines: one 100-line flush, one 50-line final flush) and quarantines the session the instant
     // the FIRST batch lands, proving the second is aborted rather than delivered.
     [Test]
@@ -1767,10 +1760,8 @@ public class CursorImportSourceTests {
         await Assert.That(posted).Contains("/hooks/session-end/cursor");
     }
 
-    // the round-3 fix above only proved the SECOND of TWO
-    // batches gets aborted; it never exercised a transcript that is a SINGLE (final and only)
-    // batch, which is exactly the gap SendTranscriptBatches' round-3 wiring left open (no "next"
-    // pre-POST check ever runs for a one-batch send). This drives a transcript of 30 lines
+    // The test above proves the SECOND of TWO batches gets aborted; a SINGLE (final and only)
+    // batch has no "next" pre-POST check, so it needs its own observation point. This drives a transcript of 30 lines
     // (well under the 100-line flush threshold) and quarantines the instant that one-and-only
     // transcript POST lands, proving it is still observed and routed through the same
     // best-effort close-and-fail contract.
@@ -1887,7 +1878,7 @@ public class CursorImportSourceTests {
             // The abort happens before subagent-stop — the child is left correctly unfinished.
             await Assert.That(posted).DoesNotContain("/hooks/subagent-stop");
             // The parent must still be best-effort closed instead of left hanging Active forever
-            // (this is exactly the case the pre-fix bare-`false` return skipped).
+            // (a bare `false` return here would skip it).
             await Assert.That(posted).Contains("/hooks/session-end/cursor");
         } finally { try { File.Delete(Markers.QuarantinePath(parentId)); } catch { } }
     }
@@ -2024,7 +2015,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task cross_workspace_prompt_match_does_not_link_child_to_parent_in_a_different_workspace() {
-        // Qodo fix regression test: same-workspace discovery only exists to give a filtered/scoped
+        // Same-workspace discovery only exists to give a filtered/scoped
         // import VISIBILITY into a parent — it must also CONSTRAIN correlation to that workspace.
         // A child in workspace A whose first user_query happens to canonically match a Task prompt
         // issued by a parent in a DIFFERENT workspace B must stay standalone; correlating across the
@@ -2063,7 +2054,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task classify_throws_promptly_when_cancelled_during_same_workspace_scan() {
-        // Qodo fix regression test: the same-workspace transcript-path scan
+        // The same-workspace transcript-path scan
         // (DiscoverSameWorkspaceSessionPaths) must consult the CancellationToken passed to
         // ClassifyAsync rather than running an uncancelable, synchronous directory walk to
         // completion — otherwise Ctrl-C hangs on a large/slow filesystem.
@@ -2211,7 +2202,7 @@ public class CursorImportSourceTests {
 
     [Test]
     public async Task discover_marks_cwd_null_when_two_workspaces_encode_to_the_same_sanitized_key() {
-        // Qodo bug #3 regression test: EncodeWorkspacePath is lossy
+        // EncodeWorkspacePath is lossy
         // ("/foo/bar" and "/foo-bar" both → "foo-bar"); on collision we leave
         // cwd null rather than misattributing to one of them.
         using var fx = new ProjectsDirFixture();
