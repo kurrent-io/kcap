@@ -118,4 +118,28 @@ public class CopilotImportSourceImportTests : IDisposable {
         var titleBody = System.Text.Json.Nodes.JsonNode.Parse(titleAttempt[0].RequestMessage.Body!)!;
         await Assert.That(titleBody["kind"]!.GetValue<string>()).IsEqualTo("rename");
     }
+
+    /// <summary>A re-import of a session the server already holds whole claims no repository backfill: the CLI cannot
+    /// tell whether the replayed start changed anything.</summary>
+    [Test]
+    public async Task A_reimport_of_a_loaded_session_claims_no_repository_backfill() {
+        WriteSession();
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":2}"""));
+        foreach (var route in new[] { "/hooks/session-start/copilot", "/hooks/harness-title", "/hooks/set-title", "/hooks/session-end/copilot" }) {
+            _server.Given(Request.Create().WithPath(route).UsingPost())
+                .RespondWith(Response.Create().WithStatusCode(200));
+        }
+
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [], new GitProviderRouter(), TimeProvider.System);
+        var stdout = new StringWriter();
+
+        var exitCode = await new ImportCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), Home, TestHarnesses.Under(Home),
+                new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: TestImportConsole.Over(stdout))
+            .HandleImport(filterCwd: null, minLines: 0, sources: [source], scope: new ImportScope.All(), skipConfirmation: true);
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stdout.ToString()).Contains($"Refreshed {SessionIds.Display(DashedSid.Replace("-", ""))} (already loaded)");
+        await Assert.That(stdout.ToString()).DoesNotContain("repository backfill");
+    }
 }
