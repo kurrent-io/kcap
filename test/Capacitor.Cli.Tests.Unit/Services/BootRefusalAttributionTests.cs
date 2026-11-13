@@ -134,7 +134,7 @@ public class BootRefusalAttributionTests {
     /// server expectation — mirrors <c>ServiceVerifyStartTests.MinimalPlist</c>. The identity gate
     /// fails closed on an unresolvable unit server, so this also bakes
     /// <c>KCAP_URL</c> whenever <paramref name="expectServerUrl"/> is supplied — otherwise the unit
-    /// would have no resolvable identity for Phase A to agree with.</summary>
+    /// would have no resolvable identity for the start gate to agree with.</summary>
     static string MinimalPlist(string binary, string consentSeedDefault, string? expectServerUrl) => $"""
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -152,7 +152,7 @@ public class BootRefusalAttributionTests {
         </plist>
         """;
 
-    /// <summary>Invoking env for a gated test that needs Phase A's identity check to pass — both
+    /// <summary>Invoking env for a gated test that needs the start gate's identity check to pass — both
     /// <c>KCAP_PROFILE</c> and <c>KCAP_EXPECT_SERVER_URL</c> are required (fail-closed).</summary>
     static Func<string, string?> GatedEnvWithIdentity(string expectServerUrl) => k => k switch {
         "KCAP_CONSENT_SEED_DEFAULT" => "prompt",

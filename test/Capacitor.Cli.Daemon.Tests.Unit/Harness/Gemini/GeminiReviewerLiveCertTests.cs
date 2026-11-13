@@ -223,7 +223,7 @@ public class GeminiReviewerLiveCertTests {
         var psi = new ProcessStartInfo("gemini", [
             "--experimental-acp", "--skip-trust",
             "--approval-mode", "yolo",              // without this Gemini gates its OWN channel behind a
-            "--allowed-mcp-server-names", allowlist  // permission frame no test can answer (§2.4)
+            "--allowed-mcp-server-names", allowlist  // permission frame no test can answer
         ]) {
             WorkingDirectory = ws, RedirectStandardInput = true, RedirectStandardOutput = true,
             RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true

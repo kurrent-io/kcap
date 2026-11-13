@@ -1625,11 +1625,10 @@ public partial class WorktreeManager(
     /// <para>The snapshot root is created by the very call that checks it, so "resolve the final path" is
     /// undefined. Appending the tail without re-resolving also means a component substituted after the
     /// check cannot be followed by this function.</para>
-    /// <para><b>Every component, not just the deepest.</b> An earlier version tested <c>LinkTarget</c> on
-    /// the deepest existing component alone, so with <c>/alias -> /real</c> and an ordinary
-    /// <c>/alias/existing</c>, resolving <c>/alias/existing/new</c> returned the lexical path and the
-    /// containment check still missed a snapshot root reaching inside the source through the ancestor
-    /// link. Chains are followed with a bounded iteration count rather than trusted to terminate.</para>
+    /// <para><b>Every component, not just the deepest.</b> Testing <c>LinkTarget</c> on the deepest
+    /// existing component alone misses an ancestor link: with <c>/alias -> /real</c> and an ordinary
+    /// <c>/alias/existing</c>, resolving <c>/alias/existing/new</c> would return the lexical path, and the
+    /// containment check would miss a snapshot root reaching inside the source through <c>/alias</c>. Chains are followed with a bounded iteration count rather than trusted to terminate.</para>
     /// </summary>
     static string ResolveDeepestExisting(string path) {
         const int maxLinkHops = 64;
@@ -2146,15 +2145,12 @@ public partial class WorktreeManager(
     /// <summary>
     /// The proof gate, applied where the overrides are HANDED TO GIT rather than where they are composed.
     ///
-    /// <para>An earlier revision proved the transport inside each producer of containment config instead.
-    /// Review found the hole that shape leaves: <c>ReadGitRelativeCwdAsync</c> passes
-    /// <c>core.quotePath=false</c> and is not a containment producer, so it carried an override past no
-    /// proof at all — a fourth call site would have had the same problem, and a fifth. Gating on "this run
-    /// carries overrides" cannot be forgotten by a new caller.</para>
+    /// <para>A proof inside each producer of containment config would miss callers that are not producers:
+    /// <c>ReadGitRelativeCwdAsync</c> passes <c>core.quotePath=false</c> and would carry that override past
+    /// no proof at all. Gating on "this run carries overrides" cannot be forgotten by a new caller.</para>
     ///
-    /// <para><b>Including <c>sourceReadOnly</c>'s own pair.</b> A revision of this gated only on
-    /// caller-supplied config, reasoning that losing that flag's suppressions costs a maintenance run.
-    /// Review corrected it: <c>core.fsmonitor</c> set to anything other than a boolean names a HOOK
+    /// <para><b>Including <c>sourceReadOnly</c>'s own pair.</b> Losing that flag's suppressions costs more
+    /// than a maintenance run: <c>core.fsmonitor</c> set to anything other than a boolean names a HOOK
     /// PROGRAM, which git runs whenever a command refreshes the index, so silently dropping
     /// <c>core.fsmonitor=false</c> re-exposes an execution surface — not a performance one. There is no
     /// per-key classification here for the same reason there is no filter-driver exemption: the argument
@@ -2263,9 +2259,8 @@ public partial class WorktreeManager(
         }
 
         // Every override this process passes goes through ONE composition, so the indices and the count are
-        // allocated in a single place. An earlier revision wrote the sourceReadOnly pair at fixed indices
-        // 0 and 1 with a fixed count of 2, which both displaced any inherited entry and left no room for a
-        // caller's own overrides.
+        // allocated in a single place: the sourceReadOnly pair must neither displace an inherited entry nor
+        // crowd out a caller's own overrides.
         GitConfigOverride[] composed = sourceReadOnly
             ? [.. SourceReadOnlyConfig, .. config ?? []]
             : config ?? [];

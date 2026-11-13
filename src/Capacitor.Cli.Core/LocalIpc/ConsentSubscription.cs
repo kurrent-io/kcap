@@ -31,7 +31,7 @@ public static class ConsentSubscription {
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 throw;
             } catch (Exception ex) when (ex is IOException or SocketException) {
-                yield break; // failed dial/write: attempt over, no Subscribed, no clear (spec §5)
+                yield break; // failed dial/write: attempt over, no Subscribed, no clear
             }
 
             yield return new ConsentStreamEvent.Subscribed();
@@ -65,7 +65,7 @@ public static class ConsentSubscription {
     static bool IsStructurallyValid(ConsentPendingDto? dto) =>
         dto is not null
         && !string.IsNullOrEmpty(dto.RequestId)
-        && !string.IsNullOrEmpty(dto.PromptId)   // consent/2 daemons always stamp it (spec §4.2)
+        && !string.IsNullOrEmpty(dto.PromptId)   // consent/2 daemons always stamp it
         && !string.IsNullOrEmpty(dto.Kind)
         && !string.IsNullOrEmpty(dto.RepoPath)
         && !string.IsNullOrEmpty(dto.Vendor)

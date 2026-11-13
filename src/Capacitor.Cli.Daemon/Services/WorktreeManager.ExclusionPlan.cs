@@ -61,11 +61,10 @@ public partial class WorktreeManager {
     /// conventions differ. Reading it from git deletes all three classes rather than guarding them.</para>
     ///
     /// <para><b>The one prefix.</b> The value returned here locates the execution directory
-    /// (<c>ContainedPath(snapshot, prefix)</c>) as well as driving the plan. An earlier revision used the
-    /// filesystem spelling for the launch and this one for classification; two independent derivations can
-    /// disagree, and then an unexcluded path materialises the alternate-spelling directory itself — so the
-    /// vendor launches in a directory whose config was never excluded. Do not reintroduce a second
-    /// derivation.</para>
+    /// (<c>ContainedPath(snapshot, prefix)</c>) as well as driving the plan. A second derivation, such as
+    /// the filesystem spelling for the launch, can disagree with this one, and then an unexcluded path
+    /// materialises the alternate-spelling directory itself — so the vendor launches in a directory whose
+    /// config was never excluded.</para>
     ///
     /// <para><c>core.quotePath=false</c> is required, or non-ASCII components come back C-quoted.</para>
     /// </summary>

@@ -1469,7 +1469,7 @@ sealed class SetupCommand(
 
         // Auth requirements are satisfied when no login is required at all (provider
         // None), or the login this run just did (or already had) produced a usable,
-        // non-expired token — not merely "provider != None" (Decision 9).
+        // non-expired token — not merely "provider != None".
         // "usable token" = refresh-aware (mirrors the import path's own auth): an expired but
         // refreshable token still counts. The probe is wrapped so a token I/O / refresh failure
         // degrades to an ineligible (best-effort) skip rather than throwing out of setup — the

@@ -85,9 +85,9 @@ public class LaunchStageEvidenceLaneTests {
     }
 
     /// <summary>The headline proof: all four handshake stages reach the server, IN ORDER, on reports
-    /// that carry the agent — then <c>launch_stage</c> goes null once it is Running. Pre-fix,
-    /// <c>ObservedStages</c> comes back EMPTY (no report during the handshake carried the agent at
-    /// all), so the first assertion fails outright rather than merely differing.</summary>
+    /// that carry the agent — then <c>launch_stage</c> goes null once it is Running. If no
+    /// handshake report carries the agent, <c>ObservedStages</c> comes back EMPTY, so the first assertion
+    /// fails outright rather than merely differing.</summary>
     [Test]
     public async Task Handshake_stage_stamps_reach_the_server_carrying_the_agent_then_clear_once_running() {
         using var repoPath = GitRepo.CreateWithCommit();

@@ -326,7 +326,7 @@ public static partial class EvalService {
         }
     }
 
-    // ── Phase 1: Prepare ───────────────────────────────────────────────────
+    // ── Prepare ────────────────────────────────────────────────────────────
 
     public static async Task<EvalContext?> PrepareAsync(
             string                         baseUrl,
@@ -471,7 +471,7 @@ public static partial class EvalService {
         );
     }
 
-    // ── Phase 2: RunQuestion ───────────────────────────────────────────────
+    // ── RunQuestion ────────────────────────────────────────────────────────
 
     public static async Task<QuestionRunResult> RunQuestionAsync(
             EvalContext        ctx,
@@ -650,7 +650,7 @@ public static partial class EvalService {
     internal static EvalEvidenceCoverage? ReconcileEvidenceCoverage(string? outcome, EvalEvidenceCoverage? coverage) =>
         outcome == EvalOutcomes.InsufficientEvidence && coverage is { IsComplete: true } ? null : coverage;
 
-    // ── Phase 3: Finalize ──────────────────────────────────────────────────
+    // ── Finalize ───────────────────────────────────────────────────────────
 
     /// <summary>Legacy verdict-list finalize, kept for a protocol-1 daemon RPC (an old server that
     /// only speaks <c>FinalizeEval</c>): aggregates as V3 and persists through
@@ -1066,7 +1066,7 @@ public static partial class EvalService {
     /// </para>
     /// </summary>
     public static string BuildRetrospectivePrompt(
-            string template,           // Phase 3 — from catalog (was static embedded field)
+            string template,           // from the catalog
             string sessionMeta,
             string verdictsJson,
             string knownPatterns,
