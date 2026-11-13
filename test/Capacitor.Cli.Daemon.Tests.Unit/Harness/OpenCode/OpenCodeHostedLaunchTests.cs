@@ -65,7 +65,7 @@ public class OpenCodeHostedLaunchTests {
     /// <summary>
     /// The dual-capture guarantee. This is the assertion that keeps a daemon-hosted OpenCode session
     /// from being ingested twice — once by the ACP mapper and once by kcap's own live-ingest plugin
-    /// loading inside the hosted child (measured, controlled pair, probe §4).
+    /// loading inside the hosted child (measured with a controlled pair).
     /// </summary>
     [Test]
     public async Task EveryLaunch_SuppressesTheKcapPlugin() {

@@ -218,10 +218,9 @@ public class BorrowedReviewRuntimeRootsTests {
 
     /// <summary>The shipped trust boundary, pinned by VALUE.
     ///
-    /// <para>An earlier version of this test asserted only that <c>/opt/homebrew</c> was admitted and one
-    /// arbitrary path refused — which stays green when a second entry is added, so it did not pin the
-    /// thing it claimed to. This list is now the confidentiality boundary, so any expansion has to fail
-    /// here and be looked at, whatever the new entry happens to be.</para></summary>
+    /// <para>This list is the confidentiality boundary, so any expansion has to fail here and be looked
+    /// at, whatever the new entry happens to be — asserting only that one path is admitted stays green
+    /// when a second entry is added.</para></summary>
     [Test]
     public async Task The_measured_prefix_list_is_exactly_homebrew() {
         await Assert.That(BorrowedReviewRuntimeRoots.MeasuredPrefixes.ToArray())
@@ -271,8 +270,8 @@ public class BorrowedReviewRuntimeRootsTests {
     /// <summary>The OTHER ungrantable root, and the one that matters most here: a home directory
     /// holding <c>bin</c> and <c>lib</c> is an ordinary shape, and it matches the prefix rule. Granting
     /// it would hand over <c>~/bin</c>, <c>~/lib</c>, <c>~/share</c>, <c>~/include</c> — user data, and
-    /// the exact class of grant this change exists to remove. The PR claims the profile grants nothing
-    /// under the user's home; without this it did not.</summary>
+    /// the exact class of grant the profile must never make: it grants nothing under the user's
+    /// home.</summary>
     [Test]
     public async Task The_user_home_is_never_treated_as_a_prefix() {
         const string home = "/Users/dev";

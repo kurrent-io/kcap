@@ -69,8 +69,7 @@ public class AntigravityReviewerCapabilityTests {
 
     // ── the minimum ───────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>The regression guard for the owner's decision: a NEWER build is allowed, not refused.
-    /// An exact-match compare reintroduced here would fail this.</summary>
+    /// <summary>A NEWER build is allowed, not refused. An exact-match compare fails this.</summary>
     [Test]
     [Arguments("1.1.11")]
     [Arguments("1.2.0")]
@@ -229,8 +228,8 @@ public class AntigravityReviewerCapabilityTests {
             .Throws<ArgumentOutOfRangeException>();
 
     /// <summary>No refusal may point an operator at a variable this vendor no longer reads. The floor
-    /// used to be configuration; it is now a daemon-owned record moved by the affirm verb, and a text
-    /// left behind would send an operator to a switch that does nothing.</summary>
+    /// is a daemon-owned record moved by the affirm verb, so naming the variable would send an operator
+    /// to a switch that does nothing.</summary>
     [Test]
     public async Task NoRefusalPointsAtTheRetiredConfigurationVariable() {
         foreach (var decision in Enum.GetValues<AntigravityReviewerDecision>()) {

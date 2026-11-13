@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(2)): <see cref="AgentPidRecordStore"/> — atomic write/read/delete round-trip
+/// <see cref="AgentPidRecordStore"/> — atomic write/read/delete round-trip
 /// (exact identity preserved) and corrupt-record quarantine.
 /// </summary>
 public class AgentPidRecordStoreTests {
@@ -186,8 +186,8 @@ public class AgentPidRecordStoreTests {
         var agentsDir = tmp.CreateDir("agents");
 
         // A parseable record whose start_identity is JSON null — System.Text.Json binds null to
-        // the non-nullable positional string parameter, so ReadAll used to NRE on the subsequent
-        // .Length check and abort the WHOLE sweep (OrphanReaper enumerates ReadAll() directly).
+        // the non-nullable positional string parameter, so a naive ReadAll NREs on the subsequent
+        // .Length check and aborts the WHOLE sweep (OrphanReaper enumerates ReadAll() directly).
         // Build it from the real serializer, then null the token, so this can't drift from the
         // wire name/casing. AgentId stays non-empty and IdentityKind Present so the ONLY defect
         // is the null token.

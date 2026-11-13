@@ -245,7 +245,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.DisposeAsync();
     }
 
-    // ── §2.7 B4: resume routing (thread/resume vs thread/start) ────────────────────────────────────
+    // ── Resume routing (thread/resume vs thread/start) ────────────────────────────────────────────
 
     [Test]
     public async Task Resume_launch_issues_thread_resume_carrying_the_thread_id() {
@@ -300,7 +300,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
 
     [Test]
     public async Task Resume_with_blank_id_fails_the_launch_and_never_forks() {
-        // §2.7 B4 safety: a present-but-BLANK ResumeSessionId is resume INTENT with an invalid id — it must
+        // A present-but-BLANK ResumeSessionId is resume INTENT with an invalid id — it must
         // fail the launch, NOT silently fall back to thread/start (which would fork the transcript). Guards
         // a bad persisted/wire value against the no-silent-fork invariant.
         var fake = new FakeCodexAppServer();

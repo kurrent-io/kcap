@@ -303,11 +303,8 @@ public class AcpVendorDescriptorTests {
 
         // The option must be present EXACTLY once, and have a following value.
         //
-        // An earlier version read `argv[IndexOf(flag) + 1]` and asserted only "not the old sentinel". Two
-        // ways that was vacuous, both caught in review: with the option ABSENT, IndexOf returns -1 and the
-        // expression reads argv[0] — a non-empty string that differs from the sentinel, so the alleged
-        // coupling passed with no allowlist at all; and a SECOND occurrence, whose value may win at
-        // argument parsing, was invisible to it.
+        // Reading `argv[IndexOf(flag) + 1]` alone is vacuous: with the option ABSENT it reads argv[0],
+        // and a SECOND occurrence, whose value may win at argument parsing, goes unseen.
         var occurrences = argv.Count(a => a == "--allowed-mcp-server-names");
         await Assert.That(occurrences).IsEqualTo(1);
 
@@ -395,8 +392,8 @@ public class AcpVendorDescriptorTests {
         )).Throws<ArgumentException>();
     }
 
-    /// <summary>Reconnect eligibility is a PROBE-VERIFIED per-vendor fact (the 2026-08-04 C0
-    /// re-probe, docs/probes/2026-08-04-acp-reconnect-c0/), never inferred from the advertised
+    /// <summary>Reconnect eligibility is a PROBE-VERIFIED per-vendor fact
+    /// (docs/probes/2026-08-04-acp-reconnect-c0/), never inferred from the advertised
     /// loadSession capability — all four vendors advertise it, two measurably cannot honor it
     /// across a crashed owner. Flipping Kiro or Gemini requires a passing probe re-run.</summary>
     [Test]
@@ -425,8 +422,7 @@ public class AcpVendorDescriptorTests {
 
     /// <summary>
     /// Kiro aliases (its MCP tripwire compares launch-unique names) but carries NO exact-name MCP
-    /// allowlist argv. One predicate used to gate both, so turning aliasing on for Kiro without this
-    /// split would run Gemini's placeholder substitution and canonical-argv assertion against a vendor
+    /// allowlist argv. The two are gated separately: one predicate for both would run Gemini's placeholder substitution and canonical-argv assertion against a vendor
     /// that has neither, and route it through Gemini's capability gate.
     /// </summary>
     [Test]

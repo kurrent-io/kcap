@@ -28,7 +28,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(h.ExecOrder.ToArray()).IsEquivalentTo(new[] { 1L, 2L });
     }
 
-    // §3.3 (unpark the receive loop): the invariant AgentOrchestrator.HandleLaunchAgent's detached
+    // The invariant AgentOrchestrator.HandleLaunchAgent's detached
     // execution depends on — SubmitAsync decides ACCEPTANCE (lock, watermark bump, cache write, channel
     // enqueue) fully and synchronously before returning, so a caller that never awaits the returned
     // execution-completion task (as the unparked receive loop now does) still gets in-order acceptance
@@ -69,7 +69,7 @@ public class SequencedCommandProcessorTests {
     }
 
     [Test] public async Task Forced_item_creation_failure_synthesizes_a_terminal_item_and_advances_monotonically() {
-        // Parent §8: forced item-creation failure AFTER counter reservation -> synthesized errored terminal
+        // Forced item-creation failure AFTER counter reservation -> synthesized errored terminal
         // item at N, watermark advances. AND the monotonicity hazard: when the lane is completing while an
         // earlier accepted item is still draining, the synthesized advance must NOT jump past it (which the
         // draining item's later advance would then regress below).
@@ -96,7 +96,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(h.Rejects.Single().Reason).IsEqualTo(CommandRejectedReason.InternalError); // synth emitted the reject
     }
 
-    // Settlement-admission design (§3.2 F): a FRESH terminal command is now acked proactively at the
+    // A FRESH terminal command is acked proactively at the
     // end of the lane, so the server retires its one-nonterminal slot within milliseconds of execution
     // completing instead of waiting for the 60s status-report reconcile. Exactly one ack per settle.
     [Test] public async Task Fresh_terminal_command_emits_exactly_one_proactive_processed_ack() {
@@ -144,7 +144,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(runs).IsEqualTo(1);                                    // no re-execution
 
         // Two acks: [0] the proactive settle ack from the lane, [1] the duplicate-replay ack. Both are
-        // Processed and carry the SAME cached outcome. Settlement lost-ack redelivery (D1): [1] is now the FROZEN ack [0] published
+        // Processed and carry the SAME cached outcome. Settlement lost-ack redelivery: [1] is now the FROZEN ack [0] published
         // (get-or-freeze), not a fresh build — so it is byte-identical rather than merely equal-by-value.
         await Assert.That(h.Acks).Count().IsEqualTo(2);
         await Assert.That(h.Acks[0].State).IsEqualTo(CommandAckState.Processed);  // proactive
@@ -205,7 +205,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(h.Rejects.Single().Reason).IsEqualTo(CommandRejectedReason.DaemonCapacity);
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): a retransmitted duplicate of a LaunchRejected command
+    // A retransmitted duplicate of a LaunchRejected command
     // must carry the CACHED rejection reason on its processed CommandAck, as the SAME wire token
     // CommandRejected.Reason serializes to, so the server can tell daemon_capacity (requeue) from semantic
     // (fail) for exactly the lost-rejection case the identity cache exists to answer.
@@ -259,7 +259,7 @@ public class SequencedCommandProcessorTests {
         await p.SubmitAsync(item, () => Task.FromResult(new CommandOutcome(CommandOutcomeKind.LaunchExecuted, "a1", "sess")));
         await p.SubmitAsync(item, () => Task.FromResult(new CommandOutcome(CommandOutcomeKind.LaunchExecuted)));
 
-        // Settlement lost-ack redelivery (D1): the terminal ack is FROZEN once (get-or-freeze), so the duplicate replay reuses the
+        // Settlement lost-ack redelivery: the terminal ack is FROZEN once (get-or-freeze), so the duplicate replay reuses the
         // published ack instead of reading liveness again — one read total, not two.
         await Assert.That(reads).IsEqualTo(1);          // the single freeze read; the duplicate reused it
         await Assert.That(readsUnderLock).IsEqualTo(0); // and it did NOT hold _lock
@@ -301,9 +301,8 @@ public class SequencedCommandProcessorTests {
             r => { lock (h.Rejects) h.Rejects.Add(r); return Task.CompletedTask; },
             NullLogger.Instance, TimeProvider.System);
 
-        // Bounded, deliberately: without the fix this does not FAIL, it HANGS — the lane faults on the
-        // throw and never resolves Done. Verified by reverting the fix, where an unbounded await pinned
-        // the whole suite until the harness timeout. A CI job that times out is a much worse signal than
+        // Bounded, deliberately: a regression here does not FAIL, it HANGS — the lane faults on the
+        // throw and never resolves Done. A CI job that times out is a much worse signal than
         // a named assertion, so the wait is capped and the failure message says what it means.
         var settled  = p.SubmitAsync(Harness.Launch(1), () => Task.FromResult(new CommandOutcome(CommandOutcomeKind.LaunchExecuted)));
         var finished = await Task.WhenAny(settled, Task.Delay(TimeSpan.FromSeconds(10)));
@@ -343,8 +342,8 @@ public class SequencedCommandProcessorTests {
         await Assert.That(p.LastProcessedSeq).IsEqualTo(1L);
     }
 
-    // A faulting SEND (as opposed to a faulting build) must be equally contained on the replay path — it
-    // used to be a bare `_ = _sendAck(...)`, so a synchronous throw escaped into the hub.
+    // A faulting SEND (as opposed to a faulting build) must be equally contained on the replay path — a
+    // synchronous throw must not escape into the hub.
     [Test] public async Task A_throwing_ack_send_does_not_escape_a_duplicate_replay() {
         var sends = 0;
         await using var p = new SequencedCommandProcessor(
@@ -360,8 +359,8 @@ public class SequencedCommandProcessorTests {
         await Assert.That(p.LastProcessedSeq).IsEqualTo(1L);
     }
 
-    // A rejection is a NOTIFICATION, never the settlement fact. A throwing _sendRejected used to escape
-    // RunLaneAsync -- killing the single serial consumer, leaving the command nonterminal, stranding its
+    // A rejection is a NOTIFICATION, never the settlement fact. A throwing _sendRejected that escaped
+    // RunLaneAsync would kill the single serial consumer, leaving the command nonterminal, stranding its
     // submitter, and blocking every queued command. Same stranded-capacity class as the ack case.
     [Test] public async Task A_throwing_rejection_send_neither_faults_the_lane_nor_loses_the_settlement() {
         var h = new Harness();
@@ -412,9 +411,9 @@ public class SequencedCommandProcessorTests {
     }
 
     // The gap the outer try/finally did NOT close: a throwing ILogger provider. The execute-fault arm
-    // logs a warning, so a logger that throws used to fault the lane AFTER finally had already told the
+    // logs a warning, so a logger that throws could fault the lane AFTER finally had already told the
     // submitter the command completed -- success reported for a command left nonterminal, and every
-    // later command stranded. Both new tests use a throwing logger precisely because NullLogger cannot
+    // later command stranded. Both tests use a throwing logger precisely because NullLogger cannot
     // reach this path.
     sealed class ThrowingLogger : ILogger {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -448,7 +447,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(p.LastProcessedSeq).IsEqualTo(2L);
     }
 
-    // Settlement lost-ack redelivery (D1) deferred-freeze containment: a throwing liveness read AND a
+    // Settlement lost-ack redelivery deferred-freeze containment: a throwing liveness read AND a
     // throwing logger TOGETHER must still not fault SubmitAsync. The deferred-freeze diagnostic routes
     // through the contained LogQuietly, so a throwing logger provider (a supported input) cannot let the
     // exception escape; the outcome stays committed with no ack, and a later re-delivery (liveness
@@ -508,7 +507,7 @@ public class SequencedCommandProcessorTests {
     // it would be worse than none: it would claim coverage that is not there.
 
     // The hub-side callers have no outer per-item catch, so a transport throw followed by a LOGGING
-    // throw used to escape SubmitAsync entirely. Both diagnostics inside SendContained are guarded now.
+    // throw must not escape SubmitAsync. Both diagnostics inside SendContained are guarded.
     [Test] public async Task A_throwing_transport_and_a_throwing_logger_do_not_escape_the_hub_paths() {
         await using var p = new SequencedCommandProcessor(
             "e1", _ => AgentLiveness.Live,
@@ -541,11 +540,11 @@ public class SequencedCommandProcessorTests {
         await Assert.That(h.Acks[1].RejectionReason).IsNull();
     }
 
-    // ── Settlement lost-ack redelivery (D1): freeze the terminal ack + re-deliver unretired outcomes ──────────────────────────
+    // ── Settlement lost-ack redelivery: freeze the terminal ack + re-deliver unretired outcomes ──────────────────────────
 
-    /// <summary>Task 6 (the freeze proof): the terminal ack is published ONCE. A duplicate replay reuses
+    /// <summary>The terminal ack is published ONCE. A duplicate replay reuses
     /// the frozen value, so a liveness that CHANGED between the two sends can never make them disagree —
-    /// the whole point of the freeze, and what lets the server tolerate duplicate acks (D2″).</summary>
+    /// the whole point of the freeze, and what lets the server tolerate duplicate acks.</summary>
     [Test] public async Task The_terminal_ack_is_frozen_so_a_replay_never_reflects_a_changed_liveness() {
         var livenesses = new Queue<AgentLiveness>([AgentLiveness.Live, AgentLiveness.Dead, AgentLiveness.NotFound]);
         var acks = new List<CommandAck>();
@@ -568,7 +567,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(livenesses.Count).IsEqualTo(2);                        // only ONE liveness read total
     }
 
-    /// <summary>Task 6 (deferred freeze) + Task 7 (retry on re-delivery): a throwing liveness read must not
+    /// <summary>A throwing liveness read must not
     /// abandon the item — the outcome stays committed Processed with NO ack, and a later re-delivery
     /// completes the freeze and sends. A second re-delivery re-sends the SAME frozen value verbatim.</summary>
     [Test] public async Task A_throwing_liveness_defers_the_freeze_and_a_later_redelivery_completes_it() {
@@ -599,7 +598,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(acks[1]).IsEqualTo(acks[0]);
     }
 
-    /// <summary>Task 7 (re-deliver only the unretired suffix; a validated prefix stops it): a re-delivery
+    /// <summary>A re-delivery
     /// re-sends every unretired terminal ack; a validated AckProcessedPrefix evicts the retired entries so
     /// their re-sends stop, leaving only the unretired suffix.</summary>
     [Test] public async Task Redelivery_re_sends_the_unretired_suffix_and_a_validated_prefix_stops_it() {
@@ -624,7 +623,7 @@ public class SequencedCommandProcessorTests {
         await Assert.That(h.Acks).Count().IsEqualTo(5);                 // no change
     }
 
-    /// <summary>Task 7 (re-delivery never blocks the lane under a send fault): a throwing sendAck is
+    /// <summary>Re-delivery never blocks the lane under a send fault: a throwing sendAck is
     /// contained both on the proactive settle and on re-delivery, so neither faults; once the transport
     /// recovers, the next re-delivery lands the frozen ack.</summary>
     [Test] public async Task Redelivery_swallows_a_send_fault_and_never_throws() {

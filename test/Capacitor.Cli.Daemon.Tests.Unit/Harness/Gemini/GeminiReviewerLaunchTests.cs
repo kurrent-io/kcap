@@ -46,8 +46,7 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>The build these launches run against. Under the affirmation model any build works
-    /// provided the daemon has affirmed it, so this is just a fixed value the config below affirms —
-    /// it is no longer coupled to a maintainer-curated list.</summary>
+    /// provided the daemon has affirmed it, so this is just a fixed value the config below affirms.</summary>
     const string CertifiedVersion = "0.54.0";
 
     static RuntimeStartContext Ctx(bool isReviewFlow, string[]? mcpAllowlist = null) => new RuntimeStartContext(
@@ -181,7 +180,7 @@ public class GeminiReviewerLaunchTests {
     /// The gate must never admit a CANONICAL allowlist id: it is a fixed public literal the reviewed
     /// repository can declare its own <c>.gemini/settings.json</c> server under, and the vendor's gate is an
     /// exact-name match — admitting it would spawn that repo-authored process as the daemon user, the same
-    /// impersonation shape the result channel's per-launch alias closes (spec §2.3/§2.6).
+    /// impersonation shape the result channel's per-launch alias closes.
     /// </summary>
     [Test]
     public async Task ReviewLaunchWithAllowlist_AdmitsAliasedNames_NeverTheCanonicalId() {
@@ -193,7 +192,7 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>
-    /// Same guarantee on the direct-builder path with NO caller-supplied identity (review finding): the
+    /// Same guarantee on the direct-builder path with NO caller-supplied identity: the
     /// builder's fallback identity must also be what the MCP-list builder reads, or the gate is computed
     /// from a null identity's canonical fallbacks — repository-matchable names — while the argv
     /// substitution uses the fresh identity. The checked value must BE the used value.
@@ -293,8 +292,7 @@ public class GeminiReviewerLaunchTests {
 
     /// <summary>
     /// The direction the minimum exists to allow: a build NEWER than the recorded one launches with no
-    /// operator action. `0.55.0` used to be an argument to the refusal case above — a vendor patch
-    /// release took the reviewer offline until someone re-affirmed, which is the treadmill removed here.
+    /// operator action, so a vendor patch release never takes the reviewer offline.
     /// </summary>
     [Test]
     [Arguments("0.55.0")]

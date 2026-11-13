@@ -8,9 +8,7 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Exercises <see cref="AcpHostedAgentRuntime"/>'s crash reconnect/resume (skip-whole-replay —
-/// the design spec at <c>docs/superpowers/specs/2026-08-04-ai1325-acp-reconnect-resume-design.md</c>
-/// in this repo) against
+/// Exercises <see cref="AcpHostedAgentRuntime"/>'s crash reconnect/resume (skip-whole-replay) against
 /// <see cref="FakeAcpAgent"/> incarnations: the original child plus one fake per resume candidate,
 /// spawned through the same <see cref="AcpReconnectSupport.Spawn"/> seam production uses. Attempt
 /// backoffs are zero so tests are deterministic without a fake clock — nothing here waits on real
@@ -397,8 +395,8 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         await Harness.PollUntilAsync(() => h.EnvelopeSnapshot().Any(e => e.Kind == AcpEventKind.SystemNote));
 
-        // Pins the DOCUMENTED failure shape the per-vendor probe gate exists to exclude
-        // (spec §11.13): a conversation update arriving after the load response races the short
+        // Pins the DOCUMENTED failure shape the per-vendor probe gate exists to exclude:
+        // a conversation update arriving after the load response races the short
         // suppression tail. Whichever way the race lands, the gate machinery itself stays sound —
         // the note was emitted and the runtime resumed; the late update either fell inside the
         // suppression window (dropped) or after reopen (emitted as live text). Assert the
@@ -455,7 +453,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
         var chained = false;
         h.Runtime.TestHookAfterCommit = () => {
             // Fires at the exact post-commit, pre-settlement instant. Kill the FIRST committed
-            // successor only: its death must take the §5.2 chained arm (installed stamp, still
+            // successor only: its death must take the chained arm (installed stamp, still
             // Reconnecting, stamp ≠ lastHandledCrash), fold into the SAME incident, and the next
             // candidate must resume — one owner, one eventual note. The crash signal propagates
             // via EOF on another thread, so BLOCK here (owner thread, no lock held) until the

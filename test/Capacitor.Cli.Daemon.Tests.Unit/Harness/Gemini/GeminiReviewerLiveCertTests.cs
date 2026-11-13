@@ -7,12 +7,11 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Gemini;
 
 /// <summary>
 /// GATED live certification of the three vendor behaviours the Gemini reviewer's containment rests on. These
-/// are the the Gemini reviewer work design probes promoted to tests, so a Gemini upgrade that invalidates one of them fails
+/// are the design probes promoted to tests, so a Gemini upgrade that invalidates one of them fails
 /// here instead of silently reopening a repository-impersonation hole.
 ///
-/// <para><b>What this certifies, now that the gate is an operator affirmation.</b> It no longer backs a
-/// maintainer-curated version list — that shape took the reviewer offline on every vendor release and was
-/// replaced. It certifies the MECHANISM: that the per-launch MCP allowlist is an exclusive gate the reviewed
+/// <para><b>What this certifies.</b> The gate is an operator affirmation, not a version list, so this
+/// certifies the MECHANISM: that the per-launch MCP allowlist is an exclusive gate the reviewed
 /// repository cannot widen. Run it against a new build before recommending that build, and treat a failure
 /// here as a reason to stop shipping the reviewer for it, not merely as a version to leave off a list.</para>
 ///
@@ -124,7 +123,7 @@ public class GeminiReviewerLiveCertTests {
     /// <summary>
     /// Drives a real <c>gemini --experimental-acp</c> child. Evidence is a marker file each MCP server writes,
     /// never the ACP transcript: the client cannot see whether Gemini spawned a server, so only the marker
-    /// proves a process ran — which is the boundary that matters (§3.1's rule is about execution, not about
+    /// proves a process ran — which is the boundary that matters (the rule is about execution, not about
     /// who wins tool dispatch).
     /// </summary>
     static async Task<ProbeOutcome> RunProbeAsync(

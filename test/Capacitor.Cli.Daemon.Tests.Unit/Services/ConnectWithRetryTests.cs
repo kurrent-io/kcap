@@ -8,9 +8,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Regression tests for issue #374: the daemon reconnect loop spun forever calling
-/// <c>HubConnection.StartAsync</c> against a hub that was not <c>Disconnected</c> — a healthy,
-/// registered connection kept logging "cannot be started if it is not in the Disconnected state"
+/// The daemon reconnect loop must not call <c>HubConnection.StartAsync</c> against a hub that is not
+/// <c>Disconnected</c> — otherwise a healthy, registered connection keeps logging "cannot be started if it is not in the Disconnected state"
 /// at Warning every 30s, and every <c>Closed</c> event minted another concurrent loop. Mirrors the
 /// <c>AcpServerConnectionTests</c> approach: no live SignalR transport;
 /// <see cref="RetryTestConnection"/> overrides the internal seams (<c>HubState</c>,

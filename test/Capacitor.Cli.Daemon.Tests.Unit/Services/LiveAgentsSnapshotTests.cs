@@ -6,7 +6,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D2): <see cref="AgentOrchestrator.BuildLiveAgents"/> reflects each live agent's
+/// <see cref="AgentOrchestrator.BuildLiveAgents"/> reflects each live agent's
 /// kind + flow identity and mirrors the <c>GetLiveAgentIds</c> filter (Starting/Running, non-private).
 /// Uses <see cref="AgentOrchestratorHarness"/> for its
 /// <c>BuildOrchestrator</c> + <c>CaptureServerConnection</c> + <c>SpyPtyProcessFactory</c> doubles.

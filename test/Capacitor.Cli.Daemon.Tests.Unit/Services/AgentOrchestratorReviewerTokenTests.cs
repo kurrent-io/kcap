@@ -195,7 +195,7 @@ public class AgentOrchestratorReviewerTokenTests {
 
             var ctx = factory.LastContext;
             await Assert.That(ctx).IsNotNull();
-            // Borrows nothing — this is exactly the launch shape #488's predicate misses.
+            // Borrows nothing — this is exactly the launch shape a borrowed-ness predicate misses.
             await Assert.That(ctx!.IsBorrowedSnapshot).IsFalse();
             await Assert.That(ctx.Work).IsEqualTo(WorkLocation.OwnedWorktree);
 

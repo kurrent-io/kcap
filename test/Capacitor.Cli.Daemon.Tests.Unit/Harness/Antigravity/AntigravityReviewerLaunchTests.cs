@@ -630,13 +630,11 @@ public class AntigravityReviewerLaunchTests {
     /// An interactive (hosted) launch runs — it is not refused — and it runs under the SAME per-launch
     /// isolated home the reviewer gets, with the widened permission flag the reviewer never gets.
     ///
-    /// <para>Both halves are measured facts rather than preferences. The refusal this replaces claimed
-    /// an inherited HOME would let agy's capture hooks spawn a watcher that holds the turn's stdout
-    /// open; four piped runs under a real HOME, on a kcap predating the descriptor fix, all reached
-    /// EOF in 6–16s, so the wedge does not reproduce. What those runs DID show is that each was also
-    /// recorded by the hook lane as its own watcher session — and this runtime is already the
-    /// transcript source, so an inherited HOME would not add capture, it would DUPLICATE it. Isolation
-    /// is the fix here, not a cost, which is why the hosted arm keeps it.</para>
+    /// <para>Both halves are measured facts rather than preferences. Piped runs under a real HOME all
+    /// reached EOF in 6–16s, so an inherited HOME does not wedge the turn's stdout. What those runs DID
+    /// show is that each was also recorded by the hook lane as its own watcher session — and this
+    /// runtime is already the transcript source, so an inherited HOME would not add capture, it would
+    /// DUPLICATE it. Isolation is the fix here, not a cost, which is why the hosted arm keeps it.</para>
     /// </summary>
     [Test]
     public async Task An_interactive_launch_is_hosted_under_the_isolated_home_with_permissions_widened() {
@@ -1164,10 +1162,9 @@ public class AntigravityReviewerLaunchTests {
 
         await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_auth_unavailable");
 
-        // ALL THREE, and the third is the one that regressed: an earlier revision named only the
-        // switch and the project, and an operator following it exactly still got
-        // `authentication required` — because ADC's default location is under the HOME this launch
-        // redirects, and neither of those two carries a path. A remedy that leaves the operator
+        // ALL THREE: naming only the switch and the project leaves an operator following it exactly
+        // still getting `authentication required` — because ADC's default location is under the HOME
+        // this launch redirects, and neither of those two carries a path. A remedy that leaves the operator
         // where they started is worse than no remedy, so the message is pinned, not just its code.
         await Assert.That(ex.Message).Contains("AGY_ADC_AUTH");
         await Assert.That(ex.Message).Contains("GOOGLE_CLOUD_PROJECT");
