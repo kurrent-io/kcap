@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Core.Instructions;
@@ -34,7 +35,7 @@ internal static class CodingAgentsStep {
             // skip flag into something that writes MCP config would be a silent reversal.
             bool ToolsIndependentOfCapture = false,
             bool SkipMistralVibe = false, bool SkipMistralVibeMcp = false, bool SkipGrok = false,
-            bool SkipMuse = false, bool SkipMuseMcp = false);
+            bool SkipMuse = false, bool SkipCopilotToolSearch = false, bool SkipMuseMcp = false);
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every shell-form
     /// hook through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
@@ -77,6 +78,7 @@ internal static class CodingAgentsStep {
             string  VibeHooksPath = "",
             string  VibeConfigPath = "",
             string  GrokHooksPath = "",
+            string  CopilotSettingsPath = "",
             string  MuseSettingsPath = ""
         );
 
@@ -116,6 +118,7 @@ internal static class CodingAgentsStep {
             Func<bool>?                                              CopilotHooksNeedPath = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
+            Func<SettingsEdit>?                                      EnableCopilotToolSearch = null,
             Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null
         );
 
@@ -152,6 +155,7 @@ internal static class CodingAgentsStep {
             bool VibeMcpRegistered = false,
             bool GrokHooksInstalled = false,
             bool MuseHooksInstalled = false,
+            bool CopilotToolSearchEnabled = false,
             bool MuseMcpRegistered = false
         ) {
         /// <summary>Files an installer found already current. Their harness still counts as installed; the files are
@@ -192,6 +196,7 @@ internal static class CodingAgentsStep {
         Add(Wrote(r.CopilotHooksInstalled, p.CopilotHooksPath), p.CopilotHooksPath);
         Add(r.CopilotMcpRegistered, p.CopilotMcpPath);
         Add(r.CopilotInstructionsInstalled, p.CopilotInstructionsPath);
+        Add(r.CopilotToolSearchEnabled, p.CopilotSettingsPath);
         Add(Wrote(r.GeminiHooksInstalled, p.GeminiSettingsPath) || r.GeminiMcpRegistered, p.GeminiSettingsPath);
         Add(r.GeminiInstructionsInstalled, p.GeminiInstructionsPath);
         Add(Wrote(r.KiroHooksInstalled, p.KiroHooksPath), p.KiroHooksPath);
@@ -265,6 +270,7 @@ internal static class CodingAgentsStep {
         var copilotHooksInstalled = HandleCopilotHooks(options, detected, paths, installers, writeLine, out var copilotTools);
         var copilotMcpRegistered  = HandleCopilotMcp(options, paths, installers, writeLine, copilotTools);
         var copilotInstructionsInstalled = HandleCopilotInstructions(options, paths, installers, writeLine, copilotHooksInstalled);
+        var copilotToolSearchEnabled = HandleCopilotToolSearch(options, paths, installers, writeLine, copilotTools);
         var geminiHooksInstalled  = HandleGeminiHooks(options, detected, paths, installers, writeLine, out var geminiSelected, out var geminiTools);
         var geminiMcpRegistered   = HandleGeminiMcp(options, paths, installers, writeLine, geminiTools);
         // Instructions live in the independent ~/.gemini/GEMINI.md — gate them on the user having
@@ -330,6 +336,7 @@ internal static class CodingAgentsStep {
                 CursorMcpRegistered: cursorMcpRegistered,
                 CopilotMcpRegistered: copilotMcpRegistered,
                 CopilotInstructionsInstalled: copilotInstructionsInstalled,
+                CopilotToolSearchEnabled: copilotToolSearchEnabled,
                 GeminiMcpRegistered: geminiMcpRegistered,
                 GeminiInstructionsInstalled: geminiInstructionsInstalled,
                 AntigravityMcpRegistered: antigravityMcpRegistered,
@@ -1752,6 +1759,35 @@ internal static class CodingAgentsStep {
                 return false;
             default:
                 writeLine($"  [yellow]⚠[/] Could not register Copilot MCP servers in {configPath} — see README to add them manually.");
+
+                return false;
+        }
+    }
+
+    /// <summary>Turns on Copilot's user-wide tool search when the user has not set it, beside the MCP registration it
+    /// exists for, so it is skipped with <see cref="Options.SkipCopilotMcp"/> too.</summary>
+    static bool HandleCopilotToolSearch(
+            Options        options,
+            Paths          paths,
+            Installers     installers,
+            Action<string> writeLine,
+            bool           copilotToolsEligible
+        ) {
+        if (installers.EnableCopilotToolSearch is null || !copilotToolsEligible || options.SkipCopilotMcp || options.SkipCopilotToolSearch)
+            return false;
+
+        switch (installers.EnableCopilotToolSearch()) {
+            case SettingsEdit.Changed:
+                writeLine($"  [green]✓[/] {Markup.Escape(PluginCommand.CopilotToolSearchOnLine(paths.CopilotSettingsPath))}");
+
+                return true;
+            case SettingsEdit.Unchanged:
+                if (CopilotToolSearch.IsTurnedOff(paths.CopilotSettingsPath))
+                    writeLine($"  [dim]· {Markup.Escape(PluginCommand.CopilotToolSearchOffLine(paths.CopilotSettingsPath))}[/]");
+
+                return false;
+            default:
+                writeLine($"  [yellow]⚠[/] Could not turn on Copilot tool search in {Markup.Escape(paths.CopilotSettingsPath)}; run `copilot config toolSearch true` to turn it on.");
 
                 return false;
         }

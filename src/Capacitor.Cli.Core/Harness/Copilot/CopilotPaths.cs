@@ -28,6 +28,9 @@ public sealed class CopilotPaths {
     /// </summary>
     public string McpConfigJson => Path.Combine(Root, "mcp-config.json");
 
+    /// <summary>User settings, the file <c>copilot config</c> writes (see <see cref="CopilotToolSearch"/>).</summary>
+    public string SettingsJson => Path.Combine(Root, "settings.json");
+
     /// <summary>
     /// User-level custom-instructions file Copilot loads into context at startup. Honors
     /// <c>$COPILOT_HOME</c> like the rest of the layout.

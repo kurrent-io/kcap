@@ -1837,8 +1837,12 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // Register the kcap MCP servers in ~/.copilot/mcp-config.json so Copilot picks them
         // up with no manual JSON edit. Non-destructive + idempotent. Never fails the install:
         // a write error is a warning, not an error code (mirrors Cursor/Codex).
-        if (!args.Contains("--skip-copilot-mcp"))
+        if (!args.Contains("--skip-copilot-mcp")) {
             await RegisterCopilotMcpServersAsync();
+
+            if (!args.Contains("--skip-copilot-tool-search"))
+                await EnableCopilotToolSearchAsync(refreshOnly);
+        }
 
         // Install kcap's agent-instructions block so Copilot's model is steered toward the kcap MCP
         // tools. Non-destructive (only our marker block) + idempotent. Never fails the install.
@@ -1874,6 +1878,35 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             // Unchanged: silent — same as Cursor's already-registered case.
         }
     }
+
+    /// <summary>Never fails the install: without tool search kcap's tools still work, they are just sent with
+    /// every request. A refresh stays quiet about a user who turned it off, who would otherwise hear it on every upgrade.</summary>
+    async Task EnableCopilotToolSearchAsync(bool refreshOnly) {
+        var settings = env.Harnesses.Of<CopilotHarness>().Paths.SettingsJson;
+
+        switch (CopilotToolSearch.Enable(settings)) {
+            case SettingsEdit.Changed:
+                await env.Stdout.WriteLineAsync(CopilotToolSearchOnLine(settings));
+                break;
+            case SettingsEdit.Unchanged when !refreshOnly && CopilotToolSearch.IsTurnedOff(settings):
+                await env.Stdout.WriteLineAsync(CopilotToolSearchOffLine(settings));
+                break;
+            case SettingsEdit.Malformed or SettingsEdit.Failed:
+                _refreshFailed = true;
+                await env.Stderr.WriteLineAsync(
+                    $"Warning: could not update {settings} to turn on Copilot tool search; run `copilot config toolSearch true` to turn it on.");
+                break;
+        }
+    }
+
+    internal static string CopilotToolSearchOnLine(string settings) =>
+        $"Copilot tool search turned on ({CopilotToolSearch.Key} in {settings}): Copilot now loads the tools of every MCP server, "
+      + "kcap's and your others, on demand instead of sending them with each request. "
+      + "Run `copilot config toolSearch false` to turn it off; kcap leaves a value you set alone.";
+
+    internal static string CopilotToolSearchOffLine(string settings) =>
+        $"Copilot tool search is off ({CopilotToolSearch.Key}: false in {settings}), so Copilot sends every kcap tool definition "
+      + "with each request. Run `copilot config toolSearch true` to load them on demand.";
 
     /// <summary>
     /// Installs kcap's marker-delimited instructions block into

@@ -187,6 +187,8 @@ Options:
                               (~/.copilot/mcp-config.json).
   --skip-copilot-instructions Skip installing kcap's steering instructions for
                               Copilot (~/.copilot/copilot-instructions.md).
+  --skip-copilot-tool-search  Leave Copilot's tool search alone instead of
+                              turning it on (~/.copilot/settings.json).
   --skip-gemini-hooks         Don't install Gemini CLI hooks even if Gemini
                               is detected (~/.gemini/ or gemini on PATH).
   --skip-gemini-mcp           Skip registering the kcap MCP servers for Gemini

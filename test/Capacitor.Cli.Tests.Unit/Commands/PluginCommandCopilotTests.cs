@@ -61,6 +61,41 @@ public class PluginCommandCopilotTests {
     }
 
     [Test]
+    public async Task install_copilot_turns_on_tool_search_keeping_other_settings() {
+        using var home = new TempHome();
+        var env      = TestEnv(home.Path);
+        var settings = env.Harnesses.Of<CopilotHarness>().Paths.SettingsJson;
+
+        PluginCommand.InstallCopilotHooks(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
+        CopilotHooksInstaller.DeleteMarker(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
+        await File.WriteAllTextAsync(settings, """{"banner":"never"}""");
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
+        await Assert.That(exit).IsEqualTo(0);
+
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(settings))!.AsObject();
+        await Assert.That(root["toolSearch"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(root["banner"]!.GetValue<string>()).IsEqualTo("never");
+    }
+
+    [Test]
+    [Arguments("--skip-copilot-tool-search")]
+    [Arguments("--skip-copilot-mcp")]
+    public async Task install_copilot_leaves_tool_search_alone_when_skipped(string flag) {
+        using var home = new TempHome();
+        var env = TestEnv(home.Path);
+
+        PluginCommand.InstallCopilotHooks(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
+        CopilotHooksInstaller.DeleteMarker(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(
+            ["plugin", "install", "--copilot", "--if-installed", flag]);
+        await Assert.That(exit).IsEqualTo(0);
+
+        await Assert.That(File.Exists(env.Harnesses.Of<CopilotHarness>().Paths.SettingsJson)).IsFalse();
+    }
+
+    [Test]
     public async Task install_copilot_if_installed_does_not_write_mcp_config_when_never_opted_in() {
         using var home = new TempHome();
         var env = TestEnv(home.Path);

@@ -1046,6 +1046,40 @@ public class CodingAgentsStepTests {
     }
 
     [Test]
+    public async Task Copilot_tool_search_turned_on_beside_the_mcp_servers() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers(),
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(result.CopilotToolSearchEnabled).IsTrue();
+        await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot tool search turned on"));
+    }
+
+    /// <summary>Tool search exists for kcap's MCP servers, so declining them declines it too.</summary>
+    [Test]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    public async Task Copilot_tool_search_left_alone_when_skipped(bool skipToolSearch, bool skipMcp) {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: true,
+                                   SkipCopilotMcp: skipMcp, SkipCopilotToolSearch: skipToolSearch);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers(),
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(calls.EnableCopilotToolSearchCalled).IsFalse();
+        await Assert.That(result.CopilotToolSearchEnabled).IsFalse();
+    }
+
+    [Test]
     public async Task Copilot_instructions_installed_when_hooks_installed() {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
@@ -2850,6 +2884,7 @@ public class CodingAgentsStepTests {
         RegisterCursorMcp:        () => throw new InvalidOperationException("must not register Cursor MCP"),
         RegisterCopilotMcp:       () => throw new InvalidOperationException("must not register Copilot MCP"),
         InstallCopilotInstructions: () => throw new InvalidOperationException("must not install Copilot instructions"),
+        EnableCopilotToolSearch:  () => throw new InvalidOperationException("must not enable Copilot tool search"),
         AgentSkillsCurrent:       _ => throw new InvalidOperationException("must not check agent skills marker"),
         RegisterGeminiMcp:        () => throw new InvalidOperationException("must not register Gemini MCP"),
         InstallGeminiInstructions: () => throw new InvalidOperationException("must not install Gemini instructions"),
@@ -2938,6 +2973,9 @@ public class CodingAgentsStepTests {
 
         public bool                          InstallCopilotInstructionsCalled  { get; private set; }
         public AgentInstructionsWriter.Change InstallCopilotInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+
+        public bool         EnableCopilotToolSearchCalled  { get; private set; }
+        public SettingsEdit EnableCopilotToolSearchReturns { get; set; } = SettingsEdit.Changed;
 
         public bool                     RegisterGeminiMcpCalled  { get; private set; }
         public JsonMcpConfigWriter.Change RegisterGeminiMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
@@ -3067,6 +3105,11 @@ public class CodingAgentsStepTests {
                 InstallCopilotInstructionsCalled = true;
 
                 return InstallCopilotInstructionsReturns;
+            },
+            EnableCopilotToolSearch: () => {
+                EnableCopilotToolSearchCalled = true;
+
+                return EnableCopilotToolSearchReturns;
             },
             RegisterOpenCodeMcp: () => {
                 RegisterOpenCodeMcpCalled = true;
