@@ -49,11 +49,35 @@ public class ComposerHistoryTests {
     [Test]
     public async Task Newer_walks_forward_and_then_restores_the_draft() {
         var history = Seen("first", "second");
-        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        await Assert.That(history.Older("draft", None)).IsEqualTo("second");
         await Assert.That(history.Older("second", None)).IsEqualTo("first");
         await Assert.That(history.Newer("first", None)).IsEqualTo("second");
-        await Assert.That(history.Newer("second", None)).IsEqualTo("  ");
-        await Assert.That(history.Newer("  ", None)).IsNull();
+        await Assert.That(history.Newer("second", None)).IsEqualTo("draft");
+        await Assert.That(history.Newer("draft", None)).IsNull();
+    }
+
+    /// A whitespace-only box is blank: recall discards it, so a later edit of the recall is the
+    /// stash, not a second draft.
+    [Test]
+    public async Task A_whitespace_only_box_is_discarded_rather_than_stashed() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("");
+
+        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        history.EndNavigation();
+        await Assert.That(history.Older("second!", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("second!");
+    }
+
+    [Test]
+    public async Task Stash_holds_a_draft_left_behind_until_newer_hands_it_back() {
+        var history = Seen("first");
+        history.Stash("  ");
+        await Assert.That(history.Newer("", None)).IsNull();
+        history.Stash("typing");
+        await Assert.That(history.Older("first!", None)).IsNull();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
     }
 
     [Test]

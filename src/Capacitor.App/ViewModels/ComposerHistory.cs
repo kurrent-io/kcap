@@ -6,7 +6,8 @@ namespace Capacitor.App.ViewModels;
 ///
 /// The draft a recall replaced stays stashed until it is handed back, so it is never lost. There is
 /// one stash, so while it holds text a second non-blank draft (an edited recall) refuses recall
-/// in both directions; clearing the box lets ↑ walk again and ↓ bring the stash back.
+/// in both directions; clearing the box lets ↑ walk again and ↓ bring the stash back. A
+/// whitespace-only box counts as blank: recall discards it rather than stash it.
 public sealed class ComposerHistory {
     public const int Capacity = 100;
 
@@ -44,14 +45,14 @@ public sealed class ComposerHistory {
         if (!showing && IsSecondDraft(current)) return null;
         var target = showing ? Locate(all).Index - 1 : all.Count - 1;
         if (target < 0) return null;
-        if (!showing && !HoldsDraft) _draft = current;
+        if (!showing && !HoldsDraft) _draft = Blank(current) ? "" : current;
         _cursor = target;
         return _shown = all[target];
     }
 
     /// The next newer prompt, the stashed draft once past the newest or over a blank box, or null.
     public string? Newer(string current, IReadOnlyList<string> unechoed) {
-        if (!IsShowing(current)) return HoldsDraft && string.IsNullOrWhiteSpace(current) ? TakeDraft() : null;
+        if (!IsShowing(current)) return HoldsDraft && Blank(current) ? TakeDraft() : null;
         var all = All(unechoed);
         var (index, found) = Locate(all);
         var target = found ? index + 1 : index;
@@ -73,13 +74,20 @@ public sealed class ComposerHistory {
         return draft;
     }
 
+    /// A stash a previous holder of this composer left behind, held as if a recall had replaced it.
+    public void Stash(string draft) {
+        if (!HoldsDraft && !Blank(draft)) _draft = draft;
+    }
+
     /// Leaves whatever the composer shows as the user's own draft.
     public void EndNavigation() => _shown = null;
 
-    bool HoldsDraft => !string.IsNullOrWhiteSpace(_draft);
+    bool HoldsDraft => _draft.Length > 0;
+
+    static bool Blank(string text) => string.IsNullOrWhiteSpace(text);
 
     bool IsSecondDraft(string current) =>
-        HoldsDraft && !string.IsNullOrWhiteSpace(current) && !string.Equals(current, _draft, StringComparison.Ordinal);
+        HoldsDraft && !Blank(current) && !string.Equals(current, _draft, StringComparison.Ordinal);
 
     List<string> All(IReadOnlyList<string> unechoed) {
         var all = new List<string>(_entries.Count + unechoed.Count);

@@ -884,6 +884,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _origin = origin;
         _agentId = agentId;
         _composerText = drafts?.Get(origin, agentId) ?? "";
+        _history.Stash(drafts?.TakeStash(origin, agentId) ?? "");
         drafts?.Watch(origin, agentId, OnStoredDraftChanged).DisposeWith(_disposables);
         _planActivity = planActivity;
         _openCard = openCard;
@@ -1500,7 +1501,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     void ClearSentDraft(QueuedChatMessage queued) {
-        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = _history.TakeDraft();
+        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = DraftAfterSending(queued.Text);
+    }
+
+    /// The stashed draft goes back in the box, unless it is the very text that went out.
+    string DraftAfterSending(string sent) {
+        var draft = _history.TakeDraft();
+        return string.Equals(draft, sent, StringComparison.Ordinal) ? "" : draft;
+    }
+
+    /// The history dies with the tab, so its stash goes to the store: as the draft itself when the
+    /// box only shows a recall, beside the draft when the box holds other text of the user's own.
+    /// Either write takes a new revision, so a send settling after teardown cannot clear it.
+    void PreserveStash() {
+        if (_drafts is null) return;
+        if (_history.IsShowing(Recallable())) _drafts.Set(_origin, _agentId, _history.TakeDraft());
+        else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1628,7 +1644,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
-                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = _history.TakeDraft();
+                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = DraftAfterSending(snapshot);
                 return null;
             }
         }
@@ -2267,6 +2283,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     public Task TeardownAsync() {
+        PreserveStash();
         Interlocked.Increment(ref _generation);
         var lease = _lease;
         _lease = null;
