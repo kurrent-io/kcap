@@ -3,22 +3,33 @@ namespace Capacitor.Cli.Tests.Unit;
 public class WindowsConsoleOutputTests {
     [Test]
     public async Task A_command_writing_both_streams_to_the_console_gets_unicode() {
-        await Assert.That(WindowsConsoleOutput.Applies("local", outputRedirected: false, errorRedirected: false)).IsTrue();
-        await Assert.That(WindowsConsoleOutput.Applies("", outputRedirected: false, errorRedirected: false)).IsTrue();
+        await Assert.That(WindowsConsoleOutput.For("local", outputRedirected: false, errorRedirected: false)).IsEqualTo((true, false, false));
+        await Assert.That(WindowsConsoleOutput.For("", outputRedirected: false, errorRedirected: false)).IsEqualTo((true, false, false));
     }
 
-    /// <summary>A reader of a pipe or a file, such as the desktop app parsing JSON lines, keeps the bytes it
-    /// always got.</summary>
+    /// <summary>An agent's shell tool, a pipe or a file reads UTF-8: under the console's code page an emoji left the
+    /// CLI as "??" and a byte order mark as "?". A stream still on the console keeps the code page, since the two
+    /// console streams share one encoding.</summary>
     [Test]
-    public async Task A_redirected_stream_keeps_the_code_page() {
-        await Assert.That(WindowsConsoleOutput.Applies("local", outputRedirected: true, errorRedirected: false)).IsFalse();
-        await Assert.That(WindowsConsoleOutput.Applies("local", outputRedirected: false, errorRedirected: true)).IsFalse();
-        await Assert.That(WindowsConsoleOutput.Applies("setup", outputRedirected: true, errorRedirected: true)).IsFalse();
+    public async Task A_redirected_stream_gets_utf8() {
+        await Assert.That(WindowsConsoleOutput.For("recap", outputRedirected: true, errorRedirected: false)).IsEqualTo((false, true, false));
+        await Assert.That(WindowsConsoleOutput.For("recap", outputRedirected: false, errorRedirected: true)).IsEqualTo((false, false, true));
+        await Assert.That(WindowsConsoleOutput.For("recap", outputRedirected: true, errorRedirected: true)).IsEqualTo((false, true, true));
     }
 
     [Test]
-    public async Task Commands_writing_utf8_bytes_to_the_raw_stream_keep_the_code_page() {
-        await Assert.That(WindowsConsoleOutput.Applies("mcp", outputRedirected: false, errorRedirected: false)).IsFalse();
-        await Assert.That(WindowsConsoleOutput.Applies("statusline", outputRedirected: false, errorRedirected: false)).IsFalse();
+    public async Task Commands_writing_utf8_bytes_to_the_raw_stream_are_left_alone() {
+        await Assert.That(WindowsConsoleOutput.For("mcp", outputRedirected: false, errorRedirected: false)).IsEqualTo((false, false, false));
+        await Assert.That(WindowsConsoleOutput.For("statusline", outputRedirected: true, errorRedirected: true)).IsEqualTo((false, false, false));
+    }
+
+    [Test]
+    public async Task The_redirected_writer_writes_utf8_without_a_preamble() {
+        using var stream = new MemoryStream();
+
+        var writer = WindowsConsoleOutput.Utf8Writer(stream);
+        writer.Write("é😀");
+
+        await Assert.That(stream.ToArray()).IsEquivalentTo(new byte[] { 0xC3, 0xA9, 0xF0, 0x9F, 0x98, 0x80 });
     }
 }
