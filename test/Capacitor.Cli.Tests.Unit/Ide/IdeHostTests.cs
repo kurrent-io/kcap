@@ -185,6 +185,16 @@ public class IdeHostTests {
     }
 
     [Test]
+    public async Task Initialize_reports_the_current_scope() {
+        using var host = new Host();
+        host.Sessions.Scope = RailScope.Team;
+
+        var reply = await host.CallAsync("initialize", Fixture("initialize.request.json")["params"]);
+
+        await Assert.That(reply["result"]!["scope"]!.GetValue<string>()).IsEqualTo("team");
+    }
+
+    [Test]
     public async Task Initialize_with_another_protocol_version_is_refused() {
         using var host = new Host();
         var parameters = Fixture("initialize.request.json")["params"]!;
@@ -192,7 +202,9 @@ public class IdeHostTests {
 
         var reply = await host.CallAsync("initialize", parameters);
 
-        await Assert.That(JsonNode.DeepEquals(reply, Fixture("initialize.error.unsupported.json"))).IsTrue();
+        var expected = Fixture("initialize.error.unsupported.json");
+        expected["error"]!["data"]!["cli_version"] = CliVersion;
+        await Assert.That(JsonNode.DeepEquals(reply, expected)).IsTrue();
     }
 
     [Test]

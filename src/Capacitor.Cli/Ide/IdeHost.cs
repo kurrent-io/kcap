@@ -89,10 +89,11 @@ internal sealed class IdeHost : IDisposable {
         var request = Read(parameters, IdeJsonContext.Default.InitializeParams);
         if (request.ProtocolVersion != ProtocolVersion)
             throw new IdeRpcException(IdeErrorCodes.UnsupportedProtocol, "unsupported_protocol",
-                JsonSerializer.SerializeToNode(new UnsupportedProtocolData([ProtocolVersion]), IdeJsonContext.Default.UnsupportedProtocolData));
+                JsonSerializer.SerializeToNode(new UnsupportedProtocolData([ProtocolVersion], _cliVersion), IdeJsonContext.Default.UnsupportedProtocolData));
 
         _initialized = true;
-        var result = JsonSerializer.SerializeToNode(new InitializeResult(ProtocolVersion, _cliVersion, [Capability]), IdeJsonContext.Default.InitializeResult);
+        var result = JsonSerializer.SerializeToNode(
+            new InitializeResult(ProtocolVersion, _cliVersion, [Capability], ScopeName()), IdeJsonContext.Default.InitializeResult);
 
         return Task.FromResult(new IdeReply(result, AnnounceConnectionAsync));
     }
@@ -172,11 +173,13 @@ internal sealed class IdeHost : IDisposable {
 
     Task AnnounceScopeAsync() {
         // Read outside the lock: the service may publish into the directory, whose feed takes it.
-        var scope = _sessions.Scope == RailScope.Team ? "team" : "mine";
+        var scope = ScopeName();
         lock (_lock) Send("sessions/scope_changed", new ScopeChanged(scope), IdeJsonContext.Default.ScopeChanged);
 
         return _outbox.DrainAsync();
     }
+
+    string ScopeName() => _sessions.Scope == RailScope.Team ? "team" : "mine";
 
     /// <summary>Announces nothing itself: the status feeds send <c>connection/changed</c> for whatever state the reconnect
     /// moves to.</summary>

@@ -32,10 +32,19 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
     public async Task RunAsync(CancellationToken ct) {
         while (!_closed && await reader.ReadLineAsync(ct) is { } line) {
             if (string.IsNullOrWhiteSpace(line)) continue;
-            if (TryParse(line) is not { } message) continue;
 
-            // No id is a notification from the peer; no method is a response to a request this side never sends.
-            if (message["id"] is not { } id || message["method"] is not JsonValue methodValue || !methodValue.TryGetValue(out string? method)) continue;
+            if (TryParse(line) is not { } message) {
+                await WriteAsync(Error(null, IdeErrorCodes.ParseError, "parse_error", null));
+                continue;
+            }
+
+            // No id is a notification from the peer; a result or an error is a response to a request this side never sends.
+            if (message["id"] is not { } id || message.ContainsKey("result") || message.ContainsKey("error")) continue;
+
+            if (message["method"] is not JsonValue methodValue || !methodValue.TryGetValue(out string? method)) {
+                await WriteAsync(Error(id, IdeErrorCodes.InvalidRequest, "invalid_request", null));
+                continue;
+            }
 
             var (answer, then) = await AnswerAsync(id, method, message["params"], ct);
             await WriteAsync(answer);
@@ -72,11 +81,11 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
         }
     }
 
-    static JsonObject Error(JsonNode id, int code, string message, JsonNode? data) {
+    static JsonObject Error(JsonNode? id, int code, string message, JsonNode? data) {
         var error = new JsonObject { ["code"] = code, ["message"] = message };
         if (data is not null) error["data"] = data.DeepClone();
 
-        return new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["error"] = error };
+        return new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = error };
     }
 
     /// <summary>One message and a single line feed, flushed, whatever the writer's <c>NewLine</c> and auto-flush. A peer that has

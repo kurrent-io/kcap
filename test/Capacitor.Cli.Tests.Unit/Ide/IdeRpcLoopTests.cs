@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Ide;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Ide;
 
@@ -116,15 +117,61 @@ public class IdeRpcLoopTests {
     }
 
     [Test]
-    public async Task Unparseable_and_blank_lines_are_skipped() {
+    public async Task A_blank_line_is_skipped() {
         var output = await RunAsync(
-            string.Join('\n', "{not json", "", "   ", "[1,2]", """{"jsonrpc":"2.0","method":"note"}""", Request("1", "fine")),
+            string.Join('\n', "", "   ", Request("1", "fine")),
+            loop => loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null)));
+
+        await Assert.That(output.Text).IsEqualTo("""{"jsonrpc":"2.0","id":1,"result":{}}""" + "\n");
+    }
+
+    [Test]
+    public async Task An_unparseable_line_answers_32700_with_a_null_id() {
+        const string parseError = """{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse_error"}}""";
+        var output = await RunAsync(
+            string.Join('\n', "{not json", "[1,2]", "\"text\"", """{"id":1,"id":2,"method":"fine"}""", Request("3", "fine")),
+            loop => loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null)));
+
+        await Assert.That(output.Raw).IsEquivalentTo(
+            [parseError, parseError, parseError, parseError, """{"jsonrpc":"2.0","id":3,"result":{}}"""], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_request_without_a_method_answers_32600() {
+        var output = await RunAsync(
+            string.Join('\n', """{"jsonrpc":"2.0","id":4}""", """{"jsonrpc":"2.0","id":"x","method":5,"params":{}}""", Request("6", "fine")),
+            loop => loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null)));
+
+        await Assert.That(output.Raw).IsEquivalentTo([
+            """{"jsonrpc":"2.0","id":4,"error":{"code":-32600,"message":"invalid_request"}}""",
+            """{"jsonrpc":"2.0","id":"x","error":{"code":-32600,"message":"invalid_request"}}""",
+            """{"jsonrpc":"2.0","id":6,"result":{}}""",
+        ], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_response_from_the_peer_is_ignored() {
+        var output = await RunAsync(
+            string.Join('\n',
+                """{"jsonrpc":"2.0","id":4,"result":{}}""",
+                """{"jsonrpc":"2.0","id":5,"result":null}""",
+                """{"jsonrpc":"2.0","id":6,"error":{"code":-32601,"message":"method_not_found"}}""",
+                Request("7", "fine")),
+            loop => loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null)));
+
+        await Assert.That(output.Text).IsEqualTo("""{"jsonrpc":"2.0","id":7,"result":{}}""" + "\n");
+    }
+
+    [Test]
+    public async Task A_notification_from_the_peer_runs_no_handler() {
+        var output = await RunAsync(
+            string.Join('\n', """{"jsonrpc":"2.0","method":"note"}""", Request("1", "fine")),
             loop => {
                 loop.Handle("note", (_, _) => throw new InvalidOperationException("a notification must not run a request handler"));
                 loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
             });
 
-        await Assert.That(output.All.Single()["id"]!.GetValue<int>()).IsEqualTo(1);
+        await Assert.That(output.Text).IsEqualTo("""{"jsonrpc":"2.0","id":1,"result":{}}""" + "\n");
     }
 
     [Test]
