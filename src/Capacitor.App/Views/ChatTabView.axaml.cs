@@ -80,6 +80,12 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
+        ColumnSizing = ChatColumnSizing.Attach(this, ChatItems, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
+        // The handles overlay the list rather than sit inside it, so a wheel over one needs its own route.
+        foreach (var handle in new Control[] { ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle }) {
+            handle.AddHandler(PointerWheelChangedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
+            handle.AddHandler(PointerWheelChangedEvent, OnChatWheelChanged, RoutingStrategies.Tunnel);
+        }
         ComposerInput.TemplateApplied += (_, e) =>
             _composerPresenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
         // The ScrollViewer is the list template's; it exists only once the list is first measured,
@@ -95,6 +101,17 @@ public partial class ChatTabView : UserControl {
             _scroll = next;
             if (_scroll is not null) _scroll.ScrollChanged += OnScrollChanged;
         };
+    }
+
+    internal ChatColumnSizing ColumnSizing { get; }
+
+    public static readonly StyledProperty<double> LaneWidthProperty =
+        AvaloniaProperty.Register<ChatTabView, double>(nameof(LaneWidth), double.PositiveInfinity);
+
+    /// How wide the agent's rows may be, within the chat column.
+    public double LaneWidth {
+        get => GetValue(LaneWidthProperty);
+        set => SetValue(LaneWidthProperty, value);
     }
 
     internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;

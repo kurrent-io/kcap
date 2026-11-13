@@ -53,12 +53,16 @@ public class ChatTabViewSmokeTests {
     const string AgentLaunchLine = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a9f262478e032f427","description":"Map desktop chat UI surfaces","prompt":"go"}}""";
     const string AgentFinishLine = """{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a9f262478e032f427</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Agent \"Map desktop chat UI surfaces\" finished</summary>\n</task-notification>"}}""";
 
+    // A full-width column still leaves a handle strip either side of it.
+    const double HandleStrips = 40;
+
     static string CallLine(int n) => ToolCallLine.Replace("\"t1\"", $"\"t{n}\"");
     static string ResultLine(int n) => ToolResultLine.Replace("\"t1\"", $"\"t{n}\"");
 
     // The short tail leaves its preceding tall reply unmeasured until the reader scrolls up.
-    static string[] UnevenHistory() {
-        var prose = string.Join("\\n\\n", Enumerable.Repeat("A longer reply whose paragraphs wrap across the chat column.", 20));
+    static string[] UnevenHistory(int sentences = 1) {
+        var paragraph = string.Join(" ", Enumerable.Repeat("A longer reply whose paragraphs wrap across the chat column.", sentences));
+        var prose = string.Join("\\n\\n", Enumerable.Repeat(paragraph, 20));
         var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
         return Enumerable.Range(0, 60).SelectMany(_ => new[] { tall, UserLine, UserLine, UserLine, UserLine, UserLine })
             .Concat([UserLine, UserLine]).ToArray();
@@ -735,12 +739,20 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
+    /// A narrower window and a narrower agent's lane both reflow the rows above the reader.
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
-    public Task Resizing_uneven_history_preserves_the_readers_visible_row() => RunOnUiAsync(async () => {
+    public Task Resizing_uneven_history_preserves_the_readers_visible_row(bool lane) => RunOnUiAsync(async () => {
         var host = new Host();
         try {
-            var lines = UnevenHistory();
+            // Room for the lane to narrow above the message minimum, and paragraphs that rewrap when it does.
+            if (lane) {
+                host.Window.Width = 1600;
+                host.View.ColumnSizing.UseLayout(PaneLayout.ChatColumnDefaultFraction, 1100);
+            }
+            var lines = UnevenHistory(lane ? 4 : 1);
             var path = Tmp.CreateFile("resize-scroll.jsonl", lines);
             await host.LoadAsync(path);
             var items = host.View.FindControl<ItemsControl>("ChatItems")!;
@@ -761,7 +773,8 @@ public class ChatTabViewSmokeTests {
             var item = row.DataContext!;
             var beforeY = row.TranslatePoint(default, host.Scroll)!.Value.Y;
             var heights = items.GetRealizedContainers().ToDictionary(container => container.DataContext!, container => container.Bounds.Height);
-            host.Window.Width = 360;
+            if (lane) host.View.ColumnSizing.UseLayout(PaneLayout.ChatColumnDefaultFraction, PaneLayout.ChatMessageMinWidth);
+            else host.Window.Width = 360;
             host.Settle();
             await Assert.That(heights.Any(entry => items.ContainerFromItem(entry.Key) is { } container && Math.Abs(container.Bounds.Height - entry.Value) > 20)).IsTrue();
             var ordered = items.Items.Cast<object>().Select(items.ContainerFromItem).OfType<Control>().ToArray();
@@ -773,6 +786,104 @@ public class ChatTabViewSmokeTests {
             var offset = host.Scroll.Offset.Y;
             await host.AppendAndTickAsync(path, 5);
             await Assert.That(Math.Abs(host.Scroll.Offset.Y - offset)).IsLessThan(2);
+        } finally { await host.CloseAsync(); }
+    });
+
+    /// The column keeps its share of the window and the agent's lane its width. The edge handles drag
+    /// the column about the centre, the lane handle the lane's right edge; the composer follows the
+    /// column and a user turn keeps to its right edge.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Dragging_the_chat_handles_resizes_the_column_and_the_agents_lane() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            host.Window.Width = 1400;
+            await host.LoadAsync(Tmp.CreateFile("column.jsonl", [UserLine, AssistantLinkLine]));
+            var items = host.View.FindControl<ItemsControl>("ChatItems")!;
+            var presenter = host.View.GetVisualDescendants().OfType<ItemsPresenter>().Single(p => p.Name == "PART_ItemsPresenter");
+            var composer = host.View.FindControl<Grid>("ComposerColumn")!;
+            var bubble = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("userTurn"));
+            Control AgentRow() => items.ContainerFromItem(host.Chat.Items.OfType<AssistantTextItem>().Single())!;
+            double Left(Control c) => c.TranslatePoint(default, host.View)!.Value.X;
+            double Right(Control c) => Left(c) + c.Bounds.Width;
+            double Centre(Control c) => Left(c) + c.Bounds.Width / 2;
+            async Task LaidOut(double column, double lane, double window) {
+                await Assert.That(presenter.Bounds.Width).IsEqualTo(column).Within(1);
+                await Assert.That(composer.Bounds.Width).IsEqualTo(column).Within(1);
+                await Assert.That(Centre(presenter)).IsEqualTo(window / 2).Within(1);
+                await Assert.That(Right(bubble)).IsEqualTo(Right(presenter)).Within(1);
+                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter)).Within(1);
+                await Assert.That(AgentRow().Bounds.Width).IsEqualTo(lane).Within(1);
+            }
+            void Drag(string name, double dx) {
+                var start = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(start + new Point(dx, 0));
+                host.Window.MouseUp(start + new Point(dx, 0), MouseButton.Left);
+                host.Settle();
+            }
+            const double message = PaneLayout.ChatMessageMinWidth;
+            var column = 1400 * PaneLayout.ChatColumnDefaultFraction;
+            await LaidOut(column, message, 1400);
+
+            Drag("ChatLaneHandle", 200);
+            const double lane = message + 200;
+            await LaidOut(column, lane, 1400);
+
+            Drag("ChatColumnRightHandle", 100);
+            column += 200;
+            await LaidOut(column, lane, 1400);
+
+            // The lane keeps its width as the window changes, giving way only to a narrower column.
+            host.Window.Width = 1000;
+            host.Settle();
+            await LaidOut(column / 1400 * 1000, lane, 1000);
+            host.Window.Width = 700;
+            host.Settle();
+            await LaidOut(700 - PaneLayout.ChatMessageGutters, 700 - PaneLayout.ChatMessageGutters, 700);
+            host.Window.Width = 1400;
+            host.Settle();
+            await LaidOut(column, lane, 1400);
+
+            // A full-width lane leaves the column's right edge to the column's handle.
+            var wide = column;
+            Drag("ChatLaneHandle", 5000);
+            await LaidOut(wide, wide, 1400);
+            Drag("ChatColumnRightHandle", -50);
+            wide -= 100;
+            await LaidOut(wide, wide, 1400);
+
+            // Neither drags narrower than an agent's message was before the column.
+            Drag("ChatLaneHandle", -5000);
+            await LaidOut(wide, message, 1400);
+            Drag("ChatColumnLeftHandle", 5000);
+            await LaidOut(message, message, 1400);
+
+            // Nor does a narrow window shrink them below that: the column takes the chat less its gutters.
+            host.Window.Width = 600;
+            host.Settle();
+            await LaidOut(600 - PaneLayout.ChatMessageGutters, 600 - PaneLayout.ChatMessageGutters, 600);
+        } finally { await host.CloseAsync(); }
+    });
+
+    [Test]
+    [Arguments("ChatColumnLeftHandle")]
+    [Arguments("ChatColumnRightHandle")]
+    [Arguments("ChatLaneHandle")]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wheel_over_a_resize_handle_scrolls_the_chat(string name) => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            await host.LoadAsync(Tmp.CreateFile("handle-wheel.jsonl", Enumerable.Repeat(UserLine, 40).ToArray()));
+            var at = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
+            var before = host.Scroll.Offset.Y;
+            host.Window.MouseWheel(at, new Vector(0, 1));
+            for (var frame = 0; frame < 30; frame++) {
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                host.Settle();
+            }
+            await Assert.That(host.Scroll.Offset.Y).IsLessThan(before - 5);
         } finally { await host.CloseAsync(); }
     });
 
@@ -963,7 +1074,8 @@ public class ChatTabViewSmokeTests {
                 var block = MarkdownViewHarness.Paragraphs(markdown).Single();
                 var first = block.TextLayout.HitTestTextPosition(0);
                 var last = block.TextLayout.HitTestTextPosition(10);
-                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                // Clear of the column's resize handle, which takes the 8px beside an agent's text.
+                var start = block.TranslatePoint(new Point(-16, first.Height / 2), host.Window)!.Value;
                 if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
                 var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
                 host.Window.MouseMove(start);
@@ -1338,9 +1450,10 @@ public class ChatTabViewSmokeTests {
                     .Replace("\"/repo/x/src/a.cs\"", encoded);
                 if (name == "get_file_context") call = call.Replace("file_path", "path");
                 await host.LoadAsync(Tmp.CreateFile("paths.jsonl", [call, ReadResultLine]));
+                host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
 
-                foreach (var width in new[] { 320, 460, 640, 980, 460 }) {
-                    host.Window.Width = width;
+                foreach (var width in new[] { 320, 460, 640, 700, 460 }) {
+                    host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
                     var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
@@ -1371,9 +1484,10 @@ public class ChatTabViewSmokeTests {
                 var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
                 var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
+                host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
 
-                foreach (var width in new[] { 460, 640, 980, 460 }) {
-                    host.Window.Width = width;
+                foreach (var width in new[] { 460, 640, 700, 460 }) {
+                    host.Window.Width = width + HandleStrips;
                     host.Settle();
                     var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
                     var rendered = string.Concat(detail.TextLayout.TextLines.Single().TextRuns.Select(run => run.Text.ToString()));
