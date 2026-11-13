@@ -1,17 +1,17 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
+using Capacitor.Client;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using DynamicData;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Tests.Helpers;
 
 /// Scripted IDaemonClientService — subject-backed Status/Snapshots/Agents — shared by
 /// MainWindowViewModelTests and MainWindowSmokeTests so both drive exact event sequences
 /// without a real daemon.
 [SuppressMessage("Design", "CA1001", Justification = "A fake's subjects live for one test.")]
-sealed class FakeDaemonClientService : IDaemonClientService {
+public sealed class FakeDaemonClientService : IDaemonClientService {
     public BehaviorSubject<AttachStatus> StatusSubject { get; } = new(new(AttachState.Connecting, null, null));
     public ReplaySubject<DaemonStatusDto> SnapshotsSubject { get; } = new(1);
 

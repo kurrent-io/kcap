@@ -3,10 +3,10 @@ using System.Reactive.Linq;
 using Capacitor.Remote.Models;
 using Eventuous.SignalR;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// Paired with <see cref="NoRemoteAgents"/>: a lane that never connects.
-internal sealed class NoServerLane : IServerLane {
+public sealed class NoServerLane : IServerLane {
     public IObservable<ServerLaneStatus> Status { get; } = Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant));
     public IObservable<Unit> AgentInstancesChanged => Observable.Never<Unit>();
     public IObservable<Unit> DaemonsChanged => Observable.Never<Unit>();

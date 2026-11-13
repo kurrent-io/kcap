@@ -1,13 +1,13 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Client.Mutation;
 using TUnit.Assertions.Enums;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 /// Plain TUnit tests — no Avalonia session, nothing touches Avalonia/Rx globals. Each test
 /// scripts LocalControlEvent through its own Script/DaemonClientService pair, so tests do not

@@ -1,7 +1,7 @@
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// The server's view of sessions, read from the listing and kept current by its pushes. Every cache
 /// is keyed by session id, every observable replays its latest value, and nothing here marshals to

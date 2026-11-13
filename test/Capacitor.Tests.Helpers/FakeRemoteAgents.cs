@@ -1,13 +1,13 @@
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
+using Capacitor.Client;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Tests.Helpers;
 
 /// Scripted IRemoteAgentsService: a SourceCache the test edits directly plus a BehaviorSubject
 /// per stream, for any suite that needs remote rows in an AgentDirectory.
-sealed class FakeRemoteAgents : IRemoteAgentsService, IDisposable {
+public sealed class FakeRemoteAgents : IRemoteAgentsService, IDisposable {
     public SourceCache<AgentInstanceDto, string> Cache { get; } = new(a => a.AgentId);
     public BehaviorSubject<IReadOnlyList<DaemonInfo>> DaemonsSubject { get; } = new([]);
     public BehaviorSubject<DaemonListing> ListingSubject { get; } = new(new(null, 0, false));

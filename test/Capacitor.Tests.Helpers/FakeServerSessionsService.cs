@@ -1,14 +1,14 @@
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
+using Capacitor.Client;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Tests.Helpers;
 
 /// Scripted IServerSessionsService: caches and subjects a test edits directly, and recorded calls.
-sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
+public sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
     public SourceCache<RepoSessionDto, string> LiveCache { get; } = new(r => r.SessionId);
     public SourceCache<RepoSessionDto, string> MineLiveCache { get; } = new(r => r.SessionId);
     public SourceCache<RepoSessionDto, string> EndedCache { get; } = new(r => r.SessionId);

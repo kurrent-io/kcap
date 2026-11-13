@@ -1,15 +1,15 @@
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
+using Capacitor.Client;
 using DynamicData;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Tests.Helpers;
 
 /// A directory a test edits row by row, skipping AgentDirectory's two-lane merge. Rows and
 /// RemoteStale are the writable types so a test can drive them; the interface members hand the
 /// same instances to the code under test.
-sealed class FakeAgentDirectory : IAgentDirectory, IDisposable {
+public sealed class FakeAgentDirectory : IAgentDirectory, IDisposable {
     public SourceCache<AgentRow, string> Rows { get; } = new(r => r.Key);
     public BehaviorSubject<bool> RemoteStale { get; } = new(false);
 

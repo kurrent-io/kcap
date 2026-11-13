@@ -12,7 +12,7 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// Reads the listing on connect, on every session push and on a slow cadence, one reconciliation
 /// at a time: a request admitted while one runs reruns it, so the caches always hold one read's

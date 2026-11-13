@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// A rail group's identity: same Key = same repository wherever it is checked out. The key is
 /// NOT a filesystem path — never hand it to path-formatting helpers.

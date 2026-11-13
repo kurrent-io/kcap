@@ -1,6 +1,5 @@
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Remote.Models;
 using DynamicData;

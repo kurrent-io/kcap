@@ -1,6 +1,4 @@
-using Capacitor.App.Services;
-
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 public class RepoIdentityTests {
     [Test]

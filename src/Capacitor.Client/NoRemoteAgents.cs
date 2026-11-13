@@ -2,12 +2,12 @@ using System.Reactive.Linq;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// The no-server fallback for a composition root with no live remote lane (most tests, and any
 /// caller that builds its own AgentDirectory without one): never reports a remote agent or
 /// daemon, so the directory it feeds stays a pure mirror of the local daemon.
-internal sealed class NoRemoteAgents : IRemoteAgentsService {
+public sealed class NoRemoteAgents : IRemoteAgentsService {
     public IObservableCache<AgentInstanceDto, string> Agents { get; } =
         new SourceCache<AgentInstanceDto, string>(a => a.AgentId).AsObservableCache();
     public IObservable<IReadOnlyList<DaemonInfo>> Daemons { get; } = Observable.Return<IReadOnlyList<DaemonInfo>>([]);

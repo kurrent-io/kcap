@@ -10,10 +10,11 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.WorkItems;
+using Capacitor.Models.Transcripts;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public interface IRemoteAgentsService {
     /// Keyed by AgentId. Retained across lane loss — staleness is presentation.

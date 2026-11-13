@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -6,7 +5,7 @@ using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using RepoSessionDto = Capacitor.Remote.Models.RepoSessionDto;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 public class AgentDirectoryStateTransitionTests {
     const string Server = "http://localhost:9999";

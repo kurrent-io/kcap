@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core.LocalIpc;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// Rx/DynamicData adapter over the daemon's local-control event stream. Interface exists so
 /// ViewModel tests can script the stream without a real daemon.

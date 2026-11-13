@@ -4,9 +4,10 @@ using System.Reactive.Subjects;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Client.Mutation;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// Rx/DynamicData adapter over LocalControlClient.RunAsync: owns the single live attach
 /// enumeration, publishes the atomic AttachStatus + Snapshots streams, and delegates

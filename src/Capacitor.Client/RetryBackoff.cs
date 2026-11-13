@@ -1,4 +1,4 @@
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// One pending retry on a bounded backoff. Not thread-safe: the owner calls every member under its
 /// own lock, the fired callback's Claim included. Cancelling bumps the ticket, so a callback that

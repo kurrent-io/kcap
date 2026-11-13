@@ -5,7 +5,6 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.Http;
 using Capacitor.App.Views;

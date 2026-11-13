@@ -1,7 +1,6 @@
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;

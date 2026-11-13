@@ -2,7 +2,6 @@ using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Remote.Models;
 using Eventuous.SignalR;

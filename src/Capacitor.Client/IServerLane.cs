@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core.Http;
 using Eventuous.SignalR;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public enum ServerLaneState { Dormant, Connecting, Connected, Retrying, SignedOut }
 

@@ -1,7 +1,6 @@
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Threading;
-using Capacitor.App.Services;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.Cli.Core.Http;
 using Capacitor.App.ViewModels;

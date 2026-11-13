@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;

@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;

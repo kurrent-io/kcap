@@ -1,9 +1,9 @@
 using System.Collections.Frozen;
 using Capacitor.Cli.Core;
 using Capacitor.Remote.Models;
-using static Capacitor.App.Services.SessionFieldSource;
+using static Capacitor.Client.SessionFieldSource;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 internal sealed record SessionMergeState {
     public static SessionMergeState Empty { get; } = new();

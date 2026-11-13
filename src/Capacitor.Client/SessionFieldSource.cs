@@ -1,4 +1,4 @@
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 internal enum SessionFieldSource {
     HostedRow,

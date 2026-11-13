@@ -1,4 +1,4 @@
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 internal sealed record HostedSessionCheckout(
         string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom,

@@ -9,7 +9,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using DynamicData;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public interface IAgentDirectory {
     IObservableCache<AgentRow, string> Rows { get; }

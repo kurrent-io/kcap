@@ -5,17 +5,17 @@ using System.Globalization;
 using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Capacitor.App.Services;
+using Capacitor.Client;
 using Capacitor.Remote.Models;
 using Eventuous.SignalR;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Tests.Helpers;
 
 /// The call logs are appended from whatever thread the service under test dispatched its hub call
 /// on and read from the test thread, so each is an immutable snapshot swapped atomically — a plain
 /// List drops entries and throws mid-enumeration.
 [SuppressMessage("Design", "CA1001", Justification = "A fake's subjects live for one test.")]
-sealed class FakeServerLane : IServerLane {
+public sealed class FakeServerLane : IServerLane {
     public BehaviorSubject<ServerLaneStatus> StatusSubject { get; } = new(new(ServerLaneState.Dormant));
     public Subject<ReactiveUnit> AgentsChangedSubject { get; } = new();
     public Subject<ReactiveUnit> DaemonsChangedSubject { get; } = new();

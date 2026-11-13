@@ -1,7 +1,6 @@
-using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 public class AgentRowTests {
     static RepoSessionDto Listed(

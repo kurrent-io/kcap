@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
-using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 public class ServerSessionsServicePinTests {
     /// A listing whose pages a test rewrites between reads; an unscripted page is an empty success.

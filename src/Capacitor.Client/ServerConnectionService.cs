@@ -9,6 +9,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Models.Transcripts;
 using Capacitor.Remote.Models;
 using Eventuous.SignalR;
 using Eventuous.SignalR.Client;
@@ -19,7 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Capacitor.Cli.Core.LocalEdition;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// The app's one long-lived server connection. Handlers are registered before StartAsync so no
 /// broadcast can slip past a fresh connection; a closed or cold-failed connection re-dials on a

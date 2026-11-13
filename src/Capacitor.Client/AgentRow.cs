@@ -2,7 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// One merged row. Key is SOURCE-scoped ("local:{id}" / "remote:{id}" / "pending:{id}" /
 /// "server:{sessionId}") so the lanes can never clobber each other; Id is the logical agent id
@@ -184,7 +184,7 @@ public sealed record AgentRow(
         MachineBadge: machine, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
         CheckoutKey: $"@{daemonKey}", CheckoutLabel: $"on {machine}", IsPlaceholder: true);
 
-    internal static string? TitleFromPrompt(string? prompt) {
+    public static string? TitleFromPrompt(string? prompt) {
         if (string.IsNullOrWhiteSpace(prompt)) return null;
         var line = prompt.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
         return line is null ? null : line.Length <= 80 ? line : line[..80];

@@ -1,10 +1,9 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 public class AgentDirectoryPinTests {
     const string Server = "http://localhost:9999"; // FakeDaemonClientService.Snap's default ServerUrl
