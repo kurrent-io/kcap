@@ -7,7 +7,6 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Copilot;
-using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Titles;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
@@ -26,15 +25,15 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// <para>
 /// Unlike Cursor there is no lossy workspace encoding to reverse:
 /// <c>workspace.yaml</c> in each session dir carries <c>cwd</c>,
-/// <c>created_at</c>/<c>updated_at</c>, and Copilot's auto-generated session
-/// <c>name</c> (forwarded as the session title via <c>/hooks/set-title</c>,
-/// which is why <see cref="SupportsTitleGeneration"/> is false). Session dirs
+/// <c>created_at</c>/<c>updated_at</c>, and Copilot's session <c>name</c>, read
+/// through <see cref="CopilotWorkspaceTitle"/> as the live watcher reads it. Session dirs
 /// WITHOUT an events.jsonl are failed-startup scaffolding and are skipped.
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
     const string NumberingKey      = "Numbering";
     const string ChatSessionLogKey = "ChatSessionLog";
+    const string WorkspaceYamlKey  = "WorkspaceYaml";
 
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
@@ -73,11 +72,8 @@ internal sealed class CopilotImportSource : IImportSource {
 
     public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists) || _vsCodeWorkspaceStorageDirs.Any(Directory.Exists);
 
-    /// <summary>
-    /// False — Copilot names every session itself (workspace.yaml <c>name</c>);
-    /// ImportSessionAsync forwards it via /hooks/set-title, so the LLM title
-    /// pipeline would only burn tokens to overwrite a good title.
-    /// </summary>
+    /// <summary>False — ImportSessionAsync forwards Copilot's own name, and the server titles a session Copilot never
+    /// named from its first prompt, as it does every routed harness's.</summary>
     public bool SupportsTitleGeneration => false;
     public bool AttachesChildContentOnReplay => false; // no child import
 
@@ -111,7 +107,8 @@ internal sealed class CopilotImportSource : IImportSource {
                     if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal))
                         continue;
 
-                    var meta = CopilotWorkspaceYaml.TryRead(_paths.WorkspaceYaml(root, dirName));
+                    var workspaceYaml = _paths.WorkspaceYaml(root, dirName);
+                    var meta          = CopilotWorkspaceYaml.TryRead(workspaceYaml);
 
                     if (normalizedCwd is not null
                      && (meta?.Cwd is null
@@ -138,8 +135,7 @@ internal sealed class CopilotImportSource : IImportSource {
                         SourceMeta:     new Dictionary<string, object?> {
                             ["TranscriptPath"] = jsonl,
                             ["Cwd"]            = meta?.Cwd,
-                            ["Name"]           = meta?.Name,
-                            ["UserNamed"]      = meta?.UserNamed ?? false,
+                            [WorkspaceYamlKey] = workspaceYaml,
                             ["Branch"]         = meta?.Branch,
                             [ImportCommand.RecordedRepositoryKey] = meta?.Repository,
                         }));
@@ -413,17 +409,10 @@ internal sealed class CopilotImportSource : IImportSource {
             usageOk = await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
         }
 
-        // Copilot auto-names every session (workspace.yaml `name`) — forward it as the title,
-        // waiting out the server's projection lag. Best-effort: a title miss must not fail the import.
-        if (classification.SourceMeta!.TryGetValue("Name", out var nameObj)
-         && nameObj is string name
-         && !string.IsNullOrWhiteSpace(name)) {
-            var userNamed = classification.SourceMeta!.TryGetValue("UserNamed", out var un) && un is true;
-
-            await ImportHarnessTitle.PostAsync(
-                ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId,
-                new HarnessTitlePost(name, userNamed ? HarnessTitleKind.Rename : HarnessTitleKind.Auto, null),
-                ctx.Progress, ct);
+        // Best-effort: a title miss must not fail the import.
+        if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
+            await ImportHarnessTitle.PostFromStoreAsync(
+                new CopilotWorkspaceTitle(workspaceYaml), ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId, ctx.Progress, ct);
         }
 
         var endOk = await PostSyntheticHookAsync(

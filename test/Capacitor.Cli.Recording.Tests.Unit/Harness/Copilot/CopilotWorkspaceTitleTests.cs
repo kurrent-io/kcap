@@ -48,4 +48,38 @@ public class CopilotWorkspaceTitleTests {
 
         await Assert.That(new CopilotWorkspaceTitle(path).Read()!.Title).IsEqualTo("proj");
     }
+
+    const string Prompt = "Where does copper-lantern, the new receipt printer, keep its queue?";
+
+    string SessionWithFirstPrompt(string workspaceYaml) {
+        Tmp.CreateFile("events.jsonl",
+            "{\"type\":\"session.start\",\"data\":{}}\n" +
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"" + Prompt + "\"}}\n");
+
+        return Tmp.CreateFile("workspace.yaml", workspaceYaml);
+    }
+
+    /// <summary>Copilot names a session it never summarised with its first prompt, cut or whole: that is no title,
+    /// so the server titles it from the prompt as it does any other harness's session.</summary>
+    [Test]
+    [Arguments("name: Where does copper-lantern, the new recei\nuser_named: false\n")]
+    [Arguments("name: Where does copper-lantern, the new receipt...\nuser_named: false\n")]
+    [Arguments("name: 'Where does copper-lantern, the new receipt printer, keep its queue?'\nuser_named: false\n")]
+    public async Task An_auto_name_that_only_repeats_the_first_prompt_reads_null(string yaml) {
+        await Assert.That(new CopilotWorkspaceTitle(SessionWithFirstPrompt(yaml)).Read()).IsNull();
+    }
+
+    [Test]
+    public async Task A_generated_name_still_reads() {
+        var title = new CopilotWorkspaceTitle(SessionWithFirstPrompt("name: Locate the receipt printer queue\nuser_named: false\n")).Read();
+
+        await Assert.That(title!.Title).IsEqualTo("Locate the receipt printer queue");
+    }
+
+    [Test]
+    public async Task A_user_name_that_repeats_the_first_prompt_still_reads() {
+        var title = new CopilotWorkspaceTitle(SessionWithFirstPrompt("name: Where does copper-lantern\nuser_named: true\n")).Read();
+
+        await Assert.That(title!.Kind).IsEqualTo(HarnessTitleKind.Rename);
+    }
 }
