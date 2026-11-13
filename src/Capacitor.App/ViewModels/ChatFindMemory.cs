@@ -1,4 +1,3 @@
-
 namespace Capacitor.App.ViewModels;
 
 /// The find each session's chat had open, held for the app's lifetime: a workspace is torn down

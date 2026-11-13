@@ -59,7 +59,7 @@ public sealed record AgentRow(
         AgentViewerRightsDto? ViewerRights = null) {
 
     /// A terminal session a daemon steers rather than hosts, from either lane.
-    public bool IsAttached => Kind == AgentActionService.AttachedKind;
+    public bool IsAttached => Kind == AgentKinds.Attached;
 
     /// A registry row of the local daemon while that daemon neither serves nor starts: the registry still
     /// lists it live until the server notices the disconnect, and nothing can stop or message it meanwhile.
@@ -67,6 +67,9 @@ public sealed record AgentRow(
 
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
+
+    /// Process is gone — Completed/Failed stay in the snapshot until teardown removes the agent.
+    public static bool IsTerminalStatus(string? status) => status is "Completed" or "Failed";
 
     /// Whether the listing recorded the session on the machine whose id is <paramref name="machineId"/>.
     /// A missing id on either side is another machine.
@@ -79,10 +82,14 @@ public sealed record AgentRow(
         Title: dto.Title, Model: dto.Model, RequesterDisplay: dto.RequesterDisplay,
         WorktreePath: dto.WorktreePath, WorkLocation: dto.WorkLocation, BorrowedFrom: dto.BorrowedFrom,
         MachineBadge: null, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
-        CheckoutKey: ViewModels.SessionRailViewModel.WorktreeKeyFor(dto), CheckoutLabel: "",
+        CheckoutKey: WorktreeKeyFor(dto), CheckoutLabel: "",
         AwaitingInput: dto.AwaitingInput, LiveSubagents: dto.LiveSubagents, UsageLimit: dto.UsageLimit,
         TerminalDialog: dto.TerminalDialog, Interruption: dto.Interruption,
         AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel);
+
+    // Qualified: inside this record, CheckoutLabel names the string property.
+    public static string WorktreeKeyFor(AgentStatusDto dto) =>
+        PlatformPaths.Normalize(Capacitor.Client.CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath ?? "");
 
     /// An attached agent's daemon steers it from the same machine and hosts nothing, so its row carries neither the
     /// daemon's badge nor its checkout group.
@@ -94,7 +101,7 @@ public sealed record AgentRow(
             : RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
         return new AgentRow(
             Key: $"remote:{dto.AgentId}", Origin: AgentOrigin.Remote, Id: dto.AgentId, SessionId: dto.SessionId,
-            Kind: attached ? AgentActionService.AttachedKind : "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status),
+            Kind: attached ? AgentKinds.Attached : "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status),
             CreatedAt: dto.RegisteredAt,
             RepoPath: dto.RepoPath, Title: dto.Title is { Length: > 0 } ? dto.Title : TitleFromPrompt(dto.Prompt),
             Model: dto.Model, RequesterDisplay: null,

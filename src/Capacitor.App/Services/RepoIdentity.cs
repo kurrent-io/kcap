@@ -1,4 +1,3 @@
-using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 

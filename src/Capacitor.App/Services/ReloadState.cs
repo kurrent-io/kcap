@@ -1,4 +1,3 @@
-
 namespace Capacitor.App.Services;
 
 /// The last Reload outcome that still stands, rendered by the rail block; null stands for "nothing to

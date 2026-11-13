@@ -9,7 +9,6 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
@@ -510,8 +509,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
 
-    internal static string WorktreeKeyFor(AgentStatusDto dto) =>
-        PlatformPaths.Normalize(CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath ?? "");
+    internal static string WorktreeKeyFor(AgentStatusDto dto) => AgentRow.WorktreeKeyFor(dto);
 
     internal static string WorktreeKeyFor(AgentRow row) => row.CheckoutKey;
 

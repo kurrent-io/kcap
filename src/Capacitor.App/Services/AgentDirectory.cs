@@ -233,7 +233,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     public IObservable<bool> LocalDaemonOnAppServer => _onAppServer;
 
     public bool IsHostedNow(AgentRow row) {
-        if (ViewModels.SessionStatusDots.IsTerminal(row.Status)) return false;
+        if (AgentRow.IsTerminalStatus(row.Status)) return false;
         lock (_lock) {
             return row.Origin switch {
                 AgentOrigin.Local => _localConnected && _onAppServer.Value,
@@ -393,7 +393,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // socket up and the agent still live on it, or the daemon's ledger resuming it. A server
             // verdict that ends the session retires the same row, and read as a takeover it would hide the end.
             var claimedLocally = _localConnected
-                ? _localAgents.Where(a => !ViewModels.SessionStatusDots.IsTerminal(a.Status))
+                ? _localAgents.Where(a => !AgentRow.IsTerminalStatus(a.Status))
                     .Select(a => a.Id).ToHashSet(StringComparer.Ordinal)
                 : resumingHere;
             // An attached agent is never taken over: the daemon steers it, it never hosts it.
@@ -416,7 +416,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // running on some other daemon, which is a different agent entirely.
             var twinIds = remote.Where(OnTwin).Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
             var localRows = _localAgents
-                .Where(a => !(twinProven && twinIds.Contains(a.Id) && (!_localConnected || a.Kind == AgentActionService.AttachedKind)))
+                .Where(a => !(twinProven && twinIds.Contains(a.Id) && (!_localConnected || a.Kind == AgentKinds.Attached)))
                 .Select(a => ProjectLocal(resumingHere.Contains(a.Id) ? a with { Status = "Resuming" } : a));
             // A twin row standing in for a hidden local one keeps the checkout that daemon reported for the
             // same agent: the registry names none, and the session pane would lose its worktree.

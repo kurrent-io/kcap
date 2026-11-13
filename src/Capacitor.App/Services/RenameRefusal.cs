@@ -1,4 +1,3 @@
-
 namespace Capacitor.App.Services;
 
 /// <summary>
