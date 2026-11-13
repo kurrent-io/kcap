@@ -6,9 +6,12 @@ namespace Capacitor.Cli.Core.Harness.Copilot;
 public sealed class CopilotHarness : IHarness<CopilotHarness> {
     CopilotHarness(CopilotPaths paths) => Paths = paths;
 
-    /// <summary>Resolves Copilot's one override, <c>COPILOT_HOME</c>, which replaces the
-    /// whole <c>~/.copilot</c> path.</summary>
-    public static CopilotHarness FromEnvironment(UserHome home) => Over(new(home, Environment.GetEnvironmentVariable("COPILOT_HOME")));
+    /// <summary>Resolves <c>COPILOT_HOME</c>, which replaces the whole <c>~/.copilot</c> path, and
+    /// <c>XDG_CONFIG_HOME</c>, which moves VS Code's user data on Linux.</summary>
+    public static CopilotHarness FromEnvironment(UserHome home) => Over(new(
+        home,
+        Environment.GetEnvironmentVariable("XDG_CONFIG_HOME"),
+        Environment.GetEnvironmentVariable("COPILOT_HOME")));
 
     /// <summary>Over a layout resolved elsewhere — a reviewer's isolated home, or a test's.</summary>
     public static CopilotHarness Over(CopilotPaths paths) => new(paths);

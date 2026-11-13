@@ -2044,6 +2044,8 @@ kcap plugin remove --copilot                # deletes ~/.copilot/hooks/kcap.json
 
 Live sessions stream from `~/.copilot/session-state/<session-id>/events.jsonl` (`$COPILOT_HOME` is honoured); historical sessions import via `kcap import --copilot`, which also forwards Copilot's auto-generated session names as titles. Sessions resumed with `copilot --continue` / `--resume` reattach to the same recorded session.
 
+VS Code's Local agent writes its transcript to `<workspaceStorage>/<hash>/GitHub.copilot-chat/transcripts/<session-id>.jsonl` (for Code and Code - Insiders). kcap also reads the chat log VS Code keeps beside it in `chatSessions/`, for each request's output tokens and model, the session's credits and its title. `kcap import --copilot` finds these sessions too, taking the working directory from the workspace's folder.
+
 #### Google Gemini CLI hooks
 
 Gemini CLI is detected via `~/.gemini/` (created on Gemini's first run) or the `gemini` binary on `PATH`. Gemini keeps its hooks in the shared `~/.gemini/settings.json`, so kcap **merges** its entries into the `hooks` block and preserves your other settings and any hand-authored hook entries. Gemini loads hook config at startup: restart any running `gemini` session after installing.

@@ -28,7 +28,7 @@ public class CopilotImportSourceImportTests : IDisposable {
 
     /// <summary>Copilot's layout rooted at the throwaway dir, so the session lands under the real
     /// <c>session-state/</c> name discovery walks.</summary>
-    CopilotPaths CopilotLayout => new(new UserHome(_tempDir), copilotHome: _tempDir);
+    CopilotPaths CopilotLayout => new(new UserHome(_tempDir), xdgConfigHome: null, copilotHome: _tempDir);
 
     const string DashedSid = "11111111-2222-3333-4444-555555555555";
 
@@ -56,7 +56,7 @@ public class CopilotImportSourceImportTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(410).WithBody("""{"error":"session_deleted"}"""));
 
         using var client = new HttpClient();
-        var source = new CopilotImportSource(Config.Root, CopilotLayout,
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [],
             new GitProviderRouter(), TimeProvider.System);
 
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
@@ -82,7 +82,7 @@ public class CopilotImportSourceImportTests : IDisposable {
         }
 
         using var client = new HttpClient();
-        var source = new CopilotImportSource(Config.Root, CopilotLayout,
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [],
             new GitProviderRouter(), TimeProvider.System);
 
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);

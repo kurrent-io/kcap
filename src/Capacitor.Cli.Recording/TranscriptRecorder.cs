@@ -29,8 +29,9 @@ public sealed class TranscriptRecorder(
     readonly Lock           _ackCursorGate = new();
     int _ackCursorWritten = -1;
 
-    readonly OnceLog _parseErrors  = new(context.Log);
-    readonly OnceLog _kiroWarnings = new(context.Log);
+    readonly OnceLog _parseErrors          = new(context.Log);
+    readonly OnceLog _kiroWarnings         = new(context.Log);
+    readonly OnceLog _copilotLocalWarnings = new(context.Log);
 
     // Each loop over lines ticks it: a large backlog can take longer than a host's threshold before its first send, and a
     // source restarted for that resumes from the same cursor and takes as long again.
@@ -380,6 +381,13 @@ public sealed class TranscriptRecorder(
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets, State.LineMap);
 
             LeftLines |= spooled is not (null or TranscriptSpool.AppendResult.Appended);
+
+            // Usage lines are not in the transcript, so the tail spool cannot carry them; an import rebuilds them.
+            if (State.CopilotLocalUsage is { } usage && (usage.StagedRequests.Count > 0 || usage.StagedCredits.Count > 0)) {
+                log("VS Code chat log usage not delivered by the final drain; flagging needs-import");
+                LeftLines = true;
+                MarkForImport(_spool, "shutdown final drain: VS Code chat log usage was not delivered");
+            }
 
             try {
                 await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
@@ -1063,6 +1071,11 @@ public sealed class TranscriptRecorder(
                 KiroLiveUsage.AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, log);
             }
 
+            // The chat log lags the transcript, so this runs on drains that read no new transcript line too.
+            if (vendor == "copilot" && agentId is null && state.ThresholdReached && CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+                CopilotLocalUsage.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, _copilotLocalWarnings.Write);
+            }
+
             if (newLines.Count > 0) {
                 state.LastActivityAt          = time.GetUtcNow();
                 // New activity restarts the idle measure, so discard disconnected time accrued
@@ -1406,6 +1419,8 @@ public sealed class TranscriptRecorder(
                 foreach (var anchor in state.KiroUsagePendingAnchors)
                     state.KiroUsageEmittedAnchors.Add(anchor);
 
+                state.CopilotLocalUsage?.Commit();
+
                 if (repoToSend is not null) {
                     state.LastSentRepository = repoToSend;
                 }
@@ -1728,7 +1743,11 @@ public sealed class TranscriptRecorder(
 
             TryLog($"Server behind ({serverPosition} vs {state.LinesProcessed}), rewinding to resend gap");
 
-            return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
+            if (!await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct)) return false;
+
+            // Usage lines sit above the server's frontier, so it cannot say whether it lost them with the gap.
+            state.CopilotLocalUsage?.ForgetSent();
+            return true;
         } finally {
             gate.Release();
         }

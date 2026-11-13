@@ -25,7 +25,7 @@ public class CopilotHookSessionAdmissionTests : IDisposable {
 
     public void Dispose() => _server.Stop();
 
-    CopilotPaths Paths => new(Home, null);
+    CopilotPaths Paths => new(Home, null, null);
 
     string StateDir(string dashedId) => Path.Combine(Paths.SessionStateDir, dashedId);
 

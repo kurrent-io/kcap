@@ -5,6 +5,7 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
@@ -276,6 +277,9 @@ public class WatchState {
     // carrying their synthetic lines lands; a failed send leaves this list to be recomputed (and
     // re-staged) fresh on the next drain, so nothing is lost.
     public List<string> KiroUsagePendingAnchors { get; } = [];
+
+    // Set on a VS Code Local session's first drain past the threshold that finds its chat log.
+    public CopilotLocalUsageState? CopilotLocalUsage { get; set; }
 
     // Byte offset (end of the last batch the runtime rewrite guard
     // verified and the server acked) the Cursor watcher's guard checks resume from each poll.

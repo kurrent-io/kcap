@@ -9,6 +9,11 @@ namespace Capacitor.Cli.Recording.Tests.Unit;
 // The production regex deadlines must not measure contention from process-heavy fixtures.
 [NotInParallel]
 public class SecretRedactorTests {
+    // The watcher's per-pattern deadline is short enough for a loaded runner to reach on a small line, which turns a
+    // vocabulary check into a timing one. Its own vocabulary is the out-of-process set, under a longer deadline.
+    static string Redact(string line) =>
+        SecretRedactor.RedactLineWithOutcome(line, RedactionBudget.Unlimited, SecretRedactor.OutOfProcessPatterns.Value).Line;
+
     [Test]
     public async Task UnchangedUnicodeRecord_DoesNotNeedAnExpandedRewrite() {
         var raw = "{\"content\":\"" + new string('\u2028', 710_000) + "\"}";
@@ -65,7 +70,7 @@ public class SecretRedactorTests {
             }}
         });
 
-        var output = SecretRedactor.RedactLine(raw);
+        var output = Redact(raw);
 
         await Assert.That(output).Contains("large-edit");
         await Assert.That(output).DoesNotContain(secret);
@@ -82,7 +87,7 @@ public class SecretRedactorTests {
     public async Task ValidJson_AroundLegacyLimit_RemainsComplete(int length) {
         var raw = "{\"content\":\"" + new string('x', length - 14) + "\"}";
         await Assert.That(raw.Length).IsEqualTo(length);
-        await Assert.That(SecretRedactor.RedactLine(raw)).IsEqualTo(raw);
+        await Assert.That(Redact(raw)).IsEqualTo(raw);
     }
 
     [Test]
@@ -157,7 +162,7 @@ public class SecretRedactorTests {
          + "\",\"is_error\":false}]}}";
 
         var sw = Stopwatch.StartNew();
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
         sw.Stop();
 
         await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));
@@ -172,7 +177,7 @@ public class SecretRedactorTests {
         var oversized    = padding + secretMarker;
 
         var sw = Stopwatch.StartNew();
-        var result = SecretRedactor.RedactLine(oversized);
+        var result = Redact(oversized);
         sw.Stop();
 
         await Assert.That(result).DoesNotContain(secretMarker);
@@ -188,7 +193,7 @@ public class SecretRedactorTests {
             {"type":"progress","data":{"message":{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy5AoG5cwSxzXf\n-----END RSA PRIVATE KEY-----","is_error":false}]}}},"uuid":"abc123","timestamp":"2026-01-01T00:00:00Z"}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("MIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn");
         await Assert.That(result).Contains("[REDACTED]");
@@ -202,7 +207,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_2","type":"tool_result","content":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy5AoG5cwSxzXf\n-----END RSA PRIVATE KEY-----","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("MIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn");
         await Assert.That(result).Contains("[REDACTED]");
@@ -214,7 +219,7 @@ public class SecretRedactorTests {
         // Plain assistant prose with no secret-matching tokens — scanned, but nothing to redact.
         var line = """{"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -223,7 +228,7 @@ public class SecretRedactorTests {
     public async Task LeavesMalformedJson_Unchanged_WhenNoSecretMatch() {
         var line = "not json at all";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -249,7 +254,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"The token is {{{token}}} here","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(token);
         await Assert.That(result).Contains("[REDACTED]");
@@ -264,7 +269,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>by9prly15</task-id> <tool-use-id>toolu_01BBj6kq3JaFfKHG93BEmqnj</tool-use-id> <status>completed</status> <summary>Background command \"Continue watching server CI\" completed (exit code 0)</summary>\n</task-notification>"}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
         await Assert.That(result).Contains("<task-notification>");
@@ -282,7 +287,7 @@ public class SecretRedactorTests {
             {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"{{{prose}}}"}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -298,7 +303,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{content}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(token);
         await Assert.That(result).Contains("[REDACTED]");
@@ -310,7 +315,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("AKIAIOSFODNN7EXAMPLE");
         await Assert.That(result).Contains("[REDACTED]");
@@ -327,7 +332,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"id is {{{id}}} here","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         // Assert full redaction with adjacent-character locked down — a partial leak like
         // "[REDACTED]5" (21-char ID redacted as 20) would still pass DoesNotContain(id).
@@ -343,7 +348,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"First 100 chars: {\n    \"AccessKeyId\": \"ASIASUOU4HYNTGJIZ23T\",\n    \"SecretAccessKey\": \"0X+FPiUxddhI7babryQv4l5JQ37Smuy","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("0X+FPiUxddhI7babryQv4l5JQ37Smuy");
         await Assert.That(result).DoesNotContain("ASIASUOU4HYNTGJIZ23T");
@@ -356,7 +361,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{ \"client_secret\": \"a8f3b2c91d4e7f0123456789abcdef01\" }","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("a8f3b2c91d4e7f0123456789abcdef01");
         await Assert.That(result).Contains("client_secret");
@@ -375,7 +380,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
@@ -393,7 +398,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
@@ -409,7 +414,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"{{{name}}}\":\"ordinaryOpaqueValue123\"}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result.Contains("ordinaryOpaqueValue123", StringComparison.Ordinal)).IsEqualTo(!redacted);
     }
@@ -423,7 +428,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -447,7 +452,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"HETZNER_API_TOKEN=abc123def456ghi789jkl","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("abc123def456ghi789jkl");
         await Assert.That(result).Contains("HETZNER_API_TOKEN");
@@ -460,7 +465,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"api_key: sk_reallyLongSecretValue123456","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("sk_reallyLongSecretValue123456");
         await Assert.That(result).Contains("[REDACTED]");
@@ -475,7 +480,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
@@ -491,7 +496,7 @@ public class SecretRedactorTests {
             {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"We send the access token. The one real risk: model-id matching is fragile here."}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
         await Assert.That(result).Contains("model-id matching");
@@ -503,7 +508,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"Server=localhost;Database=mydb;Password=hunter2;User Id=sa","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("hunter2");
         await Assert.That(result).Contains("[REDACTED]");
@@ -515,7 +520,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"total 40\ndrwxr-xr-x  8 user staff 256 Feb 11 22:54 .\n-rw-r--r--  1 user staff 611 Feb 10 22:33 Program.cs","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -526,7 +531,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok","is_error":false}]},"toolUseResult":{"content":"-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIBkg\n-----END EC PRIVATE KEY-----"}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("MHQCAQEEIBkg");
         await Assert.That(result).Contains("[REDACTED]");
@@ -539,7 +544,7 @@ public class SecretRedactorTests {
         // RedactsLine_VendorToken_InUserTextContent.)
         var line = """{"type":"user","message":{"role":"user","content":"my secret password is hunter2"}}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -550,7 +555,7 @@ public class SecretRedactorTests {
         // shape, so the line passes through scanning unmodified.
         var line = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/secret.pem"}}]}}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -561,7 +566,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"GITHUB_TOKEN=ghp_abc123def456ghi789jkl012mno345pqrs678\nAWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nDB_PASSWORD=supersecretvalue123","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abc123");
         await Assert.That(result).DoesNotContain("AKIAIOSFODNN7EXAMPLE");
@@ -581,7 +586,7 @@ public class SecretRedactorTests {
             {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Image pushed but the pull token (dckr_oat_J6Ui9AbcDef123XYZabcdef0987) used by the cluster's registry-pull Secret is scoped to kurrentplatform/kcap only."}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("dckr_oat_J6Ui9AbcDef123XYZabcdef0987");
         await Assert.That(result).Contains("[REDACTED]");
@@ -593,7 +598,7 @@ public class SecretRedactorTests {
             {"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I used ghp_ABCDEFghijklmnop1234567890abcdef12345678 to authenticate."}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_ABCDEFghijklmnop1234567890abcdef12345678");
         await Assert.That(result).Contains("[REDACTED]");
@@ -607,7 +612,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":"my token is ghp_ABCDEFghijklmnop1234567890abcdef12345678 please rotate"}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_ABCDEFghijklmnop1234567890abcdef12345678");
         await Assert.That(result).Contains("[REDACTED]");
@@ -615,12 +620,12 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task PassesThrough_EmptyLine_Unchanged() {
-        await Assert.That(SecretRedactor.RedactLine("")).IsEqualTo("");
+        await Assert.That(Redact("")).IsEqualTo("");
     }
 
     [Test]
     public async Task PassesThrough_WhitespaceLine_Unchanged() {
-        await Assert.That(SecretRedactor.RedactLine("   ")).IsEqualTo("   ");
+        await Assert.That(Redact("   ")).IsEqualTo("   ");
     }
 
     [Test]
@@ -629,7 +634,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"HETZNER_API_TOKEN=abc123def456ghi789jkl","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         // Must still be valid JSON after redaction
         using var doc = System.Text.Json.JsonDocument.Parse(result);
@@ -648,7 +653,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"$ curl -fsS -H \"Authorization: Bearer abc123def456ghi789jkl012mno\" https://api.example.com\n{\"ok\":true}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("abc123def456ghi789jkl012mno");
         await Assert.That(result).Contains("Authorization: [REDACTED]");
@@ -660,7 +665,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"Authorization: Basic dXNlcjpwYXNzd29yZA==","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("dXNlcjpwYXNzd29yZA==");
         await Assert.That(result).Contains("Authorization: [REDACTED]");
@@ -672,7 +677,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"> Cookie: session=abc123def456; csrf=xyz789uvw321","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("session=abc123def456");
         await Assert.That(result).DoesNotContain("csrf=xyz789uvw321");
@@ -685,7 +690,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"X-Api-Key: opaque_value_with_no_known_prefix_12345","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("opaque_value_with_no_known_prefix_12345");
         await Assert.That(result).Contains("X-Api-Key: [REDACTED]");
@@ -698,7 +703,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"request headers: { \"Authorization\": \"Bearer abc123def456ghi789jkl012mno\", \"Accept\": \"application/json\" }","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("abc123def456ghi789jkl012mno");
         await Assert.That(result).Contains("[REDACTED]");
@@ -715,7 +720,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok"}]},"toolUseResult":{"headers":{"Authorization":"Bearer opaque-token-1234567890abc"}}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("opaque-token-1234567890abc");
         await Assert.That(result).Contains("[REDACTED]");
@@ -741,7 +746,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{header}}}: {{{value}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(value);
         await Assert.That(result).Contains($"{header}: [REDACTED]");
@@ -760,7 +765,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"GET {{{url}}} -> 200","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).Contains("[REDACTED]");
         // The secret param value must not survive — check by ensuring no `[?&]<param>=<longvalue>` is left.
@@ -779,7 +784,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"cloning https://alice:ghp_abcdef1234567890ABCDEF@github.com/org/repo.git","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abcdef1234567890ABCDEF");
         await Assert.That(result).Contains("https://alice:[REDACTED]@github.com");
@@ -809,7 +814,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains(kept);
@@ -826,7 +831,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"postgres://app:fieldPw{{{tail}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("fieldPw");
         await Assert.That(result).Contains("postgres://app:[REDACTED]" + tail);
@@ -845,7 +850,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"url\":\"{{{url}}}\"}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
@@ -863,7 +868,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -879,7 +884,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"hcloud:token  {{{fakeHcloudToken}}}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain(fakeHcloudToken);
         await Assert.That(result).Contains("[REDACTED]");
@@ -891,7 +896,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"password    supersecretvalue1234567890","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("supersecretvalue1234567890");
         await Assert.That(result).Contains("[REDACTED]");
@@ -905,7 +910,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"password abcdefghijklmnop!tail#more$end","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("abcdefghijklmnop!tail#more$end");
         await Assert.That(result).DoesNotContain("!tail");
@@ -920,7 +925,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"the token might be invalid; refresh it","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -932,7 +937,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"token short1234","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
     }
@@ -943,7 +948,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"Server=localhost;Database=mydb;Password=hunter2;User Id=sa","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         using var doc = System.Text.Json.JsonDocument.Parse(result);
         var content = doc.RootElement
@@ -969,7 +974,7 @@ public class SecretRedactorTests {
         var line     = """{"type":"user","toolUseResult":{"payload":{"cookie":""" + value + ""","items":[1,2]}}}""";
         var expected_ = """{"type":"user","toolUseResult":{"payload":{"cookie":""" + expected + ""","items":[1,2]}}}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(expected_);
 
@@ -993,7 +998,7 @@ public class SecretRedactorTests {
     public async Task LeavesSiblings_OfASecretKey_Untouched(string line, string expected) {
         // What arms a subtree has to disarm on the way out. A flag that outlived its own key would
         // take the next sibling with it.
-        await Assert.That(SecretRedactor.RedactLine(line)).IsEqualTo(expected);
+        await Assert.That(Redact(line)).IsEqualTo(expected);
     }
 
     [Test]
@@ -1016,7 +1021,7 @@ public class SecretRedactorTests {
         for (var i = 0; i < 3000; i++) {
             var line = Compose(rng, fragments, keys, depth: 0);
 
-            var result = SecretRedactor.RedactLine(line);
+            var result = Redact(line);
 
             using var doc = System.Text.Json.JsonDocument.Parse(result);
             if (!string.Equals(result, line, StringComparison.Ordinal)) changed++;
@@ -1058,7 +1063,7 @@ public class SecretRedactorTests {
     public async Task RecognisesASecretKey_HoweverItIsSpelled(string key) {
         var line = "{\"cfg\":{\"" + key + "\":\"s3cr3t-value-here\"},\"n\":1}";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo("{\"cfg\":{\"" + key + "\":\"[REDACTED]\"},\"n\":1}");
     }
@@ -1072,7 +1077,7 @@ public class SecretRedactorTests {
         // `auth` carries a token often enough to belong in the key vocabulary, and the end anchor
         // is the whole reason it can: unanchored it would swallow `author` and every word built
         // on it.
-        await Assert.That(SecretRedactor.RedactLine(line)).IsEqualTo(expected);
+        await Assert.That(Redact(line)).IsEqualTo(expected);
     }
 
     [Test]
@@ -1085,7 +1090,7 @@ public class SecretRedactorTests {
         // Deliberate, and it gives up the all-digit credential: the keyword vocabulary matches
         // anywhere in a name, so the token-usage fields classify as secret-bearing on nearly every
         // model turn, while a header value arrives as a string and so is never a number here.
-        await Assert.That(SecretRedactor.RedactLine(line)).IsEqualTo(line);
+        await Assert.That(Redact(line)).IsEqualTo(line);
     }
 
     [Test]
@@ -1096,7 +1101,7 @@ public class SecretRedactorTests {
         // `input_tokens` and `token_count` classify as secret-bearing on the keyword vocabulary,
         // and they sit on nearly every Codex turn. A number carries no credential, so none of them
         // is rewritten — the analytics that read these would otherwise see a redacted value.
-        await Assert.That(SecretRedactor.RedactLine(line)).IsEqualTo(line);
+        await Assert.That(Redact(line)).IsEqualTo(line);
     }
 
     [Test]
@@ -1105,7 +1110,7 @@ public class SecretRedactorTests {
         // marker: that would collapse the object into a duplicate key.
         var line = """{"ghp_abc123def456ghi789jkl012":"repo","AKIAIOSFODNN7EXAMPLE":"acct","keep":"v"}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo("""{"[REDACTED]-1":"repo","[REDACTED]-2":"acct","keep":"v"}""");
     }
@@ -1116,7 +1121,7 @@ public class SecretRedactorTests {
         // block — so there is nothing to redact and every structural token between them stays.
         var line = """{"outer":{"head":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB"},"tail":["x",{"rest":"more\n-----END RSA PRIVATE KEY-----"}]}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
 
@@ -1133,7 +1138,7 @@ public class SecretRedactorTests {
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"headers\":{\"X-Api-Key\":\"opaque_value_no_prefix_123456\"},\"body\":\"{\\\"client_secret\\\":\\\"a8f3b2c91d4e7f0123456789abcdef01\\\"}\"}","is_error":false}]}}
             """.Trim();
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("opaque_value_no_prefix_123456");
         await Assert.That(result).DoesNotContain("a8f3b2c91d4e7f0123456789abcdef01");
@@ -1152,7 +1157,7 @@ public class SecretRedactorTests {
         // backslashes must not survive from its first escape onward.
         var line = """{"type":"user","toolUseResult":{"client_secret":"a\"b\\c-1234567890"}}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         using var doc = System.Text.Json.JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("toolUseResult").GetProperty("client_secret").GetString())
@@ -1186,7 +1191,7 @@ public class SecretRedactorTests {
         await Assert.That(unparsable).IsEmpty();
 
         // The corpus is only meaningful if it actually exercises the patterns.
-        await Assert.That(corpus.Count(line => SecretRedactor.RedactLine(line) != line)).IsGreaterThan(5);
+        await Assert.That(corpus.Count(line => Redact(line) != line)).IsGreaterThan(5);
         return;
 
         static bool Parses(string text) {
@@ -1213,7 +1218,7 @@ public class SecretRedactorTests {
         // number is data, and rewriting it through a numeric type would silently alter it.
         var line = $$"""{"a":{{number}},"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abc123");
         await Assert.That(result).Contains(number);
@@ -1225,7 +1230,7 @@ public class SecretRedactorTests {
         // line carrying them must still redact rather than throw at the drain.
         var line = """{"a":1,"a":2,"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abc123");
         await Assert.That(result).Contains("[REDACTED]");
@@ -1251,7 +1256,7 @@ public class SecretRedactorTests {
         // A comment is not a value, so nothing else scans its text, and it cannot survive into
         // strict JSON either. Dropping counts as a change on its own — otherwise a line whose
         // values are all clean rides the unchanged path to the wire with the comment still on it.
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abc123def456ghi789jkl012");
         await Assert.That(result).DoesNotContain("nothing sensitive");
@@ -1266,7 +1271,7 @@ public class SecretRedactorTests {
         // nothing to corrupt, and replacing it with a placeholder would lose it for no gain.
         var line = "plain log output with GITHUB_TOKEN=ghp_abc123def456ghi789jkl012 in it";
 
-        var result = SecretRedactor.RedactLine(line);
+        var result = Redact(line);
 
         await Assert.That(result).DoesNotContain("ghp_abc123");
         await Assert.That(result).StartsWith("plain log output with GITHUB_TOKEN=");

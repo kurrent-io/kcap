@@ -800,7 +800,21 @@ public class WorktreeManagerTests {
                 await holder.WaitForExitAsync();
             }
             holder?.Dispose();
-            await WorktreeManager.RemoveAsync(snapshot, TimeProvider.System);
+            await RemoveReleasedSnapshotAsync(snapshot);
+        }
+    }
+
+    // The tree kill also ends processes nothing above waits for, such as the holder's console host on Windows,
+    // and one can hold the directory for a moment after the holder has exited.
+    static async Task RemoveReleasedSnapshotAsync(WorktreeInfo snapshot) {
+        var deadline = Stopwatch.StartNew();
+        while (true) {
+            try {
+                await WorktreeManager.RemoveAsync(snapshot, TimeProvider.System);
+                return;
+            } catch (IOException) when (OperatingSystem.IsWindows() && deadline.Elapsed < TimeSpan.FromSeconds(15)) {
+                await Task.Delay(250);
+            }
         }
     }
 
