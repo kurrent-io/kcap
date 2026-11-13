@@ -362,7 +362,7 @@ class RecapCommand(
                 sb.AppendLine(FormatOutlineLine(turn));
             }
 
-            return RecapTranscript.Printable(sb.ToString());
+            return sb.ToString();
         } catch (JsonException) {
             // Empty/truncated body, or a non-JSON page (e.g. a proxy 200 with an HTML error).
             // The outline is best-effort enrichment, so treat unparseable input as "nothing to show"
@@ -377,13 +377,13 @@ class RecapCommand(
 
     static string FormatOutlineLine(JsonElement turn) {
         var index = turn.TryGetProperty("turn_index", out var ti) ? ti.GetInt32() : -1;
-        var prose = turn.TryGetProperty("prose", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+        var prose = turn.TryGetProperty("prose", out var p) && p.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(p.GetString() ?? "") : null;
 
         if (!string.IsNullOrWhiteSpace(prose)) {
             return $"{index,3}  {CollapseWhitespace(prose!)}";
         }
 
-        var raw     = turn.TryGetProperty("user_prompt", out var up) && up.ValueKind == JsonValueKind.String ? up.GetString() ?? "" : "";
+        var raw     = turn.TryGetProperty("user_prompt", out var up) && up.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(up.GetString() ?? "") : "";
         var prompt  = CollapseWhitespace(raw);
         var excerpt = prompt.Length == 0 ? "(no prompt)" : prompt.Length > 80 ? prompt[..80] + "…" : prompt;
 
