@@ -24,6 +24,7 @@ internal sealed class IdeHost : IDisposable {
     readonly IAgentDirectory _directory;
     readonly RepoIdentityResolver _repoIdentity;
     readonly Func<string, string> _resolveMainRoot;
+    readonly string? _localMachineId;
     readonly Func<Task> _reconnect;
     readonly string _cliVersion;
     readonly ITimer _batch;
@@ -39,14 +40,15 @@ internal sealed class IdeHost : IDisposable {
 
     public IdeHost(
             IDaemonClientService daemon, IServerLane lane, IServerSessionsService sessions, IAgentDirectory directory,
-            RepoIdentityResolver repoIdentity, Func<string, string> resolveMainRoot, Func<Task> reconnect, TimeProvider time,
-            string cliVersion) {
+            RepoIdentityResolver repoIdentity, Func<string, string> resolveMainRoot, string? localMachineId, Func<Task> reconnect,
+            TimeProvider time, string cliVersion) {
         _daemon = daemon;
         _lane = lane;
         _sessions = sessions;
         _directory = directory;
         _repoIdentity = repoIdentity;
         _resolveMainRoot = resolveMainRoot;
+        _localMachineId = localMachineId;
         _reconnect = reconnect;
         _cliVersion = cliVersion;
         _batch = time.CreateTimer(_ => Flush(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -118,7 +120,7 @@ internal sealed class IdeHost : IDisposable {
             throw InvalidParams("git_roots must be absolute paths");
 
         // Resolving the roots reads git metadata, so it stays outside the lock the row feed takes.
-        var subscription = new IdeSubscription(request.SubscriptionId, ProjectScope.For(request.GitRoots, _repoIdentity, _resolveMainRoot));
+        var subscription = new IdeSubscription(request.SubscriptionId, ProjectScope.For(request.GitRoots, _repoIdentity, _resolveMainRoot, _localMachineId));
 
         return Task.FromResult(new IdeReply(null, () => StartAsync(subscription)));
     }

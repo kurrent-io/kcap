@@ -38,12 +38,13 @@ public sealed class IdeCommand(
             lane, ServerSessionsService.HttpFetch(http, profiles), ServerSessionsService.HttpOwners(http, profiles), time,
             onUnauthorized: lane.ParkSignedOut);
         var repoIdentity = new RepoIdentityResolver();
+        var machineId = new MachineId(config).ReadPersisted();
         var directory = new AgentDirectory(
             daemon, new NoRemoteAgents(), lane, repoIdentity, GitRepository.ResolveMainRepoRoot,
-            new MachineId(config).ReadPersisted(), profiles.Resolution.ServerUrl, time, sessions);
+            machineId, profiles.Resolution.ServerUrl, time, sessions);
         var reconnect = new HostReconnect(daemon.Status, daemon.RestartLoopAsync, lane.Status, () => lane.RestartAsync(), Console.Error);
         var host = new IdeHost(
-            daemon, lane, sessions, directory, repoIdentity, GitRepository.ResolveMainRepoRoot, reconnect.ReconnectAsync, time,
+            daemon, lane, sessions, directory, repoIdentity, GitRepository.ResolveMainRepoRoot, machineId, reconnect.ReconnectAsync, time,
             CapacitorVersion.Current());
 
         try {

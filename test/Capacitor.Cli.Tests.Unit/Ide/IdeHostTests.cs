@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Capacitor.Cli.Ide;
 using Capacitor.Client;
+using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
@@ -14,6 +15,7 @@ namespace Capacitor.Cli.Tests.Unit.Ide;
 /// <summary>The host over a live loop: requests go in one line at a time and every message it writes is read back in order.</summary>
 public class IdeHostTests {
     const string CliVersion = "9.8.7";
+    const string MachineHere = "mach-here";
     // The host refuses a root that is not fully qualified, and on Windows that needs a drive.
     static readonly string App = OperatingSystem.IsWindows() ? @"C:\src\app" : "/src/app";
     static readonly string Lib = OperatingSystem.IsWindows() ? @"C:\src\lib" : "/src/lib";
@@ -62,7 +64,7 @@ public class IdeHostTests {
         public Host() {
             Ide = new IdeHost(
                 Daemon, Lane, Sessions, Directory, new RepoIdentityResolver(_ => null),
-                root => { OnResolveRoot?.Invoke(); return root; }, () => Reconnect(), Time, CliVersion);
+                root => { OnResolveRoot?.Invoke(); return root; }, MachineHere, () => Reconnect(), Time, CliVersion);
             _loop = new IdeRpcLoop(Input, Output);
             Ide.Attach(_loop);
             _run = _loop.RunAsync(CancellationToken.None);
@@ -165,6 +167,11 @@ public class IdeHostTests {
         CreatedAt: new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc), RepoPath: repoPath, Title: title, Model: null,
         RequesterDisplay: null, WorktreePath: null, WorkLocation: null, BorrowedFrom: null, MachineBadge: null,
         RepoGroupKey: $"path:{repoPath}", RepoGroupLabel: Path.GetFileName(repoPath), CheckoutKey: repoPath, CheckoutLabel: "");
+
+    static AgentRow ServerRow(string id, string repoGroupKey, string repoPath, string recordedOn) => Row(id, repoPath) with {
+        Key = $"server:{id}", Origin = AgentOrigin.Server, Kind = "session", RepoGroupKey = repoGroupKey,
+        Recording = new RepoSessionRecordingDto { MachineId = recordedOn },
+    };
 
     /// <summary>The same envelope and the same <c>params</c> members as the fixture.</summary>
     static async Task ShapedLikeAsync(JsonObject message, string fixture) {
@@ -271,6 +278,21 @@ public class IdeHostTests {
         var seen = await host.SettleAsync();
 
         await Assert.That(seen.Where(m => Method(m) == "sessions/changed")).IsEmpty();
+    }
+
+    /// <summary>The session recorded here under another repository name is the control: it shares the path and the key.</summary>
+    [Test]
+    public async Task A_foreign_session_at_the_same_path_on_another_machine_is_not_sent() {
+        using var host = new Host();
+        host.Directory.Rows.AddOrUpdate([
+            ServerRow("there", "repo:acme/other", App, recordedOn: "mach-there"),
+            ServerRow("here", "repo:acme/other", App, recordedOn: MachineHere),
+        ]);
+        await host.InitializeAsync();
+
+        var snapshot = await host.SubscribeAsync("sub-1", App);
+
+        await Assert.That(Keys(snapshot["params"]!["rows"])).IsEquivalentTo(["server:here"]);
     }
 
     [Test]
