@@ -2078,7 +2078,7 @@ Kiro writes an append-only JSONL log per session at `~/.kiro/sessions/cli/{id}.j
 Pi (`badlogic/pi-mono`) is detected via `~/.pi/agent/` or the `pi` binary on `PATH`. Pi has **no shell hooks** and **no built-in MCP** — it exposes an in-process extension API — so `install --pi` writes dependency-free TypeScript extensions that `pi` auto-loads at startup:
 
 - **`~/.pi/agent/extensions/kcap.ts`** — the live-ingest extension (shells out to `kcap hook --pi` on session start/end).
-- **`~/.pi/agent/extensions/kcap-mcp.ts`** — the MCP bridge (opt out `--skip-pi-mcp`). At load it spawns each `kcap mcp <name>` server as a stdio subprocess, performs the MCP handshake, and registers every advertised tool as a native Pi tool `kcap_<server>_<tool>`, torn down on session exit.
+- **`~/.pi/agent/extensions/kcap-mcp.ts`** — the MCP bridge (opt out `--skip-pi-mcp`). At load it spawns each `kcap mcp <name>` server as a stdio subprocess, performs the MCP handshake, and registers every advertised tool as a native Pi tool `kcap_<server>_<tool>`, torn down on session exit. Only `kcap_memory_search_memories` and `kcap_memory_get_memory` are declared to the model up front; the rest are deferred, so their definitions stay out of every request until Pi's `tool_search` loads them. The bridge turns `tool_search` on for the session, and declares every kcap tool directly instead when `tool_search` is unavailable.
 - **`~/.pi/agent/AGENTS.md`** — a kcap-owned, marker-delimited steering block (opt out `--skip-pi-instructions`, non-destructive — your own instructions are preserved) nudging Pi to prefer the kcap tools.
 
 `kcap` must be on `PATH` (both extensions shell out to it). Restart any running `pi` session after installing.
