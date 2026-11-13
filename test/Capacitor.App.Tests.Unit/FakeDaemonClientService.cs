@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
@@ -9,9 +10,10 @@ namespace Capacitor.App.Tests.Unit;
 /// Scripted IDaemonClientService — subject-backed Status/Snapshots/Agents — shared by
 /// MainWindowViewModelTests and MainWindowSmokeTests so both drive exact event sequences
 /// without a real daemon.
+[SuppressMessage("Design", "CA1001", Justification = "A fake's subjects live for one test.")]
 sealed class FakeDaemonClientService : IDaemonClientService {
-    public readonly BehaviorSubject<AttachStatus> StatusSubject = new(new(AttachState.Connecting, null, null));
-    public readonly ReplaySubject<DaemonStatusDto> SnapshotsSubject = new(1);
+    public BehaviorSubject<AttachStatus> StatusSubject { get; } = new(new(AttachState.Connecting, null, null));
+    public ReplaySubject<DaemonStatusDto> SnapshotsSubject { get; } = new(1);
 
     public IObservable<AttachStatus> Status => StatusSubject;
     public IObservable<DaemonStatusDto> Snapshots => SnapshotsSubject;
@@ -19,14 +21,14 @@ sealed class FakeDaemonClientService : IDaemonClientService {
     public SourceCache<PendingLaunchDto, string> Pending { get; } = new(p => p.Id);
     public string DaemonName { get; set; } = "daemon-a";
 
-    public int RestartCount;
+    public int RestartCount { get; set; }
     public Task RestartLoopAsync() {
         RestartCount++;
         return Task.CompletedTask;
     }
 
-    public int StartDaemonCallCount;
-    public Func<CancellationToken, Task<StartDaemonResult>>? StartBehavior;
+    public int StartDaemonCallCount { get; set; }
+    public Func<CancellationToken, Task<StartDaemonResult>>? StartBehavior { get; set; }
     public Task<StartDaemonResult> StartDaemonAsync(CancellationToken ct) {
         StartDaemonCallCount++;
         return (StartBehavior ?? (_ => Task.FromResult(new StartDaemonResult(true, null))))(ct);

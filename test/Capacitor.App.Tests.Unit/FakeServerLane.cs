@@ -1,5 +1,6 @@
 using ReactiveUnit = System.Reactive.Unit;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
@@ -13,36 +14,37 @@ namespace Capacitor.App.Tests.Unit;
 /// The call logs are appended from whatever thread the service under test dispatched its hub call
 /// on and read from the test thread, so each is an immutable snapshot swapped atomically — a plain
 /// List drops entries and throws mid-enumeration.
+[SuppressMessage("Design", "CA1001", Justification = "A fake's subjects live for one test.")]
 sealed class FakeServerLane : IServerLane {
-    public readonly BehaviorSubject<ServerLaneStatus> StatusSubject = new(new(ServerLaneState.Dormant));
-    public readonly Subject<ReactiveUnit> AgentsChangedSubject = new();
-    public readonly Subject<ReactiveUnit> DaemonsChangedSubject = new();
-    public readonly Subject<ReactiveUnit> DaemonAccountsChangedSubject = new();
-    public readonly Subject<LaunchFailure> LaunchFailuresSubject = new();
-    public readonly Subject<string> PermissionPendingSubject = new();
-    public readonly Subject<PermissionRespondedPing> PermissionRespondedSubject = new();
-    public readonly Subject<ServerPermissionRequest> PermissionRequestsSubject = new();
-    public readonly Subject<ServerElicitationRequest> ElicitationsSubject = new();
-    public readonly Subject<string> SessionAccessChangedSubject = new();
-    public readonly Subject<SessionPush> SessionPushesSubject = new();
-    public readonly Subject<PendingInputUpdate> PendingInputSubject = new();
-    public readonly Subject<string> HeldMessagesSubject = new();
-    public readonly Subject<TerminalOutputFrame> TerminalOutputSubject = new();
-    public readonly Subject<TerminalSize> TerminalDimensionsSubject = new();
-    public Func<Task<IReadOnlyList<DaemonInfo>?>> DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>([]);
-    public Func<Task<IReadOnlyList<DaemonAccountsDto>?>> DaemonAccountsHandler = () => Task.FromResult<IReadOnlyList<DaemonAccountsDto>?>([]);
-    public Func<string, Task<HubCallOutcome>> StopHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<Guid, Task<HubCallOutcome>> DiscardHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> SubscribeChatHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> UnsubscribeChatHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+    public BehaviorSubject<ServerLaneStatus> StatusSubject { get; } = new(new(ServerLaneState.Dormant));
+    public Subject<ReactiveUnit> AgentsChangedSubject { get; } = new();
+    public Subject<ReactiveUnit> DaemonsChangedSubject { get; } = new();
+    public Subject<ReactiveUnit> DaemonAccountsChangedSubject { get; } = new();
+    public Subject<LaunchFailure> LaunchFailuresSubject { get; } = new();
+    public Subject<string> PermissionPendingSubject { get; } = new();
+    public Subject<PermissionRespondedPing> PermissionRespondedSubject { get; } = new();
+    public Subject<ServerPermissionRequest> PermissionRequestsSubject { get; } = new();
+    public Subject<ServerElicitationRequest> ElicitationsSubject { get; } = new();
+    public Subject<string> SessionAccessChangedSubject { get; } = new();
+    public Subject<SessionPush> SessionPushesSubject { get; } = new();
+    public Subject<PendingInputUpdate> PendingInputSubject { get; } = new();
+    public Subject<string> HeldMessagesSubject { get; } = new();
+    public Subject<TerminalOutputFrame> TerminalOutputSubject { get; } = new();
+    public Subject<TerminalSize> TerminalDimensionsSubject { get; } = new();
+    public Func<Task<IReadOnlyList<DaemonInfo>?>> DaemonsHandler { get; set; } = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>([]);
+    public Func<Task<IReadOnlyList<DaemonAccountsDto>?>> DaemonAccountsHandler { get; set; } = () => Task.FromResult<IReadOnlyList<DaemonAccountsDto>?>([]);
+    public Func<string, Task<HubCallOutcome>> StopHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<Guid, Task<HubCallOutcome>> DiscardHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> SubscribeChatHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> UnsubscribeChatHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> AccessWatchHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
     /// Returns the exception a tail throws at its first MoveNextAsync, or null to tail normally.
-    public Func<string, ulong?, Exception?> TailHandler = (_, _) => null;
-    public Func<string, Task<HubCallOutcome>> TerminalSubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> TerminalUnsubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> UserInputHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<string, Task<HubCallOutcome>> SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-    public Func<byte[], Task<HubCallOutcome>> TerminalInputHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, ulong?, Exception?> TailHandler { get; set; } = (_, _) => null;
+    public Func<string, Task<HubCallOutcome>> TerminalSubscribeHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> TerminalUnsubscribeHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> UserInputHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<string, Task<HubCallOutcome>> SpecialKeyHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<byte[], Task<HubCallOutcome>> TerminalInputHandler { get; set; } = _ => Task.FromResult(HubCallOutcome.Ok);
     ImmutableList<string> _stops = [], _chatSubscribes = [], _chatUnsubscribes = [], _accessWatches = [], _calls = [];
     ImmutableList<(string Stream, ulong? From)> _tails = [];
     ImmutableList<string> _terminalSubscribes = [], _terminalUnsubscribes = [], _resizeReleases = [];

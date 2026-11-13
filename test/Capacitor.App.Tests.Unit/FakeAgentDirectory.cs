@@ -22,8 +22,8 @@ sealed class FakeAgentDirectory : IAgentDirectory, IDisposable {
     IObservable<bool> IAgentDirectory.RemoteStale => RemoteStale;
     IObservable<bool> IAgentDirectory.LocalDaemonOnAppServer => LocalOnAppServer;
     /// Lane evidence for IsHostedNow; a test about a cached row clears one of them.
-    public bool LocalConnected = true;
-    public bool RegistryCurrent = true;
+    public bool LocalConnected { get; set; } = true;
+    public bool RegistryCurrent { get; set; } = true;
     public bool IsHostedNow(AgentRow row) => !AgentRow.IsTerminalStatus(row.Status) && row.Origin switch {
         AgentOrigin.Local => LocalConnected && LocalOnAppServer.Value,
         AgentOrigin.Remote => RegistryCurrent,

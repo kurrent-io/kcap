@@ -9,30 +9,30 @@ namespace Capacitor.App.Tests.Unit;
 
 /// Scripted IServerSessionsService: caches and subjects a test edits directly, and recorded calls.
 sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
-    public readonly SourceCache<RepoSessionDto, string> LiveCache = new(r => r.SessionId);
-    public readonly SourceCache<RepoSessionDto, string> MineLiveCache = new(r => r.SessionId);
-    public readonly SourceCache<RepoSessionDto, string> EndedCache = new(r => r.SessionId);
-    public readonly BehaviorSubject<ServerSessionsPaging> PagingSubject = new(new(0, 0, 1, false, false));
-    public readonly BehaviorSubject<int> LiveNotShownSubject = new(0);
-    public readonly BehaviorSubject<IReadOnlySet<string>> ViewerIdsSubject = new(FrozenSet<string>.Empty);
-    public readonly BehaviorSubject<string?> ViewerUserIdSubject = new(null);
-    public readonly BehaviorSubject<bool> CurrentSubject = new(true);
+    public SourceCache<RepoSessionDto, string> LiveCache { get; } = new(r => r.SessionId);
+    public SourceCache<RepoSessionDto, string> MineLiveCache { get; } = new(r => r.SessionId);
+    public SourceCache<RepoSessionDto, string> EndedCache { get; } = new(r => r.SessionId);
+    public BehaviorSubject<ServerSessionsPaging> PagingSubject { get; } = new(new(0, 0, 1, false, false));
+    public BehaviorSubject<int> LiveNotShownSubject { get; } = new(0);
+    public BehaviorSubject<IReadOnlySet<string>> ViewerIdsSubject { get; } = new(FrozenSet<string>.Empty);
+    public BehaviorSubject<string?> ViewerUserIdSubject { get; } = new(null);
+    public BehaviorSubject<bool> CurrentSubject { get; } = new(true);
     readonly BehaviorSubject<RailScope> _scope = new(RailScope.Mine);
-    public readonly BehaviorSubject<RepoSessionDto?> PinnedSubject = new(null);
-    public readonly BehaviorSubject<string?> PinnedIdSubject = new(null);
-    public readonly BehaviorSubject<SessionIdentity> IdentitySubject = new(new(0, 1, true));
+    public BehaviorSubject<RepoSessionDto?> PinnedSubject { get; } = new(null);
+    public BehaviorSubject<string?> PinnedIdSubject { get; } = new(null);
+    public BehaviorSubject<SessionIdentity> IdentitySubject { get; } = new(new(0, 1, true));
     /// What PinAsync answers; a Pinned answer also sets the pinned id.
-    public PinOutcome PinResult = PinOutcome.Pinned;
-    public readonly List<(string SessionId, PinPresentation Presentation)> PinCalls = [];
-    public int UnpinCalls;
-    public int ShowMoreCalls;
-    public int ReconcileCalls;
+    public PinOutcome PinResult { get; set; } = PinOutcome.Pinned;
+    public List<(string SessionId, PinPresentation Presentation)> PinCalls { get; } = [];
+    public int UnpinCalls { get; set; }
+    public int ShowMoreCalls { get; set; }
+    public int ReconcileCalls { get; set; }
 
     public IObservableCache<RepoSessionDto, string> Live => LiveCache.AsObservableCache();
     public IObservableCache<RepoSessionDto, string> MineLive => MineLiveCache.AsObservableCache();
     public IObservableCache<RepoSessionDto, string> Ended => EndedCache.AsObservableCache();
-    public string? Kept;
-    public readonly Subject<string> DroppedSubject = new();
+    public string? Kept { get; set; }
+    public Subject<string> DroppedSubject { get; } = new();
     public IObservable<string> Dropped => DroppedSubject;
     /// Derived from the three caches and the pin subjects, so a test edits one and the directory sees the whole state.
     public IObservable<ServerSessionsSnapshot> Snapshots => Observable.CombineLatest(
@@ -45,7 +45,7 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
     public string? PinnedSessionId => PinnedIdSubject.Value;
 
     /// When set, PinAsync answers once the test completes it rather than with PinResult.
-    public TaskCompletionSource<PinOutcome>? PinGate;
+    public TaskCompletionSource<PinOutcome>? PinGate { get; set; }
 
     int _pinRequest;
 
@@ -59,9 +59,9 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
         return result;
     }
 
-    public HandoffContextDto? HandoffContext;
+    public HandoffContextDto? HandoffContext { get; set; }
     /// Anything but Ok answers without HandoffContext.
-    public ServerReadOutcome HandoffContextOutcome = ServerReadOutcome.Ok;
+    public ServerReadOutcome HandoffContextOutcome { get; set; } = ServerReadOutcome.Ok;
     public Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct) =>
         Task.FromResult(HandoffContextOutcome == ServerReadOutcome.Ok && HandoffContext is { } context
             ? new HandoffContextFetch(ServerReadOutcome.Ok, context)
@@ -74,7 +74,7 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
         PinnedIdSubject.OnNext(null);
     }
     public void Keep(string? sessionId) => Kept = sessionId;
-    public readonly List<(string SessionId, string Title)> Renames = [];
+    public List<(string SessionId, string Title)> Renames { get; } = [];
     public void ApplyRename(string sessionId, string title) => Renames.Add((sessionId, title));
     public IObservable<ServerSessionsPaging> Paging => PagingSubject;
     public IObservable<int> LiveNotShown => LiveNotShownSubject;

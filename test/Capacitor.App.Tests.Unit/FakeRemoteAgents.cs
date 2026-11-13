@@ -8,13 +8,13 @@ namespace Capacitor.App.Tests.Unit;
 /// Scripted IRemoteAgentsService: a SourceCache the test edits directly plus a BehaviorSubject
 /// per stream, for any suite that needs remote rows in an AgentDirectory.
 sealed class FakeRemoteAgents : IRemoteAgentsService, IDisposable {
-    public readonly SourceCache<AgentInstanceDto, string> Cache = new(a => a.AgentId);
-    public readonly BehaviorSubject<IReadOnlyList<DaemonInfo>> DaemonsSubject = new([]);
-    public readonly BehaviorSubject<DaemonListing> ListingSubject = new(new(null, 0, false));
-    public readonly BehaviorSubject<IReadOnlyList<DaemonAccountsDto>> DaemonAccountsSubject = new([]);
-    public readonly BehaviorSubject<IReadOnlyList<DaemonAccountsDto>> DrawableDaemonAccountsSubject = new([]);
+    public SourceCache<AgentInstanceDto, string> Cache { get; } = new(a => a.AgentId);
+    public BehaviorSubject<IReadOnlyList<DaemonInfo>> DaemonsSubject { get; } = new([]);
+    public BehaviorSubject<DaemonListing> ListingSubject { get; } = new(new(null, 0, false));
+    public BehaviorSubject<IReadOnlyList<DaemonAccountsDto>> DaemonAccountsSubject { get; } = new([]);
+    public BehaviorSubject<IReadOnlyList<DaemonAccountsDto>> DrawableDaemonAccountsSubject { get; } = new([]);
     /// True unless a test is about retained rows: the cache a test edits is what the registry says now.
-    public readonly BehaviorSubject<bool> CurrentSubject = new(true);
+    public BehaviorSubject<bool> CurrentSubject { get; } = new(true);
     public IObservableCache<AgentInstanceDto, string> Agents => Cache.AsObservableCache();
     public IObservable<IReadOnlyList<DaemonInfo>> Daemons => DaemonsSubject;
     public IObservable<DaemonListing> Listing => ListingSubject;
