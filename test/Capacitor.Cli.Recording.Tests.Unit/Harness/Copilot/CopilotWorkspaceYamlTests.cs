@@ -97,4 +97,18 @@ public class CopilotWorkspaceYamlTests {
         await Assert.That(meta!.Name).IsEqualTo("Review this PR.\n\nAdditional instructions:\n  (none)");
         await Assert.That(meta.UserNamed).IsFalse();
     }
+
+    /// <summary>A folded scalar joins a paragraph's lines with spaces, keeps a blank line as one break, and keeps
+    /// the breaks around a more-indented line.</summary>
+    [Test]
+    [Arguments("  Release\n  notes\n\n  Migration steps\n", "Release notes\nMigration steps")]
+    [Arguments("  Steps:\n    one\n  done\n", "Steps:\n  one\ndone")]
+    public async Task workspace_yaml_parser_folds_a_folded_scalar_name(string block, string expected) {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, $"name: >-\n{block}user_named: true\n");
+
+        await Assert.That(CopilotWorkspaceYaml.TryRead(path)!.Name).IsEqualTo(expected);
+    }
 }

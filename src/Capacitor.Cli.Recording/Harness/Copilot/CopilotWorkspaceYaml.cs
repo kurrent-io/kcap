@@ -1,3 +1,4 @@
+using System.Text;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Recording.Harness.Copilot;
@@ -86,9 +87,37 @@ public sealed record CopilotWorkspaceYaml(
             block.Add(next);
         }
 
-        var text = block.Select(l => l.Trim().Length == 0 ? "" : l[Math.Min(indent ?? 0, l.Length)..]);
+        var text = block.Select(l => l.Trim().Length == 0 ? "" : l[Math.Min(indent ?? 0, l.Length)..]).ToList();
 
-        return string.Join(folded ? " " : "\n", text).Trim('\n', ' ');
+        return (folded ? Folded(text) : string.Join("\n", text)).Trim('\n', ' ');
+    }
+
+    // A paragraph's lines join with a space, each blank line is one break, and a more-indented line keeps its breaks.
+    static string Folded(List<string> lines) {
+        var sb       = new StringBuilder();
+        var blanks   = 0;
+        var indented = false;
+
+        foreach (var line in lines) {
+            if (line.Length == 0) {
+                blanks++;
+
+                continue;
+            }
+
+            var moreIndented = line[0] == ' ';
+
+            if (sb.Length > 0) {
+                if (blanks > 0) sb.Append('\n', blanks);
+                else sb.Append(moreIndented || indented ? '\n' : ' ');
+            }
+
+            sb.Append(line);
+            blanks   = 0;
+            indented = moreIndented;
+        }
+
+        return sb.ToString();
     }
 
     static DateTimeOffset? ParseTimestamp(string value) =>
