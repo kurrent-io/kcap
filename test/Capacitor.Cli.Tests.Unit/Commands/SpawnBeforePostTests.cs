@@ -3,7 +3,7 @@ using Capacitor.Cli.Commands;
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
 /// <summary>
-/// Task 4: the spawn-before-post decision for the JSON-payload vendor dispatchers
+/// The spawn-before-post decision for the JSON-payload vendor dispatchers
 /// (Kiro, OpenCode, Pi, Copilot). Capture must start on <c>Posted</c> OR <c>Spooled</c> — never
 /// gated behind lifecycle-POST delivery. Only a permanent <c>Failed</c> withholds the watcher.
 /// </summary>

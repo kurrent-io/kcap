@@ -5,12 +5,12 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 4: covers the orchestrator wiring that ties tasks 1–3 into the launch/
+/// Covers the orchestrator wiring that ties ACP transcript forwarding into the launch/
 /// teardown lifecycle — <c>AgentOrchestrator.HandleLaunchAgent</c>'s post-registration ACP
 /// bind + forwarder start, and <see cref="AgentOrchestrator"/>'s teardown path's bounded final-drain
 /// before <c>EndAgentSession</c>. Reuses the shared <see cref="AgentOrchestratorHarness"/> test
 /// seam (<c>BuildOrchestrator</c>, <c>CaptureServerConnection</c>) — the ACP-specific capture fields
-/// added there (<c>AcpCallOrder</c>, <c>AcpSessionStartedCalls</c>, <c>AcpEventsCalls</c>,
+/// there (<c>AcpCallOrder</c>, <c>AcpSessionStartedCalls</c>, <c>AcpEventsCalls</c>,
 /// <c>AcpEventsCallSignal</c>) let these tests assert exact call order deterministically instead of
 /// guessing with <c>Task.Delay</c>, since the launch-time ACP wiring is fire-and-forget from
 /// <c>HandleLaunchAgent</c> (must never stall the launch on a slow/blocked bind — see
@@ -18,7 +18,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorAcpForwardingTests {
-    // ── Bind ordering (design spec §2.3) ────────────────────────────────────────────────────────
+    // ── Bind ordering ───────────────────────────────────────────────────────────────────────────
 
     [Test]
     public async Task Cursor_launch_binds_after_register_and_before_events_and_registers_the_binding() {
@@ -56,9 +56,9 @@ public class AgentOrchestratorAcpForwardingTests {
         await WaitHarness.PollUntilAsync(() => cursorFactory.LastRuntime!.ServerBindSettledCalls == 1);
         await Assert.That(cursorFactory.LastRuntime!.ServerBound).IsTrue();
 
-        // RegisterAcpBinding was called: a reconnect re-bind (task 3's ReBindAcpSessionsAsync)
+        // RegisterAcpBinding was called: a reconnect re-bind (ReBindAcpSessionsAsync)
         // must re-invoke AcpSessionStarted for this agent — UnregisterAcpBinding is NOT
-        // observable directly (non-virtual), so this is the indirect proof task 3's own tests
+        // observable directly (non-virtual), so this is the indirect proof AcpServerConnectionTests
         // use for the same seam.
         var bindCallsBefore = server.AcpSessionStartedCalls.Count;
         await server.ReBindAcpSessionsAsync();
@@ -71,7 +71,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Forwarding (design spec §2.2/§2.4) ──────────────────────────────────────────────────────
+    // ── Forwarding ──────────────────────────────────────────────────────────────────────────────
 
     /// <summary>The server attributes a hosted session to a repository only from what session_started
     /// names, since no hook runs inside a hosted agent.</summary>
@@ -128,7 +128,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await Assert.That(firstBatch[0].Seq).IsEqualTo(0);
         await Assert.That(firstBatch[0].RawSessionId).IsEqualTo(cursorFactory.LastRuntime!.AcpSessionId);
 
-        // Mirrors task 2's aggregator emitting a translated envelope mid-turn — the forwarder
+        // Mirrors the runtime's aggregator emitting a translated envelope mid-turn — the forwarder
         // must pick it up off the SAME channel and assign it the next monotonic seq.
         cursorFactory.LastRuntime.EnvelopesWriter.TryWrite(new AcpEventEnvelope(Kind: AcpEventKind.AssistantText, Text: "hello"));
 
@@ -143,7 +143,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Teardown ordering (design spec §2.3 terminal ownership) ────────────────────────────────
+    // ── Teardown ordering (terminal ownership) ─────────────────────────────────────────────────
 
     [Test]
     public async Task Teardown_drains_the_transcript_before_ending_the_session_then_unregisters_the_binding() {
@@ -184,7 +184,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await Task.Delay(TimeSpan.FromMilliseconds(150));
 
         // While the drain is still gated, EndAgentSession must NOT have been called yet — the
-        // load-bearing ordering guarantee (drain-before-finalize, design spec §2.3).
+        // load-bearing ordering guarantee (drain-before-finalize).
         await Assert.That(server.AcpCallOrder).DoesNotContain($"endSession:{cmd.AgentId}");
         await Assert.That(unregistered.Task.IsCompleted).IsFalse();
 
@@ -206,8 +206,8 @@ public class AgentOrchestratorAcpForwardingTests {
         await Assert.That(lastEventsIndex).IsGreaterThanOrEqualTo(0);
         await Assert.That(endSessionIndex).IsGreaterThan(lastEventsIndex);
 
-        // UnregisterAcpBinding ran (non-virtual — verified indirectly, same as task 3's own
-        // tests): a reconnect re-bind no longer touches this now-dead agent.
+        // UnregisterAcpBinding ran (non-virtual — verified indirectly, same as AcpServerConnectionTests):
+        // a reconnect re-bind no longer touches this now-dead agent.
         var bindCallsBefore = server.AcpSessionStartedCalls.Count;
         await server.ReBindAcpSessionsAsync();
         await Assert.That(server.AcpSessionStartedCalls.Count).IsEqualTo(bindCallsBefore);
@@ -265,14 +265,14 @@ public class AgentOrchestratorAcpForwardingTests {
         }
     }
 
-    // ── Reliability fixes (PR #301 review: per-agent CTS) ───────────────────────────────
+    // ── Per-agent CTS ───────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Qodo #4: a drain that misses its budget must not leave the forwarder's <c>RunTask</c> running
+    /// A drain that misses its budget must not leave the forwarder's <c>RunTask</c> running
     /// forever in the background. The per-agent CTS created at launch is cancelled specifically on
     /// drain-timeout (<c>AgentOrchestrator.FinalDrainAcpTranscriptAsync</c>) — this test proves
     /// that cancellation actually reaches the forwarder's blocked send (via
-    /// <c>SendAcpEventsAsync</c>'s <c>ct</c> parameter, which the test double now honors like a real
+    /// <c>SendAcpEventsAsync</c>'s <c>ct</c> parameter, which the test double honors like a real
     /// hub invoke would) so <c>RunTask</c> completes ON ITS OWN, without the test manually releasing
     /// the block the way the (unrelated) budget test above has to.
     /// </summary>
@@ -311,7 +311,7 @@ public class AgentOrchestratorAcpForwardingTests {
             await orch.HandleStopAgentForTest(cmd.AgentId).WaitAsync(WaitHarness.AcpHangGuard);
             await unregistered.Task.WaitAsync(WaitHarness.AcpHangGuard);
 
-            // The crux of the fix: cancelling the per-agent CTS on drain-timeout must actually reach
+            // The crux: cancelling the per-agent CTS on drain-timeout must actually reach
             // the forwarder's in-flight send and unwind it — RunTask completes on its own, with NO
             // help from this test (contrast the budget test above, which has to Cancel() its own
             // blockCts in a `finally` to avoid leaking the background task).
@@ -322,7 +322,7 @@ public class AgentOrchestratorAcpForwardingTests {
     }
 
     /// <summary>
-    /// Qodo #5 / Codex P1 #2: the bind-vs-finalize stale-binding race. <c>AcpSessionStartedAsync</c>'s
+    /// The bind-vs-finalize stale-binding race. <c>AcpSessionStartedAsync</c>'s
     /// <c>ConnectionRetry</c> gating can block across a reconnect outage; if the agent's WHOLE
     /// lifecycle (launch → exit → finalize → cleanup) runs to completion while that bind is still
     /// in flight, the late bind resolving afterwards must NOT register a binding for the now-dead
@@ -423,7 +423,7 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
-    // ── Failure isolation (design spec §2.3, load-bearing correctness point 3) ─────────────────
+    // ── Failure isolation ──────────────────────────────────────────────────────────────────────
 
     [Test]
     public async Task Forwarder_fault_does_not_crash_the_agent_or_the_orchestrator() {

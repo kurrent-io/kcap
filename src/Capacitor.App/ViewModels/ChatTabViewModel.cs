@@ -9,6 +9,7 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -29,7 +30,7 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// Feed identity is part of the read generation: a distinct feed key clears the rows and installs a
 /// fresh feed in one UI-thread step, and any read still in flight for the old source completes
 /// under a stale generation and is discarded.
-public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
+public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     /// How long a send may go unechoed while the agent is not working before Enter is pressed once
     /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
@@ -489,6 +490,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// channel accepts the prompt. A reply answers the session's open questions, and no permission
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
+    public ComposerPicker? Picker { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;

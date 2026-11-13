@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <ItemGroup>
         <None Include="../fixtures/pull-request-reads-v1.json" Link="fixtures/pull-request-reads-v1.json" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="../fixtures/unicode/*.gz" Link="fixtures/unicode/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/gh/*.json" Link="fixtures/gh/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/codex/*.jsonl" Link="fixtures/codex/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/pi-headless/*.jsonl" Link="fixtures/pi-headless/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
@@ -15,6 +16,10 @@
         <!-- MemoryIndexLiveCertHarness declares native LibraryImports. -->
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
+    <ItemGroup>
+        <!-- The shipped plugin, read as text. CI selects this suite for a markdown change under it. -->
+        <TestSelectionDirectory Include="../../kcap" />
+    </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />

@@ -395,9 +395,6 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         return CodexHookTrust.ParseHooksList(result);
     }
 
-    // Best-effort: surface Codex's skills as the composer's `/` picker entries. skills/list is not
-    // required for the launch, so an older app-server without the method — or an unexpected shape —
-    // must not fail it; the picker just shows nothing for Codex.
     async Task TryPublishSkillsAsync(CancellationToken ct) {
         try {
             var listParams = new JsonObject { ["cwds"] = new JsonArray((JsonNode?) _launch.Cwd) };

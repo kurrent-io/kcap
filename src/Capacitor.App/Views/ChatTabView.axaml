@@ -191,6 +191,13 @@
         <Style Selector="ContentControl.pendingCard.packsWithPrevious">
             <Setter Property="Margin" Value="0,4,0,12" />
         </Style>
+        <!-- Invisible: the resize cursor is the only sign of a handle. The transparent fill is what
+             makes it hit-testable. -->
+        <Style Selector="Border.chatColumnHandle">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+        </Style>
         <Style Selector="Border.thinkingBody">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
             <Setter Property="BorderThickness" Value="2,0,0,0" />
@@ -240,13 +247,13 @@
             <ItemsControl.Template>
                 <ControlTemplate>
                     <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" BringIntoViewOnFocusChange="False">
-                        <views:ChatTailPanel x:DataType="vm:ChatTabViewModel">
+                        <views:ChatTailPanel x:Name="ChatTail" x:DataType="vm:ChatTabViewModel">
                             <!-- ItemsPanel does not reach the presenter on its own: without this
                                  template binding it falls back to its own default StackPanel and
                                  every row is realized. -->
-                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="22,18,22,0" />
+                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="0,18,0,0" />
                             <!-- Inside the scroll, so it sits under the last message and follows the tail. -->
-                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="14,0,22,8" IsVisible="{Binding ShowsLiveNote}">
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="-8,0,0,8" IsVisible="{Binding ShowsLiveNote}">
                                 <views:OuroMascot Width="32" Height="32" Margin="0,-5" IsPlaying="{Binding ShowsLiveNote}" />
                                 <TextBlock Text="{Binding ActivityNote}" VerticalAlignment="Center"
                                            Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5" />
@@ -257,7 +264,7 @@
             </ItemsControl.Template>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <views:ChatVirtualizingPanel />
+                    <views:ChatVirtualizingPanel LaneWidth="{Binding $parent[views:ChatTabView].LaneWidth}" />
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
@@ -320,7 +327,7 @@
                     </Border>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
+                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Classes="toolKindChip"
                                        Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
@@ -334,7 +341,7 @@
                     </StackPanel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
+                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
                         <Button Classes="toolSummary thinkingSummary" HorizontalAlignment="Left"
                                 Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                 AutomationProperties.Name="{Binding HeaderLabel}">
@@ -375,6 +382,7 @@
                             </StackPanel>
                         </Border>
                         <Border Classes="shellOutput chatSystemCard" Margin="0,8,0,0"
+                                MaxWidth="{Binding $parent[views:ChatTabView].LaneWidth}"
                                 IsVisible="{Binding HasOutput}">
                             <StackPanel Spacing="6">
                                 <views:ChatKindHeader Label="Output" IconKind="{x:Static views:ToolCategoryIcons.CommandIcon}" />
@@ -568,6 +576,10 @@
                 </DataTemplate>
             </ItemsControl.DataTemplates>
         </ItemsControl>
+        <!-- Over the list rather than in it, so a handle drag is not read as the scrollbar's. -->
+        <Border x:Name="ChatColumnLeftHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+        <Border x:Name="ChatColumnRightHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+        <Border x:Name="ChatLaneHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
         <Border x:Name="FindBar" Grid.Row="2" Classes="findBar" DataContext="{Binding Find}" x:DataType="vm:ChatFindViewModel"
                 IsVisible="{Binding IsOpen}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="2">
@@ -603,7 +615,7 @@
         <Border x:Name="ComposerBand" Grid.Row="3" Padding="22,15,22,16"
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid x:Name="ComposerColumn" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <!-- The subagents and commands that outlive the turn, folded to a count until opened. 5px
                      here plus the toggle's 8px puts the title where the queue banner puts its text. -->
                 <Border x:Name="BackgroundTasksBanner" Grid.Row="0" Margin="0,0,0,8" Padding="5,4"

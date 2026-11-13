@@ -2303,12 +2303,11 @@ public class ClaudeHookCommandTests {
         await Assert.That(all).Contains("\"route\":\"subagent-stop\"");
     }
 
-    // Task 12 / BLOCKER-1+3 regression: the centralized ordered drain (now running on every
-    // non-Codex hook, incl. --claude) can WITHHOLD a spooled session-end in the ".ordered-*" temp
-    // namespace pending the transcript tail. ClaudeHookCommand.CurrentSessionHasBacklog must see that
-    // withheld terminal (it now delegates to HookSpool.HasBacklog, which covers ".ordered-*") so a
-    // later Claude subagent-stop for the SAME session spools BEHIND it rather than POSTing ahead of
-    // the still-withheld session-end — the exact cross-spool ordering violation the blockers prevent.
+    // The centralized ordered drain (running on every non-Codex hook, incl. --claude) can WITHHOLD a
+    // spooled session-end in the ".ordered-*" temp namespace pending the transcript tail.
+    // ClaudeHookCommand.CurrentSessionHasBacklog must see that withheld terminal (it delegates to
+    // HookSpool.HasBacklog, which covers ".ordered-*") so a later Claude subagent-stop for the SAME
+    // session spools BEHIND it rather than POSTing ahead of the still-withheld session-end.
     [Test]
     public async Task subagent_stop_spools_behind_a_session_end_withheld_in_the_ordered_namespace() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.OK); // server up — only the ordering guard can hold the post back
@@ -2765,6 +2764,17 @@ public class ClaudeHookCommandTests {
         var timeout  = manifest["hooks"]!["SessionStart"]![0]!["hooks"]![0]!["timeout"]!.GetValue<int>();
 
         await Assert.That(TimeSpan.FromSeconds(timeout)).IsEqualTo(ClaudeHookCommand.SessionStartCeiling);
+    }
+
+    /// <summary>Claude gives up on the hook at the manifest's timeout and leaves its own prompt open, so a timeout that
+    /// ends with the server's expiry loses the server's answer.</summary>
+    [Test]
+    public async Task The_permission_hook_outlives_the_servers_expiry() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var timeout  = TimeSpan.FromSeconds(manifest["hooks"]!["PermissionRequest"]![0]!["hooks"]![0]!["timeout"]!.GetValue<int>());
+
+        await Assert.That(timeout).IsGreaterThan(PermissionRequestHook.ServerExpiry);
+        await Assert.That(timeout).IsEqualTo(PermissionRequestHook.Timeout);
     }
 
     /// <summary>Claude cancels a synchronous plugin SessionEnd hook after 1.5s whatever its timeout, which a

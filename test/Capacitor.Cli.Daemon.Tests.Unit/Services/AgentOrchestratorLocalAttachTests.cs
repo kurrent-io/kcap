@@ -17,8 +17,7 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// Local-attach (Phase 1) behaviours on AgentOrchestrator. Partial of
-/// AgentOrchestratorVendorTests to reuse its BuildOrchestrator + test doubles.
+/// Local-attach behaviours on AgentOrchestrator.
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorLocalAttachTests {
     [TempHome] public required TempHome Home { get; init; }
@@ -1112,12 +1111,10 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     /// <summary>Every launch path must build its activity clock through the orchestrator's
-    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. The
-    /// local-spawn path used to construct its <c>AgentInstance</c> without one, taking the record's
-    /// hookless default: inert today (a local spawn is PTY-only, and nothing PTY stamps a launch
-    /// stage), but silently arming the exact "feature is wired everywhere except here" failure the
-    /// moment this path gains an ACP runtime — which is how the ACP handshake stamps went no-op once
-    /// already. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
+    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. A
+    /// local spawn built without one takes the record's hookless default: inert while a local spawn
+    /// is PTY-only (nothing PTY stamps a launch stage), but silently arming the exact "feature is
+    /// wired everywhere except here" failure the moment this path gains an ACP runtime. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
     /// the default clock is non-null too.</summary>
     [Test]
     public async Task Local_spawn_builds_its_activity_clock_through_the_shared_factory() {

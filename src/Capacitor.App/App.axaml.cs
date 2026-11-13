@@ -18,6 +18,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Composer;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
@@ -1310,6 +1311,9 @@ public partial class App : Application {
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
         _usageClock = readings.Clock;
         var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
+        var pickers = new ComposerPickers(
+            new FileCatalog(new ProcessRunner(_time), _userHome, _shutdown.Token),
+            new CommandCatalog(ops, shownService.Status, _userHome, _time, _shutdown.Token));
         // The shown status: a planned restart must read as one in the workspace too, not as a dead daemon.
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
             agentId, shownService, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
@@ -1323,6 +1327,7 @@ public partial class App : Application {
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+            pickers: pickers,
             inAppPages: () => inAppPages.IsOn);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
@@ -1362,7 +1367,7 @@ public partial class App : Application {
                 OpenWindow() is { } window ? window.ReopenServerSessionAsync(sessionId, presentation) : Task.FromResult(false),
             notifier: notifier, appServerUrl: profiles?.Resolution.ServerUrl,
             modelCatalog: modelCatalog.Catalog, onUnauthorized: serverLane.ParkSignedOut, time: _time,
-            localMachineId: () => localMachine.Id, accounts: readings, accountMemory: _appState, shutdown: _shutdown.Token);
+            localMachineId: () => localMachine.Id, accounts: readings, accountMemory: _appState, pickers: pickers, shutdown: _shutdown.Token);
         // A session the server lists with no daemon behind it: read-only, so no terminal surface.
         RemoteSessionViewModel? BuildServer(string sessionId) =>
             directory.Rows.Lookup($"server:{sessionId}") is { HasValue: true, Value: var row }
@@ -1422,7 +1427,7 @@ public partial class App : Application {
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
                 harnessesSettingsAction: _openHarnessesSettings,
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
-                openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
+                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
@@ -2321,6 +2326,7 @@ public partial class App : Application {
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
             IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
@@ -2380,6 +2386,7 @@ public partial class App : Application {
             listing: remoteAgents?.Listing, daemonAccounts: remoteAgents?.DaemonAccounts, localAccounts: localAccounts,
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
+            pickers: pickers,
             launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);

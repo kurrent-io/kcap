@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -9,12 +8,11 @@ using WireMock.Server;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Phase 3: the /api/eval/questions alias returns RAW question text in `prompt`
+/// The /api/eval/questions alias returns RAW question text in `prompt`
 /// (no prompt_version). An old released daemon substitutes that raw text into its OWN
 /// embedded {QUESTION_TEXT} template; a rendered value would double-wrap. This guards
 /// the CLI client's view of the alias contract.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class EvalQuestionsAliasRawTextTests : IDisposable {
     readonly WireMockServer _server = WireMockServer.Start();
     public void Dispose() => _server.Stop();

@@ -266,9 +266,9 @@ public class OpenCodeImportSourceTests {
 
     [Test]
     public async Task import_session_derives_workspace_root_from_cwd_when_a_git_repo_is_present() {
-        // review finding 4: routed imports (OpenCode/Pi/Copilot/Kiro/Antigravity) went
-        // straight to ImportSessionAsync and never derived workspace_root — only the file-based
-        // chain path (ImportChainsAsync) did. Mirrors ImportChainsTests'
+        // Routed imports (OpenCode/Pi/Copilot/Kiro/Antigravity) go straight to ImportSessionAsync,
+        // so they must derive workspace_root themselves, as the file-based chain path
+        // (ImportChainsAsync) does. Mirrors ImportChainsTests'
         // ImportChainsAsync_derives_workspace_root_from_the_remapped_cwd_not_the_raw_meta_cwd.
         using var fix = new OpenCodeDbFixture();
         var repoDir = Path.Combine(fix.Dir, "repo");

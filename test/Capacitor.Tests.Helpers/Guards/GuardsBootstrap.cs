@@ -13,5 +13,6 @@ public static class GuardsBootstrap {
         RuntimeHelpers.RunClassConstructor(typeof(GitConfigGlobalSetup).TypeHandle);
         RuntimeHelpers.RunClassConstructor(typeof(LocalRootGlobalSetup).TypeHandle);
         RuntimeHelpers.RunClassConstructor(typeof(HostedSessionEnvGlobalSetup).TypeHandle);
+        RuntimeHelpers.RunClassConstructor(typeof(CultureGlobalSetup).TypeHandle);
     }
 }

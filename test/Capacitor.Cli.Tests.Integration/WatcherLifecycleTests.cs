@@ -2,12 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 [NotInParallel]
-[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherLifecycleTests {
     static readonly TempDir Tmp = new();
     // Not Tmp: that is KCAP_WATCHER_DIR, which the watcher enumerates.
@@ -97,8 +95,8 @@ public class WatcherLifecycleTests {
         await Watchers.KillWatcher(key);
     }
 
-    // Process.Kill is SIGKILL on Unix, so before this fix a "killed" watcher never ran its
-    // SIGTERM shutdown path (final drain + undelivered-tail spool). Exit code 42 from the trap
+    // Process.Kill is SIGKILL on Unix, so a watcher stopped that way never runs its SIGTERM
+    // shutdown path (final drain + undelivered-tail spool). Exit code 42 from the trap
     // proves the process saw SIGTERM and exited on its own terms.
     [Test]
     public async Task KillWatcher_sigterms_first_so_the_watcher_can_run_its_drain() {

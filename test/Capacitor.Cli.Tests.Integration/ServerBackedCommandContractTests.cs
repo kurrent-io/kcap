@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
-using TUnit.Core.Enums;
 using WireMock.Logging;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -17,7 +16,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// The commands that shell out to a vendor CLI on success are pinned on the paths that stop
 /// before it.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class ServerBackedCommandContractTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

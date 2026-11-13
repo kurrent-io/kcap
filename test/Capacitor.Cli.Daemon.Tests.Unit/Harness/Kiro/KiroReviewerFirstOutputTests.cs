@@ -49,8 +49,7 @@ public class KiroReviewerFirstOutputTests {
         var process = new TrackingProcess();
 
         // GENUINELY silent. The fake's default prompt script emits an agent_message_chunk, so a
-        // plain fake is not the peer this bound is about — an earlier version of this test failed for
-        // exactly that reason, and it was the test that was wrong. An empty update list plus a held
+        // plain fake is not the peer this bound is about. An empty update list plus a held
         // response models a child that accepted the turn and then produced nothing at all.
         agent.EnqueuePromptScript(
             updates ?? [], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());

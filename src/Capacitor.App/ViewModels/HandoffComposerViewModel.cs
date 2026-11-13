@@ -3,9 +3,13 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Composer;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
@@ -18,7 +22,7 @@ namespace Capacitor.App.ViewModels;
 /// start, and what launches is exactly what the strip shows. The strip is read from the checkout's own
 /// refs; origin is contacted only once the user starts the hand-off, since showing the composer is no
 /// request to reach off the machine.
-public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAttachmentSink {
+public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IComposer {
     public const string NeedsFullAccess = "You need full access to this session to hand it off";
     public const string ServerTooOld = "Your kcap server doesn't support hand-off yet";
     public const string DaemonTooOld = "Your local kcap daemon doesn't support hand-off yet. Update kcap to use it.";
@@ -152,7 +156,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
             AccountReadings? accounts = null, AppStateStore? accountMemory = null,
-            CancellationToken shutdown = default) {
+            ComposerPickers? pickers = null, CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
         _launch = launch;
@@ -174,6 +178,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _localMachineId = localMachineId;
         _shutdown = shutdown;
         _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        Picker = pickers?.Create(this.WhenAnyValue(x => x.ResumeVisible)
+                .CombineLatest(_choices.WhenAnyValue(x => x.RepoPath, x => x.SelectedVendor, x => x.AccountRows,
+                        (repo, vendor, accounts) => PickerContext(repo, vendor, ComposerContext.AccountOf(accounts))),
+                    (resume, handoff) => resume ? PickerContext(_session.Cwd, _session.Vendor, RecordedAccount()) : handoff))
             .DisposeWith(_disposables);
         // A pick answers the refusal of the one before it.
         _choices.WhenAnyValue(x => x.AccountRows)
@@ -275,6 +284,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+
+    public ComposerPicker? Picker { get; }
+
+    static ComposerContext? PickerContext(string? repo, string? vendor, ResolvedAccount? account) =>
+        repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor), Account: account) : null;
+
+    ResolvedAccount? RecordedAccount() =>
+        _session.Recording is { ConfigDir: { Length: > 0 } store } recording
+            ? new ResolvedAccount(store, recording.AccountId, Services.AccountRows.LastSegment(store))
+            : null;
+
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }

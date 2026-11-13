@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
-using Capacitor.Cli.Core.Harness;
 
-namespace Capacitor.Cli.Daemon.Harness.Claude;
+namespace Capacitor.Cli.Core.Harness.Claude;
 
 /// <summary>Probes a Claude harness for its slash commands WITHOUT starting a session: runs
 /// <c>claude -p --input-format stream-json</c>, sends one <c>initialize</c> control request, reads the
@@ -16,7 +14,7 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 /// kcap hook no-ops on it) — <c>--bare</c> would skip hooks too but also drops the plugins whose
 /// commands the picker exists to show. An empty strict MCP config keeps the probe from spawning the
 /// worktree's MCP servers, which contribute none of the built-in / plugin / project commands.</para></summary>
-static class ClaudeCommandProbe {
+public static class ClaudeCommandProbe {
     const string InitializeRequest =
         """{"type":"control_request","request_id":"kcap-command-probe","request":{"subtype":"initialize"}}""";
 
@@ -62,9 +60,7 @@ static class ClaudeCommandProbe {
         } catch (Exception ex) {
             log($"claude command probe failed: {ex.Message}");
 
-            // ProcessTree.Kill, never Process.Kill(bool): this child shares the daemon's process group,
-            // and the daemon's tree-kill (SIGKILL only, children before parents, each pid identity-checked)
-            // is the one sanctioned way to stop it.
+            // ProcessTree.Kill, never Process.Kill(bool): in the daemon this child shares its process group.
             try { ProcessTree.Kill(process); } catch {
                 /* best-effort */
             }

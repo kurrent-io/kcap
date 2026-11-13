@@ -1,5 +1,4 @@
 using Capacitor.Cli.Commands;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -8,7 +7,7 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task A2.1: the Partial-resume branch must post exactly one
+/// The Partial-resume branch must post exactly one
 /// <c>session-end/{vendor}</c> AFTER a successful fail-closed transcript tail — end-only
 /// reassert, since SessionStarted uses random ids (re-asserting start would duplicate it)
 /// while session-end has server-side idempotency — and must NEVER finalize when the tail
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>ImportSingleSessionAsync</c> — the same internal entry point
 /// <c>ImportChainsTests</c> (Tests.Unit) drives for the New branch.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class ImportEndReassertTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

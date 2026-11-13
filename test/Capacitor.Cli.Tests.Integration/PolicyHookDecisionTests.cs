@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
-using TUnit.Core.Enums;
 using WireMock.Logging;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -19,7 +18,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// exercising <c>ClaudeHookCommand.HandleCore</c>'s own pre-dispatch spool drain, which runs on
 /// every client-backed Claude hook and is not subject to the cross-process drain throttle.</para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class PolicyHookDecisionTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
@@ -28,6 +26,9 @@ public class PolicyHookDecisionTests : IDisposable {
     public void Dispose() { _server.Stop(); foreach (var p in _spawned) { try { p.Kill(); } catch { } p.Dispose(); } }
 
     const string Sid = "3f8a2b1c4d5e46f7a8b9c0d1e2f3a4b5";
+
+    // JSON-encoded: pasted raw, a Windows path's backslashes are invalid JSON escapes.
+    string Cwd => JsonValue.Create(Config.Directory).ToJsonString();
 
     void StubServer() {
         // Deterministic "no auth" discovery rather than relying on WireMock's default response to
@@ -64,7 +65,7 @@ public class PolicyHookDecisionTests : IDisposable {
             "version: 1\nrules:\n  - match: { kind: shell, command: \"git push --force*\" }\n    outcome: deny\n");
         var payload = $$"""
             {"hook_event_name":"PermissionRequest","session_id":"{{Sid}}","tool_name":"Bash",
-             "tool_input":{"command":"git push --force"},"cwd":"{{Config.Directory}}"}
+             "tool_input":{"command":"git push --force"},"cwd":{{Cwd}}}
             """;
         var (exit, stdout) = await RunHookAsync(payload);
         await Assert.That(exit).IsEqualTo(0);
@@ -73,7 +74,7 @@ public class PolicyHookDecisionTests : IDisposable {
 
         // A hook's drain pass is budgeted and leaves whatever it could not deliver spooled for the
         // next hook, so on a loaded runner one Stop may deliver only part of the backlog.
-        var stopPayload = $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","cwd":"{{Config.Directory}}"}""";
+        var stopPayload = $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","cwd":{{Cwd}}}""";
         var events      = Posted("/hooks/policy-decision");
         var snapshots   = Posted("/hooks/policy-snapshot");
         for (var stop = 0; stop < 5 && (events.Count == 0 || snapshots.Count == 0); stop++) {
@@ -114,7 +115,7 @@ public class PolicyHookDecisionTests : IDisposable {
             "version: 1\nrules:\n  - match: { kind: shell, command: \"git status *\" }\n    outcome: allow\n");
         var payload = $$"""
             {"hook_event_name":"PreToolUse","session_id":"{{Sid}}","tool_name":"Bash",
-             "tool_input":{"command":"git status"},"cwd":"{{Config.Directory}}"}
+             "tool_input":{"command":"git status"},"cwd":{{Cwd}}}
             """;
         var (exit, stdout) = await RunHookAsync(payload);
         await Assert.That(exit).IsEqualTo(0);
@@ -127,7 +128,7 @@ public class PolicyHookDecisionTests : IDisposable {
         StubServer();
         var payload = $$"""
             {"hook_event_name":"PreToolUse","session_id":"{{Sid}}","tool_name":"Bash",
-             "tool_input":{"command":"anything"},"cwd":"{{Config.Directory}}"}
+             "tool_input":{"command":"anything"},"cwd":{{Cwd}}}
             """;
         var (exit, stdout) = await RunHookAsync(payload);
         await Assert.That(exit).IsEqualTo(0);

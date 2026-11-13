@@ -132,7 +132,7 @@ public class BootRefusalAttributionTests {
 
     /// <summary>Minimal launchd plist carrying the consent-seed directive and (optionally) a baked
     /// server expectation — mirrors <c>ServiceVerifyStartTests.MinimalPlist</c>. The identity gate
-    /// now fails closed on an unresolvable unit server (spec §3.4(b)), so this also bakes
+    /// fails closed on an unresolvable unit server, so this also bakes
     /// <c>KCAP_URL</c> whenever <paramref name="expectServerUrl"/> is supplied — otherwise the unit
     /// would have no resolvable identity for Phase A to agree with.</summary>
     static string MinimalPlist(string binary, string consentSeedDefault, string? expectServerUrl) => $"""
@@ -153,7 +153,7 @@ public class BootRefusalAttributionTests {
         """;
 
     /// <summary>Invoking env for a gated test that needs Phase A's identity check to pass — both
-    /// <c>KCAP_PROFILE</c> and <c>KCAP_EXPECT_SERVER_URL</c> are now required (fail-closed).</summary>
+    /// <c>KCAP_PROFILE</c> and <c>KCAP_EXPECT_SERVER_URL</c> are required (fail-closed).</summary>
     static Func<string, string?> GatedEnvWithIdentity(string expectServerUrl) => k => k switch {
         "KCAP_CONSENT_SEED_DEFAULT" => "prompt",
         "KCAP_PROFILE"              => "default",

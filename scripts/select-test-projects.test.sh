@@ -80,6 +80,14 @@ assert "nested scanner directory" 'src/App/View/Main.cs' 'test/App.Tests.Unit/Ap
 assert "scanner preserves markdown skip" 'src/App/README.md' ''
 assert "scanner preserves global fallback" 'Directory.Build.props' 'all'
 
+mkdir -p "$repo/kcap/hooks"
+scans PluginGuards.Tests.Unit '<TestSelectionDirectory Include="../../kcap" />'
+git -C "$repo" add -A
+assert "plugin markdown reaches its scanner" 'kcap/skills/x/SKILL.md' 'test/PluginGuards.Tests.Unit/PluginGuards.Tests.Unit.csproj'
+assert "plugin config still selects all" 'kcap/hooks/hooks.json' 'all'
+rm -r "$repo/test/PluginGuards.Tests.Unit"
+git -C "$repo" add -A
+
 scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../../src/Service;../../src/Daemon" />'
 assert "scanner list in one Include" 'src/Service/Svc.cs' 'test/PrefixGuards.Tests.Unit/PrefixGuards.Tests.Unit.csproj test/Service.Tests.Unit/Service.Tests.Unit.csproj test/SourceGuards.Tests.Unit/SourceGuards.Tests.Unit.csproj'
 scans PrefixGuards.Tests.Unit '<TestSelectionDirectory Include="../.." />'

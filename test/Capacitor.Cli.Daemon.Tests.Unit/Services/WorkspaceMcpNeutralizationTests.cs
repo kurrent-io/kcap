@@ -321,6 +321,83 @@ public class WorkspaceMcpNeutralizationTests {
         await Assert.That(File.Exists(marker)).IsFalse();
     }
 
+    /// <summary>Marking the stripped config writes the index, which fires <c>post-index-change</c>; a branch
+    /// that ships that hook under a relative <c>core.hooksPath</c> must not get it run. The control must fire,
+    /// or the absence below proves nothing.</summary>
+    [Test]
+    [UnsupportedOSPlatform("windows")]
+    public async Task CreateAsync_does_not_run_a_branch_authored_index_hook_while_hiding_config() {
+        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX hook script with a shebang");
+
+        var marker = Path.Combine(NewDir("hookmarker"), "fired");
+        using var repo = GitRepo.Create();
+        repo.Config("core.hooksPath", ".githooks");
+        repo.CreateFile("README.md", "hi");
+        repo.CreateFile(".mcp.json", """{"mcpServers":{}}""");
+        repo.CommitAll("ship config");
+
+        repo.CreateExecutable(".githooks/post-index-change", $"#!/bin/sh\nprintf fired > '{marker}'\n");
+        repo.CommitAll("branch ships its own post-index-change");
+
+        // The commit's own index writes fire the hook, so the control starts from no marker.
+        File.Delete(marker);
+        repo.Do("update-index", "--skip-worktree", "README.md");
+        await Assert.That(File.Exists(marker)).IsTrue()
+            .Because("the control must reproduce the hook firing on update-index");
+        repo.Do("update-index", "--no-skip-worktree", "README.md");
+        File.Delete(marker);
+
+        await Manager().CreateAsync(repo);
+
+        await Assert.That(File.Exists(marker)).IsFalse();
+    }
+
+    /// <summary>A branch can track a config directory as a symlink; neutralization removes the link itself,
+    /// and that removal must be hidden too.</summary>
+    [Test]
+    public async Task CreateAsync_hides_a_stripped_config_directory_link() {
+        SkipUnlessPosixSymlinks();
+
+        using var repo = GitRepo.Create();
+        repo.CreateFile("README.md", "hi");
+        repo.CreateFile("elsewhere/settings/mcp.json", """{"mcpServers":{}}""");
+        File.CreateSymbolicLink(Path.Combine(repo, ".kiro"), "elsewhere");
+        repo.CommitAll("route .kiro through a link");
+
+        var worktree = await Manager().CreateAsync(repo);
+        var git      = GitRepo.At(worktree.Path);
+
+        await Assert.That(Path.Exists(Path.Combine(worktree.Path, ".kiro"))).IsFalse()
+            .Because("the link is the routing entry neutralization removes");
+        await Assert.That(git.Status).IsEmpty();
+        await Assert.That(git.Do("ls-files", "-v", "elsewhere").Text).Contains("H elsewhere/settings/mcp.json")
+            .Because("the link's target is ordinary content and stays visible");
+    }
+
+    /// <summary>A tracked config file the creation path strips stays tracked but is not reported as a
+    /// deletion, so <c>git add -A</c> in the worktree cannot commit its removal.</summary>
+    [Test]
+    public async Task CreateAsync_hides_stripped_tracked_config_from_git_status() {
+        using var repo = GitRepo.Create();
+        repo.CreateFile("README.md", "hi");
+        repo.CreateFile(".mcp.json", """{"mcpServers":{}}""");
+        repo.CreateFile(".kiro/settings/mcp.json", """{"mcpServers":{}}""");
+        repo.CommitAll("branch ships workspace MCP config");
+
+        var worktree = await Manager().CreateAsync(repo);
+        var git      = GitRepo.At(worktree.Path);
+
+        await Assert.That(File.Exists(Path.Combine(worktree.Path, ".mcp.json"))).IsFalse()
+            .Because("the strip itself must still happen");
+        await Assert.That(git.Status).IsEmpty();
+
+        var flags = git.Do("ls-files", "-v").Text.Split('\n');
+        await Assert.That(flags).Contains("S .mcp.json");
+        await Assert.That(flags).Contains("S .kiro/settings/mcp.json");
+        await Assert.That(flags).Contains("H README.md")
+            .Because("only the stripped paths are marked");
+    }
+
     /// <summary>
     /// Borrowed snapshots are a launch mode too, so the exclusion list must cover every declared workspace
     /// config path — including <c>.kiro/settings/mcp.json</c>, which Kiro executes at session setup.

@@ -440,7 +440,7 @@ public static partial class EvalService {
         // "stable" trends). FactsUsed snapshots persist as empty for new
         // evals; the read-side projection + UI panel stay in place so
         // historical eval audit views keep working.
-        // Phase 3 — reconcile the run question list FROM the catalog (rendered
+        // Reconcile the run question list FROM the catalog (rendered
         // prompts + raw text + versions). The text path uses each question's rendered
         // Prompt directly; the tools path keeps the embedded wrapper + raw text.
         var selectedIds = questions.Select(q => q.Id).ToList();
@@ -673,7 +673,7 @@ public static partial class EvalService {
             return null;
         }
 
-        // 4. Aggregate per-category + overall scores. Phase 3: V3 payload —
+        // 4. Aggregate per-category + overall scores. V3 payload —
         //    each verdict is stamped with its catalog prompt version; the
         //    retrospective prompt version is stamped below from ctx.
         var aggregate = Aggregate(verdicts, ctx.EvalRunId, model, ctx.Questions);
@@ -711,7 +711,7 @@ public static partial class EvalService {
         );
         aggregate = aggregate with { Retrospective = retrospective };
 
-        // Phase 3 — stamp the catalog retrospective prompt version.
+        // Stamp the catalog retrospective prompt version.
         aggregate = aggregate with { RetrospectivePromptVersion = ctx.RetrospectivePromptVersion };
 
         // 6. Persist the aggregate to the server via the V3 route.
@@ -890,7 +890,7 @@ public static partial class EvalService {
 
     /// <summary>
     /// Persists a V3 aggregate to <c>POST /api/sessions/{id}/evals/v3</c>
-    /// (Phase 3 — carries per-question + retrospective prompt versions).
+    /// (carries per-question + retrospective prompt versions).
     /// Public seam for the daemon's wire-format contract test, mirroring
     /// <see cref="PersistAggregateV2Async"/>.
     /// </summary>
@@ -1053,13 +1053,13 @@ public static partial class EvalService {
 
     /// <summary>
     /// Builds the retrospective synthesis prompt from the catalog-rendered
-    /// template (Phase 3 — was a static embedded field) and the
+    /// template and the
     /// placeholders the judge needs: session metadata, per-question verdicts,
     /// retained patterns from prior evals in this repo, and the compacted trace.
     ///
     /// <para>
-    /// SF#1 — the server retro template carries a <c>{TRACE_JSON}</c>
-    /// placeholder the CLI's embedded one lacked. The daemon already fetched the
+    /// The server retro template carries a <c>{TRACE_JSON}</c>
+    /// placeholder. The daemon already fetched the
     /// trace (<see cref="EvalContext.TraceJson"/>) for the text path, so it fills
     /// the placeholder with the real trace rather than blanking it. The retro
     /// judge still has the MCP tool surface for on-demand investigation.
@@ -1411,7 +1411,7 @@ public static partial class EvalService {
             string                             model,
             IReadOnlyList<EvalQuestionDto>     questions
         ) {
-        // Phase 3 — stamp each verdict with its catalog prompt version
+        // Stamp each verdict with its catalog prompt version
         // (from the reconciled questions) before grouping, so the V3 payload
         // carries per-question prompt provenance.
         var versionByQuestion = questions
@@ -1604,8 +1604,8 @@ public static partial class EvalService {
         // Soft-drop of {KNOWN_PATTERNS}: template no longer has the
         // placeholder, so the retrospective prompt builder receives an
         // empty knownPatterns string and the replace becomes a no-op.
-        // Phase 3: template comes from the catalog and {TRACE_JSON} is
-        // filled with the daemon's already-fetched trace (SF#1).
+        // The template comes from the catalog and {TRACE_JSON} is
+        // filled with the daemon's already-fetched trace.
         var prompt = BuildRetrospectivePrompt(
             retrospectivePrompt, sessionMeta, verdictsJson, knownPatterns: "", traceJson);
 

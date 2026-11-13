@@ -29,6 +29,8 @@ public sealed record AppState(
     bool RailCollapsed = false,
     double? ContextPaneWidth = null,
     bool ContextPaneCollapsed = false,
+    double? ChatColumnFraction = null,
+    double? ChatLaneWidth = null,
     // When setup last sent the user to kcap.ai's sign-up; cleared once a sign-in commits.
     DateTimeOffset? WebSignUpOpenedAt = null,
     // Null follows the installed version: a beta install takes betas, a stable one does not.

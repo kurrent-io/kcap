@@ -4,7 +4,7 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Services;
 
 /// <summary>
-/// Raw-kill helper for the <c>install --replace</c> ownership matrix (spec §3.4): terminate a
+/// Raw-kill helper for the <c>install --replace</c> ownership matrix: terminate a
 /// VALIDATED owner of a daemon name with none of <c>DaemonCommands.StopByName</c>'s guard rails —
 /// no console I/O, no "is this managed by a service?" check (that public guard would no-op exactly
 /// in the takeover case <c>--replace</c> exists for), and no lock acquisition (the calling

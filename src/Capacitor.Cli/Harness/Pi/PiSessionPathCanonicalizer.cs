@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Capacitor.Cli.Core.Text;
 
 namespace Capacitor.Cli.Harness.Pi;
 
@@ -13,7 +14,7 @@ internal static class PiSessionPathCanonicalizer {
             if (!string.Equals(full, root, StringComparison.Ordinal))
                 full = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             full = full.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
-            full = full.Normalize(NormalizationForm.FormC);
+            full = UnicodeNormalization.ToNfc(full);
             if (OperatingSystem.IsWindows()) full = full.ToUpperInvariant();
             hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(full)));
             return true;

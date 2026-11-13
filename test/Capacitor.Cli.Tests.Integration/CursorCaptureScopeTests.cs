@@ -2,7 +2,6 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -15,7 +14,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// every other harness reads <c>cwd</c>, which is the whole reason it needs its own coverage: a gate
 /// written against <c>cwd</c> reads null here and admits or drops everything.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class CursorCaptureScopeTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

@@ -14,8 +14,7 @@ public class UnixPtyProcessSpawnTests {
 
         // The spawner thread is a non-background (IsBackground = false) OS thread — the test
         // must own it and Dispose() it itself, or the thread parks forever on the queue and the
-        // whole test-host process never exits (confirmed empirically: an earlier version of this
-        // test that let UnixPtyProcessFactory own an undisposed static singleton hung indefinitely).
+        // whole test-host process never exits (an undisposed static singleton hangs it indefinitely).
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
         var       proc    = factory.Spawn("sleep", ["5"], AppContext.BaseDirectory);
@@ -32,15 +31,12 @@ public class UnixPtyProcessSpawnTests {
             // independently-implemented code paths, so they must produce byte-identical tokens
             // for a healthy spawn.
             //
-            // On macOS, as of M1-A(a) [Task 7], ProcessStartToken.ForPid ALSO vendors the SAME
+            // On macOS, ProcessStartToken.ForPid ALSO vendors the SAME
             // proc_pidinfo(PROC_PIDUNIQIDENTIFIERINFO=17) + kern.bootsessionuuid capture pty_shim.c's
             // pty_capture_mac_identity uses natively (same fixed-offset prefix read, same 256-byte
             // buffer size) — so the two independently-implemented code paths must ALSO produce
             // byte-identical "mac:{bootsessionuuid}:{p_uniqueid}" tokens for a healthy spawn. This
-            // is the regression guard against the two vendored copies of the private struct
-            // drifting apart (before Task 7 landed, Core's non-Linux branch returned the OLDER
-            // "tk:{Process.StartTime.Ticks}" scheme instead, so this cross-check did not apply on
-            // macOS and was gated out below).
+            // guards the two vendored copies of the private struct against drifting apart.
             var liveToken = Capacitor.Cli.Core.ProcessStartToken.ForPid(proc.Pid);
             await Assert.That(liveToken).IsEqualTo(proc.StartIdentity);
         } finally {

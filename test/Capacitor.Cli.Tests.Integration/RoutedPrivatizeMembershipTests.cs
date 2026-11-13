@@ -2,7 +2,6 @@ using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -36,7 +35,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// stops covering the TTY branch and a TTY variant becomes necessary.
 /// </para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class RoutedPrivatizeMembershipTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

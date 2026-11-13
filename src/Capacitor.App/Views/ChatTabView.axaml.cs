@@ -26,7 +26,7 @@ public partial class ChatTabView : UserControl {
     MarkdownView? _currentFindView;
     ScrollViewer? _scroll;
     TextPresenter? _composerPresenter;
-    AttachmentDropPaste? _attachments;
+    readonly Composer _composer;
     bool _followTail = true;
     /// Armed by a gesture inside the list and released once the dispatcher queue drains past
     /// layout, so it covers exactly the scroll changes that gesture produced — an expansion click
@@ -58,6 +58,7 @@ public partial class ChatTabView : UserControl {
 
     public ChatTabView() {
         InitializeComponent();
+        _composer = Composer.Attach(ComposerCard, ComposerInput, AttachButton);
         // Tunnel, not bubble: TextBox's own class handler runs first on the bubbling route, where
         // it inserts the newline and marks Enter handled before any instance handler sees it.
         ComposerInput.AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
@@ -79,6 +80,12 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
+        ColumnSizing = ChatColumnSizing.Attach(this, ChatItems, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
+        // The handles overlay the list rather than sit inside it, so a wheel over one needs its own route.
+        foreach (var handle in new Control[] { ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle }) {
+            handle.AddHandler(PointerWheelChangedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
+            handle.AddHandler(PointerWheelChangedEvent, OnChatWheelChanged, RoutingStrategies.Tunnel);
+        }
         ComposerInput.TemplateApplied += (_, e) =>
             _composerPresenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
         // The ScrollViewer is the list template's; it exists only once the list is first measured,
@@ -96,7 +103,18 @@ public partial class ChatTabView : UserControl {
         };
     }
 
-    internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
+    internal ChatColumnSizing ColumnSizing { get; }
+
+    public static readonly StyledProperty<double> LaneWidthProperty =
+        AvaloniaProperty.Register<ChatTabView, double>(nameof(LaneWidth), double.PositiveInfinity);
+
+    /// How wide the agent's rows may be, within the chat column.
+    public double LaneWidth {
+        get => GetValue(LaneWidthProperty);
+        set => SetValue(LaneWidthProperty, value);
+    }
+
+    internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     /// Paired with the visual tree rather than the constructor: a tab swap detaches and re-attaches
     /// the same view, and a behaviour disposed on the way out has to come back with it.
@@ -109,9 +127,6 @@ public partial class ChatTabView : UserControl {
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
-        _attachments ??= AttachmentDropPaste.Attach(
-            ComposerCard, ComposerInput, AttachButton,
-            () => (DataContext as ChatTabViewModel)?.Attachments, TimeProvider.System);
     }
 
     /// The window reuses this view for every session it opens, so the reading position belongs to
@@ -153,8 +168,6 @@ public partial class ChatTabView : UserControl {
         _pointerRoot?.RemoveHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost);
         if (_pointerRoot is Window window) window.Deactivated -= OnWindowDeactivated;
         _pointerRoot = null;
-        _attachments?.Dispose();
-        _attachments = null;
         base.OnDetachedFromVisualTree(e);
     }
 

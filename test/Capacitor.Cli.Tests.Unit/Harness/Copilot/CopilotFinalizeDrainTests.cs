@@ -87,7 +87,9 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
     const string AssistantLine =
         """{"type":"assistant.message","data":{"content":"final turn"},"id":"evt-asst","timestamp":1234567000}""";
 
-    void StubServer(string sessionId) {
+    /// <param name="duringTailDrain">Runs inside the tail drain's transcript POST, after the finalizer read the watcher it
+    /// asked to stop and before it checks for a running one.</param>
+    void StubServer(string sessionId, Action? duringTailDrain = null) {
         // last_line_number: -1 → drain resumes from line 0 (send everything).
         _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
             .RespondWith(
@@ -98,7 +100,13 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
             );
 
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200));
+            .RespondWith(duringTailDrain is null
+                ? Response.Create().WithStatusCode(200)
+                : Response.Create().WithCallback(_ => {
+                    duringTailDrain();
+
+                    return new WireMock.ResponseMessage { StatusCode = 200 };
+                }));
     }
 
     CopilotFinalizeDrainCommand Finalizer() {
@@ -351,19 +359,22 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
     public async Task LeavesAWatcherStartedAfterTheFinalizerRunning() {
         using var tmp = new TempDir();
         const string sessionId = "test-finalize-resumed-watcher";
-        StubServer(sessionId);
-        StubSessionEnd();
 
         var paths = WatcherPaths.FromEnvironment(Config.Root);
         Directory.CreateDirectory(paths.Directory);
         await File.WriteAllTextAsync(paths.PidFile(sessionId), "999999\nan-earlier-watcher");
         using var resumed = DummyProcess.StartSleep(30);
 
-        var run = RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
-        await File.WriteAllTextAsync(paths.PidFile(sessionId), $"{resumed.Pid}\n{PidIdentity.Capture(resumed.Pid)}");
-        WatcherHeartbeat.Touch(paths.StartedFile(sessionId), DateTimeOffset.UtcNow);
-        WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
-        await run;
+        // Swapped in from the drain rather than after starting the run: a drain that beats the swap would find no
+        // running watcher and post the end.
+        StubServer(sessionId, duringTailDrain: () => {
+            File.WriteAllText(paths.PidFile(sessionId), $"{resumed.Pid}\n{PidIdentity.Capture(resumed.Pid)}");
+            WatcherHeartbeat.Touch(paths.StartedFile(sessionId), DateTimeOffset.UtcNow);
+            WatcherHeartbeat.Touch(paths.HeartbeatFile(sessionId), DateTimeOffset.UtcNow);
+        });
+        StubSessionEnd();
+
+        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
 
         await Assert.That(SessionEndBodies()).IsEmpty();
         await Assert.That(resumed.HasExited).IsFalse();

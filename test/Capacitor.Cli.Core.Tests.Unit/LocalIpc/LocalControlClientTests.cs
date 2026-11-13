@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
 /// LocalControlClient state machine over a REAL Unix socket driven by a scripted server
-/// (spec §4.4). All tests drive the internal seams with small REAL timeouts/backoff delays
+/// All tests drive the internal seams with small REAL timeouts/backoff delays
 /// (deterministic enough: the scripted peer answers or stalls instantly, so waits are bounded
 /// by generous polling deadlines rather than tight tolerances — see
 /// <see cref="Backoff_delay_advances_across_failures_and_resets_after_connected"/> for why a
@@ -81,7 +81,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);           // accept, never reply
     };
     /// Replies to Hello with a frame that decodes fine but isn't HelloReply — the "Error frame
-    /// or any unexpected frame type answering Hello" branch of §4.2.
+    /// or any unexpected frame type answering Hello" branch of the handshake.
     static ConnScript HelloWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
         if (f?.Type == FrameType.Hello)
@@ -128,7 +128,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);
     };
     /// Answers StatusSubscribe with a decodable but semantically wrong frame type — the
-    /// "or arriving on the subscribe connection" half of the same §4.2 branch as
+    /// "or arriving on the subscribe connection" half of the same branch as
     /// <see cref="HelloWrongFrameType"/>.
     static ConnScript SubscribeWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
@@ -383,13 +383,12 @@ public class LocalControlClientTests {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         await foreach (var e in client.RunAsync(cts.Token)) {
-            // A bare `break` — never cancels `cts` — is exactly the disposal path the fix
-            // targets: `await foreach` calls the enumerator's DisposeAsync() while it's
+            // A bare `break` — never cancels `cts` — is exactly the disposal path under test: `await foreach` calls the enumerator's DisposeAsync() while it's
             // suspended at this very `yield return Connected`.
             if (e is LocalControlEvent.Connected) break;
         }
 
-        // Without the fix this never completes (the server's read stays parked on a socket
+        // If disposal does not close the socket this never completes (the server's read stays parked on a socket
         // nobody ever closed) and the test fails on this timeout — a deterministic signal,
         // not a flaky one: the WaitAsync bound only needs to be "generous enough", never
         // "tight enough".
@@ -408,8 +407,7 @@ public class LocalControlClientTests {
         var client = new LocalControlClient(daemons.Store, name, TimeProvider.System) { RetryDelays = [TimeSpan.FromMilliseconds(1)] };
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         // Fires after RunCycleAsync has already returned success (the first valid snapshot
-        // was read) but before RunAsync's ct checkpoint/yield — exactly the race the fix
-        // closes.
+        // was read) but before RunAsync's ct checkpoint/yield — exactly the race this pins.
         client.OnCycleSucceededForTest = cts.Cancel;
 
         var events = new List<LocalControlEvent>();

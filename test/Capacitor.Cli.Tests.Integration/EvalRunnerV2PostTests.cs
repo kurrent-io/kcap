@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -9,9 +8,8 @@ using WireMock.Server;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task 18: locks in the daemon's V2 wire-format migration. After
-/// migrating <c>EvalService.Aggregate</c> to return
-/// <see cref="SessionEvalCompletedPayloadV2"/>, the persistence step must
+/// Locks the daemon's V2 wire format: with <c>EvalService.Aggregate</c>
+/// returning <see cref="SessionEvalCompletedPayloadV2"/>, the persistence step must
 /// POST to <c>/api/sessions/{id}/evals/v2</c> (not the legacy V1 route)
 /// and the body must carry structured suggestions with both
 /// <c>text</c> and <c>audience</c> fields.
@@ -24,7 +22,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// in CI; the persistence step is the load-bearing wire contract here.
 /// </para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class EvalRunnerV2PostTests : IDisposable {
     readonly WireMockServer _server = WireMockServer.Start();
 

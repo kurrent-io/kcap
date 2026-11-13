@@ -503,7 +503,7 @@ class ImportCommand(
     /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
     ///
     /// <para>
-    /// Round-2 finding 1: an <c>AlreadyLoaded</c> parent can still ship brand-new content by
+    /// An <c>AlreadyLoaded</c> parent can still ship brand-new content by
     /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
     /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
     /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
@@ -991,7 +991,6 @@ class ImportCommand(
                 if (fp is not null && ec is not null) {
                     allFileTuples.Add((s.SessionId, fp, ec, src.Vendor));
                 } else {
-                    // Cursor or other future non-file source.
                     cursorCwds[s.SessionId] = s.Cwd;
                 }
             }
@@ -1357,7 +1356,6 @@ class ImportCommand(
             }
         }
 
-        // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
         RefreshClassifiedCwds(classifications);
 
@@ -2452,28 +2450,22 @@ class ImportCommand(
                     var doc  = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    // Skip file-history-snapshot entries
                     if (root.Str("type") == "file-history-snapshot") {
                         continue;
                     }
 
-                    // Extract cwd from metadata
                     meta.Cwd ??= root.Str("cwd");
 
-                    // Extract model from assistant message
                     meta.Model ??= root.Obj("message")?.Str("model");
 
-                    // Extract slug from metadata
                     meta.Slug ??= root.Str("slug");
 
-                    // Extract sessionId
                     meta.SessionId ??= root.Str("sessionId");
 
                     // Detached HEAD is recorded as "HEAD", which names no branch.
                     if (meta.GitBranch is null && root.Str("gitBranch") is { Length: > 0 } branch && branch != "HEAD")
                         meta.GitBranch = branch;
 
-                    // Extract first timestamp for continuation ordering
                     if (meta.FirstTimestamp is null
                      && root.Str("timestamp") is { } tsStr
                      && DateTimeOffset.TryParse(tsStr, out var ts)) {
@@ -2487,7 +2479,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort metadata extraction
         }
 
         return meta;
@@ -2507,7 +2498,6 @@ class ImportCommand(
             // If we seeked mid-file, skip the first partial line
             if (offset > 0) reader.ReadLine();
 
-            // Collect the last 50 non-empty lines
             var tail = new List<string>(50);
 
             while (reader.ReadLine() is { } line) {
@@ -2539,7 +2529,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2574,7 +2563,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2719,7 +2707,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return meta;
@@ -2774,7 +2761,7 @@ class ImportCommand(
     /// then promotes the read fallback if no mutation ever attributed. Import has no live tail
     /// to keep scanning, so — unlike the watcher's one-shot prefix scan — this always runs to
     /// end of file. <paramref name="findRoot"/>/<paramref name="detect"/> are injected so the
-    /// D1 gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
+    /// evidence gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
     /// </summary>
     internal static async Task<JsonObject?> TryBuildEvidenceRepositoryNodeAsync(
             string                                 vendor,
@@ -3757,7 +3744,7 @@ class ImportCommand(
             }
         }
 
-        // D1: the cwd itself isn't inside any git repo (or is missing entirely), so neither
+        // The cwd itself isn't inside any git repo (or is missing entirely), so neither
         // workspace_root above nor the cwd-based repository detection could find anything —
         // fall back to scanning the transcript's own tool-use paths for a resolvable git root,
         // same evidence rule the live watcher applies for sessions launched outside a repo.

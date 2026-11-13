@@ -8,7 +8,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// rather than inferred: lines arrive in order, a stop or a signal drains before the process leaves, and a
 /// hub that is late or drops the connection costs nothing.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class KcapWatchHubTests {
     [TempDir]         public required TempDir         Tmp     { get; init; }
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
@@ -81,6 +80,7 @@ public class KcapWatchHubTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_terminate_signal_drains_before_exit() {
         await using var hub        = await WatcherHubHost.StartAsync();
         var             sessionId  = NewSession();
@@ -118,6 +118,7 @@ public class KcapWatchHubTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_stop_before_connect_exits_early() {
         await using var hub = await WatcherHubHost.StartAsync(down: true);
         var transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
@@ -138,6 +139,7 @@ public class KcapWatchHubTests {
     /// <summary>The connect has left the client, so this is not a stop before connect: nobody can say nothing was
     /// registered, and the watcher fails as it always has, without waiting for the server's answer.</summary>
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_stop_while_the_server_holds_the_connect_fails_the_watcher() {
         await using var hub        = await WatcherHubHost.StartAsync();
         var             landed     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

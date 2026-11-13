@@ -1,10 +1,8 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
-[RunOn(OS.Linux | OS.MacOs)]
 public class EvalToolsRoutingTests {
     // VERIFIED against EvalQuestionMetadata.All (NeedsTools == true) on the rebased main:
     // the FOUR tool-routed questions are exactly these (category → id):
@@ -46,8 +44,8 @@ public class EvalToolsRoutingTests {
             await Assert.That(rq.NeedsTools).IsTrue();
             await Assert.That(rq.RawText).IsEqualTo($"RAW {id}");
 
-            // Tools path substitutes the RAW text into the embedded {QUESTION_TEXT} (option (i)
-            // from Task 3 Step 4 — pass `q with { Prompt = q.RawText }` to BuildToolsQuestionPrompt).
+            // Tools path substitutes the RAW text into the embedded {QUESTION_TEXT}: pass
+            // `q with { Prompt = q.RawText }` to BuildToolsQuestionPrompt.
             var toolsPrompt = EvalService.BuildToolsQuestionPrompt(
                 "TOOLS WRAPPER: {QUESTION_TEXT} cat={CATEGORY}", "sess-1", "run-1",
                 rq with { Prompt = rq.RawText! }, knownPatterns: "");

@@ -21,7 +21,7 @@ assert() {
 assert "abc1234" ""        "ok"        0
 # Already published from the exact same commit (e.g. a harmless re-run) -> refuse.
 assert "abc1234" "abc1234" "republish" 1
-# Already published from a DIFFERENT commit -> the moved/re-cut-tag case (AI-1514). Refuse.
+# Already published from a DIFFERENT commit -> the moved/re-cut-tag case. Refuse.
 assert "abc1234" "def5678" "moved"     1
 # Real-world reproduction: v0.11.5 published from e0b3d233..., tag later moved to 99b820e0.
 assert "99b820e0000000000000000000000000000000" "e0b3d23397fc795117b1a2fccb64e172859ba5a1" "moved" 1

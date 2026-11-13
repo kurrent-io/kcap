@@ -2,7 +2,6 @@ using System.Net;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Antigravity;
 using Capacitor.Cli.Harness.Gemini;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,8 +17,8 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <para>
 /// The end-of-run privatize pass unions two sets: <c>importedSessionIds</c> (membership keyed on
 /// the call's RAW <see cref="ImportOutcome"/> being Loaded/Resumed) and the outcome-independent
-/// <c>privateScopeSessionIds</c>. Before the fix the latter was gated to <c>vendor == "cursor"</c>,
-/// so a non-Cursor replay that attached child content fell through both:
+/// <c>privateScopeSessionIds</c>. Gating the latter to <c>vendor == "cursor"</c> would let a
+/// non-Cursor replay that attached child content fall through both:
 /// </para>
 /// <list type="bullet">
 /// <item><b>Antigravity</b> — its AlreadyLoaded repair branch returns a hardcoded
@@ -37,7 +36,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// is a CREATE-time hint, and by definition an already-ingested session already exists.
 /// </para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class RoutedReplayPrivatizeTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
@@ -142,10 +140,10 @@ public class RoutedReplayPrivatizeTests : IDisposable {
     );
 
     /// <summary>
-    /// The scenario named in the bug report: an AlreadyLoaded Antigravity root that attaches a
-    /// brand-new child during the replay, with every POST succeeding. Its raw outcome is the
-    /// hardcoded Skipped, so it never joins <c>importedSessionIds</c> — before the fix that meant
-    /// ZERO visibility PUTs and the newly-attached child content stayed publicly visible.
+    /// An AlreadyLoaded Antigravity root that attaches a brand-new child during the replay, with
+    /// every POST succeeding. Its raw outcome is the hardcoded Skipped, so it never joins
+    /// <c>importedSessionIds</c> — without the outcome-independent set there would be ZERO
+    /// visibility PUTs and the newly-attached child content would stay publicly visible.
     /// </summary>
     [Test]
     public async Task private_run_privatizes_an_already_loaded_antigravity_root_that_attached_new_child_content() {

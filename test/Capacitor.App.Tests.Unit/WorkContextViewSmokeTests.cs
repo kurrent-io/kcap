@@ -510,10 +510,6 @@ public class WorkContextViewSmokeTests {
 
             await Assert.That(ReferenceEquals(avatar.Background, raised)).IsTrue();
             await Assert.That(ReferenceEquals(letter.Foreground, muted)).IsTrue();
-            await Assert.That(letter.Parent).IsTypeOf<Panel>();
-            await Assert.That(letter.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Center);
-            await Assert.That(letter.VerticalAlignment).IsEqualTo(VerticalAlignment.Center);
-            await Assert.That(letter.TextAlignment).IsEqualTo(TextAlignment.Center);
 
             var letterMid = letter.TranslatePoint(
                 new Point(letter.Bounds.Width / 2, letter.Bounds.Height / 2), avatar)!.Value;

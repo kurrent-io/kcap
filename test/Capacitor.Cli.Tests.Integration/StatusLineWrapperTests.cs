@@ -14,7 +14,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// command line, with no server configured and every proxy variable aimed at a local listener that
 /// must see no connection.</summary>
 [ParallelLimiter<SubprocessLimit>]
-[RunOn(OS.Linux | OS.MacOs)]
 public class StatusLineWrapperTests : IDisposable {
     const string AccountId = "acct1";
     const string Marker    = "KCAP_STATUSLINE_TEST_MARKER";
@@ -55,7 +54,9 @@ public class StatusLineWrapperTests : IDisposable {
         },
     }.ToJsonString();
 
-    static string Quoted(string path) => "'" + path + "'";
+    // Bash looks a command with no '/' up on PATH, so under Git Bash a Windows original names its script
+    // with forward slashes, as Claude itself would need to run it.
+    static string Quoted(string path) => "'" + path.Replace('\\', '/') + "'";
 
     Process Start(string stdin, string? workingDirectory = null, string? daemonsDir = null) {
         var psi = KcapProcess.StartInfo(Daemons.Store, Config.Root, "statusline", "--account", AccountId);
@@ -101,7 +102,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         var reading = Accounts.Readings.LoadAll()[AccountId];
         await Assert.That(reading.Reading.Windows.Select(w => (w.LimitId, w.WindowMinutes, w.UsedPercent, w.ResetsAt)).ToArray())
             .IsEquivalentTo(new[] {
@@ -118,19 +119,20 @@ public class StatusLineWrapperTests : IDisposable {
             cat
             echo
             echo "marker=${Marker}"
-            pwd
+            cat cwd-probe
             echo "to stderr" >&2
             exit 3
-            """);
+            """.ReplaceLineEndings("\n"));
         Register(Quoted(script));
         Tmp.CreateDir("work");
+        Tmp.CreateFile(Path.Combine("work", "cwd-probe"), "in-work\n");
 
         var payload = Payload();
         var r = await RunAsync(payload, Tmp.PathTo("work"));
 
-        await Assert.That(r.ExitCode).IsEqualTo(3);
+        await Assert.That(r.ExitCode).IsEqualTo(3).Because(r.Stderr);
         await Assert.That(r.Stdout.ReplaceLineEndings("\n"))
-            .IsEqualTo($"{payload}\nmarker=marker-value\n{Tmp.GetResolvedPath("work")}\n");
+            .IsEqualTo($"{payload}\nmarker=marker-value\nin-work\n");
         await Assert.That(r.Stderr.Trim()).IsEqualTo("to stderr");
     }
 
@@ -140,7 +142,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEmpty();
         await Assert.That(r.Stderr).IsEmpty();
     }
@@ -156,7 +158,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload(), daemonsDir: daemonsDir);
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEmpty();
         await Assert.That(r.Stderr).IsEmpty();
     }
@@ -172,13 +174,14 @@ public class StatusLineWrapperTests : IDisposable {
         var r     = await RunAsync(Payload());
         watch.Stop();
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout.Trim()).IsEqualTo("line");
         await Assert.That(watch.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsFalse();
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/sh kill
     public async Task Slow_original_is_killed_when_the_wrapper_is_terminated() {
         var pidFile = Tmp.PathTo("original.pid");
         var script  = Tmp.CreateExecutable("original.sh", $"""
@@ -212,6 +215,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/sh kill
     public async Task Terminating_the_wrapper_kills_the_original_s_background_children() {
         var pidFile = Tmp.PathTo("grandchild.pid");
         var script  = Tmp.CreateExecutable("original.sh", $"""
@@ -254,7 +258,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(stdin);
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEqualTo(stdin + "ran\n");
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsFalse();
     }
@@ -266,7 +270,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsTrue();
         await Assert.That(_proxy.Pending()).IsFalse();
     }

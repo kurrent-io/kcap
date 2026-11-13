@@ -92,10 +92,9 @@ public class MachineCommandTests {
         await Assert.That(Help()).Contains(value);
 
     /// <summary>
-    /// Review round 1 rewrote the --visibility rejection to explain what the flag does, because
-    /// erroring on a value with no server effect is otherwise surprising. Pinned here so the
-    /// explanation is not lost in a later tidy-up: without it the message reads as a hard requirement
-    /// on something that configures nothing.
+    /// The --visibility rejection explains what the flag does, because erroring on a value with no
+    /// server effect is otherwise surprising: without it the message reads as a hard requirement on
+    /// something that configures nothing.
     /// </summary>
     [Test]
     public async Task The_help_does_not_promise_that_the_visibility_flag_configures_anything() {
@@ -107,7 +106,7 @@ public class MachineCommandTests {
     }
 
     /// <summary>
-    /// Qodo: a new user-facing CLI surface must be documented in README.md in the same PR. Pinned so
+    /// A user-facing CLI surface must be documented in README.md. Pinned so
     /// the README and the command cannot drift apart silently — the compiler reads neither.
     /// </summary>
     [Test]

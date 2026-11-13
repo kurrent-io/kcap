@@ -64,7 +64,7 @@ public class EvalCatalogClientTests {
         await Assert.That(observer.FailReason).Contains("500");
     }
 
-    // SF#4 -- fail-fast validation BEFORE expensive judge work.
+    // Fail-fast validation BEFORE expensive judge work.
     [Test]
     public async Task Returns_null_on_empty_questions() {
         const string body = """{"retrospective_prompt":"r","retrospective_prompt_version":"1","questions":[]}""";

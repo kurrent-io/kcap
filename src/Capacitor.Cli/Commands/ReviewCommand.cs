@@ -9,7 +9,6 @@ class ReviewCommand(ProfileContext profiles, IReviewApi review) {
     public async Task<int> HandleReview(string prIdentifier) {
         var baseUrl = profiles.Resolution.ServerUrl!;
 
-        // Parse PR identifier
         if (!PrRefParser.TryParse(prIdentifier, out var owner, out var repo, out var prNumber)) {
             await Console.Error.WriteLineAsync($"Could not parse PR identifier: {prIdentifier}");
             await Console.Error.WriteLineAsync("Expected formats:");

@@ -67,11 +67,10 @@ public class AcpHostedAgentRuntimePermissionTests {
         await Assert.That(fake.SentServerRequests.Any(r => r.Method == "session/request_permission")).IsTrue();
         await Assert.That(fake.LastServerRequestResponse).IsNull(); // still pending — not yet answered
 
-        // Now resolve the human decision. Round-7 spec-review Finding 5: supply a REAL, matching
+        // Now resolve the human decision. Supply a REAL, matching
         // SelectedOptionId ("allow-once", one of the two options offered above) rather than null —
         // a null SelectedOptionId must map to `cancelled` (see AcpInteractionBridgeTests' fail-closed
-        // tests), never fall back to the first offered option, so this end-to-end test must not rely
-        // on that removed behavior either to observe a `selected` outcome below.
+        // tests), never fall back to the first offered option.
         gate.TrySetResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null));
 
         var responseDeadline = DateTime.UtcNow + HangGuard;
@@ -173,7 +172,7 @@ public class AcpHostedAgentRuntimePermissionTests {
     }
 
     /// <summary>
-    /// Spec-review Finding 2, end-to-end THROUGH the real <see cref="AcpInteractionBridge"/> (not a
+    /// End-to-end THROUGH the real <see cref="AcpInteractionBridge"/> (not a
     /// direct <c>MapPermissionDecision</c> unit call — <see cref="AcpInteractionBridgeTests"/>
     /// already covers that in isolation): a cancellation decision, delivered exactly the way a real
     /// "human clicked Deny" or "session ended while pending" resolution would arrive (an
@@ -289,15 +288,13 @@ public class AcpHostedAgentRuntimePermissionTests {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q2, end-to-end through the real wiring: <see cref="AcpHostedAgentRuntime"/>
-    /// used to wire <c>OnServerRequest</c> as <c>(request, ct) =&gt; _interactionBridge.HandleAsync(request, _sessionId ?? "", ct)</c> —
-    /// closing over the runtime's own <c>_sessionId</c> field rather than trusting the inbound
-    /// request's OWN <c>sessionId</c> param. <c>FakeAcpAgent</c>'s scripted
+    /// End-to-end through the real wiring: <see cref="AcpHostedAgentRuntime"/> must take the session id
+    /// from the inbound request's OWN <c>sessionId</c> param, not close over the runtime's own
+    /// <c>_sessionId</c> field. <c>FakeAcpAgent</c>'s scripted
     /// <c>session/request_permission</c> frame always carries <see cref="FakeAcpAgent.FixedSessionId"/>
     /// in its params (see <c>BuildRequestPermissionFrame</c>), which happens to equal the same value
-    /// <c>StartAsync</c>'s <c>session/new</c> response resolves into <c>_sessionId</c> — so the OLD
-    /// wiring and the NEW params-sourced wiring were indistinguishable via that path alone. This test
-    /// closes that gap by asserting directly that the forwarded <see cref="AcpInteractionRequest.AcpSessionId"/>
+    /// <c>StartAsync</c>'s <c>session/new</c> response resolves into <c>_sessionId</c> — so the two
+    /// wirings are indistinguishable via that path alone. This test closes that gap by asserting directly that the forwarded <see cref="AcpInteractionRequest.AcpSessionId"/>
     /// equals the fixed session id from the wire, proving the value is genuinely sourced from the
     /// request rather than incidentally matching a runtime field of the same value.
     /// </summary>

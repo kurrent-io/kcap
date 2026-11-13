@@ -2,7 +2,6 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,16 +12,15 @@ using Capacitor.Cli.Recording.Harness.Cursor;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task 13 — end-to-end acceptance tests for the Cursor tailing-watcher promotion,
-/// composing the pure/HTTP seams Tasks 7-12 already built (mirroring
-/// <c>LiveWatchHardeningAcceptanceTests</c>'s style: thin tests proving the contract from
-/// a fresh vantage point, not re-deriving coverage an earlier task's unit tests already own).
+/// End-to-end acceptance tests for the Cursor tailing watcher, composing its pure/HTTP seams
+/// (mirroring <c>LiveWatchHardeningAcceptanceTests</c>'s style: thin tests proving the contract
+/// from a fresh vantage point, not re-deriving coverage the unit tests already own).
 /// A real SignalR wire round trip (the watcher's own <c>HubConnection</c>) is out of scope here —
 /// this project has no in-process SignalR host, so the drain/ack path itself is unit-tested
 /// server-side (<c>SendTranscriptBatchAckedWireTests</c>) and CLI-side via the pure
 /// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>/<see cref="CursorRewriteGuard"/> seams.
 ///
-/// <para>Covers the four acceptance scenarios from the plan/spec:</para>
+/// <para>Covers four acceptance scenarios:</para>
 /// <list type="number">
 /// <item><b>Force-quit mid-turn → tail drained.</b> A transcript whose final line has no
 /// trailing newline yet (the shape a killed Cursor agent leaves behind mid-write) is HELD by
@@ -34,7 +32,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// exactly one owner for end synthesis (the <c>sessionEnd</c> hook, or the server-side
 /// lease-gated sweep backstop); the watcher must exit on the ceiling WITHOUT itself posting
 /// session-end (that "sweep closes" half of the criterion is proven server-side by
-/// <c>StaleActiveSessionReaperTests.CursorSweep_LeasePresent_AbsentAndIdle_Reaps</c>, Task 5 —
+/// <c>StaleActiveSessionReaperTests.CursorSweep_LeasePresent_AbsentAndIdle_Reaps</c> —
 /// this CLI repo has no read-model/sweep visibility to re-prove it).</item>
 /// <item><b>Open-but-idle past ceiling+threshold → closed, next hook reactivates</b> —
 /// exercised via BOTH resume shapes, driving the REAL <see cref="CursorHookCommand.HandleCore"/>
@@ -46,7 +44,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// </list>
 /// </summary>
 [NotInParallel] // KCAP_WATCHER_DIR is process-global, and other classes pin it too.
-[RunOn(OS.Linux | OS.MacOs)]
 public class CursorTailingWatcherTests {
     TestRecorders Recorders => field ??= new(Config.Root);
 
@@ -235,20 +232,19 @@ public class CursorTailingWatcherTests {
     // ── 5. Resume at an unterminated final line, then its terminator arrives → no line drift (r6) ──
 
     /// <summary>
-    /// end-to-end regression for the P1 finding: a watcher resumes at a
-    /// server frontier that lands exactly on a COMPLETE-but-unterminated final record (the r5
-    /// scenario — a prior process's shutdown final drain already sent and the server already
-    /// acked that record), then Cursor appends the record's own trailing newline before writing
-    /// its NEXT record (Cursor's normal write order: body, then '\n', then the next record).
+    /// End to end: a watcher resumes at a server frontier that lands exactly on a
+    /// COMPLETE-but-unterminated final record (a prior process's shutdown final drain already sent
+    /// and the server already acked that record), then Cursor appends the record's own trailing
+    /// newline before writing its NEXT record (Cursor's normal write order: body, then '\n', then the
+    /// next record).
     ///
-    /// Before this fix, <c>SeedCursorByteOffsetAsync</c> seeded <c>CursorByteOffset</c> at EOF
-    /// while leaving <c>LinesProcessed</c> at the final record's own (already-acked) line number.
-    /// The next poll's bounded read then started exactly at that EOF, saw the freshly-appended
-    /// leading <c>'\n'</c>, and — because <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>
-    /// seeds its line index from <c>LinesProcessed</c> — misread it as closing a NEW, phantom
-    /// empty line, then labelled the real next record one line too high, permanently: the server,
-    /// still waiting at the true frontier, would see a persistent apparent gap while the watcher
-    /// kept resending from the stale offset.
+    /// Seeding <c>CursorByteOffset</c> at EOF while leaving <c>LinesProcessed</c> at the final
+    /// record's own (already-acked) line number would start the next poll's bounded read exactly at
+    /// that EOF, see the freshly-appended leading <c>'\n'</c>, and — because
+    /// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/> seeds its line index from
+    /// <c>LinesProcessed</c> — misread it as closing a NEW, phantom empty line, then label the real
+    /// next record one line too high, permanently: the server, still waiting at the true frontier,
+    /// would see a persistent apparent gap while the watcher keeps resending from the stale offset.
     ///
     /// This composes the same two pure seams the rest of this class uses instead of a live
     /// SignalR round trip: <see cref="TranscriptRecorder.SeedCursorByteOffsetAsync"/> (the resume) and

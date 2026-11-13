@@ -677,6 +677,7 @@ sealed class SetupCommand(
         var skipCopilotFlag  = args.Contains("--skip-copilot-hooks");
         var skipCopilotMcpFlag = args.Contains("--skip-copilot-mcp");
         var skipCopilotInstructionsFlag = args.Contains("--skip-copilot-instructions");
+        var skipCopilotToolSearchFlag = args.Contains("--skip-copilot-tool-search");
         var skipGeminiFlag   = args.Contains("--skip-gemini-hooks");
         var skipGeminiMcpFlag = args.Contains("--skip-gemini-mcp");
         var skipGeminiInstructionsFlag = args.Contains("--skip-gemini-instructions");
@@ -792,7 +793,6 @@ sealed class SetupCommand(
         WriteRule(new Rule("[bold green]Welcome to kcap[/]").Centered());
 
 
-        // Check if already configured
         var activeProfile  = profile.ActiveName;
         var existing       = profile.Profiles.GetValueOrDefault(activeProfile);
         var existingTokens = await store.LoadAsync(activeProfile);
@@ -809,7 +809,6 @@ sealed class SetupCommand(
             }
         }
 
-        // Step 1: Server
         WriteRule(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Server);
         string serverUrl;
@@ -900,7 +899,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 2: Login
         WriteRule(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
         _json?.Started(SetupJsonReport.SignIn);
 
@@ -961,6 +959,7 @@ sealed class SetupCommand(
             CursorMcpPath:        cursor.UserMcpJson,
             CopilotMcpPath:       copilot.McpConfigJson,
             CopilotInstructionsPath: copilot.InstructionsMd,
+            CopilotSettingsPath: copilot.SettingsJson,
             GeminiInstructionsPath: gemini.GeminiMd,
             AntigravityMcpPath:       agy.McpConfigJson,
             AntigravityInstructionsPath: agy.InstructionsMd,
@@ -992,7 +991,6 @@ sealed class SetupCommand(
         // A local server has one user, so there is no audience to ask about.
         var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
 
-        // Step 3: Default session visibility
         WriteRule(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
@@ -1051,7 +1049,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 4: Harnesses
         WriteRule(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Harnesses);
         await Console.Out.WriteLineAsync("  kcap records sessions by installing hooks into your harnesses.");
@@ -1133,6 +1130,7 @@ sealed class SetupCommand(
             SkipCursorMcp: skipCursorMcpFlag,
             SkipCopilotMcp: skipCopilotMcpFlag,
             SkipCopilotInstructions: skipCopilotInstructionsFlag,
+            SkipCopilotToolSearch: skipCopilotToolSearchFlag,
             SkipGeminiMcp: skipGeminiMcpFlag,
             SkipGeminiInstructions: skipGeminiInstructionsFlag,
             SkipAntigravityMcp: skipAntigravityMcpFlag,
@@ -1193,6 +1191,7 @@ sealed class SetupCommand(
             RegisterCopilotMcp:       () => HarnessMcpProjections.Copilot.Register(copilot.McpConfigJson, home),
             InstallCopilotInstructions: () => AgentInstructionsWriter.Write(
                 copilot.InstructionsMd, KcapAgentInstructions.Body),
+            EnableCopilotToolSearch:  () => CopilotToolSearch.Enable(copilot.SettingsJson),
             // Skills are already current when the on-disk marker matches this build AND
             // every owned kcap-* folder is present; used to skip the prompt + re-copy
             // (mirrors PluginCommand's postinstall fast path). A missing/stale marker — or a
@@ -1327,7 +1326,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 5: Daemon name + save
         WriteRule(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Daemon);
 
@@ -1371,7 +1369,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Save config
         var activeName     = "default";
         var defaultProfile = new Profile();
         string? previousDaemonName = null;
@@ -1458,7 +1455,6 @@ sealed class SetupCommand(
             await Console.Out.WriteLineAsync();
         }
 
-        // Step 6: Import past sessions
         WriteRule(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Import);
 

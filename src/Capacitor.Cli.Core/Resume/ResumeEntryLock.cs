@@ -11,7 +11,8 @@ public sealed class ResumeEntryLock : IDisposable {
 
     public static string PathFor(string entryPath) => entryPath + ".lock";
 
-    /// <summary>Null when another holder kept it for all of <paramref name="wait"/>.</summary>
+    /// <summary>Null when another holder kept it for all of <paramref name="wait"/>, or at once when the entry's
+    /// directory does not exist: waiting cannot create it, and every cleanup of an unledgered agent asks.</summary>
     public static ResumeEntryLock? TryAcquire(string entryPath, TimeSpan wait) {
         var path     = PathFor(entryPath);
         var attempts = Math.Max(1, (int) Math.Ceiling(wait / Retry));
@@ -21,6 +22,8 @@ public sealed class ResumeEntryLock : IDisposable {
         for (var attempt = 1; ; attempt++) {
             try {
                 return new ResumeEntryLock(new FileStream(path, options));
+            } catch (DirectoryNotFoundException) {
+                return null;
             } catch (IOException) when (attempt < attempts) {
                 Thread.Sleep(Retry);
             } catch (IOException) {

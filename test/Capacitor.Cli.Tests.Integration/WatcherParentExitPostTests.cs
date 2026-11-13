@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -17,7 +16,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>reason: parent_exited</c>. The server's idempotent HandleSessionEnd writes
 /// SessionEnded and tells us whether to spawn the what's-done generator.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class WatcherParentExitPostTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
@@ -214,7 +212,7 @@ public class WatcherParentExitPostTests : IDisposable {
 
     [Test]
     public async Task ParentExit_PostsToVendorSpecificRoute_ForPi() {
-        // Regression (PR #162 review): the Pi watcher starts with vendor "pi", so
+        // The Pi watcher starts with vendor "pi", so
         // the parent-exit fallback must accept it — otherwise a crashed/closed Pi
         // session stays active until a manual import.
         _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
@@ -338,7 +336,7 @@ public class WatcherParentExitPostTests : IDisposable {
 
     [Test]
     public async Task ParentExit_FinalizesGeminiSubagents_BeforeSessionEnd() {
-        // Regression (PR #170 review, BLOCKING): the watcher's parent-exit fallback must run
+        // The watcher's parent-exit fallback must run
         // the Gemini subagent teardown. Gemini fires no subagent-stop hook and its child
         // watchers carry no parent-pid watchdog, so when the parent process dies WITHOUT the
         // session-end hook this is the only thing that finalizes live subagents — otherwise

@@ -95,11 +95,19 @@ public class RecorderHostTests {
 
     int LinesSent(string sessionId) => _transport.Batches.Where(batch => batch.SessionId == sessionId).Sum(batch => batch.Lines.Length);
 
-    /// <summary>Waits for <paramref name="condition"/>, moving the clock by <paramref name="step"/> on each look.</summary>
-    async Task Eventually(Func<bool> condition, string what, TimeSpan? step = null) {
+    /// <summary>Waits for <paramref name="condition"/>, moving the clock by <paramref name="step"/> on each look. With
+    /// <paramref name="progress"/>, the deadline counts from its last change, so a loaded runner still recording is not
+    /// failed for being slow, and one that has stopped still times out.</summary>
+    async Task Eventually(Func<bool> condition, string what, TimeSpan? step = null, Func<long>? progress = null) {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
+        var seen     = progress?.Invoke();
 
         while (!condition()) {
+            if (progress?.Invoke() is { } now && now != seen) {
+                seen     = now;
+                deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
+            }
+
             if (DateTimeOffset.UtcNow > deadline) throw new TimeoutException($"Never saw: {what}");
 
             if (step is { } advance) _time.Advance(advance);
@@ -2831,13 +2839,17 @@ public class RecorderHostTests {
             await Eventually(() => _log.Any(line => line.StartsWith(heldPrefix, StringComparison.Ordinal)), "a held initial read");
             redaction.Exhausted = false;
 
-            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1));
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1));
+            // Capped per source, so a source already at its target cannot keep a stalled one's wait alive.
+            long LinesToward(int target) => sources.Sum(source => (long) Math.Min(LinesSent(source.SessionId), target));
+            long TicksToward(Func<RecordingSource, int> target) => sources.Sum(source => (long) Math.Min(Ticks(source.Key), target(source)));
+
+            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1), () => LinesToward(60));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1), () => TicksToward(_ => 2));
 
             var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
             var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
 
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1), () => TicksToward(source => ticksBefore[source.Key] + IdleTicks));
 
             // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
             var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();

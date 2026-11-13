@@ -7,7 +7,7 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 
 /// <summary>
-/// The §2.4 forward buffer: canonical envelopes are never dropped (they block the emitter when full),
+/// The forward buffer: canonical envelopes are never dropped (they block the emitter when full),
 /// ephemeral envelopes drop when full, and a canonical stall past the timeout fires the terminal fault
 /// exactly once.
 /// </summary>

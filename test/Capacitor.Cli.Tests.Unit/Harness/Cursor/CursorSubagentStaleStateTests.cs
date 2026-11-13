@@ -19,7 +19,6 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 /// None of these states has a producer on the measured cursor-agent contract — the arm that
 /// would write a marker never runs there — but consumption is NOT gated: TryLoadLink runs on
 /// every event, so a marker persisted by another surface or an older build is still read.
-/// See docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md (D2a).
 /// </para>
 /// </summary>
 public class CursorSubagentStaleStateTests {
@@ -132,8 +131,8 @@ public class CursorSubagentStaleStateTests {
     // resulting corrupt state: side effects land with NO marker on disk, so later invocations
     // miss TryLoadLink and route the same child top-level as well.
     //
-    // The design spec (D2a) labels these states UNSUPPORTED and lists remedies; the leading one
-    // is to have SaveLink report success and fail open BEFORE the start is posted. These two are
+    // These states are UNSUPPORTED; the leading remedy is to have SaveLink report success and
+    // fail open BEFORE the start is posted. These two are
     // therefore EXCLUDED from the mutation rule that governs the pins above. When a remedy lands
     // they are EXPECTED to fail — rewrite or delete them then. Do not "fix" them to keep passing.
     // ---------------------------------------------------------------------------------

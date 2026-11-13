@@ -13,7 +13,7 @@ public class LocalControlCapabilitiesTests {
     [Test]
     public async Task The_advertised_list_is_pinned_whole() {
         string[] expected = [
-            "consent/1", "consent/2", "consent/3", "status/1", "permission/1", "input/1", "input/2", "settings/1", "fence/1", "shutdown/1", "shutdown/2", "restart/2", "resume/1", "attach-runtime/1", "agent-session/1", "accounts/1", "experimental/1", "rename/1", "handoff/1", "headless/1", "resume-in-place/1", "handoff-local/1", "recording-disable/1",
+            "consent/1", "consent/2", "consent/3", "status/1", "permission/1", "input/1", "input/2", "settings/1", "fence/1", "shutdown/1", "shutdown/2", "restart/2", "resume/1", "attach-runtime/1", "agent-session/1", "accounts/1", "experimental/1", "rename/1", "handoff/1", "headless/1", "resume-in-place/1", "handoff-local/1", "recording-disable/1", "agent-commands/1",
             .. OperatingSystem.IsWindows() ? [] : (string[])["steering-switch/1"]
         ];
 

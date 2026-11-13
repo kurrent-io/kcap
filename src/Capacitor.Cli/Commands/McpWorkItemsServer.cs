@@ -827,10 +827,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     internal static JsonObject BuildBreakdownBody(JsonObject? args) {
         var body = new JsonObject();
 
-        // Presence, not truthiness (review finding): `{"part_ids": null}` is a PRESENT wrong shape,
-        // and the `is { } node` form treated it as absence — silently omitting it and turning a
-        // malformed declare into a differently-shaped request. Explicit null now fails like any other
-        // wrong type.
+        // Presence, not truthiness: `{"part_ids": null}` is a PRESENT wrong shape. Treating it as
+        // absence would silently turn a malformed declare into a differently-shaped request, so an
+        // explicit null fails like any other wrong type.
         if (args is not null && args.TryGetPropertyValue("part_ids", out var node)) {
             if (node is null) throw new ArgumentException("'part_ids' must be an array of strings, not null.");
 
@@ -845,9 +844,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         // to_id and relation_kind are left to the server to require and to interpret: it owns the
         // vocabulary and the structural rules, and a coded 400 naming the real reason beats a guess
-        // made here. Every SUPPLIED string is forwarded verbatim, including "" (review finding): the
-        // previous `is { Length: > 0 }` form dropped an explicit empty string, so the caller got the
-        // server's "required" error instead of its more useful "invalid value" one. Absence stays
+        // made here. Every SUPPLIED string is forwarded verbatim, including "": dropping an explicit
+        // empty string would get the caller the server's "required" error instead of its more useful
+        // "invalid value" one. Absence stays
         // absence; a present non-string still fails locally, as shape validation should.
         CopySuppliedString(args, "to_id", body);
         CopySuppliedString(args, "relation_kind", body);

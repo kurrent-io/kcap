@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Capacitor.Cli.Core.Auth;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
 
@@ -14,7 +15,6 @@ public class DeviceGrantPollTests {
     static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
-    // interval 0 so the loop does not really wait; the clock only has to move the deadline.
     static HttpResponseMessage DeviceCode(int expiresIn) =>
         Json($$"""{"device_code":"dc","user_code":"UC","verification_uri":"","interval":0,"expires_in":{{expiresIn}}}""");
 
@@ -39,7 +39,8 @@ public class DeviceGrantPollTests {
         var time = new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) };
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
-            github, "client_id", new RecordingBrowser(), progress: new RecordingAuthProgress(), time: time);
+            github, "client_id", new RecordingBrowser(), progress: new RecordingAuthProgress(), time: time,
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(token).IsNull();
         await Assert.That(polls).IsLessThan(5);   // bounded, not forever
@@ -58,7 +59,7 @@ public class DeviceGrantPollTests {
 
             polls++;
 
-            // A gateway's HTML, not JSON — exactly what used to NRE.
+            // A gateway's HTML, not JSON — which must not NRE.
             return polls == 1
                 ? new HttpResponseMessage(HttpStatusCode.TooManyRequests) {
                       Content = new StringContent("<html><body>Too Many Requests</body></html>", Encoding.UTF8, "text/html")
@@ -66,13 +67,15 @@ public class DeviceGrantPollTests {
                 : Json("""{"access_token":"tok"}""");
         });
         var github = new GitHubOAuthClient(new PlainHttpClientFactory(handler));
+        var delay  = new RecordingDelay();
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
             github, "client_id", new RecordingBrowser(), progress: new RecordingAuthProgress(),
-            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) });
+            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) }, pollDelay: delay.DelayAsync);
 
         await Assert.That(token).IsEqualTo("tok");
         await Assert.That(polls).IsEqualTo(2);
+        await Assert.That(delay.Requested).IsEquivalentTo([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)], CollectionOrdering.Matching);
     }
 
     sealed class HangsOnceHandler : HttpMessageHandler {
@@ -111,13 +114,13 @@ public class DeviceGrantPollTests {
 
     static Task<string?> Poll(
             Func<Dictionary<string, string>, CancellationToken, Task<HttpResponseMessage>> post,
-            RecordingAuthProgress progress, TimeProvider time, CancellationToken ct = default) =>
+            RecordingAuthProgress progress, TimeProvider time, RecordingDelay delay, CancellationToken ct = default) =>
         OAuthLoginFlow.PollDeviceGrantAsync(
             post, new() { ["client_id"] = "c" },
             CapacitorJsonContext.Default.GitHubTokenResponse,
             r => (r.AccessToken, r.Error),
             new DeviceCodeResponse { DeviceCode = "dc", ExpiresIn = 900, Interval = 0 },
-            interval: 0, ct, progress, time);
+            interval: 0, ct, progress, time, delay.DelayAsync);
 
     [Test]
     public async Task A_hung_poll_is_retried_rather_than_ending_the_sign_in() {
@@ -125,8 +128,9 @@ public class DeviceGrantPollTests {
         var github        = new GitHubOAuthClient(new PlainHttpClientFactory(handler));
         var progress      = new RecordingAuthProgress();
         var time          = new FakeTimeProvider();
+        var delay         = new RecordingDelay();
 
-        var polling = Poll(github.PollForTokenAsync, progress, time);
+        var polling = Poll(github.PollForTokenAsync, progress, time, delay);
         await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(30));
         time.Advance(TimeSpan.FromSeconds(20));
         var token = await polling.WaitAsync(TimeSpan.FromSeconds(30));
@@ -135,6 +139,7 @@ public class DeviceGrantPollTests {
         await Assert.That(handler.Calls).IsEqualTo(2);
         await Assert.That(progress.PollTicks).IsEqualTo(1);
         await Assert.That(progress.Errors).IsEmpty();
+        await Assert.That(delay.Requested).IsEquivalentTo([TimeSpan.Zero, TimeSpan.FromSeconds(5)], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -142,11 +147,12 @@ public class DeviceGrantPollTests {
         using var body = new HangingBodyContent();
         var time       = new FakeTimeProvider();
         var progress   = new RecordingAuthProgress();
+        var delay      = new RecordingDelay();
         var calls      = 0;
 
         var polling = Poll((_, _) => Task.FromResult(++calls == 1
             ? new HttpResponseMessage(HttpStatusCode.OK) { Content = body }
-            : Json("""{"access_token":"acc"}""")), progress, time);
+            : Json("""{"access_token":"acc"}""")), progress, time, delay);
 
         await body.Started.Task.WaitAsync(TimeSpan.FromSeconds(30));
         time.Advance(TimeSpan.FromSeconds(20));
@@ -156,6 +162,7 @@ public class DeviceGrantPollTests {
         await Assert.That(calls).IsEqualTo(2);
         await Assert.That(progress.PollTicks).IsEqualTo(1);
         await Assert.That(progress.Errors).IsEmpty();
+        await Assert.That(delay.Requested).IsEquivalentTo([TimeSpan.Zero, TimeSpan.FromSeconds(5)], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -169,7 +176,7 @@ public class DeviceGrantPollTests {
             calls++;
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = body });
-        }, progress, new FakeTimeProvider(), ct.Token);
+        }, progress, new FakeTimeProvider(), new RecordingDelay(), ct.Token);
 
         await body.Started.Task.WaitAsync(TimeSpan.FromSeconds(30));
         await ct.CancelAsync();
@@ -192,7 +199,7 @@ public class DeviceGrantPollTests {
             calls++;
 
             return Task.FromResult(Json(body));
-        }, progress, new FakeTimeProvider()).WaitAsync(TimeSpan.FromSeconds(30));
+        }, progress, new FakeTimeProvider(), new RecordingDelay()).WaitAsync(TimeSpan.FromSeconds(30));
 
         await Assert.That(token).IsNull();
         await Assert.That(calls).IsEqualTo(1);
@@ -215,20 +222,23 @@ public class DeviceGrantPollTests {
 
             polls++;
 
-            return polls == 1
+            return polls <= 2
                 ? Json("""{"message":"temporarily unavailable"}""", HttpStatusCode.InternalServerError)
                 : Json("""{"access_token":"tok"}""");
         });
         var github = new GitHubOAuthClient(new PlainHttpClientFactory(handler));
         var       progress = new RecordingAuthProgress();
+        var       delay    = new RecordingDelay();
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
             github, "client_id", new RecordingBrowser(opens: false), progress: progress,
-            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) });
+            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) }, pollDelay: delay.DelayAsync);
 
         await Assert.That(token).IsEqualTo("tok");
-        await Assert.That(polls).IsEqualTo(2);
+        await Assert.That(polls).IsEqualTo(3);
         await Assert.That(progress.Errors).IsEmpty();
+        await Assert.That(delay.Requested).IsEquivalentTo(
+            [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(15)], CollectionOrdering.Matching);
     }
 
     /// <summary>The other half of the same rule: on a 2xx an unrecognised code IS the answer.</summary>
@@ -243,7 +253,8 @@ public class DeviceGrantPollTests {
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
             github, "client_id", new RecordingBrowser(opens: false), progress: progress,
-            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) });
+            time: new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(1) },
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(token).IsNull();
         await Assert.That(string.Join("\n", progress.Errors)).Contains("device_flow_disabled");

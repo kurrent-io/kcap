@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
 /// LocalControlOps one-shot stop/consent operations over a REAL Unix socket driven by a
-/// scripted server (design spec §10). Harness conventions (Windows guard, per-test socket
+/// scripted server. Harness conventions (Windows guard, per-test socket
 /// directory) are copied from <see cref="LocalControlClientTests"/> — this is a one-shot
 /// request/reply protocol rather than a long-lived subscribe stream, so <see cref="ConnScript"/>
 /// also hands scripts the raw accepted <see cref="Socket"/> (not just the wrapping
@@ -119,6 +119,32 @@ public class LocalControlOpsTests {
     }
 
     [Test]
+    public async Task ListCommandsAsync_sends_the_agent_and_returns_its_commands() {
+        if (OperatingSystem.IsWindows()) return;
+        string? asked = null;
+        ConnScript answer = async (_, s, ct) => {
+            var f = await FrameCodec.ReadAsync(s, ct);
+            if (f?.Type != FrameType.AgentCommands) return;
+            asked = f.Text;
+            await FrameCodec.WriteAsync(s, LocalFrame.AgentCommandsReply("""[{"name":"review","description":"Review the diff","argument_hint":"[pr]"}]"""), ct);
+        };
+        await WithOpsAsync([answer], async ops => {
+            var commands = await ops.ListCommandsAsync("a1", CancellationToken.None);
+            await Assert.That(commands).IsEquivalentTo([new HostedAgentCommand("review", "Review the diff", "[pr]")]);
+            await Assert.That(asked).IsEqualTo("a1");
+        });
+    }
+
+    [Test]
+    public async Task ListCommandsAsync_is_empty_when_the_daemon_never_answers() {
+        if (OperatingSystem.IsWindows()) return;
+
+        await WithOpsAsync([Stall()], async ops => {
+            await Assert.That(await ops.ListCommandsAsync("a1", CancellationToken.None)).IsEmpty();
+        }, configure: ops => ops.ReplyTimeout = TimeSpan.FromMilliseconds(100));
+    }
+
+    [Test]
     public async Task ReadHandoffOutcomeAsync_sends_the_session_and_returns_the_stored_outcome() {
         if (OperatingSystem.IsWindows()) return;
         string? asked = null;
@@ -200,8 +226,8 @@ public class LocalControlOpsTests {
     /// closes, writing nothing. A header-only close would leave the ConsentResolveV2 JSON payload
     /// unread in the kernel socket buffer; closing with unread bytes sends RST on Linux (not on
     /// macOS), so CI would observe ECONNRESET (daemon_unreachable) instead of the intended clean
-    /// EOF (unexpected_reply) — this is the ubuntu-latest-only CI failure this script fixes. NOT a
-    /// routing-default Error reply — no deployed v1 daemon produces one for byte 18 (spec §4.1).
+    /// EOF (unexpected_reply), a Linux-only CI failure. NOT a routing-default Error reply — no
+    /// deployed v1 daemon produces one for byte 18.
     static ConnScript V1CodecReject() => async (_, s, ct) => {
         var head = new byte[5];
         var read = 0;
@@ -641,7 +667,7 @@ public class LocalControlOpsTests {
         });
     }
 
-    /// The incarnation-swap pin (spec §9/§10): a v1 daemon fails closed at its own codec rather
+    /// The incarnation-swap pin: a v1 daemon fails closed at its own codec rather
     /// than resolving by request id without the identity check, so the caller must see this as
     /// "nothing was resolved", never as a successful ack.
     [Test]

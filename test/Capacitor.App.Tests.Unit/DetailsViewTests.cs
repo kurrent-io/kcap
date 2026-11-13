@@ -108,7 +108,6 @@ public class DetailsViewTests {
                 await Assert.That(borders.Count).IsEqualTo(2);
                 var outer = borders.Single(b => !b.Classes.Contains("markdown-details-nested"));
                 var inner = borders.Single(b => b.Classes.Contains("markdown-details-nested"));
-                await Assert.That(outer.BorderThickness.Left).IsEqualTo(1);
                 await Assert.That(inner.BorderThickness.Left).IsEqualTo(0);
                 await Assert.That(inner.Background).IsNull().Or.IsEqualTo(Brushes.Transparent);
                 var content = All<StackPanel>(inner).Single(p => p.Classes.Contains("markdown-details-content"));

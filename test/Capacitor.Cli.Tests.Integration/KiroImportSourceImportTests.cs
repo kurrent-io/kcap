@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Kiro;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -16,7 +15,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// by <see cref="ImportCommand.IsLifecycleOnlyRoutedReplay"/> (vendor-neutral) and suppressed
 /// so it doesn't double-count on top of the classify-time AlreadyLoaded bucket.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class KiroImportSourceImportTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

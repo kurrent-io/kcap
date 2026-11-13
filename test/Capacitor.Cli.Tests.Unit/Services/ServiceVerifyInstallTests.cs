@@ -338,7 +338,7 @@ public class ServiceVerifyInstallTests {
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
     }
 
-    /// <summary>Spec §3.4: install/replace validates the daemon NAME too — a well-formed, right-
+    /// <summary>Install/replace validates the daemon NAME too — a well-formed, right-
     /// version hello answering under a different reported name means something else is on our
     /// socket, and that's just as much a rollback trigger as a version mismatch.</summary>
     [Test]
@@ -361,7 +361,7 @@ public class ServiceVerifyInstallTests {
         await Assert.That(ServiceTxnMarker.Exists(Daemons.Store, Id)).IsFalse();
     }
 
-    /// <summary>Spec §3.4: install/replace validates the hello's PROTOCOL version too — an
+    /// <summary>Install/replace validates the hello's PROTOCOL version too — an
     /// otherwise-well-formed hello reporting a protocol this build doesn't speak is a deterministic
     /// incompatibility, not something a retry can fix.</summary>
     [Test]

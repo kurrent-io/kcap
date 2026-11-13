@@ -15,8 +15,7 @@ namespace Capacitor.Cli.Core.Harness.Antigravity;
 /// (without it the GUI never loads the dir) plus a <c>hooks.json</c> that registers the
 /// kcap control hooks. Per-workspace installs live under <c>&lt;root&gt;/.agents/plugins/kcap/</c>.
 /// ⚠️ The <c>~/.gemini/antigravity-cli/</c> dir is the <c>agy</c> CLI's config root — the
-/// GUI does NOT read it, so installing hooks there (as #256 originally did) is invisible
-/// to the running IDE (GUI re-test).
+/// GUI does NOT read it, so installing hooks there is invisible to the running IDE.
 ///
 /// ⚠️ <c>~/.gemini</c> is shared with the Gemini CLI, so Gemini's install signal must require a
 /// Gemini-specific marker or an Antigravity-only home reads as a Gemini install.

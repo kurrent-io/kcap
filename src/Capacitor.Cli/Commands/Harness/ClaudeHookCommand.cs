@@ -57,8 +57,7 @@ public sealed class ClaudeHookCommand(
     /// the useful bound: Claude cancels a synchronous SessionEnd plugin hook after 1.5s whatever its
     /// timeout, and a host that ignores the manifest's <c>async</c> still runs it that way, so its 15s
     /// belongs to the detached continuation (<see cref="Cli.Harness.Claude.ClaudeSessionEndHandoff"/>)
-    /// rather than to the hook; and PermissionRequest is allowed 36s there, which is time for the human to answer,
-    /// not for kcap to spend.
+    /// rather than to the hook; and PermissionRequest's is time for the human to answer, not for kcap to spend.
     /// </summary>
     static TimeSpan Ceiling(string? command) => command switch {
         "session-end"   => TimeSpan.FromSeconds(15),

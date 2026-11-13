@@ -46,8 +46,7 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>The build these launches run against. Under the affirmation model any build works
-    /// provided the daemon has affirmed it, so this is just a fixed value the config below affirms —
-    /// it is no longer coupled to a maintainer-curated list.</summary>
+    /// provided the daemon has affirmed it, so this is just a fixed value the config below affirms.</summary>
     const string CertifiedVersion = "0.54.0";
 
     static RuntimeStartContext Ctx(bool isReviewFlow, string[]? mcpAllowlist = null) => new RuntimeStartContext(
@@ -107,9 +106,8 @@ public class GeminiReviewerLaunchTests {
     [Test]
     public async Task ReviewLaunch_AllowlistNamesExactlyTheInjectedResultChannel() {
         // ONE context, so this proves the two consumers agree on the SAME identity instance rather than two
-        // fixtures that happen to hold equal GUIDs. Review caught the earlier version building each from its
-        // own Ctx() call: it stayed green even if production handed a different identity to each consumer,
-        // which is exactly the silent failure the type exists to prevent.
+        // fixtures that happen to hold equal GUIDs. A Ctx() per consumer would stay green even if production
+        // handed each consumer a different identity, the silent failure the type exists to prevent.
         var ctx = Ctx(isReviewFlow: true);
 
         var argv = AcpHostedAgentRuntimeFactory.BuildProcessStartInfo(
@@ -181,7 +179,7 @@ public class GeminiReviewerLaunchTests {
     /// The gate must never admit a CANONICAL allowlist id: it is a fixed public literal the reviewed
     /// repository can declare its own <c>.gemini/settings.json</c> server under, and the vendor's gate is an
     /// exact-name match — admitting it would spawn that repo-authored process as the daemon user, the same
-    /// impersonation shape the result channel's per-launch alias closes (spec §2.3/§2.6).
+    /// impersonation shape the result channel's per-launch alias closes.
     /// </summary>
     [Test]
     public async Task ReviewLaunchWithAllowlist_AdmitsAliasedNames_NeverTheCanonicalId() {
@@ -193,7 +191,7 @@ public class GeminiReviewerLaunchTests {
     }
 
     /// <summary>
-    /// Same guarantee on the direct-builder path with NO caller-supplied identity (review finding): the
+    /// Same guarantee on the direct-builder path with NO caller-supplied identity: the
     /// builder's fallback identity must also be what the MCP-list builder reads, or the gate is computed
     /// from a null identity's canonical fallbacks — repository-matchable names — while the argv
     /// substitution uses the fresh identity. The checked value must BE the used value.
@@ -293,8 +291,7 @@ public class GeminiReviewerLaunchTests {
 
     /// <summary>
     /// The direction the minimum exists to allow: a build NEWER than the recorded one launches with no
-    /// operator action. `0.55.0` used to be an argument to the refusal case above — a vendor patch
-    /// release took the reviewer offline until someone re-affirmed, which is the treadmill removed here.
+    /// operator action, so a vendor patch release never takes the reviewer offline.
     /// </summary>
     [Test]
     [Arguments("0.55.0")]
@@ -398,9 +395,8 @@ public class GeminiReviewerLaunchTests {
     /// The canonical vectors must NOT throw — a guard that rejects everything is not a guard.
     ///
     /// <para>The vectors are written out INDEPENDENTLY rather than fetched from
-    /// <c>ExpectedGeminiArgv</c>. Review caught the earlier version feeding that helper straight back into an
-    /// assertion that derives its expectation from the same helper — tautological, and it would have passed
-    /// with the helper returning anything at all.</para>
+    /// <c>ExpectedGeminiArgv</c>: feeding that helper into an assertion that derives its expectation from the
+    /// same helper is tautological and passes whatever the helper returns.</para>
     /// </summary>
     [Test]
     public async Task TheCanonicalReviewVector_PassesTheAssertion() {

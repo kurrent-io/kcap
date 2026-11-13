@@ -54,7 +54,7 @@ internal enum HookPostOutcome {
 /// OpenCode). A lapsed credential makes a POST a guaranteed 401 and its stderr line a misleading
 /// per-turn <c>HTTP 401</c>, so rather than send one this helper reports
 /// <see cref="HookPostOutcome.AuthLapsed"/> so the caller can skip the doomed work and exit
-/// cleanly — carrying the Claude hook's #183 behaviour to the other hooks.
+/// cleanly, as the Claude hook does.
 ///
 /// These agents have no user-facing stdout notice channel (stdout is either unused or a JSON
 /// decision/context channel). A pre-flight lapse (<see cref="IsAuthLapsed"/> — the token store
@@ -216,11 +216,9 @@ internal sealed class AgentHookPoster(
     static readonly TimeSpan DrainThrottle = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Task 4 (Task 12: centralized): bounded, best-effort drain of the cross-vendor
-    /// lifecycle + transcript spools. Introduced in Task 4 as a per-vendor call from each
-    /// JSON-payload dispatcher's <c>Handle</c>; Task 12 centralized the call site into
+    /// Bounded, best-effort drain of the cross-vendor lifecycle + transcript spools. Called from
     /// <c>Program.cs</c>'s <c>case "hook":</c> (before dispatch, non-Codex) so it runs exactly once
-    /// per invocation and additionally covers Claude/Cursor, which never called it directly. Codex
+    /// per invocation and covers every vendor, including Claude/Cursor. Codex
     /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
     /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
     /// the daemon can't reference this CLI-project method, so it composes

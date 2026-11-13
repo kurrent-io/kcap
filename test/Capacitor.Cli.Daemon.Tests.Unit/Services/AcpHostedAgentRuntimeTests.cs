@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// <summary>
 /// Exercises <see cref="AcpHostedAgentRuntime"/> end-to-end against <see cref="FakeAcpAgent"/> — no
 /// real <c>cursor-agent</c> process is spawned; <see cref="FakeAcpProcess"/> stands in for the
-/// process-lifecycle side (Task 10's factory implements the real one over
+/// process-lifecycle side (the factory implements the real one over
 /// <see cref="System.Diagnostics.Process"/>).
 /// </summary>
 public class AcpHostedAgentRuntimeTests {
@@ -106,7 +106,7 @@ public class AcpHostedAgentRuntimeTests {
 
         await h.Runtime.StartAsync("/abs/worktree", "do the thing", h.Cts.Token).WaitAsync(HangGuard);
 
-        // Fix E: StartAsync returns once session/new resolves — it fires the initial
+        // StartAsync returns once session/new resolves — it fires the initial
         // session/prompt as untracked background work rather than awaiting it, so the fake may not
         // have received (or recorded) it yet at this exact instant. Poll rather than asserting
         // immediately.
@@ -231,7 +231,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(received.Title).IsNull();
     }
 
-    // ── Option B task 1: Reduce() tool-call/tool-result field capture ──────────────
+    // ── Reduce() tool-call/tool-result field capture ───────────────────────────────
 
     [Test]
     public async Task ToolCall_update_captures_ToolInputJson_from_rawInput() {
@@ -355,7 +355,7 @@ public class AcpHostedAgentRuntimeTests {
 
         await h.Runtime.StartAsync("/abs/worktree", "", h.Cts.Token).WaitAsync(HangGuard);
 
-        // Fix E: SendUserInputAsync fires the session/prompt as untracked background work
+        // SendUserInputAsync fires the session/prompt as untracked background work
         // and returns as soon as it's queued, NOT once the fake has received/answered it — so poll
         // for the call to land instead of asserting immediately after the await returns.
         await h.Runtime.SendUserInputAsync("more").WaitAsync(HangGuard);
@@ -409,7 +409,7 @@ public class AcpHostedAgentRuntimeTests {
 
         await Assert.ThrowsAsync<NotSupportedException>(() => h.Runtime.SendRawInputAsync(new byte[] { 1 }));
 
-        // ReadOutputAsync never yields a byte, but (Fix E) it also must not complete on its
+        // ReadOutputAsync never yields a byte, but it also must not complete on its
         // own — it stays open until the process exits or ct cancels (see the dedicated
         // ReadOutputAsync_* tests below for that contract). Cancel to end the enumeration here,
         // since this test's focus is "yields nothing", not "when does it end".
@@ -428,7 +428,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(any).IsFalse();
     }
 
-    // ── Fix E: ReadOutputAsync must stay open (not complete immediately) ──────────
+    // ── ReadOutputAsync must stay open (not complete immediately) ─────────────────
 
     [Test]
     public async Task ReadOutputAsync_stays_open_until_the_process_exits() {
@@ -481,17 +481,16 @@ public class AcpHostedAgentRuntimeTests {
         await readTask.WaitAsync(HangGuard);
     }
 
-    // ── Fix E: StartAsync/SendUserInputAsync must not block on turn completion ───────
+    // ── StartAsync/SendUserInputAsync must not block on turn completion ──────────────
 
     [Test]
     public async Task StartAsync_does_not_await_the_initial_prompt_turn_to_completion() {
         await using var h = new Harness();
 
         // The fake answers initialize/session-new immediately but holds EVERY session/prompt
-        // response indefinitely — models a long-running first turn. Before the fix,
-        // AcpHostedAgentRuntime.StartAsync awaited SendPromptAsync (the initial prompt) to
-        // completion, so this would hang past HangGuard; the fix fires it as untracked background
-        // work and returns once session/new resolves.
+        // response indefinitely — models a long-running first turn. StartAsync
+        // must fire the initial prompt as untracked background work and return once session/new
+        // resolves; awaiting it would hang past HangGuard.
         h.Fake.HoldPromptResponses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         h.StartFakeAgentLoop();
 
@@ -520,9 +519,8 @@ public class AcpHostedAgentRuntimeTests {
 
         h.Fake.HoldPromptResponses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        // Before the fix, SendUserInputAsync awaited SendPromptAsync (the session/prompt round
-        // trip) to completion — with the response held indefinitely, this call would hang past
-        // HangGuard. The fix fires the prompt as untracked background work and returns immediately.
+        // With the response held indefinitely, a SendUserInputAsync that awaited the session/prompt
+        // round trip would hang past HangGuard; it must fire the prompt as untracked background work.
         await h.Runtime.SendUserInputAsync("more").WaitAsync(HangGuard);
 
         var deadline = DateTime.UtcNow + HangGuard;
@@ -610,13 +608,13 @@ public class AcpHostedAgentRuntimeTests {
         await written.WaitAsync(HangGuard);
     }
 
-    // ── Test plan item 9: cancellation propagates out of StartAsync ───────────────────
+    // ── Cancellation propagates out of StartAsync ─────────────────────────────────────
 
     /// <summary>
     /// A <c>ct</c> canceled WHILE <c>session/set_config_option</c> is in flight must abort
     /// <c>StartAsync</c> via a propagated <see cref="OperationCanceledException"/> — the runtime
-    /// must never hand a live runtime back to a caller who already canceled the launch (spec-review
-    /// Finding 2). Contrasted against <see cref="AcpHostedAgentRuntimeModelSelectionTests.StartAsync_JsonRpcErrorFromSetConfigOption_IsNonFatal_PromptStillFires"/>,
+    /// must never hand a live runtime back to a caller who already canceled the launch.
+    /// Contrasted against <see cref="AcpHostedAgentRuntimeModelSelectionTests.StartAsync_JsonRpcErrorFromSetConfigOption_IsNonFatal_PromptStillFires"/>,
     /// which shares almost the same setup but asserts the opposite outcome for an RPC ERROR
     /// response (as opposed to cancellation).
     /// </summary>
@@ -770,7 +768,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(h.Runtime.Verdict!.Reason).IsEqualTo("winner-reason");
     }
 
-    /// <summary>Finding 2: DisposeAsync latches _disposed BEFORE its early cancellation phase, and
+    /// <summary>DisposeAsync latches _disposed BEFORE its early cancellation phase, and
     /// only reaches the reap wait + connection/process disposal much later. If a cancellation callback
     /// on _cts throws (cancellation callbacks can throw), the early phase must NOT abort teardown —
     /// the child/streams would leak with retry impossible (the latch is set). This registers a
@@ -787,19 +785,17 @@ public class AcpHostedAgentRuntimeTests {
         h.Runtime.TryStartReap("kiro_reviewer_mcp_surface_unexpected: violation", () => Task.CompletedTask);
         await Assert.That(h.Runtime.ReadVerdict()).IsNotNull(); // precondition: a verdict exists to preserve
 
-        // Pre-fix: the early fault aborts DisposeAsync before the guaranteed teardown, so the child is
-        // never disposed (DisposeCalls == 0). Post-fix the early phase is contained and teardown runs.
+        // An uncontained early fault would abort DisposeAsync before the guaranteed teardown, leaving
+        // DisposeCalls at 0.
         try { await h.Runtime.DisposeAsync(); } catch { /* pre-fix: the early fault propagates */ }
 
         await Assert.That(h.Process.DisposeCalls).IsGreaterThan(0);  // child disposed despite the fault
         await Assert.That(h.Runtime.ReadVerdict()).IsNotNull();      // coded verdict still surfaces
     }
 
-    /// <summary>Finding 2 (round 3): the EARLY owner-cancel (`_ownerCts.Cancel()`) can throw too, and
-    /// it ran BEFORE the incarnation was captured under the lock and BEFORE the terminal/gate signals.
-    /// If a reconnect commits a SUCCESSOR incarnation in the window before the lock, a throwing owner
-    /// cancel left the STALE predecessor selected (successor leaked) and skipped the signals that
-    /// unpark parked waiters. Commits a successor right before the lock, faults the owner cancel, and
+    /// <summary>The EARLY owner-cancel (`_ownerCts.Cancel()`) can throw too. If a reconnect commits a
+    /// SUCCESSOR incarnation in the window before the lock, a throwing owner cancel must not leave the
+    /// STALE predecessor selected (successor leaked) or skip the signals that unpark parked waiters. Commits a successor right before the lock, faults the owner cancel, and
     /// asserts the LIVE successor is disposed (not the predecessor) and the terminal signal fired.</summary>
     [Test]
     public async Task DisposeAsync_owner_cancel_fault_disposes_the_successor_and_fires_terminal_signal() {
@@ -813,8 +809,8 @@ public class AcpHostedAgentRuntimeTests {
 
         h.Runtime.TryStartReap("kiro_reviewer_mcp_surface_unexpected: violation", () => Task.CompletedTask);
 
-        // Commit a reconnect SUCCESSOR right before DisposeAsync takes _reconnectLock — the window the
-        // round-2 code read `installed` before, so a stale-incarnation dispose would leak this one.
+        // Commit a reconnect SUCCESSOR right before DisposeAsync takes _reconnectLock — reading
+        // `installed` before this window would dispose the stale incarnation and leak this one.
         var successorProcess = new FakeAcpProcess();
         h.Runtime.BeforeReconnectLockOnDisposeForTest =
             () => h.Runtime.CommitSuccessorIncarnationForTest(successorProcess);
@@ -826,7 +822,7 @@ public class AcpHostedAgentRuntimeTests {
         await Assert.That(h.Runtime.RuntimeTerminalForTest.IsCompleted).IsTrue(); // terminal signal fired despite the fault
     }
 
-    /// <summary>Bug 1: DisposeAsync's contained early phase must still SIGNAL the turn worker to exit
+    /// <summary>DisposeAsync's contained early phase must still SIGNAL the turn worker to exit
     /// (cancel _cts AND complete _pendingTurns — the two things RunTurnWorkerAsync exits on) even when
     /// `ownerCts.Cancel()` throws. Otherwise the worker parks forever on _pendingTurns.WaitToReadAsync
     /// while teardown disposes its connection/process out from under it. Establishes a parked worker,
@@ -846,9 +842,8 @@ public class AcpHostedAgentRuntimeTests {
 
         try { await h.Runtime.DisposeAsync(); } catch { /* the fault is contained either way */ }
 
-        // Pre-fix: the owner-cancel throw skips _cts.CancelAsync() + both channel completions, so the
-        // worker stays parked (IsCompleted == false). Post-fix each cancel is independently guarded, so
-        // the worker is signaled and DisposeAsync's bounded wait sees it exit.
+        // Each cancel is independently guarded, so the owner-cancel throw cannot skip
+        // _cts.CancelAsync() and both channel completions: the worker is signaled and DisposeAsync's bounded wait sees it exit.
         await Assert.That(h.Runtime.TurnWorkerTaskForTest.IsCompleted).IsTrue();
     }
 
@@ -870,8 +865,8 @@ public class AcpHostedAgentRuntimeTests {
 
     /// <summary>Reap reasons can embed agent-controlled text (e.g. a JSON-RPC method from an inbound
     /// frame), which may contain non-BMP characters — a raw UTF-16 code-unit slice at the cap can
-    /// land between a surrogate pair's two halves, leaving a lone surrogate in the forwarded string
-    /// (design spec §3.1). Nine filler chars put "😀" (U+1F600, a high+low surrogate pair) exactly
+    /// land between a surrogate pair's two halves, leaving a lone surrogate in the forwarded string.
+    /// Nine filler chars put "😀" (U+1F600, a high+low surrogate pair) exactly
     /// astride the cut: its high half at index maxLength-1, low half at index maxLength — precisely
     /// the boundary a naive <c>oneLine[..maxLength]</c> would slice through.</summary>
     [Test]
@@ -892,7 +887,7 @@ public class AcpHostedAgentRuntimeTests {
 
     /// <summary>Line breaks collapse to spaces (<c>ReplaceLineEndings</c>) before the cap is ever
     /// applied, so a coded reason's prefix — e.g. the <c>unattended_interaction_forbidden:{method}</c>
-    /// shape writers use (design spec §3.1) — survives at the front and no raw line-break character
+    /// shape writers use — survives at the front and no raw line-break character
     /// remains anywhere in the result.</summary>
     [Test]
     public async Task Sanitize_collapses_multiline_input_and_keeps_the_code_prefix() {
@@ -922,7 +917,7 @@ public class AcpHostedAgentRuntimeTests {
     }
 
     /// <summary>The back-off reads <c>oneLine[maxLength - 1]</c> — guards against a non-positive cap
-    /// underflowing that index instead of just falling through to the pre-fix (already-safe)
+    /// underflowing that index instead of just falling through to the plain (already-safe)
     /// substring behavior.</summary>
     [Test]
     public async Task Sanitize_with_a_non_positive_cap_does_not_throw() {

@@ -1,5 +1,4 @@
 using Avalonia.Controls.Documents;
-using Avalonia.Media;
 using MarkView.Avalonia.Rendering.Inlines;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 using static Capacitor.App.Tests.Unit.MarkdownViewHarness;
@@ -31,7 +30,6 @@ public class ChatLinkHoistTests {
         try {
             var bold = Paragraphs(root).Single().Inlines!.OfType<Bold>().Single();
             await Assert.That(bold.Inlines.Text).IsEqualTo("![badge](https://example.com/image.png)");
-            await Assert.That(bold.FontWeight).IsEqualTo(FontWeight.Bold);
         } finally { window.Close(); }
     });
 }

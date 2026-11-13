@@ -10,13 +10,13 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// §2.7 B6 arm-A: the RESUMABLE-PARK path in <see cref="AgentOrchestrator"/>. A settled,
+/// Arm-A: the RESUMABLE-PARK path in <see cref="AgentOrchestrator"/>. A settled,
 /// app-server hosted Codex reviewer idle past the SHORT resumable bound
 /// (<see cref="DaemonConfig.ReviewerResumableIdleTimeout"/>, 10m) is PARKED — its daemon slot freed
 /// like a reap, but its Codex thread kept alive (the hosted session-end suppressed) for a later
 /// <c>thread/resume</c> — rather than reaped at the 2h arm-B idle bound.
 ///
-/// <para>Split, like the task brief, into (a) SELECTION — what
+/// <para>Split into (a) SELECTION — what
 /// <see cref="AgentOrchestrator.FindReviewersToReap"/> flags as a <see cref="AgentOrchestrator.ReapCandidate.Park"/>
 /// candidate — and (b) the PARK STATE MACHINE (<c>ParkReviewerAsync</c>) against a fake
 /// <see cref="ServerConnection"/> whose <c>ReportParticipantParkedAsync</c> returns a chosen

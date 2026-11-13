@@ -7,6 +7,10 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
     <ItemGroup>
+        <!-- The shipped plugin, read as text. CI selects this suite for a markdown change under it. -->
+        <TestSelectionDirectory Include="../../kcap" />
+    </ItemGroup>
+    <ItemGroup>
         <ProjectReference Include="..\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
         <ProjectReference Include="..\Capacitor.Tests.Helpers.Kcap\Capacitor.Tests.Helpers.Kcap.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.Cli\Capacitor.Cli.csproj" />

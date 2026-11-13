@@ -41,7 +41,7 @@ public sealed class CodexHookTrustSeeder(HarnessRegistry harnesses, UserHome hom
             // Codex refused or stopped, or the config lock or ledger could not be taken: nothing is claimed.
         } finally {
             if (unanswered) VendorProcess.Stop(process);
-            else await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            else await VendorProcess.ShutDownAsync(process, time).ConfigureAwait(false);
         }
 
         ct.ThrowIfCancellationRequested();

@@ -22,7 +22,7 @@ public class WorkOSDeviceFlowTests {
     const string Device = """{"device_code":"dc","user_code":"WXYZ-1234","verification_uri":"","interval":0,"expires_in":900}""";
 
     /// <summary>
-    /// Live response, 2026-08-20: WorkOS returns both, and verification_uri points at signin.kcap.ai
+    /// Measured live response: WorkOS returns both, and verification_uri points at signin.kcap.ai
     /// rather than a workos.com host. The complete form pre-fills the code, so it is what a browser
     /// should open — while the bare one is what a human retypes on another device.
     /// </summary>
@@ -51,7 +51,7 @@ public class WorkOSDeviceFlowTests {
         var       workos = new WorkOSClient(new PlainHttpClientFactory(stub), TimeProvider.System);
 
         var result = await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: new RecordingAuthProgress());
+            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: new RecordingAuthProgress(), pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
@@ -74,7 +74,7 @@ public class WorkOSDeviceFlowTests {
         var       progress = new RecordingAuthProgress();
 
         var result = await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress);
+            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result).IsNull();
         await Assert.That(string.Join("\n", progress.Errors)).Contains("may not be enabled");
@@ -110,14 +110,14 @@ public class WorkOSDeviceFlowTests {
         var       progress = new RecordingAuthProgress();
 
         var result = await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress);
+            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(result!.AccessToken).IsEqualTo("acc");
         await Assert.That(progress.PollTicks).IsEqualTo(2);
     }
 
     /// <summary>The code is meant to be carried to another device; a silent clipboard copy invites
-    /// pasting it into whatever page is already open. §5.5.</summary>
+    /// pasting it into whatever page is already open.</summary>
     [Test]
     public async Task Does_not_decorate_the_code_with_a_clipboard_suffix() {
         using var server = WithAuthorize(Device);
@@ -127,7 +127,7 @@ public class WorkOSDeviceFlowTests {
         var       progress = new RecordingAuthProgress();
 
         await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress);
+            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(), TimeProvider.System, progress: progress, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(progress.DeviceCodes).Count().IsEqualTo(1);
         await Assert.That(progress.DeviceCodes[0].Code).IsEqualTo("WXYZ-1234");
@@ -151,7 +151,7 @@ public class WorkOSDeviceFlowTests {
         var       progress = new RecordingAuthProgress();
 
         await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(opens: opened), TimeProvider.System, progress: progress);
+            workos, WorkOSClient.ApiBase, "client_d", new RecordingBrowser(opens: opened), TimeProvider.System, progress: progress, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(progress.DeviceCodes[0].Uri).IsEqualTo(expectedUri);
         await Assert.That(progress.DeviceCodes[0].Prefilled).IsEqualTo(expectedPrefilled);
@@ -170,7 +170,7 @@ public class WorkOSDeviceFlowTests {
         var       browser = new RecordingBrowser(opens: false);
 
         await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", browser, TimeProvider.System, progress: new RecordingAuthProgress());
+            workos, WorkOSClient.ApiBase, "client_d", browser, TimeProvider.System, progress: new RecordingAuthProgress(), pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(browser.Urls).IsEquivalentTo(["https://signin.example/device?user_code=WXYZ-1234"]);
     }
@@ -188,7 +188,7 @@ public class WorkOSDeviceFlowTests {
         var       progress = new RecordingAuthProgress();
 
         await OAuthLoginFlow.RunWorkOSDeviceFlowAsync(
-            workos, WorkOSClient.ApiBase, "client_d", browser, TimeProvider.System, progress: progress, openBrowser: false);
+            workos, WorkOSClient.ApiBase, "client_d", browser, TimeProvider.System, progress: progress, openBrowser: false, pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(browser.Urls).IsEmpty();
         await Assert.That(progress.DeviceCodes[0].Uri).IsEqualTo("https://signin.example/device");

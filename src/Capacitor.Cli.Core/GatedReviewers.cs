@@ -18,13 +18,10 @@ namespace Capacitor.Cli.Core;
 /// <c>Capacitor.Cli</c> and <c>Capacitor.Cli.Daemon</c> both reference Core and neither references the
 /// other, so Core is the only place a single list can sit.</para>
 ///
-/// <para><b>Why a single list matters more than it used to.</b> These switches are opt-OUTs: unset
-/// means the reviewer is enabled. So the variable is the operator's only lever for turning one off,
-/// and a vendor that appears in the daemon's apply loop but not in the service-unit allowlist is a
-/// reviewer that cannot be disabled on the supported install path — the exact hazard review raised.
-/// While these were opt-INs the same drift meant a reviewer that could not be turned ON: annoying, and
-/// safe. Two enumerations that must agree, with nothing making them, is the shape that produces that;
-/// there is now one.</para>
+/// <para><b>Why a single list.</b> These switches are opt-OUTs: unset means the reviewer is enabled.
+/// So the variable is the operator's only lever for turning one off, and a vendor that appears in the
+/// daemon's apply loop but not in the service-unit allowlist is a reviewer that cannot be disabled on
+/// the supported install path. One enumeration keeps the two from drifting.</para>
 /// </summary>
 /// <param name="Vendor">The vendor token, as it appears on the wire and in <c>--vendor</c>.</param>
 /// <param name="DefaultBinary">The binary looked up on PATH when <paramref name="PathEnvVar"/> is

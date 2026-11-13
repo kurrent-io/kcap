@@ -16,11 +16,11 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// gates <c>LaunchStage</c> on <c>Status == "Starting"</c>. Net: <c>launch_stage</c> was NEVER non-null
 /// on the wire, the server's <c>EvidenceGeneration</c> stayed 0 through registration, and its rolling
 /// registration deadline could never extend — while the daemon's own 3x90s stage caps make a ~270s
-/// legitimate handshake representable. The spec's §5 window is sound only if these reports really fire,
+/// legitimate handshake representable. The server's rolling registration window is sound only if these reports really fire,
 /// so "the four stamps produce reports carrying the agent" is the premise, not a nicety.</para>
 ///
 /// <para>Vacuity note: asserting only the FINAL state (an agent that ends up Running with a null
-/// stage) passes under the pre-fix code too — that is exactly the trap this plan hit repeatedly. Every
+/// stage) passes even when no stage report ever fires. Every
 /// assertion below is therefore about reports observed DURING the handshake, or about the presence of
 /// an entry rather than its absence.</para>
 ///
@@ -70,7 +70,7 @@ public class LaunchStageEvidenceLaneTests {
 
     /// <summary>Reduces a recorded report sequence to the launch stages this agent was seen carrying,
     /// consecutive duplicates collapsed. Reports that do not carry the agent at all contribute
-    /// NOTHING — which is precisely why an empty result is the pre-fix signature.</summary>
+    /// NOTHING — which is precisely why an empty result is the regression signature.</summary>
     static List<string?> ObservedStages(IReadOnlyList<DaemonStatusReport> reports, string agentId) {
         var seen = new List<string?>();
 

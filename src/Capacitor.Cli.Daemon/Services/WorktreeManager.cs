@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Text;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -677,6 +678,7 @@ public partial class WorktreeManager(
             await CheckoutInTargetContextAsync(created.Path, () => RefuseIfRepositoryMovedAsync(created.SourceRepo, pinned, pinnedCommonDir));
             RefuseIfSourceMoved(created.SourceRepo, pinned);
             StripWorkspaceMcpConfig(created.Path);
+            await SkipStrippedIndexEntriesAsync(created.Path);
             RecordDaemonBaseline(created.Path);
         } catch {
             // A half-created worktree holds nothing of the agent's: its empty index reads as every file deleted.
@@ -762,11 +764,8 @@ public partial class WorktreeManager(
 
     /// <summary>Removes branch-authored vendor MCP configuration and logs what went, so an operator whose
     /// repo legitimately ships one can tell that kcap removed it rather than that the vendor ignored it.
-    /// <para>Called by the worktree creation paths. Borrowed snapshots do not call it — they never
-    /// materialise these files in the first place, because <see cref="PlanSnapshotExclusions"/> now folds in
-    /// the same list. An earlier version of this comment claimed "every creation path calls this", which
-    /// was not true and papered over exactly the gap that left <c>.kiro/settings/mcp.json</c> in a borrowed
-    /// snapshot.</para></summary>
+    /// <para>Borrowed snapshots do not call it: <see cref="PlanSnapshotExclusions"/> keeps these files from
+    /// being materialised at all.</para></summary>
     void StripWorkspaceMcpConfig(string worktreePath) {
         var removed = NeutralizeWorkspaceMcpConfig(worktreePath);
 
@@ -944,8 +943,17 @@ public partial class WorktreeManager(
             worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "status", "--porcelain=v1", "-z", "--untracked-files=all");
         if (status.ExitCode != 0) return "its git status could not be read";
 
+        var index = await RunGitCaptureResult(
+            worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "ls-files", "-t", "-z");
+        if (index.ExitCode != 0) return "its git index could not be read";
+
+        // Git's own record of the volume's case rule: a stripped `.MCP.JSON` is the file recorded as `.mcp.json`.
+        var ignoreCase = await RunGitCaptureResult(
+            worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "config", "--type=bool", "core.ignorecase");
+
         var baseline = ReadDaemonBaseline(worktree.Path);
-        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
+        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry))
+                     + HiddenEdits(worktree.Path, baseline, index.Stdout, ignoreCase.Stdout.Trim() == "true");
         if (changes > 0) return $"{changes} uncommitted {(changes == 1 ? "change" : "changes")}";
 
         // An owned branch is deleted with the worktree, so its commits count even with HEAD moved elsewhere.
@@ -994,6 +1002,21 @@ public partial class WorktreeManager(
     static async Task<bool> RefExistsAsync(string worktreePath, string reference, TimeProvider time) =>
         (await RunGitCaptureResult(worktreePath, GitTimeout, time, sourceReadOnly: true, [],
             "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}")).ExitCode == 0;
+
+    /// <summary>Counts <c>skip-worktree</c> entries that differ from what the daemon recorded there, or
+    /// from the absence it left when it has no record. Status never reports these paths, so without this an
+    /// agent's edit to a stripped config file would be removed with the worktree.</summary>
+    internal static int HiddenEdits(
+            string worktreePath, Dictionary<string, string>? baseline, string lsFilesTagged, bool ignoreCase) {
+        var recorded = new Dictionary<string, string>(
+            baseline ?? [], ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
+        return lsFilesTagged.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Where(static record => record.StartsWith("S ", StringComparison.Ordinal))
+            .Select(static record => record[2..])
+            .Count(path => SafeStamp(Path.Combine(worktreePath, path)) is not { } stamp
+                        || stamp != recorded.GetValueOrDefault(path, "-"));
+    }
 
     static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, PorcelainEntry entry) {
         // Unstaged and still exactly as the daemon left it; anything staged is the agent's.
@@ -1590,8 +1613,8 @@ public partial class WorktreeManager(
     /// exotic aliases stay in the trusted-configuration residual documented on
     /// <see cref="EnsureSeparateRoots"/>.</para></summary>
     static bool IsAtOrUnder(string candidate, string root) {
-        candidate = candidate.Normalize(NormalizationForm.FormC);
-        root = root.Normalize(NormalizationForm.FormC);
+        candidate = UnicodeNormalization.ToNfc(candidate);
+        root = UnicodeNormalization.ToNfc(root);
         var prefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return candidate.Equals(root, FileSystemPathComparison) ||
                candidate.StartsWith(prefix, FileSystemPathComparison);
@@ -1654,7 +1677,7 @@ public partial class WorktreeManager(
     internal static string NormalizeRelativePath(string raw) {
         if (raw.Length == 0 || raw.StartsWith('/') || raw.Contains('\\') ||
             raw.Contains('\r') || raw.Contains('\n') ||
-            !raw.IsNormalized(NormalizationForm.FormC) ||
+            !UnicodeNormalization.IsNfc(raw) ||
             raw.Split('/').Any(p => p is "" or "." or "..") ||
             raw.Split('/').Any(p => p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"borrowed_snapshot_invalid_path: {raw}");
@@ -1746,28 +1769,17 @@ public partial class WorktreeManager(
             right.TryGetValue(pair.Key, out var other) && pair.Value.Mode == other.Mode &&
             pair.Value.Length == other.Length && pair.Value.Hash.AsSpan().SequenceEqual(other.Hash));
 
-    /// <summary>Marks the excluded config paths <c>skip-worktree</c> so their absence from the snapshot is
-    /// not reported as a change — otherwise a tracked <c>src/.mcp.json</c> shows up as a DELETION in the
-    /// reviewer's <c>git status</c> and diff, and can produce a review finding about a deletion kcap
-    /// performed.
+    /// <summary>Marks every index entry the plan reserves <c>skip-worktree</c>, so a config file the snapshot
+    /// never materialised is not reported, staged or committed as a deletion — a deletion a reviewer would
+    /// otherwise read as the branch's.
     ///
-    /// <para><b>Reads the DESTINATION index, not the source's.</b> The destination is a fresh clone checked
-    /// out at <c>HEAD</c>, so a path staged-but-uncommitted in the source is in the SOURCE index and absent
-    /// here. Intersecting against the source listing would batch such a path and fail
-    /// <c>update-index</c> on a perfectly legitimate snapshot.</para>
+    /// <para>Reads the destination's own index: a path staged but uncommitted in the source is absent here,
+    /// and naming it would fail <c>update-index</c>. Membership comes from that listing, so an
+    /// <c>update-index</c> failure is real and propagates.</para>
     ///
-    /// <para><b>Membership decides, so failure is real.</b> The previous version swallowed every error to
-    /// cover "absent from the index". With membership established from the listing, a failure means
-    /// something else went wrong and it propagates.</para>
-    ///
-    /// <para><b>Batched on stdin.</b> The expanded set is <c>paths × depth</c> entries and O(depth²)
-    /// aggregate bytes, so argv could exceed <c>ARG_MAX</c>; <c>--stdin</c> also makes the paths literal,
-    /// where an ancestor directory named <c>:foo</c> or <c>-foo</c> would otherwise be read as pathspec
-    /// syntax.</para>
-    ///
-    /// <para>The targets are the index's OWN spellings, taken from the listing, so they are guaranteed to
-    /// name entries git will accept — and the case decision is made once, by the shared classifier.</para>
-    /// </summary>
+    /// <para>Paths go on stdin, not argv: the expanded set grows with cwd depth past <c>ARG_MAX</c>, and
+    /// <c>--stdin</c> paths are literal where an argv path starting with <c>:</c> or <c>-</c> is
+    /// not.</para></summary>
     static async Task ApplyReservedIndexPolicyAsync(
             string destination, SnapshotExclusionPlan plan, bool caseSensitive, TimeProvider time,
             CancellationToken ct) {
@@ -1775,13 +1787,8 @@ public partial class WorktreeManager(
         var targets = new List<string>();
         foreach (var record in SplitNulRecords(indexListing)) {
             ct.ThrowIfCancellationRequested();
-            // Every non-Unrelated match, Exact AND Descendant — the same set ReadSourceManifestAsync
-            // excludes. An earlier version marked only Exact on the reasoning that a descendant of a
-            // config path is not an index entry, which is backwards: the reserved parent may not be an
-            // entry, but a repository CAN track `.codex/config.toml/child` (the config pathname as a
-            // directory), and each such child is a real index entry. Omitted from the snapshot and left
-            // unmarked, it reads as a deletion — and an ordinary git operation in the snapshot could
-            // restore it and rebuild a live vendor-config tree.
+            // Descendants too: a repository can track `.codex/config.toml/child`, the config pathname as a
+            // directory. Left unmarked, an ordinary git operation could restore it as a live config tree.
             if (ClassifyReservedPath(record.Span, plan.Reserved, caseSensitive).Kind
                     == ReservedPathMatchKind.Unrelated)
                 continue;
@@ -1792,10 +1799,46 @@ public partial class WorktreeManager(
 
         if (targets.Count > 0)
             await RunGitWithNulStdinAsync(
-                destination, GitTimeout, time, targets, ct, "update-index", "--skip-worktree", "-z", "--stdin");
+                destination, GitTimeout, time, targets, ct, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
 
         Directory.CreateDirectory(Path.Combine(destination, ".git", "info"));
         File.AppendAllText(Path.Combine(destination, ".git", "info", "exclude"), "\n.attached/\n");
+    }
+
+    /// <summary>Marks what the strip removed from an owned worktree <c>skip-worktree</c>, so the removal is not
+    /// reported, staged or committed as the branch deleting it.
+    ///
+    /// <para>Runs on a fresh checkout, so a tracked path now missing was removed by the strip. It is marked
+    /// only when it is a config path, under one, or a link the strip unlinked on the way to one: content a
+    /// link pointed at stays visible. Writing the index fires <c>post-index-change</c>, hence the hook
+    /// override.</para></summary>
+    async Task SkipStrippedIndexEntriesAsync(string worktreePath) {
+        var caseSensitive = ProbeCaseSensitiveFileSystem(worktreePath);
+        var reserved      = PlanSnapshotExclusions("", caseSensitive).Reserved;
+        var missing       = await RunGitCaptureBytes(
+            worktreePath, GitTimeout, time, false, CancellationToken.None, "ls-files", "-d", "-z");
+
+        var targets = SplitNulRecords(missing)
+            .Where(record => ClassifyReservedPath(record.Span, reserved, caseSensitive).Kind != ReservedPathMatchKind.Unrelated
+                          || RoutesToReservedPath(record.Span, reserved, caseSensitive))
+            .Select(record => StrictUtf8.GetString(record.Span))
+            .ToList();
+
+        if (targets.Count > 0)
+            await RunGitWithNulStdinAsync(
+                worktreePath, GitTimeout, time, targets, CancellationToken.None, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
+    }
+
+    /// <summary>Whether <paramref name="rawPath"/> is a proper ancestor of a reserved path.</summary>
+    static bool RoutesToReservedPath(
+            ReadOnlySpan<byte> rawPath, (string Canonical, byte[] Bytes)[] reserved, bool caseSensitive) {
+        foreach (var candidate in reserved)
+            if (candidate.Bytes.Length > rawPath.Length && candidate.Bytes[rawPath.Length] == (byte)'/'
+             && AsciiPathEquals(rawPath, candidate.Bytes.AsSpan(0, rawPath.Length), caseSensitive))
+                return true;
+        return false;
     }
 
     static FileStream OpenSequentialRead(string path) => new(path, new FileStreamOptions {

@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,7 +17,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// its normal profile-resolution path and holds a resolved profile — which is exactly the shape in
 /// which a start-time snapshot would go stale, and therefore the shape the freshness test needs.</para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class ReviewerVendorPreferenceTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

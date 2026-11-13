@@ -1,6 +1,5 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Gemini;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,7 +17,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>vendor=gemini</c> with that <c>agent_id</c> so the server routes it to
 /// <c>AgentSubsession-*</c>.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class GeminiSubagentImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 
@@ -226,7 +224,7 @@ public class GeminiSubagentImportTests : IDisposable {
 
     [Test]
     public async Task ImportSession_AlreadyLoaded_with_a_subagent_reports_sent_child_content_true() {
-        // Documented residual (D1): ImportSubagentsAsync has no per-child watermark, so it
+        // Documented residual: ImportSubagentsAsync has no per-child watermark, so it
         // resends the whole subagent transcript on every re-run — an AlreadyLoaded parent whose
         // subagent is still present reports SentChildContent=true, whether or not the subagent
         // content is actually new. That's the accepted, conservative trade-off: this reads true
@@ -274,7 +272,7 @@ public class GeminiSubagentImportTests : IDisposable {
 
     [Test]
     public async Task ImportSession_AlreadyLoaded_with_a_subagent_whose_transcript_post_is_rejected_reports_no_sent_child_content() {
-        // Regression for a Qodo-flagged false positive: SendTranscriptBatches returns a
+        // SendTranscriptBatches returns a
         // positive line count even when the server REJECTS the batch (failOnError defaults
         // false), so without failOnError:true here SentChildContent would flip true for a
         // batch the server never accepted. Mirrors
@@ -322,7 +320,7 @@ public class GeminiSubagentImportTests : IDisposable {
         await Assert.That(posts.Contains("/hooks/session-end/gemini")).IsTrue();
 
         // A routed AlreadyLoaded replay with a false signal is SUPPRESSED for counting, not
-        // counted Loaded — the false positive Qodo flagged.
+        // counted Loaded.
         var isSuppressed = ImportCommand.IsLifecycleOnlyRoutedReplay(
             classified[0].Status, result.Outcome, result.SentChildContent);
         await Assert.That(isSuppressed).IsTrue();
@@ -332,14 +330,14 @@ public class GeminiSubagentImportTests : IDisposable {
         await Assert.That(resolved).IsNull();
     }
 
-    // --- D3: recursive grandchild/descendant discovery. ---
+    // --- Recursive grandchild/descendant discovery. ---
 
     const string DashedGrandsub   = "8c1a2222-3333-4444-5555-666677778888";
     const string DashlessGrandsub = "8c1a2222333344445555666677778888";
 
     // Root (invoke_agent → Sub) + Sub's OWN chats/<sub>/ dir with a grandsub file whose
     // invocation is recorded in SUB's own transcript (a DIFFERENT agent_name than the root's
-    // call) — matches EnumerateDescendantFiles' context-carrying walk (D3).
+    // call) — matches EnumerateDescendantFiles' context-carrying walk.
     void WriteThreeLevelFixture() {
         var chats = Path.Combine(_tempDir, "proj", "chats");
         Directory.CreateDirectory(chats);
@@ -372,8 +370,8 @@ public class GeminiSubagentImportTests : IDisposable {
 
     [Test]
     public async Task ImportSession_imports_a_grandchild_subagent_as_direct_subagent_of_root_with_correct_type() {
-        // a subagent's own subagent (chats/<sub>/<grandsub>.jsonl) must import —
-        // previously silently dropped by the single-level EnumerateSubagentFiles scan — as a
+        // a subagent's own subagent (chats/<sub>/<grandsub>.jsonl) must import — a single-level
+        // scan would silently drop it — as a
         // DIRECT subagent of the top-level root, with its type resolved from its IMMEDIATE
         // parent (Sub's own transcript), not the root's, and not falling back to "subagent".
         WriteThreeLevelFixture();

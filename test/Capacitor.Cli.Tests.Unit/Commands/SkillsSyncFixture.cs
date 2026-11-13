@@ -32,7 +32,7 @@ sealed class SkillsSyncFixture {
     public SkillsSyncFixture(
             TempDir tmp, string checkout, StubSkillsApi api,
             string subject = "signed-in-user", string owner = "acme", string repoName = "widgets",
-            string? installedAt = null) {
+            string? installedAt = null, TimeSpan? lockWait = null) {
         Api      = api;
         Anchor   = checkout;
         GitDir   = GitRepository.ResolveGitDir(checkout)!;
@@ -64,7 +64,7 @@ sealed class SkillsSyncFixture {
             installedAt is null
                 ? Resolutions.At(ServerUrl, Config)
                 : Resolutions.AtInstallation(installedAt, Config, Resolutions.InstalledAt(installedAt, InstallationId)),
-            MachineAuth.None, LegacyRoots, time);
+            MachineAuth.None, LegacyRoots, time) { LockWait = lockWait };
     }
 
     /// <summary>The global trees a retirement may delete from, rooted where these tests stage the

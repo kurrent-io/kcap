@@ -4,11 +4,11 @@ using Capacitor.Cli.Core.Acp;
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// Round-trip / wire-shape tests for the Task B1 ACP permission + elicitation DTOs — proves
+/// Round-trip / wire-shape tests for the ACP permission + elicitation DTOs — proves
 /// the source-gen <see cref="CapacitorJsonContext"/> registrations exist and serialize with the
 /// exact camelCase wire vocabulary (<see cref="PermissionOutcomeDto"/>'s <c>"selected"</c> /
 /// <c>"cancelled"</c> spellings, distinct from the server-internal <c>"cancel"</c>) and snake_case
-/// server-contract-mirror field names required for daemon&lt;-&gt;server lockstep (Task A2).
+/// server-contract-mirror field names required for daemon&lt;-&gt;server lockstep.
 /// </summary>
 public class AcpInteractionMessagesTests {
     [Test]

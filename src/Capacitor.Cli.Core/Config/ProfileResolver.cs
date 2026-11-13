@@ -50,19 +50,17 @@ public class ProfileResolver(
     }
 
     ResolvedProfile ResolveAsWritten() {
-        // 1. CLI --server-url flag
+        // First match wins: --server-url, KCAP_URL, KCAP_PROFILE, the .kcap.json profile, a profile
+        // whose remote matches the repo's, the `kcap use` binding, then the active profile.
         if (!string.IsNullOrEmpty(cliServerUrl))
             return new(AppConfig.NormalizeUrl(cliServerUrl), null, null, null, UrlSource.CommandLine);
 
-        // 2. KCAP_URL env var
         if (!string.IsNullOrEmpty(envUrl))
             return new(AppConfig.NormalizeUrl(envUrl), null, null, null, UrlSource.Environment);
 
-        // 3. KCAP_PROFILE env var
         if (!string.IsNullOrEmpty(envProfile))
             return ResolveByName(envProfile);
 
-        // 4. .kcap.json in repo
         if (repoConfig?.Profile is { } repoProfileName) {
             if (config.Profiles.TryGetValue(repoProfileName, out var repoProfile)) {
                 if (repoConfig.ServerUrl is { } repoUrl
@@ -112,7 +110,6 @@ public class ProfileResolver(
     }
 
     ResolvedProfile ResolveWithoutRepoConfig() {
-        // 5. Git remote match
         string? remoteMatch;
 
         try {
@@ -124,11 +121,9 @@ public class ProfileResolver(
         if (remoteMatch is not null)
             return ResolveByName(remoteMatch);
 
-        // 6. Profile binding (from `kcap use`)
         if (repoPath is not null && config.ProfileBindings.TryGetValue(repoPath, out var boundName))
             return ResolveByName(boundName);
 
-        // 7. Active profile fallback
         return ResolveByName(config.ActiveProfile);
     }
 

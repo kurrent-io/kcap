@@ -1,7 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Cursor;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -10,14 +9,13 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task C2 (D1, CLI side) — the CLI already posts <c>session-start/cursor</c> (carrying
-/// <c>repository</c> when detected) before ever branching on classification status, so an
-/// <c>AlreadyLoaded</c> (suppression-simulating) re-import still ships the repository payload the
-/// server's D1 suppressed-path handler (Task C1) needs to backfill attribution. This pins that
+/// The CLI posts <c>session-start/cursor</c> (carrying <c>repository</c> when detected) before
+/// ever branching on classification status, so an <c>AlreadyLoaded</c> (suppression-simulating)
+/// re-import still ships the repository payload the server's suppressed-path handler needs to
+/// backfill attribution. This pins that
 /// contract: the server-side suppression (not the CLI) is what prevents the duplicate lifecycle
 /// append — the CLI must keep sending the hook regardless. Models on <see cref="CursorImportPrTests"/>.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class CursorSuppressedRepoImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 
@@ -55,7 +53,7 @@ public class CursorSuppressedRepoImportTests : IDisposable {
     public async Task Suppression_simulating_reimport_still_posts_repository_and_reports_success() {
         // Server already has both non-blank lines (last_line_number 1, 0-indexed) — classification
         // must come back AlreadyLoaded, simulating an already-captured session being re-run
-        // (the server's D1 suppressed path, Task C1, is what actually no-ops the lifecycle append).
+        // (the server's suppressed path is what actually no-ops the lifecycle append).
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":1}"""));
         _server.Given(Request.Create().WithPath("/hooks/session-start/cursor").UsingPost())

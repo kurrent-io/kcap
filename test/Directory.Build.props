@@ -19,6 +19,12 @@
                           and '$(MSBuildProjectName)' != 'Capacitor.Cli.Tests.Unit.NativeTestHost'">
         <RuntimeFrameworkVersion>10.0.14</RuntimeFrameworkVersion>
     </PropertyGroup>
+    <!-- kcap, kcap-daemon and kcap-service ship with InvariantGlobalization, so their suites run that way too:
+         under the machine's culture a formatted number or date asserts differently per reviewer. The desktop
+         app honours the user's culture, so its suite keeps ICU and CultureGlobalSetup pins the default. -->
+    <PropertyGroup Condition="'$(MSBuildProjectName)' != 'Capacitor.App.Tests.Unit'">
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
     <!-- One source, compiled into each test assembly rather than referenced from Helpers:
          TUnit finds hooks only in assemblies it has loaded.  -->
     <ItemGroup Condition="'$(MSBuildProjectName)' != 'Capacitor.Tests.Helpers'

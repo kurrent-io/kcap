@@ -185,10 +185,9 @@ class PermissionRequestCommand(
     }
 
     static async Task<int> PostAsync(HttpClient client, string url, JsonObject payload, TextWriter? stdout = null) {
-        // The server-side long-poll waits up to 10 hours for the user to decide; the
-        // daemon-side bridge inherits that bound transparently. Add a minute of slack
-        // so the HTTP client doesn't tear down a still-pending request first.
-        client.Timeout = TimeSpan.FromHours(10) + TimeSpan.FromMinutes(1);
+        // Claude's hook timeout bounds the wait. A limit of the client's own would be counted from before the server
+        // registers the request, so it could end the wait before the server's answer arrives.
+        client.Timeout = Timeout.InfiniteTimeSpan;
 
         using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
 
@@ -205,10 +204,6 @@ class PermissionRequestCommand(
             (stdout ?? Console.Out).Write(responseBody);
 
             return 0;
-        } catch (TaskCanceledException) {
-            Console.Error.WriteLine("[kcap] permission-request timed out");
-
-            return 2;
         } catch (HttpRequestException ex) {
             Console.Error.WriteLine($"[kcap] permission-request error: {ex.Message}");
 

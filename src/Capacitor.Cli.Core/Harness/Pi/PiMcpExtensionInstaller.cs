@@ -1,3 +1,5 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using Capacitor.Cli.Core.Mcp;
 
 namespace Capacitor.Cli.Core.Harness.Pi;
@@ -24,7 +26,8 @@ public static class PiMcpExtensionInstaller {
     /// <summary>Every server in <see cref="KcapMcpServers.All"/>, by the name <c>kcap mcp</c> takes, so Pi
     /// bridges the same set every other harness registers.</summary>
     static string ServerList() =>
-        $"const KCAP_MCP_SERVERS = [{string.Join(", ", KcapMcpServers.All.Select(s => $"\"{s.Args[^1]}\""))}];\n";
+        $"const KCAP_MCP_SERVERS = [{string.Join(", ", KcapMcpServers.All.Select(s => $"\"{s.Args[^1]}\""))}];\n"
+      + $"const KCAP_MCP_DESCRIPTIONS: Record<string, string> = {{ {string.Join(", ", KcapMcpServers.All.Select(s => $"\"{s.Args[^1]}\": \"{JsonEncodedText.Encode(s.Description ?? "", JavaScriptEncoder.UnsafeRelaxedJsonEscaping)}\""))} }};\n";
 
     const string Header =
         """
@@ -47,6 +50,13 @@ public static class PiMcpExtensionInstaller {
         // stalled-but-not-exited server. A timeout surfaces as a tool failure (execute throws).
         const TOOL_CALL_TIMEOUT_MS = 1200000; // 20 min
         const KILL_GRACE_MS = 2000;
+
+        // Every other kcap tool is deferred: Pi leaves its definition out of each request until tool_search
+        // loads it. These stay declared because an agent should reach for them unprompted.
+        const KCAP_DIRECT_TOOLS = new Set(["kcap_memory_search_memories", "kcap_memory_get_memory"]);
+        const KCAP_DEFERRED_GUIDELINE =
+          "If a kcap tool you need (sessions, review, flows, work items, plans, pages, handoff, analytics, knowledge, pass) " +
+          "is not in your tool list, load it with tool_search, searching for its name such as search_sessions or get_pr_summary.";
 
         """;
 
@@ -103,13 +113,18 @@ public static class PiMcpExtensionInstaller {
             const toolName = sanitizeToolName("kcap_" + server + "_" + mcpName);
             if (!toolName || registered.has(toolName)) return;
             const description = String((tool && tool.description) || ("kcap " + server + " " + mcpName));
+            const direct = KCAP_DIRECT_TOOLS.has(toolName);
             try {
               pi.registerTool({
                 name: toolName,
                 label: "kcap " + server + ": " + mcpName,
                 description,
-                // Surface it in the system prompt's Available tools section too.
+                // A Pi without exposure ignores both fields and declares the tool directly.
+                exposure: direct ? "direct" : "deferred",
+                namespace: { name: "kcap_" + server, description: KCAP_MCP_DESCRIPTIONS[server] || ("kcap " + server) },
+                // Pi lists only declared tools' snippets and guidelines in the system prompt.
                 promptSnippet: "kcap " + server + " — " + description.split("\n")[0],
+                promptGuidelines: direct ? [KCAP_DEFERRED_GUIDELINE] : undefined,
                 // MCP inputSchema is already JSON Schema; pi forwards `parameters` to the provider as-is.
                 parameters: (tool && tool.inputSchema) || { type: "object", properties: {} },
                 async execute(_toolCallId: string, params: any) {
@@ -192,6 +207,29 @@ public static class PiMcpExtensionInstaller {
             }
           }
 
+          // A deferred tool is declared only once tool_search loads it, and tool_search starts inactive.
+          // Where tool_search is missing (disabled, or replaced by an extension), declare kcap's tools
+          // directly instead of leaving them unreachable. Only callable after load, so never from the factory.
+          function ensureReachable(): void {
+            try {
+              if (typeof pi.getAllTools !== "function" || typeof pi.setActiveTools !== "function") return;
+              const all: any[] = pi.getAllTools() || [];
+              const deferred = all.filter((t) => t && registered.has(t.name) && t.exposure === "deferred").map((t) => t.name);
+              if (!deferred.length) return;
+              let active: string[] = pi.getActiveTools() || [];
+              if (all.some((t) => t && t.name === "tool_search" && t.exposure !== "hidden")) {
+                if (!active.includes("tool_search")) pi.setActiveTools([...active, "tool_search"]);
+                // setActiveTools drops a name it will not activate without throwing, so check it took.
+                active = pi.getActiveTools() || [];
+                if (active.includes("tool_search")) return;
+              }
+              const missing = deferred.filter((name) => !active.includes(name));
+              if (missing.length) pi.setActiveTools([...active, ...missing]);
+            } catch (e: any) {
+              console.error("[kcap-mcp] could not activate tool_search: " + ((e && e.message) || String(e)));
+            }
+          }
+
           async function stopBridge(): Promise<void> {
             const live = [...holders.values()].map((h) => h.client).filter(Boolean) as McpStdioClient[];
             holders.clear();
@@ -203,7 +241,10 @@ public static class PiMcpExtensionInstaller {
 
           // Respawn on a session switch/restart, and retry a server the factory skipped. Not awaited: a
           // hosted launch waits for session_start, and a server may itself be waiting on that launch.
-          pi.on("session_start", () => { void startBridge(); });
+          pi.on("session_start", () => {
+            ensureReachable();
+            void startBridge().then(ensureReachable);
+          });
           // Primary teardown — fires on switch AND on process exit (Ctrl+C/Ctrl+D/SIGHUP/SIGTERM).
           pi.on("session_shutdown", async () => { await stopBridge(); });
         }

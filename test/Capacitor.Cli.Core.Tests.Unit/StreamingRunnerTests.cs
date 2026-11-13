@@ -140,8 +140,8 @@ public class StreamingRunnerTests {
         cts.Cancel();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => runTask);
-        // By the time RunStreamingAsync has thrown, the fix already awaited both pumps to EOF —
-        // so no callback can fire after this snapshot (the race the old fire-and-forget allowed).
+        // By the time RunStreamingAsync has thrown, it has awaited both pumps to EOF — so no
+        // callback can fire after this snapshot, as it could if the pumps were fire-and-forget.
         var afterThrow = Volatile.Read(ref callbackCount);
         await Task.Delay(250);
 
