@@ -2484,4 +2484,27 @@ public class MainWindowSmokeTests {
         await Assert.That(shortcuts.Length).IsEqualTo(2);
         await Assert.That(shortcuts.All(k => ReferenceEquals(k.Command, host.Vm.NewSessionCommand))).IsTrue();
     });
+
+    /// The window sees ⌘← before a focused text box marks it handled, so an empty box still steps
+    /// back, while one holding text keeps the key for its caret. Back from the launcher to the
+    /// launcher is skipped, so the step shows as the entry leaving history.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Command_left_steps_back_from_an_empty_text_box_but_not_from_one_holding_text() => AvaloniaSession.RunOnUiAsync(async () => {
+        Skip.Unless(ShortcutLabels.UsesCommandKey, "⌘← steps back only on macOS");
+        using var host = new SearchWindowHost();
+        var box = host.Window.GetVisualDescendants().OfType<TextBox>().First(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+        box.Focus();
+        host.Vm.History.Left(NavigationEntry.Launcher);
+
+        box.Text = "draft";
+        host.Window.KeyPress(Key.Left, RawInputModifiers.Meta, PhysicalKey.ArrowLeft, null);
+        host.Settle();
+        await Assert.That(host.Vm.History.CanGoBack).IsTrue();
+
+        box.Text = "";
+        host.Window.KeyPress(Key.Left, RawInputModifiers.Meta, PhysicalKey.ArrowLeft, null);
+        host.Settle();
+        await Assert.That(host.Vm.History.CanGoBack).IsFalse();
+    });
 }

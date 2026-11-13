@@ -375,12 +375,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         DataContextChanged += (_, _) => Apply();
     }
 
-    // ⌘[ and ⌘] on macOS; Alt+Left and Alt+Right elsewhere, which yield to a focused terminal
-    // because a shell reads them as word moves. The mouse's back and forward buttons work anywhere.
+    // ⌘[ and ⌘] on macOS, plus ⌘← and ⌘→ where no caret claims them; Alt+Left and Alt+Right
+    // elsewhere, which yield to a focused terminal because a shell reads them as word moves. The
+    // mouse's back and forward buttons work anywhere.
     void BindHistoryShortcuts() {
         if (ShortcutLabels.UsesCommandKey) {
-            var back = new KeyBinding { Gesture = new KeyGesture(Key.OemOpenBrackets, KeyModifiers.Meta) };
-            var forward = new KeyBinding { Gesture = new KeyGesture(Key.OemCloseBrackets, KeyModifiers.Meta) };
+            var back = new KeyBinding { Gesture = HistoryShortcuts.Back };
+            var forward = new KeyBinding { Gesture = HistoryShortcuts.Forward };
             KeyBindings.Add(back);
             KeyBindings.Add(forward);
             void Apply() {
@@ -390,13 +391,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             }
             Apply();
             DataContextChanged += (_, _) => Apply();
+            // Tunnelled: a focused text box marks ⌘← and ⌘→ handled even when it is empty.
+            AddHandler(KeyDownEvent, (_, e) => {
+                if (DataContext is not MainWindowViewModel vm) return;
+                var focusedText = (FocusManager?.GetFocusedElement() as TextBox)?.Text;
+                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, TerminalFocus.Has(this), focusedText) is not { } stepBack) return;
+                System.Windows.Input.ICommand command = stepBack ? vm.GoBackCommand : vm.GoForwardCommand;
+                if (!command.CanExecute(null)) return;
+                e.Handled = true;
+                command.Execute(null);
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         } else {
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Left, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Back,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoBackCommand),
             });
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Right, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Forward,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoForwardCommand),
             });
         }
