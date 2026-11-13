@@ -362,7 +362,7 @@ class RecapCommand(
                 sb.AppendLine(FormatOutlineLine(turn));
             }
 
-            return sb.ToString();
+            return RecapTranscript.Printable(sb.ToString());
         } catch (JsonException) {
             // Empty/truncated body, or a non-JSON page (e.g. a proxy 200 with an HTML error).
             // The outline is best-effort enrichment, so treat unparseable input as "nothing to show"
