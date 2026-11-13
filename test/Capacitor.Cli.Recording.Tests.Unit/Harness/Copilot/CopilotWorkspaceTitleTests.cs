@@ -82,4 +82,16 @@ public class CopilotWorkspaceTitleTests {
 
         await Assert.That(title!.Kind).IsEqualTo(HarnessTitleKind.Rename);
     }
+
+    /// <summary>A fork's transcript opens with its parent's prompts, stamped before the fork started.</summary>
+    [Test]
+    public async Task A_forks_name_is_compared_with_its_own_first_prompt() {
+        Tmp.CreateFile("events.jsonl",
+            "{\"type\":\"session.start\",\"data\":{\"startTime\":\"2026-11-10T10:00:00Z\"},\"timestamp\":\"2026-11-10T10:00:00Z\"}\n" +
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"The parent's question\"},\"timestamp\":\"2026-11-10T09:00:00Z\"}\n" +
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"" + Prompt + "\"},\"timestamp\":\"2026-11-10T10:01:00Z\"}\n");
+        var path = Tmp.CreateFile("workspace.yaml", "name: Where does copper-lantern, the new recei\nuser_named: false\n");
+
+        await Assert.That(new CopilotWorkspaceTitle(path).Read()).IsNull();
+    }
 }
