@@ -1,0 +1,9 @@
+<UserControl>
+  <!-- Task 1 HIT -->
+  <!--
+    Decision 3 HIT
+  -->
+  <TextBlock Text="Task 4" />
+  <![CDATA[ <!-- Task 5 ]]>
+  <!-- Phase B HIT --> <TextBlock Text="Phase C" />
+</UserControl>

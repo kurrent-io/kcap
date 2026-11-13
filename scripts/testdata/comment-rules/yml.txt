@@ -1,0 +1,28 @@
+# Phase B HIT
+name: CI # Task 1 HIT
+on: push
+env:
+  A: "a # Task 2"
+  B: 'Don''t skip # Task 3'
+  C: 'Don''t use "' # Task 4 HIT
+  D: Don't skip checks # Task 5 HIT
+  E: "esc \" # Task 6"
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - name: step # Task 7 HIT
+        run: |
+          # Phase C HIT
+          echo "a # Phase D" # Task 8 HIT
+          cat <<'EOF'
+          # Task 108
+          EOF
+          echo after # Task 109 HIT
+      - run: echo done # Task 9 HIT
+      - name: notes
+        with:
+          body: |
+            # Task 110
+            more text
+      - name: last # Task 10 HIT
