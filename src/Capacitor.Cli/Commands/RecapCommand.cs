@@ -129,7 +129,6 @@ class RecapCommand(
                 }
             }
 
-            // Turn outline for this session.
             var outline = await FetchTurnOutline(sid);
 
             if (outline.Length > 0) {

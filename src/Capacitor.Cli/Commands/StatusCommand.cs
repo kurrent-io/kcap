@@ -43,11 +43,9 @@ public sealed class StatusCommand(
         if (profiles.Resolution.IgnoredRepoProfile is { } ignored)
             await Line($"           {IgnoredRepoProfileLine(ignored)}");
 
-        // Auth
         var auth = await ResolveAuthAsync(tokenStore, machine, profiles.Name, server, profiles.Resolution.Endpoint);
         await Line($"  Auth:    {FormatAuthLine(auth, time.GetUtcNow())}");
 
-        // Hooks
         await Console.Out.WriteAsync("  Hooks:   ");
 
         var codexRefused = CodexRefusedHooks(harnesses);

@@ -163,7 +163,6 @@ public sealed class TranscriptRecorder(
         try {
             _titleCts.Cancel();
         } catch (ObjectDisposedException) {
-            // Disposed twice.
         }
 
         _titleCts.Dispose();
@@ -279,7 +278,6 @@ public sealed class TranscriptRecorder(
                 }
             }
         } catch (OperationCanceledException) {
-            // Expected
         }
     }
 
@@ -610,7 +608,6 @@ public sealed class TranscriptRecorder(
                 }
             }
         } catch (ObjectDisposedException) {
-            // Already finished.
         } catch (Exception ex) {
             TryLog($"Re-register after reconnect failed: {ex.Message}");
 
@@ -789,7 +786,6 @@ public sealed class TranscriptRecorder(
     }
 
     static string TruncateForTitle(string text, int maxLength) {
-        // Take first line only, then truncate
         var firstLine  = text.AsSpan();
         var newlineIdx = firstLine.IndexOfAny('\r', '\n');
 
@@ -801,7 +797,6 @@ public sealed class TranscriptRecorder(
             return firstLine.ToString().Trim();
         }
 
-        // Find last word boundary before maxLength
         var truncated = firstLine[..maxLength];
         var lastSpace = truncated.LastIndexOf(' ');
 
@@ -1167,7 +1162,6 @@ public sealed class TranscriptRecorder(
                     }
                 }
 
-                // Also check new lines (normal path)
                 if (state.FirstUserText is null && newLines.Count > 0) {
                     foreach (var userText in Progressing(newLines).Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
                         TranscriptLineText.SetFirstUserText(state, userText, log);
@@ -1440,7 +1434,6 @@ public sealed class TranscriptRecorder(
         } catch (Exception ex) when (ex is IOException || (isFinalDrain && ex is UnauthorizedAccessException)) {
             log($"Error reading file: {ex.Message}");
         } catch (OperationCanceledException) {
-            // Expected during shutdown
         }
 
         return [];

@@ -991,7 +991,6 @@ class ImportCommand(
                 if (fp is not null && ec is not null) {
                     allFileTuples.Add((s.SessionId, fp, ec, src.Vendor));
                 } else {
-                    // Cursor or other future non-file source.
                     cursorCwds[s.SessionId] = s.Cwd;
                 }
             }
@@ -1357,7 +1356,6 @@ class ImportCommand(
             }
         }
 
-        // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
         RefreshClassifiedCwds(classifications);
 
@@ -2452,28 +2450,22 @@ class ImportCommand(
                     var doc  = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    // Skip file-history-snapshot entries
                     if (root.Str("type") == "file-history-snapshot") {
                         continue;
                     }
 
-                    // Extract cwd from metadata
                     meta.Cwd ??= root.Str("cwd");
 
-                    // Extract model from assistant message
                     meta.Model ??= root.Obj("message")?.Str("model");
 
-                    // Extract slug from metadata
                     meta.Slug ??= root.Str("slug");
 
-                    // Extract sessionId
                     meta.SessionId ??= root.Str("sessionId");
 
                     // Detached HEAD is recorded as "HEAD", which names no branch.
                     if (meta.GitBranch is null && root.Str("gitBranch") is { Length: > 0 } branch && branch != "HEAD")
                         meta.GitBranch = branch;
 
-                    // Extract first timestamp for continuation ordering
                     if (meta.FirstTimestamp is null
                      && root.Str("timestamp") is { } tsStr
                      && DateTimeOffset.TryParse(tsStr, out var ts)) {
@@ -2487,7 +2479,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort metadata extraction
         }
 
         return meta;
@@ -2507,7 +2498,6 @@ class ImportCommand(
             // If we seeked mid-file, skip the first partial line
             if (offset > 0) reader.ReadLine();
 
-            // Collect the last 50 non-empty lines
             var tail = new List<string>(50);
 
             while (reader.ReadLine() is { } line) {
@@ -2539,7 +2529,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2574,7 +2563,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2719,7 +2707,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return meta;

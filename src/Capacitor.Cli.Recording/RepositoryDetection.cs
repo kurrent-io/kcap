@@ -136,7 +136,6 @@ public static class RepositoryDetection {
                 ? TimeSpan.FromSeconds(Math.Min(5, Math.Max(0, b.TotalSeconds)))
                 : TimeSpan.FromSeconds(5);
 
-            // Try loading cached base info
             var cache = LoadCache(config, cwd, time);
 
             string? userName, userEmail, remoteUrl, owner, repoName, branch, host;
@@ -162,7 +161,6 @@ public static class RepositoryDetection {
                 if (LocalRepository.IsLocal(owner) && !await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment()))
                     (owner, repoName) = (null, null);
             } else {
-                // Run git commands in parallel
                 var userNameTask  = run("git", "config user.name", cwd, gitCap);
                 var userEmailTask = run("git", "config user.email", cwd, gitCap);
                 var remoteUrlTask = run("git", "remote get-url origin", cwd, gitCap);
@@ -373,7 +371,6 @@ public static class RepositoryDetection {
                 return null;
             }
 
-            // 1-hour TTL
             return time.GetUtcNow() - entry.CachedAt > TimeSpan.FromHours(1) ? null : entry;
         } catch {
             return null;
@@ -387,7 +384,6 @@ public static class RepositoryDetection {
             Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(entry, RepositoryCacheJsonContext.Default.GitCacheEntry));
         } catch {
-            // Cache write failure is non-critical
         }
     }
 
@@ -425,7 +421,6 @@ public static class RepositoryDetection {
                 File.Delete(path);
             }
         } catch {
-            // Non-critical
         }
     }
 
@@ -436,7 +431,6 @@ public static class RepositoryDetection {
             Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(payload, RepositoryCacheJsonContext.Default.RepositoryPayload));
         } catch {
-            // Cache write failure is non-critical
         }
     }
 }
