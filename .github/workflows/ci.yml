@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       projects: ${{ steps.select.outputs.projects }}
+      plugin-docs: ${{ steps.select.outputs.plugin-docs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,14 +42,21 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          plugin_docs=false
           if [ "$EVENT" = pull_request ]; then
             # --no-renames lists both sides of a move, so the project a file left is selected too.
-            selected="$(git diff --name-only --no-renames HEAD^1 HEAD | bash scripts/select-test-projects.sh)"
+            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
+            selected="$(printf '%s\n' "$changed" | bash scripts/select-test-projects.sh)"
+            # No grep -q: an early exit can SIGPIPE printf, which pipefail would read as a match.
+            if [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -vE '^kcap/.*\.md$' || true)" ]; then
+              plugin_docs=true
+            fi
           else
             selected=all
           fi
           projects="$(printf '%s' "$selected" | tr '\n' ' ' | sed 's/ *$//')"
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          echo "plugin-docs=$plugin_docs" >> "$GITHUB_OUTPUT"
           {
             echo '### Test projects'
             if [ "$projects" = all ]; then echo 'All of them.'
@@ -59,6 +67,7 @@ jobs:
   build-and-test:
     name: Build and test (${{ matrix.os }})
     needs: changes
+    if: needs.changes.outputs.plugin-docs != 'true'
     runs-on: ${{ matrix.os }}
     # Roughly 2.5x the longest observed leg (17m); this only has to catch a wedge, and GitHub's
     # kill takes the uploaded reports with it.
@@ -181,6 +190,44 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
+  # A change of only plugin markdown cannot reach code, so one Linux leg runs the suites that read the
+  # plugin as text, the skill-listing guard among them, in place of the build-and-test matrix.
+  plugin-docs:
+    name: Plugin markdown guards
+    needs: changes
+    if: needs.changes.outputs.plugin-docs == 'true'
+    runs-on: ubuntu-latest
+    # Measured at 7.5m; this only has to catch a wedge.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: ./.github/actions/setup-dotnet
+        with:
+          cache: true
+          cache-dependency-path: Directory.Packages.props
+
+      # The whole solution, for the same shared cache entry build-and-test restores.
+      - name: Restore solution
+        run: dotnet restore Capacitor.slnx
+
+      - name: Run the plugin's text guards
+        env:
+          PROJECTS: ${{ needs.changes.outputs.projects }}
+        run: |
+          set -euo pipefail
+          solution=Capacitor.slnx
+          if [ "$PROJECTS" != all ]; then
+            solution=selected-tests.slnf
+            list="$(printf '"%s",' $PROJECTS)"
+            printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
+            cat "$solution"
+          fi
+          dotnet build "$solution" --no-restore
+          dotnet test --solution "$solution" --no-build \
+            --max-parallel-test-modules 3 -- --maximum-parallel-tests 4
+
   lint-linear-ids:
     name: No Linear issue IDs in C# source
     runs-on: ubuntu-latest
@@ -249,13 +296,26 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [changes, build-and-test, lint-linear-ids, cli, desktop]
+    needs: [changes, build-and-test, plugin-docs, lint-linear-ids, cli, desktop]
     runs-on: ubuntu-latest
     steps:
+      # build-and-test and plugin-docs are alternatives, so exactly one job is skipped: whichever of
+      # those two did not run.
       - name: Require every job to succeed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          TESTS: ${{ needs.build-and-test.result }} ${{ needs.plugin-docs.result }}
         run: |
+          skipped=0
           for result in $RESULTS; do
-            [ "$result" = success ] || { echo "::error::a CI job ended $result"; exit 1; }
+            case "$result" in
+              success) ;;
+              skipped) skipped=$((skipped + 1)) ;;
+              *) echo "::error::a CI job ended $result"; exit 1 ;;
+            esac
           done
+          case "$TESTS" in
+            'success skipped' | 'skipped success') ;;
+            *) echo "::error::the test jobs ended $TESTS"; exit 1 ;;
+          esac
+          [ "$skipped" -eq 1 ] || { echo "::error::$skipped CI jobs were skipped"; exit 1; }

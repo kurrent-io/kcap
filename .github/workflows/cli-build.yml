@@ -70,7 +70,7 @@ jobs:
         if: matrix.container != ''
         shell: sh
         run: |
-          apk add --no-cache bash curl git icu-libs krb5-libs libgcc libstdc++ zlib clang build-base zlib-dev linux-headers openssl
+          apk add --no-cache bash curl git icu-libs krb5-libs libgcc libstdc++ zlib clang build-base zlib-dev linux-headers openssl tar
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux' && !matrix.container
@@ -86,7 +86,15 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      # No cache: RUNNER_OS keying collapses Linux legs that need different RID packages.
+      # Keyed per RID, not by setup-dotnet's cache: its key is the OS alone, and Linux legs restore
+      # different runtime and ILCompiler packages. actions/cache needs GNU tar, hence `tar` on Alpine.
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-${{ matrix.rid }}-nuget-${{ hashFiles('Directory.Packages.props', 'global.json', 'nuget.config') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.rid }}-nuget-
+
       - name: Setup .NET
         uses: ./.github/actions/setup-dotnet
 
