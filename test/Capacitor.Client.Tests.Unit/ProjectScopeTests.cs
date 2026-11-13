@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Client.Tests.Unit;
 
@@ -76,6 +77,59 @@ public class ProjectScopeTests {
 
         await Assert.That(scope.Matches(Row(AgentOrigin.Server, "repo:acme/app", null))).IsTrue();
         await Assert.That(noOrigin.Matches(Row(AgentOrigin.Server, "repo:local~0123456789abcdef0123/plain", null))).IsFalse();
+    }
+
+    [Test]
+    public async Task Root_with_a_trailing_separator_matches_the_same_rows() {
+        var root = Repo("app", null);
+
+        var scope = ScopeOf(root + Path.DirectorySeparatorChar);
+
+        await Assert.That(scope.Matches(Row(AgentOrigin.Local, $"path:{root}", root))).IsTrue();
+    }
+
+    [Test]
+    public async Task Row_matches_through_its_worktree_path() {
+        var root = Repo("app", null);
+
+        var row = Row(AgentOrigin.Local, "path:/elsewhere", "/elsewhere", worktreePath: $"{root}/wt");
+
+        await Assert.That(ScopeOf(root).Matches(row)).IsTrue();
+    }
+
+    [Test]
+    public async Task Row_matches_through_the_checkout_it_borrows() {
+        var root = Repo("app", null);
+
+        var row = Row(AgentOrigin.Local, "path:/elsewhere", "/elsewhere", worktreePath: "/elsewhere/wt", borrowedFrom: $"{root}/src");
+
+        await Assert.That(ScopeOf(root).Matches(row)).IsTrue();
+    }
+
+    [Test]
+    public async Task Worktree_of_an_origin_repository_matches_by_the_main_checkouts_key() {
+        var main = Repo("main", "git@github.com:acme/app.git");
+        var worktree = Tmp.GetResolvedPath("wt");
+        Tmp.CreateFile("wt/.git", $"gitdir: {main}/.git/worktrees/wt\n");
+
+        var scope = ScopeOf(worktree);
+
+        await Assert.That(scope.Matches(Row(AgentOrigin.Server, "repo:acme/app", null))).IsTrue();
+    }
+
+    [Test]
+    public async Task Blank_roots_make_an_empty_scope() {
+        var scope = ScopeOf("", "  ");
+
+        await Assert.That(scope.IsEmpty).IsTrue();
+        await Assert.That(scope.Matches(Row(AgentOrigin.Local, "path:/x", "/x"))).IsFalse();
+    }
+
+    [Test, RunOn(OS.Windows)]
+    public async Task Forward_slash_root_matches_a_backslash_row_on_windows() {
+        var scope = ScopeOf("C:/x/app");
+
+        await Assert.That(scope.Matches(Row(AgentOrigin.Local, "path:C:\\x\\app", "C:\\x\\app\\src"))).IsTrue();
     }
 
     [Test]

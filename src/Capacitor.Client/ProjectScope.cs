@@ -21,10 +21,10 @@ public sealed class ProjectScope {
         var roots = new HashSet<string>(PlatformPaths.Comparer);
 
         foreach (var given in gitRoots) {
-            var root = PlatformPaths.Normalize(given);
-            if (root.Length == 0) continue;
+            var root = Canonical(given);
+            if (string.IsNullOrWhiteSpace(root)) continue;
 
-            var main = PlatformPaths.Normalize(resolveMainRoot(root));
+            var main = Canonical(resolveMainRoot(root));
             roots.Add(root);
             roots.Add(main);
 
@@ -42,10 +42,17 @@ public sealed class ProjectScope {
             || LiesUnderARoot(row.RepoPath) || LiesUnderARoot(row.WorktreePath) || LiesUnderARoot(row.BorrowedFrom);
     }
 
+    // A client may write Windows paths with forward slashes. Elsewhere a backslash is a file-name character.
+    static string Canonical(string? path) {
+        if (string.IsNullOrEmpty(path)) return "";
+
+        return PlatformPaths.Normalize(OperatingSystem.IsWindows() ? path.Replace('/', '\\') : path);
+    }
+
     bool LiesUnderARoot(string? path) {
         if (string.IsNullOrEmpty(path)) return false;
 
-        for (var dir = PlatformPaths.Normalize(path); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+        for (var dir = Canonical(path);!string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
             foreach (var root in _roots)
                 if (PlatformPaths.Comparer.Equals(dir, root)) return true;
 
