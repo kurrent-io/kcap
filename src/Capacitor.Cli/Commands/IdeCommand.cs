@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
@@ -41,7 +42,9 @@ public sealed class IdeCommand(
         var directory = new AgentDirectory(
             daemon, new NoRemoteAgents(), lane, repoIdentity, GitRepository.ResolveMainRepoRoot,
             new MachineId(config).ReadPersisted(), profiles.Resolution.ServerUrl, time, sessions);
-        var host = new IdeHost(daemon, lane, sessions, directory, repoIdentity, GitRepository.ResolveMainRepoRoot, time, CapacitorVersion.Current());
+        var host = new IdeHost(
+            daemon, lane, sessions, directory, repoIdentity, GitRepository.ResolveMainRepoRoot, () => ReconnectAsync(daemon, lane), time,
+            CapacitorVersion.Current());
 
         try {
             host.Attach(loop);
@@ -60,6 +63,15 @@ public sealed class IdeCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Revives a server connection that is parked signed out or waiting out its backoff, and a daemon attach waiting to
+    /// retry. Both restarts drop whatever connection is live, so a connected or connecting one is left alone.
+    /// </summary>
+    static async Task ReconnectAsync(DaemonClientService daemon, ServerConnectionService lane) {
+        if ((await daemon.Status.FirstAsync()).State == AttachState.Unreachable) await daemon.RestartLoopAsync();
+        if ((await lane.Status.FirstAsync()).State is not (ServerLaneState.Connected or ServerLaneState.Connecting)) await lane.RestartAsync();
     }
 
     static async Task CloseAsync(ValueTask closing, CancellationToken budget) {

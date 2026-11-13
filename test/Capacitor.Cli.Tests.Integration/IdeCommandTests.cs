@@ -50,6 +50,25 @@ public class IdeCommandTests {
         }
     }
 
+    /// <summary>The attach loop says <c>connecting</c> only when it starts, so one after <c>unreachable</c> is the retry's restart.</summary>
+    [Test]
+    public async Task Retry_restarts_a_daemon_attach_that_is_waiting_to_retry() {
+        using var proc = Start(UnreachableServer);
+        try {
+            await SendAsync(proc, Request(1, "initialize", InitializeParams()));
+            await ReadUntilAsync(proc, message => DaemonState(message) == "unreachable");
+
+            await SendAsync(proc, Request(2, "connection/retry", new JsonObject()));
+            var reply = await ReadUntilAsync(proc, message => message["id"]?.GetValue<int>() == 2);
+            await ReadUntilAsync(proc, message => DaemonState(message) == "connecting", TimeSpan.FromSeconds(5));
+
+            await Assert.That(reply["result"]?.ToJsonString()).IsEqualTo("{}");
+            await Assert.That(await CloseAndWaitAsync(proc)).IsEqualTo(0);
+        } finally {
+            Kill(proc);
+        }
+    }
+
     [Test]
     public async Task Nothing_but_protocol_lines_reaches_stdout() {
         using var proc = Start(UnreachableServer);
@@ -141,6 +160,9 @@ public class IdeCommandTests {
         ["protocol_version"] = 1,
         ["client"]           = new JsonObject { ["name"] = "kcap-tests", ["version"] = "0" },
     };
+
+    static string? DaemonState(JsonObject message) =>
+        message["method"]?.GetValue<string>() == "connection/changed" ? message["params"]?["daemon"]?["state"]?.GetValue<string>() : null;
 
     static JsonObject Request(int id, string method, JsonObject parameters) =>
         new() { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method, ["params"] = parameters };

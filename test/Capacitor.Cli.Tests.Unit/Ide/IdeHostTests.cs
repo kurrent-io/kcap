@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -5,6 +6,7 @@ using Capacitor.Cli.Ide;
 using Capacitor.Client;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Ide;
@@ -60,7 +62,7 @@ public class IdeHostTests {
         public Host() {
             Ide = new IdeHost(
                 Daemon, Lane, Sessions, Directory, new RepoIdentityResolver(_ => null),
-                root => { OnResolveRoot?.Invoke(); return root; }, Time, CliVersion);
+                root => { OnResolveRoot?.Invoke(); return root; }, () => Reconnect(), Time, CliVersion);
             _loop = new IdeRpcLoop(Input, Output);
             Ide.Attach(_loop);
             _run = _loop.RunAsync(CancellationToken.None);
@@ -75,6 +77,7 @@ public class IdeHostTests {
         public Messages Output { get; } = new();
         public IdeHost Ide { get; }
         public Action? OnResolveRoot { get; set; }
+        public Func<Task> Reconnect { get; set; } = () => Task.CompletedTask;
 
         /// <summary>Notifications read while waiting for something else, in the order they arrived.</summary>
         public List<JsonObject> Seen { get; } = [];
@@ -519,6 +522,60 @@ public class IdeHostTests {
         ];
         await Assert.That(sent).Contains("local:during-resolve");
         await Assert.That(sent).Contains("local:during-reply");
+    }
+
+    [Test]
+    [Arguments(null)]
+    [Arguments("{}")]
+    public async Task Retry_answers_then_asks_the_host_to_reconnect(string? parameters) {
+        using var host = new Host();
+        await host.InitializeAsync();
+        var order = new ConcurrentQueue<string>();
+        var retryId = host.LastId + 1;
+        host.Output.OnWrite = m => {
+            if (m["id"]?.GetValue<int>() == retryId) order.Enqueue("reply");
+        };
+        host.Reconnect = () => {
+            order.Enqueue("reconnect");
+            return Task.CompletedTask;
+        };
+
+        var reply = await host.CallAsync("connection/retry", parameters is null ? null : JsonNode.Parse(parameters));
+        // The follow-up runs before the next request is read, so this reply means it has run.
+        await host.CallAsync("sessions/unsubscribe", new JsonObject { ["subscription_id"] = "never" });
+
+        await Assert.That(reply["result"]!.ToJsonString()).IsEqualTo("{}");
+        await Assert.That(order).IsEquivalentTo(["reply", "reconnect"], CollectionOrdering.Matching);
+        await Assert.That(host.Seen.Where(m => Method(m) == "connection/changed")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Retry_before_initialize_is_refused_with_32002() {
+        using var host = new Host();
+        var calls = 0;
+        host.Reconnect = () => {
+            Interlocked.Increment(ref calls);
+            return Task.CompletedTask;
+        };
+
+        var reply = await host.CallAsync("connection/retry", null);
+        await host.CallAsync("sessions/unsubscribe", new JsonObject { ["subscription_id"] = "never" });
+
+        await Assert.That(reply["error"]!["code"]!.GetValue<int>()).IsEqualTo(IdeErrorCodes.NotInitialized);
+        await Assert.That(calls).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_failing_reconnect_does_not_end_the_loop() {
+        using var host = new Host();
+        await host.InitializeAsync();
+        host.Reconnect = () => throw new InvalidOperationException("reconnect failed");
+
+        var retry = await host.CallAsync("connection/retry", null);
+        var next  = await host.CallAsync("sessions/unsubscribe", new JsonObject { ["subscription_id"] = "never" });
+
+        await Assert.That(retry["result"]!.ToJsonString()).IsEqualTo("{}");
+        await Assert.That(next["result"]!.ToJsonString()).IsEqualTo("{}");
     }
 
     [Test]

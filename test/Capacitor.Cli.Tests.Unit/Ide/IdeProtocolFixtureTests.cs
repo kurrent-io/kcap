@@ -13,11 +13,11 @@ public class IdeProtocolFixtureTests {
 
     enum Kind { Request, Notification, Result, Error }
 
-    static async Task EnvelopeAsync(JsonObject message, Kind kind, string? method) {
+    static async Task EnvelopeAsync(JsonObject message, Kind kind, string? method, bool withParams = true) {
         await Assert.That(message["jsonrpc"]!.GetValue<string>()).IsEqualTo("2.0");
         await Assert.That(message.ContainsKey("id")).IsEqualTo(kind != Kind.Notification);
         await Assert.That(message.ContainsKey("method")).IsEqualTo(kind is Kind.Request or Kind.Notification);
-        await Assert.That(message.ContainsKey("params")).IsEqualTo(kind is Kind.Request or Kind.Notification);
+        await Assert.That(message.ContainsKey("params")).IsEqualTo(withParams && (kind is Kind.Request or Kind.Notification));
         await Assert.That(message.ContainsKey("result")).IsEqualTo(kind == Kind.Result);
         await Assert.That(message.ContainsKey("error")).IsEqualTo(kind == Kind.Error);
         if (method is not null) await Assert.That(message["method"]!.GetValue<string>()).IsEqualTo(method);
@@ -69,4 +69,9 @@ public class IdeProtocolFixtureTests {
 
     [Test]
     public Task Sessions_unsubscribe_request() => RoundTripsAsync("sessions.unsubscribe.request.json", Kind.Request, "sessions/unsubscribe", Params, IdeJsonContext.Default.UnsubscribeParams);
+
+    /// <summary>No params, so no type to round-trip: the envelope is the whole message.</summary>
+    [Test]
+    public Task Connection_retry_request() =>
+        EnvelopeAsync(Fixture("connection.retry.request.json"), Kind.Request, "connection/retry", withParams: false);
 }

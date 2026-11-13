@@ -24,6 +24,7 @@ internal sealed class IdeHost : IDisposable {
     readonly IAgentDirectory _directory;
     readonly RepoIdentityResolver _repoIdentity;
     readonly Func<string, string> _resolveMainRoot;
+    readonly Func<Task> _reconnect;
     readonly string _cliVersion;
     readonly ITimer _batch;
     readonly Lock _lock = new();
@@ -38,13 +39,15 @@ internal sealed class IdeHost : IDisposable {
 
     public IdeHost(
             IDaemonClientService daemon, IServerLane lane, IServerSessionsService sessions, IAgentDirectory directory,
-            RepoIdentityResolver repoIdentity, Func<string, string> resolveMainRoot, TimeProvider time, string cliVersion) {
+            RepoIdentityResolver repoIdentity, Func<string, string> resolveMainRoot, Func<Task> reconnect, TimeProvider time,
+            string cliVersion) {
         _daemon = daemon;
         _lane = lane;
         _sessions = sessions;
         _directory = directory;
         _repoIdentity = repoIdentity;
         _resolveMainRoot = resolveMainRoot;
+        _reconnect = reconnect;
         _cliVersion = cliVersion;
         _batch = time.CreateTimer(_ => Flush(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _outbox = new IdeOutbox((method, parameters) => _loop!.NotifyAsync(method, parameters));
@@ -58,6 +61,7 @@ internal sealed class IdeHost : IDisposable {
         loop.HandleThen("sessions/subscribe", Subscribe);
         loop.Handle("sessions/unsubscribe", UnsubscribeAsync);
         loop.HandleThen("sessions/set_scope", SetScope);
+        loop.HandleThen("connection/retry", Retry);
 
         _feeds.Add(_directory.Rows.Connect().Subscribe(OnRows));
         _feeds.Add(_daemon.Status
@@ -172,6 +176,14 @@ internal sealed class IdeHost : IDisposable {
         lock (_lock) Send("sessions/scope_changed", new ScopeChanged(scope), IdeJsonContext.Default.ScopeChanged);
 
         return _outbox.DrainAsync();
+    }
+
+    /// <summary>Announces nothing itself: the status feeds send <c>connection/changed</c> for whatever state the reconnect
+    /// moves to.</summary>
+    Task<IdeReply> Retry(JsonObject? parameters, CancellationToken ct) {
+        RequireInitialized();
+
+        return Task.FromResult(new IdeReply(null, _reconnect));
     }
 
     void OnRows(IChangeSet<AgentRow, string> changes) {
