@@ -27,6 +27,9 @@ jobs:
       contents: write
       pull-requests: write
       checks: write
+      actions: write
+    env:
+      QODANA_CACHE_KEY: qodana-dotnet-2026.2
     steps:
       # PR mode analyses the merge-base and the head, so it needs the history and the head, not
       # GitHub's merge commit
@@ -34,10 +37,46 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+
+      # Shares CI's NuGet cache entry; the restore itself runs as Qodana's bootstrap, once per analysed revision
+      - uses: ./.github/actions/setup-dotnet
+        with:
+          cache: true
+          cache-dependency-path: Directory.Packages.props
+
+      # Natively the CLI keeps NuGet packages and its engine out of cache-dir, leaving only its indexes.
+      # Only the nightly scan saves, so every other run, PRs and branches included, restores main's entry
+      - name: Restore the Qodana cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/qodana/caches
+          key: ${{ env.QODANA_CACHE_KEY }}
+
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2026.2
         with:
+          args: --linter qodana-dotnet --within-docker false
+          cache-dir: ${{ runner.temp }}/qodana/caches
+          use-caches: false
           upload-result: true
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN_413606919 }}
           QODANA_ENDPOINT: 'https://qodana.cloud'
+
+      # A cache entry is immutable, so the nightly scan deletes the last one before saving its own
+      - name: Drop the previous Qodana cache
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for id in $(gh cache list --ref "$GITHUB_REF" --key "$QODANA_CACHE_KEY" --json id,key \
+              --jq ".[] | select(.key == \"$QODANA_CACHE_KEY\") | .id"); do
+            gh cache delete "$id"
+          done
+      - name: Save the Qodana cache
+        if: github.event_name == 'schedule'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/qodana/caches
+          key: ${{ env.QODANA_CACHE_KEY }}
