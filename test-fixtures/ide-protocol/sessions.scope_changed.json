@@ -1,0 +1,7 @@
+{
+  "jsonrpc": "2.0",
+  "method": "sessions/scope_changed",
+  "params": {
+    "scope": "team"
+  }
+}
