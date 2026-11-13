@@ -54,7 +54,9 @@ public class StatusLineWrapperTests : IDisposable {
         },
     }.ToJsonString();
 
-    static string Quoted(string path) => "'" + path + "'";
+    // Bash looks a command with no '/' up on PATH, so under Git Bash a Windows original names its script
+    // with forward slashes, as Claude itself would need to run it.
+    static string Quoted(string path) => "'" + path.Replace('\\', '/') + "'";
 
     Process Start(string stdin, string? workingDirectory = null, string? daemonsDir = null) {
         var psi = KcapProcess.StartInfo(Daemons.Store, Config.Root, "statusline", "--account", AccountId);
@@ -100,7 +102,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         var reading = Accounts.Readings.LoadAll()[AccountId];
         await Assert.That(reading.Reading.Windows.Select(w => (w.LimitId, w.WindowMinutes, w.UsedPercent, w.ResetsAt)).ToArray())
             .IsEquivalentTo(new[] {
@@ -111,26 +113,26 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
-    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Original_gets_identical_stdin_env_and_cwd_and_passes_output_and_exit_code() {
         var script = Tmp.CreateExecutable("original.sh", $"""
             #!/bin/sh
             cat
             echo
             echo "marker=${Marker}"
-            pwd
+            cat cwd-probe
             echo "to stderr" >&2
             exit 3
-            """);
+            """.ReplaceLineEndings("\n"));
         Register(Quoted(script));
         Tmp.CreateDir("work");
+        Tmp.CreateFile(Path.Combine("work", "cwd-probe"), "in-work\n");
 
         var payload = Payload();
         var r = await RunAsync(payload, Tmp.PathTo("work"));
 
-        await Assert.That(r.ExitCode).IsEqualTo(3);
+        await Assert.That(r.ExitCode).IsEqualTo(3).Because(r.Stderr);
         await Assert.That(r.Stdout.ReplaceLineEndings("\n"))
-            .IsEqualTo($"{payload}\nmarker=marker-value\n{Tmp.GetResolvedPath("work")}\n");
+            .IsEqualTo($"{payload}\nmarker=marker-value\nin-work\n");
         await Assert.That(r.Stderr.Trim()).IsEqualTo("to stderr");
     }
 
@@ -140,7 +142,7 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEmpty();
         await Assert.That(r.Stderr).IsEmpty();
     }
@@ -156,13 +158,12 @@ public class StatusLineWrapperTests : IDisposable {
 
         var r = await RunAsync(Payload(), daemonsDir: daemonsDir);
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEmpty();
         await Assert.That(r.Stderr).IsEmpty();
     }
 
     [Test]
-    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Held_readings_lock_skips_capture_and_original_still_prints_promptly() {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\necho line\n");
         Register(Quoted(script));
@@ -173,7 +174,7 @@ public class StatusLineWrapperTests : IDisposable {
         var r     = await RunAsync(Payload());
         watch.Stop();
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout.Trim()).IsEqualTo("line");
         await Assert.That(watch.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsFalse();
@@ -251,27 +252,25 @@ public class StatusLineWrapperTests : IDisposable {
     [Test]
     [Arguments("")]
     [Arguments("not json {")]
-    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Empty_or_non_json_stdin_still_runs_the_original(string stdin) {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\ncat\necho ran\n");
         Register(Quoted(script));
 
         var r = await RunAsync(stdin);
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(r.Stdout).IsEqualTo(stdin + "ran\n");
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsFalse();
     }
 
     [Test]
-    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task No_network_call() {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\necho ok\n");
         Register(Quoted(script));
 
         var r = await RunAsync(Payload());
 
-        await Assert.That(r.ExitCode).IsEqualTo(0);
+        await Assert.That(r.ExitCode).IsEqualTo(0).Because(r.Stderr);
         await Assert.That(Accounts.Readings.LoadAll().ContainsKey(AccountId)).IsTrue();
         await Assert.That(_proxy.Pending()).IsFalse();
     }
