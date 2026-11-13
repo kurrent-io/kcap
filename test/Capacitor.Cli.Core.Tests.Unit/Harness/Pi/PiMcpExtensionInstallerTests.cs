@@ -48,7 +48,7 @@ public class PiMcpExtensionInstallerTests {
         await Assert.That(content).Contains("function stopBridge");
         await Assert.That(content).Contains("session_shutdown");
         // A hosted Pi launch waits on session_start, so the retry there must not hold it.
-        await Assert.That(content).Contains("pi.on(\"session_start\", () => { void startBridge(); });");
+        await Assert.That(content).Contains("void startBridge().then(ensureReachable);");
         // Parallel, bounded startup (four hung servers ⇒ ~one timeout, not 4×).
         await Assert.That(content).Contains("Promise.all");
         // Teardown ladder EOF → SIGTERM → SIGKILL, plus a globalThis-guarded sync exit backstop.
@@ -62,6 +62,20 @@ public class PiMcpExtensionInstallerTests {
         // Dependency-free spawn of the stdio servers.
         await Assert.That(content).Contains("node:child_process");
         await Assert.That(content).Contains("new McpStdioClient(server, \"kcap\", [\"mcp\", server], {})");
+    }
+
+    /// <summary>Pins the on-demand surface: only memory search and get are declared up front, the rest wait for
+    /// tool_search, which the bridge activates itself because Pi starts it inactive.</summary>
+    [Test]
+    public async Task bridge_defers_all_but_the_memory_lookup_tools() {
+        var content = PiMcpExtensionInstaller.ExtensionContent;
+
+        await Assert.That(content).Contains("const KCAP_DIRECT_TOOLS = new Set([\"kcap_memory_search_memories\", \"kcap_memory_get_memory\"]);");
+        await Assert.That(content).Contains("exposure: direct ? \"direct\" : \"deferred\",");
+        await Assert.That(content).Contains("? [\"tool_search\"]");
+        await Assert.That(content).Contains("pi.setActiveTools([...active, ...missing]);");
+        // Tool search ranks a tool by its namespace too, so each carries its server's description.
+        await Assert.That(content).Contains("\"memory\": \"Team memory — search, read, and save durable learnings.\"");
     }
 
     [Test]
