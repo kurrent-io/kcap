@@ -4,12 +4,7 @@
 
 version: "1.0"
 linter: qodana-dotnet
-# Analyze with the SDK CI builds with, not the image's: same resolution as .github/actions/setup-dotnet
-bootstrap: >-
-  channel=$(sed -n 's/.*"version": *"\([0-9]*\.[0-9]*\)\..*/\1/p' /data/project/global.json | head -n 1) &&
-  version=$(curl -fsSL --retry 3 "https://builds.dotnet.microsoft.com/dotnet/release-metadata/$channel/releases.json"
-  | grep -o '"latest-sdk": *"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/') &&
-  curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --version "$version" -i /usr/share/dotnet
+bootstrap: dotnet restore Capacitor.slnx
 dotnet:
   solution: Capacitor.slnx
 profile:
@@ -28,6 +23,8 @@ exclude:
   - name: SuggestVarOrType_SimpleTypes
   - name: MoveLocalFunctionAfterJumpStatement
   - name: PreferConcreteValueOverDefault
+  # Explicit `new T()` stays allowed where the type isn't evident, though .editorconfig prefers `new()`
+  - name: ArrangeObjectCreationWhenTypeNotEvident
   # Solution-wide usage and visibility analysis can't see serialization, DI, reflection or the clients
   # that bind to public contracts
   - name: AutoPropertyCanBeMadeGetOnly.Global
