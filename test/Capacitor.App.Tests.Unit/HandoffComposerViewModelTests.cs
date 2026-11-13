@@ -1386,15 +1386,19 @@ public class HandoffComposerViewModelTests {
     });
 
     [Test]
+    [Arguments("my-model")]
+    [Arguments("")]
     [NotInParallel("AvaloniaSession")]
-    public Task A_model_picked_before_the_read_is_kept() => Run(async rig => {
+    public Task A_model_picked_while_the_read_is_pending_is_kept(string picked) => Run(async rig => {
         rig.Sessions.Summary = Summary("gpt-5.6");
-        rig.Sessions.Summary = Summary("gpt-5.6");
+        rig.Sessions.SummaryGate = new TaskCompletionSource();
         var vm = rig.Build();
-        vm.Choices.SelectedModel = "my-model";
-        await vm.InitializeAsync(CancellationToken.None);
+        var ready = vm.InitializeAsync(CancellationToken.None);
+        vm.Choices.SelectedModel = picked;
+        rig.Sessions.SummaryGate.SetResult();
+        await ready;
 
-        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("my-model");
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo(picked);
     });
 
     /// The first check is cancelled while its read is in flight; the check that replaces it seeds from that read.
