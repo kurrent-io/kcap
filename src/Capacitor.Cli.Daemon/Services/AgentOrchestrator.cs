@@ -4082,8 +4082,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// and must not wait, and only a real change pulses status.</summary>
     void NoteScreen(AgentInstance agent, ClaudeScreenWatcher screen, byte[] data) {
         screen.Resize(agent.CurrentCols, agent.CurrentRows);
-        var (usageLimit, dialog) = screen.Observe(data);
+        var (usageLimit, dialog, promptShown) = screen.Observe(data);
         agent.Runtime.NoteTerminalDialog(dialog is not null);
+        agent.Runtime.NotePromptShown(promptShown);
         if (Equals(agent.UsageLimit, usageLimit) && Equals(agent.TerminalDialog, dialog)) return;
         var limitReached = agent.UsageLimit is null && usageLimit is not null;
         var dialogChanged = !Equals(agent.TerminalDialog, dialog);
@@ -5418,8 +5419,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, ex.Message);
                 }
 
-                // The write landed, so the files are the agent's: nothing after this point may take
-                // them back, however it fails.
+                // The runtime took the input, so the files are the agent's: nothing after this point may
+                // take them back, even when a write still queued behind a turn or a dialog later fails.
                 batch = null;
 
                 // Input delivery counts as activity (AgentActivityClock.Advance(), shared with PTY

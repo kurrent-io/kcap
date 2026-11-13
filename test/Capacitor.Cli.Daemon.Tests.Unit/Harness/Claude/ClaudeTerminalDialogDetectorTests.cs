@@ -457,6 +457,85 @@ public class ClaudeTerminalDialogDetectorTests {
         await Assert.That(dialog.Screen).Contains("Version 2.1.309");
     }
 
+    /// A select menu whose footer names what Enter does, and adds keys of its own before Esc, is
+    /// still read for its choices.
+    [Test]
+    public async Task A_menu_that_names_what_Enter_does_is_read_for_its_choices() {
+        var screen = string.Join('\n',
+            "❯ /model",
+            "",
+            new string('─', 120),
+            "  Select model",
+            "  Switch between Claude models. Your pick becomes the default for new sessions.",
+            "",
+            "  ❯ 1.  Default (recommended) ✔  Opus 5.5 · Best for everyday, complex tasks",
+            "    2.  Sonnet 5.5               Most efficient for simpler tasks",
+            "    3.  Haiku 5.5                Fastest for quick answers",
+            "",
+            "  ◐ Medium effort (default) ←/→ to adjust",
+            "",
+            "  Enter to set as default · s to use this session only · Esc to cancel");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Heading).StartsWith("Select model");
+        await Assert.That(dialog.Options).Count().IsEqualTo(3);
+        await Assert.That(dialog.Options[2]).StartsWith("Haiku 5.5");
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+    }
+
+    /// A confirmation that ends at its last choice, with no footer, is still read for its choices;
+    /// a numbered list in ordinary output, with the prompt box below it, is not a dialog.
+    [Test]
+    public async Task A_confirmation_without_a_footer_is_read_for_its_choices() {
+        var confirm = string.Join('\n',
+            "❯ /model",
+            new string('─', 120),
+            "  Switch model?",
+            "  Your next response will be slower and use more tokens",
+            "",
+            "  This conversation is cached for the current model. Switching to Fable 5.2 means the full history gets re-read.",
+            "",
+            "  ❯ 1. Yes, switch to Fable 5.2",
+            "    2. No, go back");
+        var output = string.Join('\n',
+            "● Two options:",
+            "  ❯ 1. Keep it",
+            "    2. Drop it",
+            new string('─', 120),
+            "❯ ",
+            new string('─', 120),
+            "  ⏵⏵ auto mode on (shift+tab to cycle)");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(confirm, 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Switch model? Your next response will be slower and use more tokens");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(new[] { "Yes, switch to Fable 5.2", "No, go back" }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+        await Assert.That(ClaudeTerminalDialogDetector.Parse(output, 120)).IsNull();
+    }
+
+    /// A panel whose footer offers only Esc holds the keyboard as any dialog does, and comes back
+    /// as its screen.
+    [Test]
+    public async Task A_panel_that_only_closes_with_Esc_comes_back_as_its_screen() {
+        var screen = string.Join('\n',
+            "❯ /status",
+            "",
+            new string('─', 120),
+            "  Status   Config   Usage",
+            "",
+            "  Version:           2.1.323",
+            "  Model:             Default (Opus 5.5)",
+            "",
+            "  Esc to cancel");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Options).IsEmpty();
+        await Assert.That(dialog.Screen).Contains("Version:           2.1.323");
+    }
+
     /// The rows on screen are a window onto a list that scrolls, so they are not offered as the
     /// panel's whole set of answers even under a select footer.
     [Test]

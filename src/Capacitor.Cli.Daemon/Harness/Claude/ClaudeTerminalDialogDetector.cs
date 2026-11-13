@@ -7,6 +7,8 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 /// show the screen and direct the user to Terminal.
 internal static class ClaudeTerminalDialogDetector {
     const string SelectFooter = "Enter to confirm · Esc to cancel";
+    // A select menu may name what Enter does and add keys of its own before Esc (`/model`).
+    const string EnterHint = "Enter to ";
     const string FormFooter = "←/→ to change · Enter to continue · Esc to cancel";
     const string ApprovalFooter = "Esc to cancel · Tab to amend";
     // AskUserQuestion's navigation hint varies with the number of questions; this prefix does not.
@@ -31,7 +33,8 @@ internal static class ClaudeTerminalDialogDetector {
         var footer = Array.FindLastIndex(lines, l => l.Trim().Length > 0);
         if (footer < 0) return (null, false);
         var footerText = lines[footer].Trim();
-        var select = footerText.StartsWith(SelectFooter, StringComparison.Ordinal);
+        var select = footerText.StartsWith(SelectFooter, StringComparison.Ordinal)
+                  || footerText.StartsWith(EnterHint, StringComparison.Ordinal) && ClosesWithEsc(footerText);
         var approval = footerText.StartsWith(ApprovalFooter, StringComparison.Ordinal);
         var asked = false;
         string[] region;
@@ -43,13 +46,18 @@ internal static class ClaudeTerminalDialogDetector {
             region = ClosesWithEsc(footerText) ? lines[(top + 1)..footer] : lines[(top + 1)..(footer + 1)];
             select = false;
         } else {
-            if (!select && !approval && !footerText.StartsWith(FormFooter, StringComparison.Ordinal)) return (null, false);
+            var form = footerText.StartsWith(FormFooter, StringComparison.Ordinal);
+            var escOnly = !select && !approval && !form && ClosesWithEsc(footerText);
+            if (!select && !approval && !form && !escOnly) return FooterlessMenu(lines, footer, cols);
             // Approval previews have dashed rules around the command. Keep the command in the
             // screen-only fallback by starting at the solid dialog edge above the preview.
             var border = Array.FindLastIndex(lines, footer,
                 line => IsRule(line) && (!approval || line.Trim()[0] is '─' or '━'));
             if (border < 0) return (null, false);
             region = lines[(border + 1)..footer];
+            // A panel with only an Esc footer is a dialog when it has rows of its own; the prompt
+            // box's lower edge with a stray hint under it is not.
+            if (escOnly && (region.All(l => l.Trim().Length == 0) || IsPromptBoxBottom(lines, border))) return (null, false);
         }
 
         // Forms and amendable approvals use the screen-only fallback; only select menus promise
@@ -128,6 +136,30 @@ internal static class ClaudeTerminalDialogDetector {
         return null;
     }
 
+    /// A confirmation such as "Switch model?" ends at its last choice, with no footer: numbered rows under
+    /// a solid rule, the cursor on one of them. Ordinary output never ends the screen that way, since the
+    /// prompt box is drawn below it.
+    static (TerminalDialogDto? Dialog, bool IncompleteRedraw) FooterlessMenu(string[] lines, int footer, int cols) {
+        if (!IsOptionRow(lines[footer])) return (null, false);
+
+        var border = Array.FindLastIndex(lines, footer, line => IsRule(line) && line.Trim()[0] is '─' or '━');
+        if (border < 0) return (null, false);
+
+        var region = lines[(border + 1)..(footer + 1)];
+        if (region.Count(l => l.TrimStart().StartsWith(Cursor)) != 1) return (null, false);
+
+        // A chip or tab row on top is a question's, which ends with a footer or a tab row of its own.
+        if (region.FirstOrDefault(l => l.Trim().Length > 0)?.Trim() is { } first && QuestionChips.Contains(first[0])) return (null, false);
+
+        var (options, selected, firstRow, incomplete) = ReadOptions(region, cols, asked: true);
+        if (options.Count == 0) return (null, false);
+
+        var paragraphs = Paragraphs(region[..firstRow].Select(l => l.Trim()));
+        var shown      = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
+
+        return (new TerminalDialogDto(paragraphs.FirstOrDefault() ?? "", string.Join('\n', paragraphs.Skip(1)), options, selected, shown), incomplete);
+    }
+
     static bool IsOptionRow(string line) {
         var text = line.TrimStart();
         if (text.StartsWith(Cursor)) text = text[1..].TrimStart();
@@ -151,6 +183,9 @@ internal static class ClaudeTerminalDialogDetector {
     static bool ScrolledPastFooter(string footer) =>
         footer.EndsWith(ScrollMarker, StringComparison.Ordinal)
         && !footer.AsSpan(0, footer.Length - ScrollMarker.Length).Trim().IsEmpty;
+
+    static bool IsPromptBoxBottom(string[] lines, int rule) =>
+        rule >= 2 && lines[rule - 1].TrimStart().StartsWith(Cursor) && IsPromptRule(lines[rule - 2]);
 
     static bool IsPromptRule(string line) => line.Length > 0 && !char.IsWhiteSpace(line[0]) && IsRule(line);
 
@@ -180,7 +215,7 @@ internal static class ClaudeTerminalDialogDetector {
     static string StripNumber(string label) {
         var i = 0;
         while (i < label.Length && char.IsAsciiDigit(label[i])) i++;
-        return i > 0 && i + 1 < label.Length && label[i] == '.' && label[i + 1] == ' ' ? label[(i + 2)..] : label;
+        return i > 0 && i + 1 < label.Length && label[i] == '.' && label[i + 1] == ' ' ? label[(i + 2)..].TrimStart() : label;
     }
 
     static bool IsCheckbox(string label) =>

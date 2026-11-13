@@ -115,6 +115,9 @@ internal sealed partial class PtyHostedAgentRuntime(
     bool                             _deliveryHoldsLane;
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
+    Task                             _heldSends = Task.CompletedTask;
+    // Unknown until a screen reader reports it: 0 unknown, 1 shown, 2 not shown.
+    int                              _promptShown;
     bool                             _unconfirmed;
     Task<bool>?                      _inputReadiness;
     int                              _deliveries;
@@ -185,6 +188,8 @@ internal sealed partial class PtyHostedAgentRuntime(
             }
         }
     }
+
+    public void NotePromptShown(bool shown) => Volatile.Write(ref _promptShown, shown ? 1 : 2);
 
     Task? DialogGone {
         get { lock (_dialogGate) { return _dialogGone?.Task; } }
@@ -484,13 +489,81 @@ internal sealed partial class PtyHostedAgentRuntime(
     }
 
     /// <summary>
+    /// A dispatched message that a dialog holds back, or that follows one held, is taken at once and
+    /// written in order once the dialog closes: the daemon handles server messages one at a time, and
+    /// awaiting this write would hold back the keys that answer the dialog. A dialog that opens after the
+    /// write has started still holds that write until it is answered.
+    /// </summary>
+    public async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        var (write, held) = Enqueue(text);
+
+        if (held) return write;
+
+        await write;
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Delivers <paramref name="text"/> as a bracketed paste (ESC[200~ … ESC[201~) so the TUI treats
-    /// it as one block, then submits it (see <see cref="SubmitAsync"/>). Text typed into an open dialog
-    /// would answer it, and the server may have refused this sender that answer, so the paste and each
-    /// submit Enter wait for any dialog to close, with the lane released so the dialog can be answered.
+    /// it as one block, then submits it (see <see cref="SubmitAsync"/>), after any message already
+    /// waiting on a dialog.
     /// </summary>
     /// <exception cref="IOException">The agent was stopping or had exited before the message could be sent.</exception>
-    public async Task SendUserInputAsync(string text) {
+    public Task SendUserInputAsync(string text) => Enqueue(text).Write;
+
+    // Every message joins one chain, so one sent while another waits on a dialog lands after it, not in its redraw.
+    (Task Write, bool Held) Enqueue(string text) {
+        lock (_dialogGate) {
+            var held = _dialogGone is not null || !_heldSends.IsCompleted;
+            _heldSends = WriteAfterAsync(_heldSends, text);
+
+            return (_heldSends, held);
+        }
+    }
+
+    async Task WriteAfterAsync(Task previous, string text) {
+        try {
+            await previous;
+        } catch (Exception) {
+            // The message before reports its own loss; this one is still written.
+        }
+
+        // A dialog redrawn as it is answered can read as gone for a chunk, so the hold ends only once the
+        // dialog has stayed gone through the settle.
+        while (DialogGone is not null && !pty.HasExited && !_stopRequested) {
+            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await WaitForRedrawToSettleAsync();
+        }
+
+        await PasteAndSubmitAsync(text);
+    }
+
+    /// <summary>A closing dialog redraws the screen, and a paste that lands in the redraw is lost, so a
+    /// held message waits for the composer, the agent's prompt box where its screen is read, and a quiet
+    /// spell, as the launch prompt does. Returns at once if a dialog shows again.</summary>
+    async Task WaitForRedrawToSettleAsync() {
+        var started = time.GetTimestamp();
+
+        while (DialogGone is null && !pty.HasExited && !_stopRequested && time.GetElapsedTime(started) < LaunchPromptMaxWait) {
+            var quietFor = time.GetElapsedTime(Volatile.Read(ref _lastOutputAt));
+            // Quiet alone is no proof: Claude can go silent between erasing a dialog and drawing its prompt again.
+            // A turn the dialog interrupted keeps drawing once it is answered, so a prompt box that has stood
+            // through the quiet window is enough.
+            var prompt = Volatile.Read(ref _promptShown);
+            if (LooksReadyForInput && prompt != 2
+             && (quietFor >= LaunchPromptQuietWindow || prompt == 1 && time.GetElapsedTime(started) >= LaunchPromptQuietWindow)) return;
+
+            await Task.Delay(quietFor < LaunchPromptQuietWindow ? LaunchPromptQuietWindow - quietFor : LaunchPromptPoll, time, _disposal.Token);
+        }
+    }
+
+    /// <summary>
+    /// Text typed into an open dialog would answer it, and the server may have refused this sender that
+    /// answer, so the paste and each submit Enter wait for any dialog to close, with the lane released so
+    /// the dialog can be answered.
+    /// </summary>
+    async Task PasteAndSubmitAsync(string text) {
         await WaitForLaunchPromptAsync();
 
         // Once a stop is asked for, a paste would land behind its "/exit", whatever dialog came and
