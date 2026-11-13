@@ -70,6 +70,17 @@ public class ComposerHistoryTests {
         await Assert.That(history.Newer("second", None)).IsEqualTo("second!");
     }
 
+    /// Only handing the stash back empties it: clearing or replaying the history keeps it.
+    [Test]
+    public async Task Clearing_the_history_keeps_the_stash() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        history.EndNavigation();
+        history.Clear();
+        history.ClearForReplay();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
+    }
+
     [Test]
     public async Task Stash_holds_a_draft_left_behind_until_newer_hands_it_back() {
         var history = Seen("first");
