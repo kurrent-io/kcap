@@ -4,7 +4,7 @@ using Eventuous.SignalR;
 
 namespace Capacitor.Client.Tests.Unit;
 
-/// The hub payload options of a process that runs with reflection-based JSON off. Both tests start from no
+/// The hub payload options of a process that runs with reflection-based JSON off. Each test starts from no
 /// resolver, so a type the generated contexts miss fails here rather than at runtime, where an argument
 /// throws and a pushed stream event is dropped without a word.
 public class ClientHubJsonTests {
