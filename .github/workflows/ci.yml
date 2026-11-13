@@ -65,7 +65,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-and-test:
-    name: Build and test (${{ matrix.os }})
+    name: Build and test (${{ matrix.leg }})
     needs: changes
     if: needs.changes.outputs.plugin-docs != 'true'
     runs-on: ${{ matrix.os }}
@@ -76,14 +76,48 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  modules: 3, tests: 4 }
-          - { os: getmac,         modules: 3, tests: 4 }
+          - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4 }
+          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4 }
           # Narrower: at three-by-four this leg spent a 20s service-readiness budget and a 1s
           # memory-fetch budget inside the code under test with nothing actually slow.
-          - { os: windows-latest, modules: 2, tests: 2 }
+          # Split in two because at two modules the Windows test step took the sum of every suite
+          # over two lanes, and the Daemon suite alone fills one of them (754s of 2,057s).
+          - { leg: windows-latest-daemon, os: windows-latest, shard: daemon, modules: 1, tests: 2 }
+          - { leg: windows-latest-others, os: windows-latest, shard: others, modules: 2, tests: 2 }
 
     steps:
       - uses: actions/checkout@v7
+
+      # A selection runs through a solution filter, so the module and width caps apply to it unchanged.
+      # A shard keeps its part of the selection; an empty result skips the tests, and on the daemon
+      # shard everything else too, since the others shard builds the whole solution.
+      - name: Pick the test solution
+        id: tests
+        shell: bash
+        env:
+          PROJECTS: ${{ needs.changes.outputs.projects }}
+          SHARD: ${{ matrix.shard }}
+          DAEMON: test/Capacitor.Cli.Daemon.Tests.Unit/Capacitor.Cli.Daemon.Tests.Unit.csproj
+        run: |
+          set -euo pipefail
+          if [ "$PROJECTS" = all ]; then
+            if [ "$SHARD" = all ]; then echo "solution=Capacitor.slnx" >> "$GITHUB_OUTPUT"; exit 0; fi
+            PROJECTS="$(sed -n 's|.*<Project Path="\([^"]*\)".*|\1|p' Capacitor.slnx | tr '\\' /)"
+          fi
+          selected=()
+          for p in $PROJECTS; do
+            case "$SHARD" in
+              all) selected+=("$p") ;;
+              daemon) if [ "$p" = "$DAEMON" ]; then selected+=("$p"); fi ;;
+              others) if [ "$p" != "$DAEMON" ]; then selected+=("$p"); fi ;;
+            esac
+          done
+          if [ "${#selected[@]}" -eq 0 ]; then echo "solution=" >> "$GITHUB_OUTPUT"; exit 0; fi
+          solution=selected-tests.slnf
+          list="$(printf '"%s",' "${selected[@]}")"
+          printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
+          cat "$solution"
+          echo "solution=$solution" >> "$GITHUB_OUTPUT"
 
       # GetMac VMs leave TMPDIR empty, and dotnet's named mutexes then fail on first run. The suite's
       # socket paths need a short, symlink-free root, so not runner.temp.
@@ -92,6 +126,7 @@ jobs:
         run: '[ -n "${TMPDIR:-}" ] || echo "TMPDIR=/private/tmp" >> "$GITHUB_ENV"'
 
       - name: Setup .NET
+        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
         uses: ./.github/actions/setup-dotnet
         with:
           cache: true
@@ -101,13 +136,16 @@ jobs:
       # Whole solution in every cached job: one OS-keyed immutable entry, so a job that
       # restored a subset would win the race and freeze the cache on it.
       - name: Restore solution
+        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
         run: dotnet restore Capacitor.slnx
 
       - name: Build solution
-        run: dotnet build Capacitor.slnx --no-restore
+        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
+        run: dotnet build ${{ matrix.shard == 'daemon' && steps.tests.outputs.solution || 'Capacitor.slnx' }} --no-restore
 
       # Plain-Node assertion scripts, no framework or npm install. Bash gives -e on every leg.
       - name: Run npm wrapper tests
+        if: matrix.shard != 'daemon'
         shell: bash
         run: |
           node npm/kcap/bin/kcap.test.js
@@ -134,28 +172,10 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
 
-      # A selection runs through a solution filter, so the module and width caps apply to it unchanged.
-      - name: Pick the test solution
-        id: tests
-        if: needs.changes.outputs.projects != ''
-        shell: bash
-        env:
-          PROJECTS: ${{ needs.changes.outputs.projects }}
-        run: |
-          set -euo pipefail
-          solution=Capacitor.slnx
-          if [ "$PROJECTS" != all ]; then
-            solution=selected-tests.slnf
-            list="$(printf '"%s",' $PROJECTS)"
-            printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
-            cat "$solution"
-          fi
-          echo "solution=$solution" >> "$GITHUB_OUTPUT"
-
       # The runner's default shell, not bash: on Windows, Git Bash puts its own usr/bin ahead of
       # System32 on PATH, and a test that runs `timeout` through cmd.exe then gets the GNU one.
       - name: Run tests
-        if: needs.changes.outputs.projects != ''
+        if: steps.tests.outputs.solution != ''
         env:
           # The live launchd/systemd test loads a uniquely named unit; a disposable runner is the place for it.
           KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
@@ -184,7 +204,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports-${{ matrix.os }}-attempt-${{ github.run_attempt }}
+          name: test-reports-${{ matrix.leg }}-attempt-${{ github.run_attempt }}
           path: |
             TestResults/*.html
             TestResults/*.trx
