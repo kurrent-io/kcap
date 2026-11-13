@@ -569,11 +569,16 @@ public class IdeHostTests {
     public async Task A_failing_reconnect_does_not_end_the_loop() {
         using var host = new Host();
         await host.InitializeAsync();
-        host.Reconnect = () => throw new InvalidOperationException("reconnect failed");
+        var calls = 0;
+        host.Reconnect = () => {
+            Interlocked.Increment(ref calls);
+            throw new InvalidOperationException("reconnect failed");
+        };
 
         var retry = await host.CallAsync("connection/retry", null);
         var next  = await host.CallAsync("sessions/unsubscribe", new JsonObject { ["subscription_id"] = "never" });
 
+        await Assert.That(calls).IsEqualTo(1);
         await Assert.That(retry["result"]!.ToJsonString()).IsEqualTo("{}");
         await Assert.That(next["result"]!.ToJsonString()).IsEqualTo("{}");
     }
