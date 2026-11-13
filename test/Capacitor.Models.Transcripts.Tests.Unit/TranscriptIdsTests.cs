@@ -43,6 +43,15 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Claude_retraction_hashes_an_r_byte_then_the_cancelled_prompt_guid() {
+        var expectedInput = new byte[17];
+        expectedInput[0] = (byte)'r';
+        Primary.TryWriteBytes(expectedInput.AsSpan(1));
+
+        await Assert.That(TranscriptIds.ClaudeRetraction(Primary)).IsEqualTo(new Guid(XxHash128.Hash(expectedInput)));
+    }
+
+    [Test]
     public async Task Codex_record_hashes_the_utf8_line() {
         const string line = "{\"type\":\"response_item\",\"payload\":{}}";
         await Assert.That(TranscriptIds.CodexRecord(line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes(line))));
@@ -79,6 +88,7 @@ public class TranscriptIdsTests {
     [Arguments("claude-fallback", "076b76f4-34c5-66d5-20c5-52bcc518f62c")]
     [Arguments("claude-block", "de376eef-af14-5d28-b930-bbbef251635d")]
     [Arguments("claude-attachment", "c0331d1c-5d1f-a123-49d3-820902c4d48b")]
+    [Arguments("claude-retraction", "af166b98-4df9-03c7-e556-9199ad7f030a")]
     [Arguments("codex-record", "b17e302c-b826-0247-6fda-5634e74c45ce")]
     // kcap-server's CodexNormalizerTests pins the id it stores for this redacted line to the same value.
     [Arguments("codex-redacted-user", "9f1a5a84-cd92-5e9f-72ff-6db814f55976")]
@@ -95,6 +105,7 @@ public class TranscriptIdsTests {
         "claude-fallback"   => TranscriptIds.ClaudeFallback(12, "{\"type\":\"user\"}"),
         "claude-block"      => TranscriptIds.ClaudeBlock(Primary, 2),
         "claude-attachment" => TranscriptIds.ClaudeAttachment("sess:agent", Primary, 3),
+        "claude-retraction" => TranscriptIds.ClaudeRetraction(Primary),
         "codex-record"      => TranscriptIds.CodexRecord("{\"type\":\"response_item\",\"payload\":{}}"),
         "codex-redacted-user" => TranscriptIds.CodexRecord("""
             {"timestamp":"2026-10-21T02:10:01.207Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"use token [REDACTED:github-token]"}],"internal_chat_message_metadata_passthrough":{"turn_id":"01a15c38-f9fc-7eb3-a679-cc676926d28f","create_time":1792548601.2,"content_item_kinds":["user.text"]}}}

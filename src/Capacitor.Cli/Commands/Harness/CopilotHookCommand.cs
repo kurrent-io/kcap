@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Workspace;
 using Capacitor.Cli.Core.Workspace;
 
@@ -235,6 +236,10 @@ sealed class CopilotHookCommand(
             HookSpool  spool,
             HookBudget budget
         ) {
+        // A new run: the held end of the one before it, and the span close that end owed, would close this one.
+        CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+        CopilotSpanClose.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+
         var source = TryGetString(node, "source") is { Length: > 0 } s ? s : "startup";
 
         var forwarded = new JsonObject {
@@ -287,7 +292,11 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+        // Copilot fires sessionStart once per run, at its start or resume, so a baseline found here is an earlier run's. The
+        // span carries the run it opens in, by the id the transcript gives it, which an end landing before it can tell from a
+        // later run's.
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Run, WorkspaceSpanHook.StartBudget, drain: false,
+            run: new WorkspaceRun(CopilotRunBoundary.LatestIdOf(GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId))));
 
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the
@@ -361,6 +370,9 @@ sealed class CopilotHookCommand(
         ) {
         var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
+        // The run this end closes: the one the transcript names now, or, unreadable, the spans opened by now.
+        var run = new WorkspaceRunCutoff(CopilotRunBoundary.LatestIdOf(transcriptPath), clock.Time.GetUtcNow());
+
         var forwarded = new JsonObject {
             ["hook_event_name"] = "sessionEnd",
             ["session_id"]      = sessionId,
@@ -377,13 +389,23 @@ sealed class CopilotHookCommand(
 
         var end = forwarded.ToJsonString();
 
-        // Copilot writes session.shutdown only after this hook, and on quit stops within seconds of
-        // starting it, killing the hook. The detached finalizer survives that, so it starts first and
-        // carries the end: the server derives its event id from the reason and ended_at, so the two
-        // POSTs of this one body record one SessionEnded.
+        // Copilot can abort this hook at any point, so its end is spooled before anything else: any later kcap process's
+        // spool drain delivers it. The watcher and the finalizer may send ends too; the server keeps a session's first.
+        // The span close it owes is recorded first, so no spooled end goes without one; with neither, the finalizer
+        // carries the end and closes the span itself.
+        var spooled = CopilotSpanClose.Record(WatcherPaths.FromEnvironment(config), sessionId, Url, end, clock.Time, run.RunId)
+                   && new HookSpool(config, clock.Time, Url).Append(sessionId, CopilotPendingEnd.Route, end);
+        if (spooled) CopilotPendingEnd.Discard(WatcherPaths.FromEnvironment(config), sessionId);
+
+        // Copilot writes session.shutdown only after this hook, and on quit runs every session's hook under
+        // one shared budget of about 1.5 s, aborting the one in flight and skipping the rest. So a started
+        // finalizer delivers the end after the tail and the hook returns at once.
         // VS Code's Local harness writes no shutdown line, so nothing would end that wait.
-        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
-            watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end);
+        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)
+         && watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, spooled ? null : end)) {
+            watchers.RequestWatcherStop(sessionId);
+
+            return 0;
         }
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes
@@ -413,7 +435,7 @@ sealed class CopilotHookCommand(
 
         // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
         if (outcome == HookPostOutcome.Posted)
-            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndRunAsync(sessionId, run, WorkspaceSpanHook.EndBudget);
         return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 namespace Capacitor.Cli.Daemon.Pty.Unix;
 
 /// <summary>
-/// L1-managed(a) (spec §4.2(b)): one dedicated, daemon-lifetime native thread that runs EVERY
+/// One dedicated, daemon-lifetime native thread that runs EVERY
 /// Unix <c>pty_spawn</c> call — never a thread-pool thread. <c>PR_SET_PDEATHSIG</c> fires when
 /// the CREATING THREAD's process dies, not the thread itself, but the safety net only works
 /// if that thread is never retired out from under a still-running agent: a pool thread that
@@ -17,7 +17,7 @@ namespace Capacitor.Cli.Daemon.Pty.Unix;
 /// (no PDEATHSIG dependency there, but one native child-sequence code path on both Unixes is
 /// simpler than two).
 /// </summary>
-/// <remarks>Public (not internal, despite Task 4's original design intent): <see cref="UnixPtyProcessFactory"/>'s
+/// <remarks>Public, not internal: <see cref="UnixPtyProcessFactory"/>'s
 /// constructor takes this type as a DI-injected dependency, and constructor-injection resolution
 /// (<c>Microsoft.Extensions.DependencyInjection</c>) only ever considers a PUBLIC constructor on
 /// the implementation type — which in turn (CS0051) requires every one of that constructor's
@@ -81,7 +81,7 @@ public sealed class UnixSpawnerThread : IDisposable {
 
                     request.Completion.SetResult(result);
                     _ = rc; // failure is reported INSIDE result (failed_step/err_no); the managed
-                            // caller (Task 5) inspects that, not the native return code directly.
+                            // caller inspects that, not the native return code directly.
                 } catch (Exception ex) {
                     request.Completion.SetException(ex);
                 }
@@ -136,9 +136,8 @@ public sealed class UnixSpawnerThread : IDisposable {
 
     // Nested (rather than a top-level `file`-scoped type): a file-local type cannot appear in
     // ANY member signature — including a private field's type — of a type that is itself not
-    // file-scoped (CS9051), and UnixSpawnerThread must stay `internal` (consumed by Task 5 and
-    // by tests via InternalsVisibleTo). Nesting keeps this an implementation detail without
-    // hitting that restriction.
+    // file-scoped (CS9051). Nesting keeps this an implementation detail without hitting that
+    // restriction.
     sealed record SpawnRequest(
         IntPtr Plan, string?[] Envp, string Cwd, ushort Rows, ushort Cols, int ExpectedParent, int CancelFd) {
         public TaskCompletionSource<UnixPtyInterop.PtySpawnResult> Completion { get; } = new();

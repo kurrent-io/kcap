@@ -11,7 +11,9 @@ on:
         required: true
         type: string
       sign:
-        description: Sign the macOS binaries. Needs the Apple secrets.
+        description: >-
+          Sign the macOS binaries, and the Windows ones once vars.ARTIFACT_SIGNING_PROFILE is set.
+          Needs the Apple secrets.
         type: boolean
         default: false
 
@@ -55,9 +57,11 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
+    environment: ${{ inputs.sign && startsWith(matrix.rid, 'win-') && vars.ARTIFACT_SIGNING_PROFILE != '' && 'windows-signing' || '' }}
     env:
       VERSION: ${{ inputs.version }}
       EXE: ${{ startsWith(matrix.rid, 'win-') && '.exe' || '' }}
+      AUTHENTICODE: ${{ inputs.sign && startsWith(matrix.rid, 'win-') && vars.ARTIFACT_SIGNING_PROFILE != '' }}
     defaults:
       run:
         shell: bash
@@ -109,6 +113,24 @@ jobs:
           src/Capacitor.App/Packaging/daemon.entitlements
           publish/daemon/kcap-daemon publish/daemon/libpty_shim.dylib
 
+      - name: Set up Authenticode signing
+        id: authenticode
+        if: env.AUTHENTICODE == 'true'
+        uses: ./.github/actions/artifact-signing
+        with:
+          tenant-id: ${{ vars.ARTIFACT_SIGNING_TENANT_ID }}
+          client-id: ${{ vars.ARTIFACT_SIGNING_CLIENT_ID }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          account: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          profile: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+
+      # Before the digest, for the same reason as the macOS signature above.
+      - name: Authenticode-sign the daemon
+        if: env.AUTHENTICODE == 'true'
+        env:
+          KCAP_SIGN_TOKEN: ${{ steps.authenticode.outputs.token }}
+        run: bash scripts/sign-windows.sh publish/daemon/kcap-daemon.exe
+
       - name: Compute daemon digest
         id: daemon-digest
         run: |
@@ -143,6 +165,23 @@ jobs:
         run: >
           bash scripts/sign-macos.sh "$APPLE_SIGNING_IDENTITY" "$KEYCHAIN"
           src/Capacitor.App/Packaging/cli.entitlements publish/cli/kcap
+
+      # The e_sqlite3 native stays unsigned: the CLI verifies it against a pinned SHA-256.
+      - name: Authenticode-sign the CLI and the service
+        if: env.AUTHENTICODE == 'true'
+        env:
+          KCAP_SIGN_TOKEN: ${{ steps.authenticode.outputs.token }}
+        run: bash scripts/sign-windows.sh publish/cli/kcap.exe publish/service/kcap-service.exe
+
+      - name: Check the Authenticode signatures
+        if: env.AUTHENTICODE == 'true'
+        shell: pwsh
+        run: |
+          foreach ($f in 'publish/daemon/kcap-daemon.exe', 'publish/cli/kcap.exe', 'publish/service/kcap-service.exe') {
+            $s = Get-AuthenticodeSignature $f
+            if ($s.Status -ne 'Valid') { Write-Error "${f}: $($s.Status) $($s.StatusMessage)"; exit 1 }
+            "${f}: $($s.SignerCertificate.Subject)"
+          }
 
       - name: Smoke the binaries
         if: startsWith(matrix.rid, 'osx-')

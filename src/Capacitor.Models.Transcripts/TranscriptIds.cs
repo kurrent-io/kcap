@@ -33,6 +33,14 @@ public static class TranscriptIds {
         return Hash(input);
     }
 
+    /// One per cancelled prompt, whichever prompt replaced it: an `r` byte, then the prompt's id.
+    public static Guid ClaudeRetraction(Guid cancelledPromptId) {
+        var input = new byte[17];
+        input[0] = (byte)'r';
+        cancelledPromptId.TryWriteBytes(input.AsSpan(1));
+        return Hash(input);
+    }
+
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
     /// A Vibe record's id is the hash of its exact source line — a legacy <c>messages.jsonl</c> line,

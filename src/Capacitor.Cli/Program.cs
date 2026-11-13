@@ -1002,7 +1002,8 @@ switch (command) {
             await poster.DrainSpoolsAsync(
                 new HookSpool(config, time, baseUrl),
                 new TranscriptSpool(config, time, baseUrl),
-                sessionId: null);
+                sessionId: null,
+                sweepCopilotPendingEnds: !args.Contains("--copilot"));
             HookTiming.Mark("global-spool-drain");
         }
         var vendorExit = await DispatchVendorHookAsync();

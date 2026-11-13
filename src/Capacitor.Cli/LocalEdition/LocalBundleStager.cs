@@ -12,6 +12,8 @@ namespace Capacitor.Cli.LocalEdition;
 sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa manifestKey, LocalPlatform platform) {
     const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
+    readonly LocalInstallLog _log = new(root);
+
     string Bin => LocalBin.Directory(root);
 
     public static string CacheDirectory(LocalRoot root) => Path.Combine(root.Directory, "cache");
@@ -24,6 +26,18 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
     /// <returns>The version directory, and the verified manifest it was staged from.</returns>
     public async Task<(string VersionDirectory, LocalBundleManifest Manifest)> StageAsync(string version, string stagingName,
         IProgress<LocalInstallEvent> progress, CancellationToken ct) {
+        _log.Write($"Staging {version} for {platform.Rid}");
+
+        try {
+            return await StageLoggedAsync(version, stagingName, progress, ct);
+        } catch (Exception ex) {
+            LogFailure(ex);
+            throw;
+        }
+    }
+
+    async Task<(string VersionDirectory, LocalBundleManifest Manifest)> StageLoggedAsync(string version, string stagingName,
+        IProgress<LocalInstallEvent> progress, CancellationToken ct) {
         var staging = LocalBin.StagingDir(root, stagingName);
         var rid     = platform.Rid;
 
@@ -33,14 +47,21 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
         var (manifest, _, _) = await VerifiedManifestAsync(version, rid, fromCache: true, ct);
         var archive          = Path.Combine(staging, "archive.tar.gz");
 
-        if (!await TakeCachedAsync(manifest, archive, ct)) {
-            progress.Report(new LocalInstallEvent.Downloading($"{bundles.BaseUrl}/{rid}/{manifest.Archive}", manifest.Size));
+        if (await TakeCachedAsync(manifest, archive, ct)) {
+            _log.Write($"Archive {manifest.Archive}, {manifest.Size} bytes: taken from the cache");
+        } else {
+            var url = $"{bundles.BaseUrl}/{rid}/{manifest.Archive}";
+            progress.Report(new LocalInstallEvent.Downloading(url, manifest.Size));
+            _log.Write($"Archive {url}, {manifest.Size} bytes: downloading");
 
             await bundles.DownloadAsync(manifest, archive,
                 new SyncProgress<long>(received => progress.Report(new LocalInstallEvent.DownloadProgress(received, manifest.Size))), ct);
+
+            _log.Write("Archive downloaded");
         }
 
         progress.Report(new LocalInstallEvent.Verified(manifest.Sha256));
+        _log.Write($"SHA-256 {manifest.Sha256} matches the manifest");
 
         var tree = Path.Combine(staging, "tree");
         await LocalBundleUnpacker.UnpackAsync(archive, tree, ct);
@@ -57,6 +78,7 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
         DropCache();
 
         progress.Report(new LocalInstallEvent.Unpacked(versionDir));
+        _log.Write($"Unpacked into {versionDir}");
 
         return (versionDir, manifest);
     }
@@ -64,6 +86,17 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
     /// <summary>Downloads and verifies <paramref name="version"/>'s bundle into <c>cache/</c> beside its manifest and
     /// signature, removing whatever else is there. An archive already there with the right digest is kept.</summary>
     public async Task<LocalBundleManifest> FetchAsync(string version, IProgress<LocalInstallEvent> progress, CancellationToken ct) {
+        _log.Write($"Fetching {version} for {platform.Rid}");
+
+        try {
+            return await FetchLoggedAsync(version, progress, ct);
+        } catch (Exception ex) {
+            LogFailure(ex);
+            throw;
+        }
+    }
+
+    async Task<LocalBundleManifest> FetchLoggedAsync(string version, IProgress<LocalInstallEvent> progress, CancellationToken ct) {
         var rid                          = platform.Rid;
         var (manifest, bytes, signature) = await VerifiedManifestAsync(version, rid, fromCache: false, ct);
         var cache                        = CacheDirectory(root);
@@ -78,27 +111,34 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
 
         var archive = Path.Combine(cache, manifest.Archive);
 
-        if (!await MatchesAsync(archive, manifest, ct)) {
+        if (await MatchesAsync(archive, manifest, ct)) {
+            _log.Write($"Archive {manifest.Archive}, {manifest.Size} bytes: already in the cache");
+        } else {
             if (File.Exists(archive)) File.Delete(archive);
 
             var partial = archive + ".partial";
             if (File.Exists(partial)) File.Delete(partial);
 
-            progress.Report(new LocalInstallEvent.Downloading($"{bundles.BaseUrl}/{rid}/{manifest.Archive}", manifest.Size));
+            var url = $"{bundles.BaseUrl}/{rid}/{manifest.Archive}";
+            progress.Report(new LocalInstallEvent.Downloading(url, manifest.Size));
+            _log.Write($"Archive {url}, {manifest.Size} bytes: downloading");
 
             await bundles.DownloadAsync(manifest, partial,
                 new SyncProgress<long>(received => progress.Report(new LocalInstallEvent.DownloadProgress(received, manifest.Size))), ct);
 
             File.Move(partial, archive);
+            _log.Write("Archive downloaded");
         }
 
         progress.Report(new LocalInstallEvent.Verified(manifest.Sha256));
+        _log.Write($"SHA-256 {manifest.Sha256} matches the manifest");
 
         await File.WriteAllBytesAsync(Path.Combine(cache, manifestName), bytes, ct);
         await File.WriteAllTextAsync(Path.Combine(cache, manifestName + ".sig"), signature, ct);
         DurableDirectory.Sync(cache);
 
         progress.Report(new LocalInstallEvent.Fetched(version, cache));
+        _log.Write($"Cached in {cache}");
 
         return manifest;
     }
@@ -107,12 +147,19 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
     /// reach, the one a fetch cached: it carries the same signature and is checked exactly as a downloaded one is.</summary>
     async Task<(LocalBundleManifest Manifest, byte[] Bytes, string Signature)> VerifiedManifestAsync(string version, string rid, bool fromCache,
         CancellationToken ct) {
+        _log.Write($"Manifest {bundles.BaseUrl}/{rid}/{ManifestName(version, rid)}");
+
         try {
-            return await bundles.FetchManifestAsync(version, rid, Verify, ct);
+            var published = await bundles.FetchManifestAsync(version, rid, Verify, ct);
+            _log.Write("Manifest from the publication: signature verified");
+            return published;
         } catch (ArgumentException ex) {
             throw new LocalInstallFailure(LocalInstallFailureCode.InvalidArguments, ex.Message);
         } catch (LocalBundleException ex) when (fromCache && ex.Code == LocalInstallFailureCode.DownloadFailed && CachedManifest(version, rid) is { } cached) {
-            return Verify(cached.Bytes, cached.Signature);
+            _log.Write($"Publication out of reach ({ex.Message}); using the manifest in {CacheDirectory(root)}");
+            var verified = Verify(cached.Bytes, cached.Signature);
+            _log.Write("Manifest from the cache: signature verified");
+            return verified;
         }
 
         (LocalBundleManifest Manifest, byte[] Bytes, string Signature) Verify(byte[] bytes, string signature) =>
@@ -145,8 +192,19 @@ sealed class LocalBundleStager(LocalRoot root, LocalBundleClient bundles, ECDsa 
 
         if (await MatchesAsync(destination, manifest, ct)) return true;
 
+        _log.Write($"Cached archive does not match the manifest's SHA-256 {manifest.Sha256}; downloading it again");
         File.Delete(destination);
         return false;
+    }
+
+    void LogFailure(Exception ex) {
+        var code = ex switch {
+            LocalInstallFailure failure => failure.Code.Wire(),
+            LocalBundleException bundle => bundle.Code.Wire(),
+            OperationCanceledException  => "cancelled",
+            _                           => "unexpected",
+        };
+        _log.Write($"Failed ({code}): {ex.Message}");
     }
 
     static async Task<bool> MatchesAsync(string archive, LocalBundleManifest manifest, CancellationToken ct) {

@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -324,5 +325,37 @@ public class StatusCommandHooksTests {
 
         await Assert.That(line).Contains("hooks installed (trust in Codex)");
         await Assert.That(line).Contains("not wired");
+    }
+
+    /// <summary>Kiro found by its IDE or data cannot be wired until kiro-cli is on PATH, so the hint names that first.</summary>
+    [Test]
+    public async Task An_unconfigured_harness_that_needs_its_cli_names_the_cli_when_it_is_missing() {
+        using var home      = new TempHome();
+        var       harnesses = TestHarnesses.Under(home);
+        var       kiro      = harnesses.First(h => h.Id == HarnessId.Kiro);
+        var       claude    = harnesses.First(h => h.Id == HarnessId.Claude);
+
+        await Assert.That(StatusCommand.UnconfiguredLine(kiro, "kcap plugin install --kiro", cliOnPath: false))
+            .IsEqualTo("Kiro found, but kiro-cli is not on PATH; install it, then run `kcap plugin install --kiro`");
+        await Assert.That(StatusCommand.UnconfiguredLine(kiro, "kcap plugin install --kiro", cliOnPath: true))
+            .IsEqualTo("Kiro installed but kcap not configured — run `kcap plugin install --kiro`");
+        await Assert.That(StatusCommand.UnconfiguredLine(claude, "kcap plugin install", cliOnPath: false))
+            .IsEqualTo("Claude Code installed but kcap not configured — run `kcap plugin install`");
+        await Assert.That(StatusCommand.MissingCli(kiro, cliOnPath: false)).IsEqualTo("kiro-cli");
+        await Assert.That(StatusCommand.MissingCli(kiro, cliOnPath: true)).IsNull();
+        await Assert.That(StatusCommand.MissingCli(claude, cliOnPath: false)).IsNull();
+    }
+
+    /// <summary>An agent already cloned is refreshed without kiro-cli, so its absence is not named.</summary>
+    [Test]
+    public async Task A_cloned_kiro_agent_needs_no_cli_to_wire() {
+        using var home      = new TempHome();
+        var       harnesses = TestHarnesses.Under(home);
+        var       kiro      = harnesses.Of<KiroHarness>();
+        home.CreateFile(Path.GetRelativePath(home.Path, kiro.Paths.KcapAgentJson), "{}");
+
+        await Assert.That(StatusCommand.MissingCli(kiro, cliOnPath: false)).IsNull();
+        await Assert.That(StatusCommand.UnconfiguredLine(kiro, "kcap plugin install --kiro", cliOnPath: false))
+            .IsEqualTo("Kiro installed but kcap not configured — run `kcap plugin install --kiro`");
     }
 }

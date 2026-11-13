@@ -181,6 +181,9 @@ public class WatchState {
     public int          LinesReadAhead      { get; set; } // file position while buffering
     public bool         ThresholdReached    { get; set; }
     public bool         ShrinkLogged        { get; set; }
+    // Only for a vendor that rewrites its transcript in place. LinesProcessed then counts lines as sent, not
+    // as they sit in the file.
+    public TranscriptLineMap? LineMap { get; set; }
 
     public CommitObservation Commits           { get; set; } = new CommitObservation.Uncovered();
     public DateTimeOffset    LastCoverageCheck { get; set; }
@@ -2670,7 +2673,11 @@ public record AgentRunStarted(
         string  Vendor
     );
 
-public record AgentRunStopped(string? Reason, int? ExitCode);
+/// <summary><see cref="DaemonInstanceId"/> names the daemon process that holds the stopped run on the server, the
+/// id its <see cref="DaemonConnect"/> carries, so the server can tell this run's stop from one a predecessor sent
+/// late. A process reporting a run it did not launch sends null: a resume claim re-stamps the server's entry with
+/// the claiming process, so its own ledger cannot say which process the server holds, and a wrong id hides the stop.</summary>
+public record AgentRunStopped(string? Reason, int? ExitCode, string? DaemonInstanceId = null);
 
 public record AgentRunHeartbeat(string? SessionId);
 

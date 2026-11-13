@@ -9,12 +9,12 @@ namespace Capacitor.Cli.Daemon.Harness.Codex;
 
 /// <summary>
 /// Translates codex app-server JSON-RPC notifications into the daemon-local wire
-/// <see cref="AcpEventEnvelope"/> vocabulary (§2.4 envelope transcript). Stateful — it composes the
+/// <see cref="AcpEventEnvelope"/> vocabulary. Stateful — it composes the
 /// per-item <see cref="CodexEphemeralAccumulator"/> and the cumulative→delta
 /// <see cref="CodexUsageDeltaConverter"/> — so it is one-per-session and driven from the single
 /// notification-handling path (NOT thread-safe).
 ///
-/// <para>Two lanes, per §2.4:</para>
+/// <para>Two lanes:</para>
 /// <list type="bullet">
 /// <item><description><b>Canonical</b>: only terminal facts become sequenced envelopes —
 /// <c>item/completed</c> snapshots (the one authoritative event for an item's content), the tool-call

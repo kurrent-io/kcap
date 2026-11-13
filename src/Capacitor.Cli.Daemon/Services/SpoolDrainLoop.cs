@@ -5,6 +5,8 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
 using Microsoft.Extensions.Logging;
 
+using Capacitor.Cli.Recording.Harness.Copilot;
+
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
@@ -24,7 +26,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// AOT exes referencing each other as libraries risks a duplicate-entry-point/bloated-trim-graph mess).
 /// It composes the same Core primitives (<see cref="HookSpool"/>, <see cref="TranscriptSpool"/>,
 /// <see cref="LifecycleSpoolDrain"/>) directly, and — mirroring the CLI's own
-/// generate_whats_done wiring (BLOCKER-2) — passes the daemon's OWN pre-existing
+/// generate_whats_done wiring — passes the daemon's OWN pre-existing
 /// <c>AgentOrchestrator.SpawnWhatsDoneGenerator</c> as the callback (the daemon already duplicates
 /// that "spawn `kcap generate-whats-done`" subprocess logic rather than sharing
 /// <c>WatcherManager</c>, for the same decoupling reason).</para>
@@ -76,6 +78,15 @@ internal sealed class SpoolDrainLoop {
             _transcript.DeleteExpired();
             MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
 
+            // Spools only, so it needs no credential; the workspace drain posts what it closed.
+            await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time, async (owed, run) => {
+                var store = new WorkspaceSpanStore(_configRoot, _baseUrl, new WorkspaceSpool(_configRoot, _baseUrl, _time),
+                    new WorkspaceSnapshotter(new WorkspaceGit(_time), _time), _time);
+                await store.EndSessionAsync(owed, Budget, run);
+                return !store.Holds(owed, run);
+            }, budget: Budget);
+            CopilotPendingEnd.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time);
+
             // Resolved on the loop's own token, not the drain budget: a proactive refresh can take
             // the cross-process lock and a WorkOS round trip well past Budget, and cutting that off
             // early would starve LifecycleSpoolDrain.RunAsync of the allowance it is handed below.
@@ -94,7 +105,9 @@ internal sealed class SpoolDrainLoop {
                 await LifecycleSpoolDrain.RunAsync(
                     _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
-                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
+                    onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
+                    onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome),
+                    holds: (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(_configRoot), route, body, _time));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.

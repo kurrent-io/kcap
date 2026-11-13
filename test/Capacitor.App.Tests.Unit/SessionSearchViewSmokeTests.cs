@@ -116,6 +116,134 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(Right(when)).IsLessThanOrEqualTo(row.Bounds.Width);
     });
 
+    /// Only the hits on screen get a row, and the keyboard highlight scrolls the rows it moves onto into view.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_long_hit_list_builds_only_the_visible_rows_and_follows_the_highlight() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix \u0002auth\u0003 {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+
+        var cover = host.Named<SessionSearchView>("SearchCover");
+        var list = host.Named<ItemsControl>("SearchHits");
+        await Assert.That(host.Vm.Search!.Hits.Count).IsEqualTo(200);
+        await Assert.That(cover.GetVisualDescendants().OfType<Button>().Count(b => b.Classes.Contains("searchHit"))).IsLessThan(50);
+
+        for (var i = 0; i < 120; i++) host.Window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        host.Settle();
+
+        await Assert.That(host.Vm.Search.HighlightIndex).IsEqualTo(120);
+        var row = list.ContainerFromIndex(120);
+        await Assert.That(row).IsNotNull();
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        await Assert.That(top).IsGreaterThanOrEqualTo(-0.5);
+        await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
+    });
+
+    /// New results reset the highlight to the first hit, and the list scrolls back so the hit Enter opens is on screen.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task New_results_after_a_deep_scroll_bring_the_first_hit_back_into_view() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix auth {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+        for (var i = 0; i < 120; i++) host.Window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        host.Settle();
+
+        host.Window.KeyTextInput("s");
+        host.SettleSearch();
+        host.Settle();
+
+        var list = host.Named<ItemsControl>("SearchHits");
+        await Assert.That(host.Vm.Search!.HighlightIndex).IsEqualTo(0);
+        var row = list.ContainerFromIndex(0);
+        await Assert.That(row).IsNotNull();
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        await Assert.That(top).IsGreaterThanOrEqualTo(-0.5);
+        await Assert.That(top + row.Bounds.Height).IsLessThanOrEqualTo(scroll.Viewport.Height + 0.5);
+    });
+
+    static void ShowManyHits(SearchWindowHost host) {
+        host.Response = new SearchResponseDto {
+            Sessions = [.. Enumerable.Range(0, 200).Select(i => new SessionSearchHitDto {
+                SessionId = $"S{i}", Slug = $"s-{i}", Title = $"Fix auth {i}", StartedAt = "2026-10-29T09:00:00Z",
+                EndedAt = "2026-10-29T10:00:00Z", MatchedField = "title", Snippet = $"Fix auth {i}",
+            })],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+    }
+
+    static Point ListCenter(SearchWindowHost host, ItemsControl list) {
+        host.Present();
+        return list.TranslatePoint(new Point(list.Bounds.Width / 2, list.Bounds.Height / 2), host.Window)!.Value;
+    }
+
+    /// A wheel scroll under a still pointer raises no PointerMoved, yet the highlight must not stay behind off screen
+    /// for Enter: the row the pointer rests on once the scroll lands takes it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wheel_scroll_moves_the_highlight_to_the_row_under_the_pointer() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        ShowManyHits(host);
+        var list = host.Named<ItemsControl>("SearchHits");
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var center = ListCenter(host, list);
+
+        host.Window.MouseWheel(center, new Vector(0, -20));
+        host.Settle();
+
+        await Assert.That(scroll.Offset.Y).IsGreaterThan(0);
+        var index = host.Vm.Search!.HighlightIndex;
+        var row = list.ContainerFromIndex(index);
+        await Assert.That(row).IsNotNull();
+        var top = row!.TranslatePoint(default, scroll)!.Value.Y;
+        var pointer = host.Window.TranslatePoint(center, scroll)!.Value.Y;
+        await Assert.That(pointer).IsGreaterThanOrEqualTo(top);
+        await Assert.That(pointer).IsLessThanOrEqualTo(top + row.Bounds.Height);
+    });
+
+    /// A wheel against the top of the list scrolls nothing, so the highlight the keyboard moved off the hovered row
+    /// stays put rather than jumping back under the pointer.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wheel_that_scrolls_nothing_leaves_the_highlight_alone() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        ShowManyHits(host);
+        var list = host.Named<ItemsControl>("SearchHits");
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        var center = ListCenter(host, list);
+        host.Window.MouseMove(center);
+        host.Settle();
+        host.Window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        host.Settle();
+        var placed = host.Vm.Search!.HighlightIndex;
+
+        host.Window.MouseWheel(center, new Vector(0, 20));
+        host.Settle();
+
+        await Assert.That(scroll.Offset.Y).IsEqualTo(0);
+        await Assert.That(placed).IsGreaterThan(0);
+        await Assert.That(host.Vm.Search.HighlightIndex).IsEqualTo(placed);
+    });
+
     /// An avatar is read as the person it stands for, in the rail and on a search hit, never as their initials.
     [Test]
     [NotInParallel("AvaloniaSession")]

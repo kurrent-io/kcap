@@ -231,10 +231,10 @@ internal record AgentInstance(
     /// the ACP runtime and the permission bridge share the same instance.</summary>
     public required AgentActivityClock ActivityClock { get; init; }
 
-    /// <summary>Phase B (D2): the launch kind + (for a ReviewFlow launch) the flow identity,
+    /// <summary>The launch kind + (for a ReviewFlow launch) the flow identity,
     /// captured from <see cref="LaunchAgentCommand"/> at construction. Reported in
     /// <c>LiveAgents</c>/<c>DaemonStatusReport</c> so a restarted server can associate a surviving
-    /// unassigned reviewer with its role. Defaults preserve pre-D2 behavior for any non-D2 launch path.</summary>
+    /// unassigned reviewer with its role. Defaults describe a plain (non-review-flow) launch.</summary>
     public LaunchKind           Kind              { get; init; } = LaunchKind.Default;
     public string?              FlowRunId         { get; init; }
     public string?              FlowRole          { get; init; }
@@ -294,7 +294,7 @@ internal record AgentInstance(
     /// registration and every reconnect re-registration (the same instance survives a reconnect).</summary>
     public string RuntimeTransport => Runtime.RuntimeTransport;
 
-    /// <summary>Phase B (D1): single-flight teardown latch — a plain field (not a property) so
+    /// <summary>Single-flight teardown latch — a plain field (not a property) so
     /// <see cref="System.Threading.Interlocked.CompareExchange(ref int,int,int)"/> can gate it. Exactly
     /// one teardown runs even if the launch-catch and the read-loop's finally race.</summary>
     public int CleanupStarted;
@@ -304,7 +304,7 @@ internal record AgentInstance(
     /// so a plain field read is not guaranteed to observe it.</summary>
     public bool IsCleanupStarted => Volatile.Read(ref CleanupStarted) != 0;
 
-    /// <summary>Design spec §3.3: single-flight guard for reporting a published ACP launch-window
+    /// <summary>Single-flight guard for reporting a published ACP launch-window
     /// reap verdict to the server — claimed (0→1) by the FIRST path that reports it, via
     /// <see cref="System.Threading.Interlocked.CompareExchange(ref int,int,int)"/>, so dedupe is
     /// structural rather than dependent on today's call-site ordering. Set by
@@ -312,12 +312,12 @@ internal record AgentInstance(
     /// <see cref="System.Threading.Volatile"/> read, no claim) by
     /// <see cref="AgentOrchestrator.StopAgentCoreAsync"/> to suppress a racing stop's non-failure
     /// "Completed" transition once a verdict has already been reported — the factory's
-    /// pre-registration reclassification (design spec §3.2) has no <see cref="AgentInstance"/> to
+    /// pre-registration reclassification has no <see cref="AgentInstance"/> to
     /// share it with (see that method's remarks) — but it is the canonical claim any future
     /// verdict-reporting call site for this agent must take before sending.</summary>
     public int LaunchFailureVerdictReported;
 
-    /// <summary>Phase B (D4): the child's exact start-identity captured ONCE at spawn (the
+    /// <summary>The child's exact start-identity captured ONCE at spawn (the
     /// <c>ProcessStartToken</c>). Teardown uses THIS stored token — never a freshly-recaptured one — so a
     /// pid recycled after the child exited can't be adopted and later killed. Null only when the pid was
     /// never capturable (a non-live/degenerate pid — nothing to track).</summary>
@@ -348,7 +348,7 @@ internal record AgentInstance(
     /// on ambiguous ack to allow retry.</summary>
     public bool ParkAttemptInFlight { get; set; }
 
-    // ── Local terminal attach (Phase 1) ──────────────────────────────────
+    // ── Local terminal attach ──────────────────────────────────
     // Internal: these expose the daemon-internal ITerminalSink, so they can't be public
     // on this public record (CS0053). They're only touched inside the daemon assembly.
     /// <summary>Local-terminal clients attached over the control socket.</summary>
@@ -379,7 +379,7 @@ internal record AgentInstance(
 
     /// <summary>
     /// True for locally-launched agents: the orchestrator makes no per-agent server call
-    /// and does not attach the SignalR sink. An explicit share (Phase 2) clears this.
+    /// and does not attach the SignalR sink. An explicit share clears this.
     /// </summary>
     public bool IsPrivate { get; init; }
 
@@ -411,7 +411,7 @@ internal record AgentInstance(
     /// serializes the borrowed-checkout refresh against a concurrent send, and it has a second,
     /// load-bearing purpose:
     ///
-    /// <para><b>The delivery/reap fence (round-dispatch grace §3).</b> The reaper's
+    /// <para><b>The delivery/reap fence.</b> The reaper's
     /// validate-and-claim (<see cref="AgentOrchestrator.TryClaimReapAsync"/>) runs inside this same
     /// section, so a delivery's clock advance and a reap claim are mutually exclusive and exactly one
     /// side wins: a delivery that completes first advances <see cref="AgentActivityClock.ActivitySeq"/>
@@ -459,7 +459,7 @@ internal record AgentInstance(
     /// terminality — it only makes the losing side of the race observable to the delivery path BEFORE
     /// teardown has physically closed the transport.</para>
     ///
-    /// <para>The SOLE reset is §2.7 B6 arm-A's <see cref="AgentOrchestrator.ParkReviewerAsync"/> on a
+    /// <para>The SOLE reset is <see cref="AgentOrchestrator.ParkReviewerAsync"/> on a
     /// <see cref="ParkAck.Ambiguous"/> ack: a park that got no definite reply tears down NOTHING, so it
     /// must un-condemn the still-Running agent (release the latch) for a later sweep to re-claim — a
     /// claim that neither parks nor reaps may not permanently strand a live reviewer. That reset runs
@@ -619,7 +619,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     int _codexProbesArmed;
     internal int CodexProbesArmedForTest => Volatile.Read(ref _codexProbesArmed);
 
-    // Phase B (D4): durable PID records + this daemon's logical identity/epoch for
+    // Durable PID records + this daemon's logical identity/epoch for
     // crash-survivor reaping. Initialized in the ctor from config.
     readonly AgentPidRecordStore? _pidRecords;
     readonly AgentKillQuarantine? _quarantine;
@@ -632,38 +632,38 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     readonly string               _daemonId    = "";
     readonly string               _daemonEpoch = "";
 
-    // Phase B2-b (sequenced-settlement design §4.2.4): the durable positive-death-evidence outbox.
-    // Fed at every CONFIRMED-gone seam — the OrphanReaper record pass (Hook A), the quarantine drain
-    // (Hook B), and the StopAgent-fallback reap (Hook C) — always ledger-append BEFORE source-delete so
+    // The durable positive-death-evidence outbox.
+    // Fed at every CONFIRMED-gone seam — the OrphanReaper record pass, the quarantine drain,
+    // and the StopAgent-fallback reap — always ledger-append BEFORE source-delete so
     // a crash between the two re-derives from the leftover source and Upsert (idempotent on the
     // source-stable (AgentId, OldEpoch) key) collapses onto the committed entry. Lives in the same
     // state dir as _pidRecords, under the same atomic temp+rename discipline.
     readonly ResolvedCandidatesLedger? _resolvedLedger;
 
-    // Phase B2-b (sequenced-settlement design §4.2.4): the durable marker-candidate source store for a
-    // RECORDLESS prior-epoch survivor (Hook D). The env-marker scan persists a source BEFORE the kill and
+    // The durable marker-candidate source store for a
+    // RECORDLESS prior-epoch survivor. The env-marker scan persists a source BEFORE the kill and
     // resolves it through the (a)/(b)/(c) matrix; on confirmed death it emits into _resolvedLedger with a
     // NULL flow (the env is untrusted) unless a co-existing durable RECORD supplies a trusted flow.
     readonly MarkerCandidateStore? _markerCandidates;
 
-    // Phase B (D4): the per-daemon record root ("{stateDir}/{name}") every durable per-daemon store shares.
+    // The per-daemon record root ("{stateDir}/{name}") every durable per-daemon store shares.
     // Retained so the next-boot handoff can be exercised over the same root a restarted daemon would use.
     readonly string _pidRecordRoot;
 
     readonly AttachmentStore _attachmentStore;
     readonly AttachmentFetcher _attachmentFetcher;
 
-    // Phase B2-b (sequenced-settlement design §4.2.3): the durable coverage boot-chain verdict,
+    // The durable coverage boot-chain verdict,
     // folded in DaemonRunner (before Connect) and stashed on config. Advertised on the enriched
     // DaemonConnect payload; a Linux/macOS value is inert (the server consumes it only on Windows).
     readonly bool        _recordlessSurvivorsImpossible;
 
-    // Phase B2-b (sequenced-settlement design §4.2.2): the epoch-scoped sequenced-command handler.
+    // The epoch-scoped sequenced-command handler.
     // Owns the contiguous-prefix watermark + the daemon's single server-command execution lane; injected
     // with this orchestrator's ReadLiveness / stop-admission probe / the server's CommandAck +
     // CommandRejected sends so it stays unit-testable without a live hub.
     //
-    // §3.3 (one execution domain): un-sequenced launches and stops no longer bypass it — they are
+    // Un-sequenced launches and stops do not bypass it — they are
     // committed onto the SAME serial lane via SubmitUnsequenced, so cross-format arrival order holds by
     // construction and nothing is ever refused for its FORMAT (the server mixes formats permanently by
     // design: the sequenced tuple rides only the review-flow settlement lane, while ordinary launches and
@@ -673,32 +673,32 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     // null->live transition, never a replacement or reset. Read through Processor.
     SequencedCommandProcessor? _processor;
 
-    // §3.3 transition barrier ("no dual domain, ever"). ONE orchestrator-owned lock shared by un-sequenced
+    // Transition barrier ("no dual domain, ever"). ONE orchestrator-owned lock shared by un-sequenced
     // handler admission and processor publication: a handler takes it to snapshot _processor and, on null,
     // RESERVES the inline slot before invoking the core; publication takes the same lock to install the
     // processor and capture that reservation, which the lane awaits before executing its first item.
     // Snapshot+reserve is therefore atomic with publication — a handler that saw null cannot start inline
     // work after the lane has begun, and the lane cannot begin while a reserved inline item exists.
     // In production the null window does not exist at all (publication happens in this constructor, before
-    // any handler is wired), so the barrier is defence-in-depth for the shape the spec describes; the
-    // deferred-publication test seam is what makes it observable.
+    // any handler is wired), so the barrier is defence-in-depth; the deferred-publication test seam is
+    // what makes it observable.
     readonly object _domainLock = new();
     int _inlineInFlight;
     TaskCompletionSource? _inlineDrained;
 
-    // §3.3: the un-sequenced payload CLASSES. The legacy StopAgent hub method carries only an agent id, so
+    // The un-sequenced payload CLASSES. The legacy StopAgent hub method carries only an agent id, so
     // its payload key is a constant and every un-sequenced stop for one target coalesces onto one queued
     // entry per launch segment. Launches never coalesce (two launches for one id are two distinct
     // instances), so their key is a fixed placeholder the processor ignores for that kind.
     const string UnsequencedStopPayloadKey   = "stop";
     const string UnsequencedLaunchPayloadKey = "launch";
 
-    // §3.3: the only thing a caller can say when the lane has stopped accepting. There is no reply surface
-    // for an un-sequenced stop (§1.8), so this covers launches only.
+    // The only thing a caller can say when the lane has stopped accepting. There is no reply surface
+    // for an un-sequenced stop, so this covers launches only.
     const string ShutdownRefusedLaunchReason =
         "daemon_shutting_down: the daemon is tearing down and did not start this launch";
 
-    // Phase B (D4 §6.4(2a)/(3)): single-flight latches so a slow sweep (each survivor consumes a
+    // Single-flight latches so a slow sweep (each survivor consumes a
     // ~5s TERM grace sequentially) can't overlap itself when the next heartbeat tick fires — otherwise
     // sweeps accumulate, double-signal, and re-scan /proc concurrently. A tick whose prior sweep is still
     // running is simply skipped. 0 = idle, 1 = running (Interlocked-gated).
@@ -879,7 +879,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ILogger<AgentOrchestrator>                        logger,
             LaunchConsentGate                                 consentGate,
             TimeProvider                                      time,
-            // §3.3 test-only: leave the sequenced processor unpublished so a test can drive the
+            // Test-only: leave the sequenced processor unpublished so a test can drive the
             // pre-settlement inline arm and the publication barrier explicitly (see
             // PublishSequencedProcessorForTest). Production ALWAYS publishes here, before any handler is
             // wired, so the null window this exposes never exists in a running daemon.
@@ -951,7 +951,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             _ => RescheduleQuietTurn(), null, AgentActivityClock.QuietTurn, Timeout.InfiniteTimeSpan);
         _policySnapshots   = policySnapshots;
 
-        // Phase B (D4): per-daemon PID-record store + this daemon's logical id + boot epoch.
+        // Per-daemon PID-record store + this daemon's logical id + boot epoch.
         // Records live under "{stateDir}/{name}/agents" so they are unambiguously THIS daemon's own
         // (the startup reap only touches its own leftovers). DaemonId is a stable per-name identity;
         // DaemonEpoch is fresh per boot so the env-marker scan can tell a prior incarnation's
@@ -971,12 +971,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _daemonEpoch = config.DaemonEpoch ?? Guid.NewGuid().ToString("N");
         _recordlessSurvivorsImpossible = config.RecordlessSurvivorsImpossible;
 
-        // Phase B2-b (sequenced-settlement design §4.2.4): the resolved-candidates ledger shares the PID
+        // The resolved-candidates ledger shares the PID
         // record root so all durable per-daemon state lives together. The OrphanReaper's record-pass
-        // callback (Hook A) emits into it before the source delete; the drain (Hook B) and StopAgent
-        // fallback (Hook C) below emit directly. All three are append-before-delete + idempotent.
+        // callback emits into it before the source delete; the drain and StopAgent
+        // fallback below emit directly. All three are append-before-delete + idempotent.
         _resolvedLedger = new ResolvedCandidatesLedger(recordRoot, logger);
-        // Phase B2-b (sequenced-settlement design §4.2.4): the marker-candidate source store (Hook D)
+        // The marker-candidate source store
         // shares the same record root. A recordless survivor resolves with a NULL flow (env untrusted);
         // a co-existing durable record's TRUSTED flow is routed through onRecordResolved by EmitAndClear.
         _markerCandidates = new MarkerCandidateStore(recordRoot, logger);
@@ -991,15 +991,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             onMarkerResolved: (a, e) => _resolvedLedger?.Upsert(a, e, null, null),
             stoppedForResume: a => (ResumeLedger?.TryRead(a) ?? ParticipantLedger?.TryRead(a))?.State == ResumeState.Resuming);
 
-        // Phase B2-b (sequenced-settlement design §4.2.2) + §3.3: publish the epoch-scoped processor
+        // Publish the epoch-scoped processor
         // BEFORE any handler is wired, so no command can ever observe a null one in production.
         if (!deferProcessorPublication) PublishSequencedProcessor();
 
         // Wire up server commands
         _server.OnLaunchAgent            += HandleLaunchAgent;
-        // §3.3 (one execution domain): the un-sequenced legacy stop is committed onto the same serial lane
+        // The un-sequenced legacy stop is committed onto the same serial lane
         // as everything else rather than executed inline on the pump. Internal reaping and local-socket
-        // stops deliberately keep calling HandleStopAgent directly (§1.11) — routing them through the lane
+        // stops deliberately keep calling HandleStopAgent directly — routing them through the lane
         // would let a parked consent prompt delay reviewer reaping, the exact inversion of its purpose.
         _server.OnStopAgent              += HandleUnsequencedStopAgent;
         _server.OnSendInput              += HandleSendInput;
@@ -1022,17 +1022,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // resolvers — no subprocess/worktree/config side effects.
         _server.ResolveReviewerModelHandler   =  req => Task.FromResult(HandleResolveReviewerModel(req));
 
-        // Phase B2-b (sequenced-settlement design §4.2.4): the server prunes the resolved-candidates
+        // The server prunes the resolved-candidates
         // ledger per-entry via AckResolvedCandidates (synchronous void handler); the connect payload
         // re-advertises the un-acked snapshot alongside the periodic DaemonStatusReport.
         _server.OnAckResolvedCandidates       += HandleAckResolvedCandidates;
         _server.GetResolvedStartupCandidates  =  () => [.. _resolvedLedger?.Snapshot() ?? []];
-        // Phase B2-b (sequenced-settlement design §5.5): advertise the ledger's monotonic high-water on
+        // Advertise the ledger's monotonic high-water on
         // the connect payload (BuildStatusReport carries it on the periodic self-report) so the server
         // learns the generation frontier even after sparse acks prune entries.
         _server.GetHighestResolutionGeneration =  () => _resolvedLedger?.HighestResolutionGeneration;
 
-        // Phase B2-b (sequenced-settlement design): mirror the per-platform startup-completeness signals
+        // Mirror the per-platform startup-completeness signals
         // into the DaemonConnect payload (the periodic DaemonStatusReport carries them via
         // BuildStatusReport). Additive/inert until the paired server PR consumes them; finalized
         // alongside the sequenced counters in a later task.
@@ -1040,7 +1040,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.GetUnresolvedStartupCandidates =  () => [.. _orphanReaper?.BlockedCandidates() ?? []];
         _server.GetStartupDiscovery            =  () => _orphanReaper?.CurrentDiscovery;
 
-        // Phase B2-b (sequenced-settlement design §4.2.2): route the sequenced-command receive seams and
+        // Route the sequenced-command receive seams and
         // mirror the watermark counters + kill-quarantine snapshot onto the connect payload. StopAgentV2
         // goes through the processor's serial lane; AckProcessedPrefix retires identity-cache entries;
         // RequestStatusReport is answered by an immediate out-of-band DaemonStatusReport.
@@ -1051,7 +1051,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.GetHighestAcceptedSeq  =  () => _processor?.HighestAcceptedSeq;
         _server.GetLastProcessedSeq    =  () => _processor?.LastProcessedSeq;
         _server.GetQuarantined         =  () => [.. QuarantineSnapshot()];
-        // Phase B2-b (sequenced-settlement design): the DaemonConnect epoch reads THIS orchestrator's
+        // The DaemonConnect epoch reads THIS orchestrator's
         // per-boot _daemonEpoch (the same source the processor is scoped to), so the advertised epoch
         // can't diverge from it even if config.DaemonEpoch were left unpinned (tests).
         _server.GetDaemonEpoch         =  () => _daemonEpoch;
@@ -1059,7 +1059,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.GetLiveAgentIds = LiveAgentIds;
         _server.GetRecoverySnapshot = TakeRecoverySnapshot;
 
-        // Phase B (D2): richer live-agent metadata (kind + flow identity) alongside the ids.
+        // Richer live-agent metadata (kind + flow identity) alongside the ids.
         _server.GetLiveAgents = () => [.. BuildLiveAgents()];
         _server.GetResumingAgents = ResumingClaims;
         _server.GetActiveCount = ActiveCountSnapshot;
@@ -1070,14 +1070,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _ = RunTokenRefreshLoopAsync(_shutdownCts.Token);
         _ = RunSpoolDrainLoopAsync(_shutdownCts.Token);
         _ = RunTitleResolveLoopAsync(_shutdownCts.Token);
-        _ = RunDaemonStatusReportLoopAsync(_shutdownCts.Token); // Phase B (D2): periodic self-report
+        _ = RunDaemonStatusReportLoopAsync(_shutdownCts.Token); // periodic self-report
     }
 
-    /// <summary>§3.3: the published processor, snapshotted under the transition lock so no command handler
+    /// <summary>The published processor, snapshotted under the transition lock so no command handler
     /// can act on a stale null (which for a sequenced command would fail it closed as a malformed tuple).</summary>
     SequencedCommandProcessor? Processor { get { lock (_domainLock) return _processor; } }
 
-    /// <summary>§3.3: build and publish the sequenced processor. Runs exactly once — the daemon epoch is a
+    /// <summary>Build and publish the sequenced processor. Runs exactly once — the daemon epoch is a
     /// per-boot GUID pinned before services are built, so this is a single null-&gt;live transition with no
     /// replacement or reset case. The start barrier is created BEFORE the processor (its lane awaits it),
     /// and completed only once any inline slot reserved by a handler that saw null has drained: that is
@@ -1087,7 +1087,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // ReadLiveness gives it the confirmed-death-precedence liveness read a duplicate CommandAck needs;
-        // IsKnownStopTarget is the §3.3 un-sequenced stop-admission probe; the two server sends are its
+        // IsKnownStopTarget is the un-sequenced stop-admission probe; the two server sends are its
         // ack/reject channels.
         var processor = new SequencedCommandProcessor(
             _daemonEpoch, ReadLiveness, _server.CommandAckAsync, _server.CommandRejectedAsync, _logger, _time,
@@ -1105,7 +1105,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
-    /// <summary>§3.3 stop-admission probe: whether this id is a real un-sequenced stop target OUTSIDE the
+    /// <summary>Stop-admission probe: whether this id is a real un-sequenced stop target OUTSIDE the
     /// processor's own in-flight-launch set. Called INSIDE the processor's critical section, so it must stay
     /// cheap and non-blocking — a registry hit (lock-free) answers the overwhelmingly common case, and only
     /// a miss reaches the single existence check on the durable PID record.
@@ -1124,7 +1124,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
       || _resumeCandidates.ContainsKey(agentId)
       || (StoreFor(agentId) is { } ledger && File.Exists(ledger.EntryPath(agentId))));
 
-    /// <summary>§3.3: snapshot the processor and, when it is still null, RESERVE the inline slot in the SAME
+    /// <summary>Snapshot the processor and, when it is still null, RESERVE the inline slot in the SAME
     /// critical section publication uses. Returns null to mean "run inline, then call
     /// <see cref="ReleaseInlineSlot"/>" — the release is the caller's obligation in a <c>finally</c>.</summary>
     SequencedCommandProcessor? SnapshotProcessorReservingInlineSlot() {
@@ -1137,7 +1137,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>§3.3: release a reserved inline slot. Counted, so concurrent inline handlers (the pump
+    /// <summary>Release a reserved inline slot. Counted, so concurrent inline handlers (the pump
     /// serializes them today, but nothing here depends on that) all have to finish before the lane's first
     /// item may run.</summary>
     void ReleaseInlineSlot() {
@@ -1424,8 +1424,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// that table.</b> It is ROUND-SCOPED — the server applies it only while a round is in flight, and
     /// stops the participant itself. This method runs on the heartbeat regardless of round state, so
     /// reading the bound here turns it into a LIFETIME idle rule and reaps a healthy reviewer BETWEEN
-    /// rounds while the driver spends twenty minutes fixing round 1's findings. This supersedes spec
-    /// decision 6 ("daemon and server enforce one number") for the daemon's idle rule only.</para>
+    /// rounds while the driver spends twenty minutes fixing round 1's findings. So the daemon's idle
+    /// rule deliberately does not share the server's number.</para>
     ///
     /// <para>Idle comes from <see cref="AgentActivityClock"/>, never <see cref="AgentInstance.LastOutputAt"/>
     /// (PTY-only, so it sits frozen at launch for every ACP vendor, degenerating "2h idle" into a hard
@@ -1437,18 +1437,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// generation it was selected against, which <see cref="TryClaimReapAsync"/> re-validates inside
     /// the per-agent fence.</para></summary>
 
-    /// <summary>§2.7 B6 arm-A: the end/park reason for a resumable reviewer parked (not reaped). This
+    /// <summary>The end/park reason for a resumable reviewer parked (not reaped). This
     /// exact string is BOTH the ack reason sent to the server's <c>ReportParticipantParked</c> AND the
     /// <see cref="AgentInstance.PendingEndReason"/> that tells <see cref="FinalizeAgentRunAsync"/> to
     /// SUPPRESS the hosted session-end — so it must match on both sides. Do not vary it.</summary>
     internal const string ReviewerParkedResumableReason = "reviewer_parked_resumable";
 
-    /// <summary>§2.7 B6 arm-A: the end reason stamped when the server REJECTS a park — the reviewer is
+    /// <summary>The end reason stamped when the server REJECTS a park — the reviewer is
     /// then ended normally (session-end fires) rather than parked, so this must NOT be
     /// <see cref="ReviewerParkedResumableReason"/> (which would suppress that end).</summary>
     const string ReviewerParkRejectedReason = "reviewer_park_rejected";
 
-    /// <summary>§2.7 B6 arm-A resume-capability predicate: true only for an app-server hosted Codex
+    /// <summary>Resume-capability predicate: true only for an app-server hosted Codex
     /// reviewer, whose <c>thread/start</c> handshake bound a Codex thread id that a later
     /// <c>thread/resume</c> can reopen — the one runtime that reports the app-server transport
     /// (<see cref="Harness.Codex.CodexAppServerHostedAgentRuntime"/>; every other runtime reports the
@@ -1503,7 +1503,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 continue; // a held turn suppresses the plain idle rule outright
             }
 
-            // §2.7 B6 arm-A: a RESUMABLE hosted reviewer (app-server Codex, whose thread survives a
+            // A RESUMABLE hosted reviewer (app-server Codex, whose thread survives a
             // process teardown for a later thread/resume) that has been idle past the SHORT resumable
             // bound — and is not already mid-park — is PARKED rather than reaped: its slot is freed but
             // its Codex thread is kept. Checked here, BEFORE the 2h arm-B idle rule and inside the same
@@ -1511,7 +1511,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // 2h. A non-resumable reviewer (PTY / non-Codex) never satisfies the transport gate and
             // falls through to arm-B unchanged.
             //
-            // No separate "channel-drained" clause (Task 0): !TurnInFlight already means no active turn,
+            // No separate "channel-drained" clause: !TurnInFlight already means no active turn,
             // every input enqueue / turn transition / notification advances this same activity clock (so
             // idle past the bound already implies the input queue and transcript are quiescent — the
             // forwarder's unacked buffer flushes within its <=30s retry cadence, far under the bound),
@@ -1544,7 +1544,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             AgentInstance Agent, string Reason, ulong ActivityGeneration, bool FencedOnActivity) {
         public string Id => Agent.Id;
 
-        /// <summary>§2.7 B6 arm-A discriminator. When true, the heartbeat routes this candidate to the
+        /// <summary>When true, the heartbeat routes this candidate to the
         /// resumable-PARK path (<see cref="AgentOrchestrator.ParkReviewerAsync"/>) instead of the reap
         /// path: its daemon slot is freed like a reap, but its Codex app-server thread is kept alive
         /// (the hosted session-end is SUPPRESSED) for a later <c>thread/resume</c>. False for every
@@ -1589,24 +1589,24 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         lock (_harnessInventoryGate) return _harnessInventory;
     }
 
-    /// <summary>Phase B (D2): the daemon's self-report snapshot — its authoritative
-    /// <see cref="ActiveCount"/> plus the live-agent metadata (and, once D4/Task 8 lands, the
-    /// kill-quarantine). Pure; the send loop + tests share it.</summary>
+    /// <summary>The daemon's self-report snapshot — its authoritative
+    /// <see cref="ActiveCount"/> plus the live-agent metadata and the kill-quarantine. Pure; the send
+    /// loop + tests share it.</summary>
     internal DaemonStatusReport BuildStatusReport(string? echoNonce = null) {
         var (activeCount, activeCountVersion) = ActiveCountSnapshot();
         var recovery = TakeRecoverySnapshot();
 
         return new(activeCount, recovery.LiveAgents, [.. QuarantineSnapshot()],
-            // Phase B2-b (sequenced-settlement design §4.2.4): re-advertise the durable resolved-
+            // Re-advertise the durable resolved-
             // candidates ledger on every self-report until the server prunes it per-entry via
             // AckResolvedCandidates. Epoch is the shipped per-boot _daemonEpoch.
             Epoch: _daemonEpoch,
-            // Phase B2-b (sequenced-settlement design §4.2.2): the sequenced-command watermark counters
+            // The sequenced-command watermark counters
             // from the processor (LastProcessedSeq = contiguous terminal prefix; HighestAcceptedSeq =
             // highest accepted). Null before the processor exists; 0 on a fresh epoch (nothing accepted).
             LastProcessedSeq: _processor?.LastProcessedSeq,
             HighestAcceptedSeq: _processor?.HighestAcceptedSeq,
-            // Phase B2-b (sequenced-settlement design): the per-platform startup-completeness signals.
+            // The per-platform startup-completeness signals.
             // StartupReapComplete is a computed roll-up; UnresolvedStartupCandidates always lists the
             // blocked known-id set so a completion-false report carries its reason; StartupDiscovery
             // surfaces the recordless-survivor marker-scan state (Pending/Complete/Failed on Linux,
@@ -1615,7 +1615,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ResolvedStartupCandidates: [.. _resolvedLedger?.Snapshot() ?? []],
             UnresolvedStartupCandidates: [.. _orphanReaper?.BlockedCandidates() ?? []],
             StartupDiscovery: _orphanReaper?.CurrentDiscovery,
-            // Phase B2-b (sequenced-settlement design §5.5): the resolved-candidates ledger's monotonic
+            // The resolved-candidates ledger's monotonic
             // high-water, so once sparse acks prune entries the server still knows the generation frontier.
             HighestResolutionGeneration: _resolvedLedger?.HighestResolutionGeneration,
             // Surface 3 (new-harness detection): the last cached machine inventory (null until the first
@@ -1644,7 +1644,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         lock (_ledgerLock) return new([.. LiveAgentIds()], [.. BuildLiveAgents()], ResumingClaims(), ComputeStartupReapComplete());
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): the per-platform startup-reap-complete
+    /// <summary>The per-platform startup-reap-complete
     /// roll-up. A blocked known-id candidate (pending_marker / legacy_unresolvable /
     /// identity_unresolvable) always keeps it false. Otherwise completion is platform-specific:
     /// <list type="bullet">
@@ -1669,7 +1669,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return true; // pre-W1 Windows / macOS: record-pass-only completion (no blocked record-tracked candidates)
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §5.5/§4.2.2): the single lifecycle-state read
+    /// <summary>The single lifecycle-state read
     /// (confirmed-death precedence Live &gt; Quarantined &gt; Dead) over the same collections
     /// <see cref="CleanupAgentAsync"/> + <see cref="AgentKillQuarantine"/> mutate. The design mandates that a
     /// duplicate CommandAck's CurrentState be read so a teardown racing the read can NEVER surface a transient
@@ -1993,7 +1993,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>Written into each child's <see cref="HostedAgent.DaemonIdVar"/> marker, for the env-marker scan.</summary>
     static string ComputeDaemonId(string name) => HostedAgent.DaemonId(name);
 
-    /// <summary>Phase B (D4 §6.4(2)/(2a)); L1-managed(b) extends this for Unix: capture the child's
+    /// <summary>Capture the child's
     /// EXACT start-identity ONCE, store it on the agent (teardown reuses it — never re-captures a
     /// possibly-recycled pid), and persist the durable PID record FAIL-CLOSED. A write failure (I/O)
     /// or a live-but-unidentifiable child THROWS — caught by the post-insert single-flight cleanup, so
@@ -2023,7 +2023,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // separator), which is exactly "ambiguity never kills": a still-alive
             // identity-unavailable agent gets quarantined and retried, never silently dropped.
             //
-            // M1-A (spec §4.3): the record's identity_kind makes "" a well-formed, distinguishable
+            // The record's identity_kind makes "" a well-formed, distinguishable
             // IdentityUnavailable marker rather than an inferred-from-emptiness convention.
             agent.StartIdentity = capturedStartIdentity; // "" is intentional, not a bug
 
@@ -2068,19 +2068,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     internal IReadOnlyList<AgentPidRecord> PidRecordsForTest()      => _pidRecords?.ReadAll() ?? [];
 
     /// <summary>Test-only: the per-daemon record root, so a test can build the store a NEXT BOOT would
-    /// build over the same state dir (§3.3's shutdown-orphan handoff).</summary>
+    /// build over the same state dir (the shutdown-orphan handoff).</summary>
     internal string PidRecordRootForTest                            => _pidRecordRoot;
     internal AttachmentStore AttachmentStore                        => _attachmentStore;
     internal string DaemonIdForTest                                 => _daemonId;
     internal string DaemonEpochForTest                             => _daemonEpoch;
     internal bool   RecordlessSurvivorsImpossibleForTest           => _recordlessSurvivorsImpossible;
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.4): the resolved-candidates ledger's
+    /// <summary>The resolved-candidates ledger's
     /// un-acked snapshot, so a test can assert the confirmed-gone hooks (quarantine drain / StopAgent
     /// fallback / record pass) emitted positive per-id death evidence. Never used in production.</summary>
     internal IReadOnlyList<ResolvedStartupCandidate> ResolvedLedgerSnapshotForTest => _resolvedLedger?.Snapshot() ?? [];
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.4): honor the server's per-entry
+    /// <summary>Honor the server's per-entry
     /// AckResolvedCandidates prune (sparse, deliver-once). SYNCHRONOUS — the ledger's <c>Ack</c> is a
     /// synchronous void, so this stays void (a <c>void</c> event/receive seam is never awaited).</summary>
     internal void HandleAckResolvedCandidates(AckResolvedCandidates ack) => _resolvedLedger?.Ack(ack.Entries ?? []);
@@ -2098,7 +2098,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// real launch+teardown. Mirrors <see cref="WritePidRecordForTest"/>; never used in production.</summary>
     internal void QuarantineForTest(AgentKillQuarantine.Entry entry) => _quarantine?.Add(entry);
 
-    /// <summary>Phase B2-b (sequenced-settlement design): test seam — persist a marker-candidate source
+    /// <summary>Test seam — persist a marker-candidate source
     /// so a test can assert it surfaces as a <c>pending_marker</c> blocked candidate (keeping
     /// <see cref="ComputeStartupReapComplete"/> false) without a real recordless survivor. The pid is
     /// irrelevant: <see cref="OrphanReaper.BlockedCandidates"/> lists every persisted source WITHOUT a
@@ -2119,7 +2119,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return record.AgentId == agentId ? record : null;
     }
 
-    /// <summary>Phase B (D4 §6.4(3) StopAgent fallback): the caller had no in-memory agent for
+    /// <summary>The caller had no in-memory agent for
     /// this id — consult the PID record and, if a live process still matches its EXACT identity (and,
     /// on Unix, carries the expected <c>KCAP_AGENT_ID</c> env — ambiguity spares), reap it by identity
     /// and delete the record on confirmed death. This makes the server's registry-independent S2 stop
@@ -2131,19 +2131,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task<bool> StopByPidRecordAsync(AgentPidRecord record) {
         var confirmedGone = await ProcessReaper.ReapByRecordAsync(record, _logger, _time, _shutdownCts.Token);
         if (confirmedGone) {
-            // Phase B2-b (sequenced-settlement design §4.2.4) Hook C: ledger-append the positive per-id
+            // Ledger-append the positive per-id
             // death evidence (from the TRUSTED record — its epoch + flow identity) BEFORE deleting the
             // source record. A crash between the two leaves a committed entry + leftover record; the next
             // boot's OrphanReaper record pass re-derives it and Upsert (idempotent on the source-stable
             // (AgentId, OldEpoch) key) collapses onto the committed entry, then completes the delete.
             _resolvedLedger?.Upsert(record.AgentId, record.DaemonEpoch, record.FlowRunId, record.FlowRole);
-            _pidRecords?.Delete(record.AgentId); // delete ONLY on confirmed death (spec §6.4(2))
+            _pidRecords?.Delete(record.AgentId); // delete ONLY on confirmed death
         }
 
         return confirmedGone;
     }
 
-    /// <summary>Phase B (D4 §6.4(3)): run the startup orphan reap once — called by DaemonRunner
+    /// <summary>Run the startup orphan reap once — called by DaemonRunner
     /// at boot under the daemon lock (next to WorktreeManager.CleanupOrphanedAsync), and re-run on each
     /// heartbeat tick. SINGLE-FLIGHT: if a prior sweep is still running (a long /proc scan + sequential
     /// TERM graces can outlast the 30s heartbeat, and the ctor-started heartbeat can overlap the boot
@@ -2159,7 +2159,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         finally { Interlocked.Exchange(ref _orphanSweepRunning, 0); }
     }
 
-    /// <summary>Phase B (D4 §6.4(2a)): retry the kill-quarantine once — SINGLE-FLIGHT, mirroring
+    /// <summary>Retry the kill-quarantine once — SINGLE-FLIGHT, mirroring
     /// <see cref="ReapOrphansOnceAsync"/>, so a slow retry (each entry a ~5s TERM grace) can't overlap the
     /// next heartbeat tick. Skipped when empty or already running.</summary>
     async Task RetryQuarantineOnceAsync(CancellationToken ct) {
@@ -2171,7 +2171,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // retained it (with the current epoch) while the child was quarantined, so without this it
             // would be skipped by the orphan sweep and leak until the next daemon restart.
             //
-            // Phase B2-b (sequenced-settlement design §4.2.4) Hook B: for each drained (confirmed-dead)
+            // For each drained (confirmed-dead)
             // entry, ledger-append its positive per-id death evidence BEFORE deleting the record. The
             // shipped _quarantine is current-incarnation only, so its entries carry the CURRENT epoch —
             // emit (AgentId, _daemonEpoch, flow…). That same-epoch id is harmless per outbox idempotency
@@ -2220,7 +2220,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// wait the real 30s.</summary>
     internal TimeSpan StatusReportSendTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>Phase B (D2): build + send one status report, one-way, swallowing errors (an old
+    /// <summary>Build + send one status report, one-way, swallowing errors (an old
     /// server has no handler). Snapshot build AND the send's INVOCATION happen inside
     /// <see cref="_statusReportOrderingGate"/> — see that field for the ordering invariant. The WAIT for
     /// completion is bounded by <see cref="StatusReportSendTimeout"/> and released on timeout without
@@ -2260,20 +2260,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             _statusReportOrderingGate.Release();
         }
 
-        // Settlement lost-ack redelivery (D1): after advertising the watermarks, re-deliver any UNRETIRED terminal acks — a lost
+        // Settlement lost-ack redelivery: after advertising the watermarks, re-deliver any UNRETIRED terminal acks — a lost
         // ack in a reconnect window is re-elicited here instead of waiting for the server to retransmit
-        // the whole command (the server tolerates the duplicate per D2″). No-op when nothing is
+        // the whole command (the server tolerates the duplicate). No-op when nothing is
         // unretired; sends are contained + one-way, so this can never fault the report path. This covers
         // the periodic tick, the server's on-request report, and the activity-triggered report — every
         // status-report moment is also a re-sync moment. A validated AckProcessedPrefix stops the re-sends.
         // Runs OUTSIDE the ordering section above: it re-sends acks, not the report, so serializing it
         // would only extend the section's hold without ordering anything the server folds by seq.
         //
-        // Round-dispatch grace added a FOURTH trigger — the delivered-input report — which therefore
-        // also re-drives this sweep at input rate rather than at the 60s cadence. Benign in both
-        // directions: the unretired set is normally empty (so this is a no-op), and a duplicate ack is
-        // explicitly tolerated by the server per D2″ — the same tolerance the on-request trigger
-        // already relies on.
+        // The delivered-input report is a FOURTH trigger, so it also re-drives this sweep at input rate
+        // rather than at the 60s cadence. Benign in both directions: the unretired set is normally empty
+        // (so this is a no-op), and a duplicate ack is explicitly tolerated by the server — the same
+        // tolerance the on-request trigger relies on.
         Processor?.RedeliverUnretiredProcessedAcks();
     }
 
@@ -2302,11 +2301,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>Phase B (D2): one <see cref="LiveAgentInfo"/> per currently-live (Starting or
+    /// <summary>One <see cref="LiveAgentInfo"/> per currently-live (Starting or
     /// Running), non-private agent, carrying its kind + flow identity. Mirrors the
     /// <see cref="ServerConnection.GetLiveAgentIds"/> filter (private-local agents excluded).
     ///
-    /// <para>Also carries the agent's activity attestation (spec §0/§2).
+    /// <para>Also carries the agent's activity attestation.
     /// <c>ActivitySeq</c>/<c>IdleForMs</c>/<c>TurnInFlight</c> go unconditionally; <c>LaunchStage</c>
     /// ONLY while <c>Status == "Starting"</c> — the clock also clears its own stage, but this gate is
     /// the contractual guarantee rather than an accident of when that runs.</para>
@@ -2542,7 +2541,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return agent;
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.2/§5.5): route a launch. A fully-Seq'd command
+    /// <summary>Route a launch. A fully-Seq'd command
     /// (Epoch + Seq + CommandId ALL present) goes through the processor's serial lane — accepted exactly-in-order,
     /// SUBMITTED (not executed) synchronously on this call, and eventually turned into a terminal
     /// CommandAck/CommandRejected from the <see cref="CommandOutcome"/> the core returns. An un-Seq'd command
@@ -2551,7 +2550,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// missing) is a malformed sequenced command and FAILS CLOSED with a LaunchFailed — never the legacy lane,
     /// whose retry could be re-accepted on the sequenced lane and double-create the generation.
     ///
-    /// <para>§3.3 (one execution domain): NO handler awaits launch or stop EXECUTION any more. A sequenced
+    /// <para>NO handler awaits launch or stop EXECUTION any more. A sequenced
     /// command's ACCEPTANCE is still decided synchronously on the pump
     /// (<see cref="SequencedCommandProcessor.SubmitAsync"/> resolves accept/reject under lock before
     /// returning, so acceptance ordering still depends only on pump serialization), but the returned
@@ -2569,7 +2568,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return;
         }
 
-        // Phase B2-b (sequenced-settlement design §5.5): a capable server sends ALL of
+        // A capable server sends ALL of
         // Epoch/Seq/CommandId. Anything less (a partial tuple, or the processor somehow missing) is a
         // malformed sequenced command and must FAIL CLOSED — never the unwatermarked un-sequenced route,
         // whose retry could be re-accepted on the sequenced lane and double-create the generation
@@ -2586,9 +2585,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         await _server.LaunchFailedAsync(cmd.AgentId, "Malformed sequenced launch: partial Epoch/Seq/CommandId");
     }
 
-    /// <summary>§3.3: an un-sequenced (no Epoch/Seq/CommandId) launch — the shape EVERY ordinary dashboard,
+    /// <summary>An un-sequenced (no Epoch/Seq/CommandId) launch — the shape EVERY ordinary dashboard,
     /// hosted-agent and PR-review launch has, since the sequenced tuple rides only the review-flow
-    /// settlement lane (§1.9). It is committed onto the same serial lane as sequenced traffic so arrival
+    /// settlement lane. It is committed onto the same serial lane as sequenced traffic so arrival
     /// order holds across formats, and the pump is free the instant the commit returns.</summary>
     async Task DispatchUnsequencedLaunchAsync(LaunchAgentCommand cmd, CancellableLaunch launch) {
         var proc = SnapshotProcessorReservingInlineSlot();
@@ -2624,7 +2623,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         catch (Exception ex) { LogRefusedLaunchNotifyFailed(ex, cmd.AgentId); }
     }
 
-    /// <summary>§3.3: the only job of this continuation is to observe/log a fault on a detached sequenced
+    /// <summary>The only job of this continuation is to observe/log a fault on a detached sequenced
     /// execution task so it never becomes an unobserved task exception. It must NEVER convert the fault into
     /// any answer of its own — that is <see cref="SequencedCommandProcessor.RunLaneAsync"/>'s job, via its
     /// own per-item catch, which already classifies an execution fault (including an
@@ -2843,8 +2842,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Guard for a null/blank vendor before the dictionary lookup: LaunchAgentCommand crosses
         // the SignalR boundary where the non-null annotation isn't enforced, and Dictionary
         // .TryGetValue(null) throws ArgumentNullException — which SafeInvoke would swallow, dropping
-        // the launch with no LaunchFailed reaching the server. (The removed vendor allowlist used to
-        // absorb this incidentally.)
+        // the launch with no LaunchFailed reaching the server.
         if (string.IsNullOrWhiteSpace(cmd.Vendor) || !_runtimeFactories.TryGetValue(cmd.Vendor, out var runtimeFactory)) {
             await LaunchFailedUnlessPrivateAsync(isPrivate, cmd.AgentId, $"Unknown vendor: {cmd.Vendor}");
 
@@ -2954,7 +2952,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         // Declared OUTSIDE the try so it is in scope in the catch blocks below: the failed-launch
         // cleanup must consult it to decide whether the worktree is ours to remove. A borrowed cwd
-        // is the user's real checkout — never removed on any path (spec's top safety invariant).
+        // is the user's real checkout — never removed on any path.
         var snapshotBorrow = cmd.Borrowed && runtimeFactory.BorrowedReviewRequiresIndependentSnapshot;
         var work = resume?.Work
             ?? (cmd.Borrowed && !snapshotBorrow ? WorkLocation.BorrowedCwd : WorkLocation.OwnedWorktree);
@@ -3121,7 +3119,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // Defense-in-depth re-authorization: the server already probed this cwd, but the
                 // daemon NEVER borrows a path just because the server said so (TOCTOU-safe). The
                 // reason is surfaced verbatim to the server via the catch → LaunchFailedAsync below;
-                // Phase B (server) keys off the `borrow_auth_failed:` prefix.
+                // the server keys off the `borrow_auth_failed:` prefix.
                 var auth = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(cmd.BorrowCwd ?? "");
 
                 if (!auth.Allowed) {
@@ -3311,7 +3309,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 SourceRepoPath: sourceRepo,
                 Worktree: worktree,
                 Prompt: prompt,
-                // Task 8: for an explicit-model reviewer launch, launch with the server-pinned
+                // For an explicit-model reviewer launch, launch with the server-pinned
                 // LaunchModel VERBATIM (the launcher passes ctx.Model straight to the argument list —
                 // never recanonicalized). effectiveModel (computed once above) resolves this. The
                 // registered AgentInstance below reads the same local for PTY runtimes; an ACP
@@ -3331,7 +3329,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 CapacitorPath: _config.CapacitorPath,
                 McpAllowlist: effectiveAllowlist,
                 Work: work,
-                DaemonId: _daemonId,       // Phase B (D4 §6.4(3)): child env markers for the OrphanReaper scan
+                DaemonId: _daemonId,       // child env markers for the OrphanReaper scan
                 DaemonEpoch: _daemonEpoch,
                 DaemonName: _config.Name,
                 IsBorrowedSnapshot: snapshotBorrow,
@@ -3397,7 +3395,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // CodexUnsupportedWindowsException: Windows build older than 10.0.17763, where
                 // Codex's Windows sandbox does not exist — carries the version + doc link.
                 // All map to the same cleanup path.
-                // §3.5: DescribeLaunchFailure covers a null/whitespace ex.Message with the typed
+                // DescribeLaunchFailure covers a null/whitespace ex.Message with the typed
                 // fallback; these three exception types always carry a real message, but every
                 // LaunchFailed send site routes through the same fallback rather than assuming so.
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, AcpHostedAgentRuntimeFactory.DescribeLaunchFailure(ex));
@@ -3408,7 +3406,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
                 // Still need to clean up the worktree before returning — but ONLY if we own it.
                 // A borrowed cwd is the user's real checkout; removing it here would `git worktree
-                // remove` the user's tree (spec's top safety invariant; mirrors CleanupAgentAsync).
+                // remove` the user's tree (mirrors CleanupAgentAsync).
                 if (work == WorkLocation.OwnedWorktree && resume is null) {
                     try { await RemoveOwnedWorktreeAsync(worktree, agentId); } catch {
                         /* best-effort */
@@ -3504,7 +3502,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ReviewerBridgeToken = reviewerToken,
                 BorrowedSnapshotSource = borrowedSnapshotSource,
                 Placement           = placement,
-                Kind                = cmd.Kind,       // Phase B (D2): flow identity + kind for LiveAgents/status report
+                Kind                = cmd.Kind,       // flow identity + kind for LiveAgents/status report
                 FlowRunId           = cmd.FlowRunId,
                 FlowRole            = cmd.FlowRole,
                 RequesterUserId     = cmd.RequesterUserId,
@@ -3534,7 +3532,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (resume is null) WriteLedger(agent, cmd, "server", consent);
             hold.Dispose();
 
-            // Phase B (D4 §6.4(2)): capture the start-identity + write the durable PID record
+            // Capture the start-identity + write the durable PID record
             // immediately after the process exists (before registration) so a daemon crash right after
             // this leaves a reapable record. FAIL-CLOSED: a write/identity failure throws → the catch
             // routes it through the single-flight cleanup (the agent is already in _agents).
@@ -3613,7 +3611,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // ever resolves (see AgentInstance.AcpCts).
                 var acpCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
                 agent.AcpCts = acpCts;
-                // §2.5: a runtime that HOLDS its first turn (envelope-sourced hosted Codex) is
+                // A runtime that HOLDS its first turn (envelope-sourced hosted Codex) is
                 // driven through the deferred-first-turn source-claim sequence — durable claim BEFORE the
                 // first turn, then forward without re-binding, then confirm. Every other transcript
                 // runtime (Cursor) keeps the single-phase bind-then-forward path. Dormant until the
@@ -3624,7 +3622,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     _ = StartAcpForwardingAsync(agent, transcript, cmd.Vendor, acpCts);
             }
 
-            // Reconnect PID-record seam (reconnect spec §6.2 step 1): a resume candidate's pid is
+            // Reconnect PID-record seam: a resume candidate's pid is
             // durably recorded at its spawn — before any handshake — through the SAME record + agent
             // identity machinery as the original launch (PersistPidRecordOrThrow refreshes
             // agent.StartIdentity too, so teardown's identity check tracks the live incarnation).
@@ -3682,7 +3680,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ReportResolvedModel(agentId, cmd.Vendor, model, agent.Account, updateLocal: start.Transcript is null);
             }
 
-            // Phase B2-b (sequenced-settlement design §4.2.2): the launch executed — the agent is registered.
+            // The launch executed — the agent is registered.
             // The sequenced lane turns this into a terminal CommandAck(Processed) with a LIVE CurrentState read
             // at ack time; a fire-and-forget read loop that already finalized+cleaned the agent (e.g. an
             // immediate-exit runtime) reads as launch_failed_cleaned instead. Legacy callers ignore the value.
@@ -3699,7 +3697,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // would then tear down that unrelated agent while leaking this launch's own journal.
             if (published) {
                 await CleanupAgentAsync(agentId);
-                // §3.5: never forward a null/whitespace ex.Message raw.
+                // Never forward a null/whitespace ex.Message raw.
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, AcpHostedAgentRuntimeFactory.DescribeLaunchFailure(ex));
                 return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
             }
@@ -3713,8 +3711,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (reviewerToken != null) _permissionBridge.RevokeReviewerToken(reviewerToken);
 
             // Only tear down a worktree we OWN. A borrowed cwd is the user's real checkout — never
-            // remove it, its branch, or its Claude project symlink on a failed launch (spec's top
-            // safety invariant; mirrors the normal-stop guard in CleanupAgentAsync). A borrowed launch
+            // remove it, its branch, or its Claude project symlink on a failed launch (mirrors the
+            // normal-stop guard in CleanupAgentAsync). A borrowed launch
             // creates no worktree and no mirror here; its attachments, if its runtime places them in
             // the daemon store, are released by the lease in the finally below. StartAsync throwing
             // means mcpConfigPath was never assigned.
@@ -3900,7 +3898,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     async Task ProbeClaudeCommandsAsync(string agentId, string worktreePath, ResolvedAccount? account) {
         try {
-            var commands = await Harness.Claude.ClaudeCommandProbe.ProbeAsync(
+            var commands = await ClaudeCommandProbe.ProbeAsync(
                 _harnesses, worktreePath, account, _config.Home, _time, TimeSpan.FromSeconds(30), LogClaudeCommandProbe, _shutdownCts.Token);
 
             if (commands.Count > 0) ReportCommands(agentId, commands);
@@ -3910,7 +3908,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Task 8: reports the CONCRETE resolved model for an explicit-model reviewer launch via the
+    /// Reports the CONCRETE resolved model for an explicit-model reviewer launch via the
     /// dedicated <c>ReportExplicitReviewerModelResolved</c> channel. The concrete model is the exact,
     /// server-pinned <c>LaunchModel</c> the daemon launched with (never a recanonicalized or date-suffixed
     /// value — for Codex the slug-level equivalence key is date-SENSITIVE, so a date-suffixed
@@ -4136,7 +4134,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (!agent.IsServerSilent) {
             _ = _server.LaunchFailedAsync(agent.Id, reason);
             TrySendAgentStatus(agent, "Failed", null, out _);
-            _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped("failed", null));
+            _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped("failed", null, _config.InstanceId));
         }
 
         // The wedged process is still ALIVE on the dialog (unlike an ordinary startup failure, which
@@ -4159,10 +4157,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>
     /// True when a published launch-window reap verdict (or its already-claimed report flag) forbids
     /// any NON-failure <c>AgentStatusChanged</c> for this agent — such a transition clears the
-    /// <c>FailureReason</c> the verdict's <c>LaunchFailed</c> set server-side (design spec §3.3). The
+    /// <c>FailureReason</c> the verdict's <c>LaunchFailed</c> set server-side. The
     /// single source of that rule, consulted by every non-failure status emitter that can race the
     /// finalizer's report: the finalizer's own exit-code classification, the stop gate, and reconnect
-    /// re-registration (finding 2).
+    /// re-registration.
     ///
     /// <para>Both signals are read with proper cross-thread ordering — the flag via
     /// <see cref="System.Threading.Volatile"/>, the verdict via the runtime's
@@ -4179,21 +4177,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     async Task FinalizeAgentRunAsync(AgentInstance agent) {
         try {
-            // Design spec §3.3: the registered-agent report seam, and the FIRST action here —
+            // The registered-agent report seam, and the FIRST action here —
             // strictly before the process-exit wait below. The runtime's Verdict is published at
             // reap-CLAIM time (TryStartReap), not at process exit, so waiting on exit first would
             // only widen the race against the server's reviewer-readiness wait for no benefit.
             // Post-window reaps (ReapedInsideLaunchWindow == false) are deliberately NOT reported
-            // here — today's teardown for that case must stay byte-identical (documented residual,
-            // spec §1).
+            // here — that case keeps the ordinary teardown (a documented residual).
             // ReadVerdict (not the plain Verdict property): the reap that produced this verdict can be
             // racing us on another thread, publishing it at the tail of a critical section its own
             // _cts.Cancel() drove us into — reading the plain property there sees null and skips the
-            // report permanently (finding 1). ReadVerdict blocks until the claim has committed.
+            // report permanently. ReadVerdict blocks until the claim has committed.
             if (agent.Runtime is ITerminationVerdictSource runtime
                 && runtime.ReadVerdict() is { ReapedInsideLaunchWindow: true } verdict
                 && Interlocked.CompareExchange(ref agent.LaunchFailureVerdictReported, 1, 0) == 0) {
-                // Force terminal Failed BEFORE the report await, not after (finding 2). A concurrent
+                // Force terminal Failed BEFORE the report await, not after. A concurrent
                 // status emitter — a reconnect re-registration, a racing stop — must observe the
                 // failure state so it cannot emit a non-failure AgentStatusChanged that clears the
                 // FailureReason the LaunchFailed below is about to set server-side. Setting it here
@@ -4294,7 +4291,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     try {
                         var stopReason = status == "Completed" ? "exited" : "failed";
 
-                        await _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(stopReason, exitCode));
+                        await _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(stopReason, exitCode, _config.InstanceId));
                     } catch (Exception ex) {
                         LogCleanupStepFailed(ex, "recording the run's stop", agent.Id);
                     }
@@ -4405,12 +4402,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// real; production never changes it.</summary>
     internal TimeSpan GracefulExitWait { get; set; } = TimeSpan.FromSeconds(15);
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.2): the sequenced stop. Routes through the
+    /// <summary>The sequenced stop. Routes through the
     /// processor's serial lane (accepted exactly-in-order, executed once, terminal StopExecuted outcome →
     /// CommandAck). Falls back to a direct <see cref="HandleStopAgent"/> call if the processor is absent
     /// (never happens in production — publication precedes handler wiring in the ctor).
     ///
-    /// <para>§3.3: the returned execution-completion task is NOT awaited — no handler awaits launch or stop
+    /// <para>The returned execution-completion task is NOT awaited — no handler awaits launch or stop
     /// execution any more. Acceptance is still answered synchronously on the pump; the stop's EXECUTION
     /// queues behind whatever the lane is already running, exactly as the shipped pump serialized it.</para></summary>
     Task HandleStopAgentV2(StopAgentV2 cmd) {
@@ -4428,13 +4425,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return HandleStopAgent(cmd.AgentId); // no processor — direct, as shipped
     }
 
-    /// <summary>§3.3: the UN-SEQUENCED stop command — the shape every server stop actually has (user Stop,
+    /// <summary>The UN-SEQUENCED stop command — the shape every server stop actually has (user Stop,
     /// admin stop, the registry-independent physical stop / retry-until-gone reaper), since the sequenced
-    /// tuple rides only the review-flow settlement lane (§1.9). Committed onto the same serial lane as
+    /// tuple rides only the review-flow settlement lane. Committed onto the same serial lane as
     /// launches so a stop can never overtake a launch that arrived before it, and never refused for its
     /// format.
     ///
-    /// <para>No reply surface exists for this command (§1.8), so every non-committed outcome is a log and
+    /// <para>No reply surface exists for this command, so every non-committed outcome is a log and
     /// nothing more: <c>Coalesced</c> means an identical stop is already queued and unstarted;
     /// <c>DroppedUnknownTarget</c> is already logged by the processor, which owns that drop; <c>Refused</c>
     /// means the daemon is tearing down, and its own teardown kills the registered children.</para></summary>
@@ -4485,7 +4482,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>§2.7 B6 arm-A: PARK a resumable reviewer instead of reaping it — free its daemon slot
+    /// <summary>PARK a resumable reviewer instead of reaping it — free its daemon slot
     /// while keeping its Codex app-server thread alive for a later <c>thread/resume</c> (B4). Mirrors
     /// <see cref="ReapReviewerAsync"/>'s claim fence, then, on a DURABLE-park ack, takes the same local
     /// teardown a reap does (<see cref="StopClaimedReapAsync"/> → stop process, unregister, free slot)
@@ -4590,7 +4587,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         await HandleStopAgent(candidate.Id);
     }
 
-    /// <summary>The atomic reap claim (round-dispatch grace §3). Runs inside
+    /// <summary>The atomic reap claim. Runs inside
     /// <see cref="AgentInstance.BorrowedSnapshotGate"/> — the same per-agent section every
     /// <see cref="DeliverInputAsync"/> delivery holds across its clock advance — so the claim and a
     /// delivery are mutually exclusive and exactly one of them wins.
@@ -4748,7 +4745,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return false;
         }
 
-        // §2.7 B6 arm-A: a PARK candidate must NOT stamp its suppress reason
+        // A PARK candidate must NOT stamp its suppress reason
         // (ReviewerParkedResumableReason) here at claim time. The claim happens BEFORE ParkReviewerAsync
         // awaits the park ack, and FinalizeAgentRunAsync suppresses the hosted session-end whenever it
         // sees that exact reason — so if the reviewer's app-server child exits DURING the ack await, the
@@ -4767,7 +4764,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// registered. Reached from three kinds of caller: the un-sequenced <c>StopAgent</c> lane item, the
     /// sequenced <see cref="HandleStopAgentV2"/> lane item, and purely-internal daemon-side reaping
     /// (heartbeat reviewer-TTL/idle reaping, stuck-Starting reaping) that never touches the wire at all.
-    /// The internal callers deliberately bypass the lane (§1.11): they already run off-pump and are
+    /// The internal callers deliberately bypass the lane: they already run off-pump and are
     /// concurrency-safe via the per-agent single-flight teardown latch, and routing them through the lane
     /// would let a parked consent prompt delay reviewer reaping — the exact inversion of its purpose.</summary>
     internal async Task HandleStopAgent(string agentId) {
@@ -4815,7 +4812,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// <summary>Test-only: invoked ONCE inside <see cref="StopAgentCoreAsync"/> immediately AFTER the
     /// suppress-Completed snapshot and BEFORE the Completed send, so a test can publish a verdict in
-    /// exactly that TOCTOU window and prove the pre-send re-check suppresses it (finding 2). Null in
+    /// exactly that TOCTOU window and prove the pre-send re-check suppresses it. Null in
     /// production (a single null check, no behavioural effect).</summary>
     internal Action? StopGateAfterSnapshotHookForTest;
 
@@ -4840,7 +4837,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         try {
             LogStopping(agentId);
 
-            // Design spec §3.3: StopAgentCoreAsync is the single funnel for every stop trigger —
+            // StopAgentCoreAsync is the single funnel for every stop trigger —
             // server StopAgent/StopAgentV2, a local-socket stop, AND the heartbeat's own
             // TTL/idle/stuck-Starting reap sweep (HandleStopAgent's doc lists all three) — and any
             // of them can race the finalizer having ALREADY reported a launch-window verdict (a
@@ -4874,7 +4871,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Mark this as a user-initiated stop so the read-loop's finally-block
             // EndAgentSessionAsync call uses "agent_stopped" if it ends up being
             // the only successful call (e.g., transient SignalR failure here).
-            // Phase B (D3): but PRESERVE a backstop reason the heartbeat already stamped
+            // But PRESERVE a backstop reason the heartbeat already stamped
             // (reviewer_ttl_expired / reviewer_idle_expired) — only overwrite the "agent_exited"
             // default, so server-side attribution can tell a TTL/idle reap from a user stop.
             if (agent.PendingEndReason == "agent_exited") {
@@ -5018,7 +5015,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             TrySendAgentStatus(agent, "Completed", null, out _);
         }
 
-        _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(gone ? "user" : "failed", null));
+        _ = _server.AppendAgentRunEventAsync(agent.Id, new AgentRunStopped(gone ? "user" : "failed", null, _config.InstanceId));
     }
 
     /// <summary>Observes an abandoned graceful-stop send (see <see cref="StopAgentCoreAsync"/>) so its
@@ -5689,8 +5686,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         => _repoMatcher.FindAsync(req.Owner, req.Repo, req.CandidatePaths ?? [], _shutdownCts.Token, req.ResolveWorktrees);
 
     /// <summary>
-    /// Handles the server's <c>ProbeBorrowSource</c> client-result invocation (Phase A, task
-    /// A3): "can you borrow this path?". Delegates the actual policy (allowlist, git-root resolution,
+    /// Handles the server's <c>ProbeBorrowSource</c> client-result invocation:
+    /// "can you borrow this path?". Delegates the actual policy (allowlist, git-root resolution,
     /// symlink canonicalization) to <see cref="BorrowAuthorizer"/> — constructed fresh over the
     /// daemon's current <see cref="DaemonConfig"/> so a config reload is picked up on the next probe —
     /// and maps its <see cref="BorrowAuthResult"/> onto the wire-facing <see cref="BorrowProbeResult"/>.
@@ -5702,7 +5699,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Task 8: handles the server's <c>ResolveReviewerModel</c> client-result invocation — the
+    /// Handles the server's <c>ResolveReviewerModel</c> client-result invocation — the
     /// side-effect-free reviewer-model preflight. PURE resolution: it consults the SELECTED vendor's
     /// advertised resolver first (via the shared cross-vendor coordinator, which inspects the OTHER
     /// advertised unattended resolvers only after the selected one rejects, to name a mismatch vendor)
@@ -5754,7 +5751,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Task 8: builds the post-launch <see cref="ExplicitReviewerModelResolvedV1"/> report for an
+    /// Builds the post-launch <see cref="ExplicitReviewerModelResolvedV1"/> report for an
     /// explicit-model reviewer launch, or <see langword="null"/> when it cannot be built (no resolver for
     /// the vendor, or the launch model no longer resolves — both fail the report closed rather than send
     /// an unvalidatable one). The reported <c>EquivalenceKey</c> is DERIVED from the concrete launch model
@@ -5955,7 +5952,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>
     /// The post-bind half of ACP forwarding (everything AFTER the canonical session is bound): the
     /// liveness / TOCTOU guards, the local reconnect-binding registration, and the transcript
-    /// forwarder build + run. Factored out of <see cref="StartAcpForwardingAsync"/> so the §2.5
+    /// forwarder build + run. Factored out of <see cref="StartAcpForwardingAsync"/> so the
     /// deferred-first-turn source-claim path — which binds via <c>AcpSessionSourceClaim</c>, NOT
     /// <c>AcpSessionStarted</c> — can reuse it verbatim without re-binding. Synchronous (no awaits). The
     /// CALLER owns the try/catch.
@@ -5992,7 +5989,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return;
         }
 
-        // §2.7 B4: a fresh bind (acceptedSeq < 0) synthesizes SessionStarted@0 and starts the local seq at
+        // A fresh bind (acceptedSeq < 0) synthesizes SessionStarted@0 and starts the local seq at
         // 0; an envelope-sourced rebind (acceptedSeq >= 0) suppresses SessionStarted and resumes numbering
         // from the canonical cursor, so round-2 events aren't deduped away against round-1's high-water.
         var isRebind = acceptedSeq >= 0;
@@ -6033,7 +6030,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// §2.5 deferred-first-turn SOURCE-CLAIM sequence, fired fire-and-forget after
+    /// The deferred-first-turn SOURCE-CLAIM sequence, fired fire-and-forget after
     /// <c>RegisterAgentAsync</c> for a runtime that holds its first turn
     /// (<see cref="IHostedAgentRuntime.RequiresSourceClaimBeforeFirstTurn"/>). Ordering:
     /// <list type="number">
@@ -6080,8 +6077,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         try {
             // The claim already bound server-side, so build the forwarder WITHOUT AcpSessionStarted. It
-            // is running BEFORE the first turn dispatches, so it captures that turn's envelopes. §2.7 B4:
-            // pass the claim's canonical AcceptedSeq — -1 for a brand-new session (fresh SessionStarted@0),
+            // is running BEFORE the first turn dispatches, so it captures that turn's envelopes. Pass the
+            // claim's canonical AcceptedSeq — -1 for a brand-new session (fresh SessionStarted@0),
             // or the resume high-water for a parked-reviewer rebind (suppress SessionStarted, resume seq).
             StartForwarderAfterBind(agent, transcript, vendor, acpCts, acceptedSeq: claim.AcceptedSeq);
 
@@ -6198,7 +6195,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// </summary>
     internal TimeSpan AcpFinalDrainBudget { get; set; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>§2.5: paced retry cadence for the background <c>ConfirmSessionLaunch</c> loop
+    /// <summary>Paced retry cadence for the background <c>ConfirmSessionLaunch</c> loop
     /// (transient failures only; it runs for the agent's lifetime and never tears it down). Settable so
     /// tests don't wait the real value.</summary>
     internal TimeSpan ConfirmRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
@@ -6433,7 +6430,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     internal static bool IsStartupFailure(DateTime createdAt, DateTime lastOutputAt, bool hasReceivedOutput)
         => !hasReceivedOutput || lastOutputAt - createdAt < MinSessionLifespan;
 
-    /// <summary>Design spec §3.5: a <c>LaunchFailed</c> reason must never be forwarded empty. A
+    /// <summary>A <c>LaunchFailed</c> reason must never be forwarded empty. A
     /// verdict's <c>Reason</c> should never be blank in practice — every writer
     /// (<c>HandleMcpSurfaceViolation</c>, the bridge's reason-bearing reap callback) passes a coded
     /// string — but this is the general, defensive cover, keyed off a caller-supplied identifier for
@@ -6443,13 +6440,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     internal static string MapLaunchFailureReason(string? reason, string fallbackSource) =>
         !string.IsNullOrWhiteSpace(reason)
             ? reason
-            : AcpHostedAgentRuntimeFactory.FormatFallbackLaunchReason(fallbackSource); // finding 5: single owner of the format
+            : AcpHostedAgentRuntimeFactory.FormatFallbackLaunchReason(fallbackSource); // single owner of the format
 
     static readonly HashSet<string> ValidEffortLevels = ["low", "medium", "high", "xhigh", "max"];
 
     /// <summary>When an unlinked launch stops being ordinary slowness and starts being worth saying
     /// out loud. A healthy codex links in about five seconds, so a minute is far past normal.</summary>
     static readonly TimeSpan SessionIdSlowWarnAfter = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan ExitedOutputGrace = TimeSpan.FromSeconds(2);
 
     static readonly TimeSpan SessionIdPollInterval = TimeSpan.FromSeconds(2);
 
@@ -6570,9 +6568,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return null;
     }
 
-    /// <summary>Says, once and early, what the operator is otherwise left to infer from silence.
-    /// Never cancels or reaps the launch — detection keeps running while the agent is alive, and
-    /// a slow first turn or startup prompt still links once its transcript turns up.</summary>
+    /// <summary>Says, once and early, what the operator is otherwise left to infer from silence, and
+    /// checks the process is still there. A live agent keeps its launch — a slow first turn or startup
+    /// prompt still links once its transcript turns up — but one whose process is gone has its read
+    /// ended, so it is reported with its exit code rather than shown running.</summary>
     async Task WarnIfStillUnlinkedAsync(AgentInstance agent, CancellationToken ct) {
         try {
             await Task.Delay(SessionIdSlowWarnAfter, _time, ct).ConfigureAwait(false);
@@ -6580,21 +6579,35 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return;
         }
 
-        if (agent.TranscriptPath is null)
-            LogSessionIdSlow(agent.Id, SessionIdSlowWarnAfter.TotalSeconds);
+        if (agent.TranscriptPath is not null) return;
+
+        LogSessionIdSlow(agent.Id, SessionIdSlowWarnAfter.TotalSeconds);
+
+        await agent.Runtime.WaitForExitAsync(TimeSpan.Zero).ConfigureAwait(false);
+        if (!agent.Runtime.HasExited) return;
+
+        // The output may still end by itself, with the agent's last words in it; ct fires when it does.
+        try {
+            await Task.Delay(ExitedOutputGrace, _time, ct).ConfigureAwait(false);
+        } catch (OperationCanceledException) {
+            return;
+        }
+
+        LogExitFoundByLivenessCheck(agent.Id, agent.Runtime.ExitCode);
+        try { await agent.ReadCts.CancelAsync().ConfigureAwait(false); } catch (ObjectDisposedException) { /* already torn down */ }
     }
 
     async Task RunHeartbeatLoopAsync(CancellationToken ct) {
         while (await _heartbeatTimer.WaitForNextTickAsync(ct)) {
-            // Phase B (D3): reap review-flow reviewers past their lifetime/idle backstop. Done
+            // Reap review-flow reviewers past their lifetime/idle backstop. Done
             // before the per-agent loop so a reaped reviewer isn't also heartbeated this tick. Reason
             // stamped on PendingEndReason so the end attribution is correct even if HandleStopAgent's
             // own end call loses to the read-loop's.
-            // Phase B (D4 §6.4(2a)): retry killing any unconfirmed-death quarantined process,
+            // Retry killing any unconfirmed-death quarantined process,
             // draining those confirmed gone (frees admission). Single-flight (skips if a prior retry runs).
             _ = RetryQuarantineOnceAsync(ct);
 
-            // Phase B (D4 §6.4(3)): re-run the orphan reap — record pass is epoch-guarded (never
+            // Re-run the orphan reap — record pass is epoch-guarded (never
             // touches a current-incarnation live agent), env-marker scan reaps a prior incarnation's
             // recordless survivors. Fire-and-forget; single-flight; swallows its own faults.
             _ = ReapOrphansOnceAsync(ct);
@@ -6605,7 +6618,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // rules — the activity generation this candidate was selected against. The end-reason stamp
             // moved in there with it: an aborted reap must not leave "reviewer_idle_expired" on a live
             // agent for whatever ends it later.
-            // §2.7 B6 arm-A: a Park candidate (a resumable reviewer past the short resumable idle bound)
+            // A Park candidate (a resumable reviewer past the short resumable idle bound)
             // routes to the PARK path — slot freed, Codex thread kept for resume; every reap rule keeps
             // flowing to the reap path unchanged. Both are fire-and-forget and contain their own faults.
             foreach (var candidate in FindReviewersToReap())
@@ -6782,7 +6795,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     async Task CleanupAgentAsync(string agentId) {
-        // Phase B (D1): claim the single-flight teardown BEFORE removing the agent from _agents.
+        // Claim the single-flight teardown BEFORE removing the agent from _agents.
         // TryGetValue (not TryRemove) keeps the agent COUNTED in ActiveCount for the whole teardown, so a
         // concurrent launch can't observe an under-counted EffectiveCount mid-teardown and over-admit
         // (the P2 admission race). The CompareExchange latch on the SAME instance guarantees exactly one
@@ -6822,7 +6835,6 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Owned worktrees are daemon-created and safe to remove. A borrowed cwd is the
         // user's own checkout (local in-place launch) — NEVER delete it or its branch:
         // RemoveAsync would Directory.Delete / `git worktree remove --force` + `branch -D`.
-        // This is the spec's top safety invariant.
         // A pending resume keeps everything the successor daemon resumes from.
         if (agent.Work == WorkLocation.OwnedWorktree && !agent.ResumePending) {
             try { await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
@@ -6832,7 +6844,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             try { _attachmentStore.Remove(agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing attachments", agentId); }
         }
 
-        // Phase B (D4 §6.4(2)/(2a)): confirm the process is actually gone before dropping its PID
+        // Confirm the process is actually gone before dropping its PID
         // record. Prove "still ours" with the STORED spawn identity — NEVER a freshly-recaptured token:
         // if the child exited and its pid was recycled, a re-capture would adopt the unrelated process's
         // identity and the heartbeat would later kill it. Quarantine ONLY when the pid is alive AND still
@@ -6933,7 +6945,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             try {
                 await _server.ReportAgentEndedForShutdownAsync(
-                    agent.Id, agent.SessionId, "Failed", DaemonShutdownStopReason, agent.Runtime.ExitCode, budget.Token)
+                    agent.Id, agent.SessionId, "Failed", DaemonShutdownStopReason, agent.Runtime.ExitCode, _config.InstanceId, budget.Token)
                     .WaitAsync(budget.Token);
 
                 LogShutdownReported(agent.Id);
@@ -6969,7 +6981,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // skip its siblings or the mandatory resource release in the finally — a disposal path
         // must never throw into DI teardown (NativeAOT: unhandled → abort()).
         try {
-            // §3.3: close the execution lane to new work FIRST — before anything else, and without waiting for
+            // Close the execution lane to new work FIRST — before anything else, and without waiting for
             // anything. Order matters: cancelling the shutdown token below releases whatever the in-flight item
             // was waiting on (a consent prompt, say), and if the lane were still open at that moment it would
             // simply move on to the queued per-agent stops and run them against children the teardown below is
@@ -7505,6 +7517,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} still has no transcript {Seconds:F0}s after spawn; the surface is showing 'waiting for session to start'. Detection continues while the agent is running.")]
     partial void LogSessionIdSlow(string agentId, double seconds);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} has exited (code {ExitCode}) though its output had not ended; ending its run")]
+    partial void LogExitFoundByLivenessCheck(string agentId, int? exitCode);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} found transcript of session {Found}, not its own session {Own}; not linking it")]
     partial void LogForeignTranscriptSkipped(string agentId, string found, string own);
 
@@ -7518,7 +7533,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// Method exposed for unit tests so they can drive <see cref="HandleLaunchAgent"/>
     /// without going through SignalR. Keeps the private handler private to everyone else.
     ///
-    /// <para>§3.3: a launch no longer executes on the caller's stack (it is committed to the serial lane),
+    /// <para>A launch no longer executes on the caller's stack (it is committed to the serial lane),
     /// so this seam ALSO waits for the lane to go quiescent — every caller asserts on the launch's side
     /// effects immediately after it returns, and that is what they mean. Use
     /// <see cref="SubmitLaunchAgentForTest"/> when the point of the test is that the handler returns
@@ -7529,24 +7544,24 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         await DrainLaneForTest();
     }
 
-    /// <summary>§3.3 test-only: drive the launch handler and return the moment IT returns — no waiting for
+    /// <summary>Test-only: drive the launch handler and return the moment IT returns — no waiting for
     /// the lane. This is the seam for the unparking pins.</summary>
     internal Task SubmitLaunchAgentForTest(LaunchAgentCommand cmd) => HandleLaunchAgent(cmd);
 
-    /// <summary>§3.3 test-only: completes once the execution lane has nothing queued or in flight (or
+    /// <summary>Test-only: completes once the execution lane has nothing queued or in flight (or
     /// immediately when no processor is published).</summary>
     internal Task DrainLaneForTest() => Processor?.WhenIdleForTest() ?? Task.CompletedTask;
 
-    /// <summary>§3.3 test-only: publish the sequenced processor after construction — the pair to the
+    /// <summary>Test-only: publish the sequenced processor after construction — the pair to the
     /// <c>deferProcessorPublication</c> constructor flag, so a test can observe the transition barrier that
     /// production never exercises (publication there precedes handler wiring).</summary>
     internal void PublishSequencedProcessorForTest() => PublishSequencedProcessor();
 
-    /// <summary>§3.3 test-only: the published processor, so a test can assert on the lane's own tracking
+    /// <summary>Test-only: the published processor, so a test can assert on the lane's own tracking
     /// state (active launch instances, queued-stop depth, coalescing keys).</summary>
     internal SequencedCommandProcessor? ProcessorForTest => Processor;
 
-    /// <summary>§3.3 test-only: the un-sequenced stop-admission probe, so a test can pin what admission
+    /// <summary>Test-only: the un-sequenced stop-admission probe, so a test can pin what admission
     /// actually considers a target.</summary>
     internal bool IsKnownStopTargetForTest(string agentId) => IsKnownStopTarget(agentId);
 
@@ -7574,7 +7589,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>Test-only entry point to the private cleanup path.</summary>
     internal Task CleanupAgentForTest(string agentId) => CleanupAgentAsync(agentId);
 
-    /// <summary>Phase B (D4 §6.4(2a)): drive one quarantine-retry sweep (drains confirmed-dead
+    /// <summary>Drive one quarantine-retry sweep (drains confirmed-dead
     /// entries and deletes their durable records) so a test needn't wait for a heartbeat tick.</summary>
     internal Task RetryQuarantineForTest() => RetryQuarantineOnceAsync(_shutdownCts.Token);
 
@@ -7582,10 +7597,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     internal int ActiveAgentCountForTest => _agents.Count;
 
     /// <summary>Test-only entry point to the shared stop EXECUTOR — the ungated path internal reaping and
-    /// local-socket stops use, which deliberately bypasses the execution lane (§1.11).</summary>
+    /// local-socket stops use, which deliberately bypasses the execution lane.</summary>
     internal Task HandleStopAgentForTest(string agentId) => HandleStopAgent(agentId);
 
-    /// <summary>§3.3 test-only entry point mirroring the <c>StopAgent</c> hub wiring — i.e. the UN-SEQUENCED
+    /// <summary>Test-only entry point mirroring the <c>StopAgent</c> hub wiring — i.e. the UN-SEQUENCED
     /// stop COMMAND, which is committed to the execution lane, unlike <see cref="HandleStopAgentForTest"/>
     /// above. Waits for the lane to drain, so a caller can assert on the stop's side effects.</summary>
     internal async Task HandleServerStopAgentForTest(string agentId) {
@@ -7593,21 +7608,21 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         await DrainLaneForTest();
     }
 
-    /// <summary>§3.3 test-only: commit an un-sequenced stop and return the moment the handler returns — no
+    /// <summary>Test-only: commit an un-sequenced stop and return the moment the handler returns — no
     /// waiting for the lane.</summary>
     internal Task SubmitServerStopAgentForTest(string agentId) => HandleUnsequencedStopAgent(agentId);
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.6): test-only entry point to the sequenced
+    /// <summary>Test-only entry point to the sequenced
     /// stop handler so a heal-barrier test can drive a Seq'd <see cref="StopAgentV2"/> through the
     /// processor's serial lane (advances the watermark; the confirmed-dead id then falls out of both
-    /// LiveAgents and Quarantined). §3.3: waits for the lane to drain, since the handler itself no longer
-    /// awaits execution.</summary>
+    /// LiveAgents and Quarantined). Waits for the lane to drain, since the handler itself does not
+    /// await execution.</summary>
     internal async Task HandleStopAgentV2ForTest(StopAgentV2 cmd) {
         await HandleStopAgentV2(cmd);
         await DrainLaneForTest();
     }
 
-    /// <summary>§3.3 test-only: submit a sequenced stop and return the moment the handler returns — no
+    /// <summary>Test-only: submit a sequenced stop and return the moment the handler returns — no
     /// waiting for the lane, so a test can pin that ACCEPTANCE is answered while EXECUTION queues.</summary>
     internal Task SubmitStopAgentV2ForTest(StopAgentV2 cmd) => HandleStopAgentV2(cmd);
 
@@ -7641,11 +7656,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>Test-only entry point to the private probe-borrow-source handler.</summary>
     internal Task<BorrowProbeResult> HandleProbeBorrowSourceForTest(string path) => HandleProbeBorrowSource(path);
 
-    /// <summary>Task 8: test-only entry point to the private reviewer-model preflight handler.</summary>
+    /// <summary>Test-only entry point to the private reviewer-model preflight handler.</summary>
     internal ReviewerModelResolveResponseV1 HandleResolveReviewerModelForTest(ReviewerModelResolveRequestV1 req) =>
         HandleResolveReviewerModel(req);
 
-    /// <summary>Task 8: test-only entry point to the pure explicit-model resolved-report builder.</summary>
+    /// <summary>Test-only entry point to the pure explicit-model resolved-report builder.</summary>
     internal static ExplicitReviewerModelResolvedV1? BuildExplicitReviewerModelReportForTest(
             string agentId, string vendor, ExplicitReviewerModelLaunch block, IReviewerModelResolver? resolver) =>
         BuildExplicitReviewerModelReport(agentId, vendor, block, resolver);

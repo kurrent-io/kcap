@@ -27,7 +27,9 @@ Options:
                       (preserving its tools) to ~/.kiro/agents/kcap.json, add
                       kcap's agentSpawn hook, and make it your default so every
                       session is captured (honours $KIRO_HOME). Needs kiro-cli on
-                      PATH. Session-end is synthesized on exit. Also registers the
+                      PATH: without it the clone is skipped, the MCP servers and
+                      skills still install, and the command exits 1.
+                      Session-end is synthesized on exit. Also registers the
                       kcap MCP servers (see --skip-kiro-mcp) and installs the kcap
                       skills to ~/.kiro/skills to steer Kiro toward those tools
                       (see --skip-kiro-skills).
@@ -256,7 +258,8 @@ Notes:
   kcap-owned steering block into ~/.copilot/copilot-instructions.md (see
   --skip-copilot-instructions to opt out). All three are non-destructive and
   idempotent. Copilot loads hook + MCP + instructions config at startup, so
-  restart any running copilot session after install. Copilot has no project-scope
+  restart any running copilot session, and quit and reopen VS Code, after
+  install. Copilot has no project-scope
   hooks dir, so --project has no effect with --copilot.
 
   --gemini merges SessionStart/SessionEnd/Notification entries into the shared

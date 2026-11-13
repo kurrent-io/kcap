@@ -62,4 +62,14 @@ public class CanonicalEventJsonTests {
         await Assert.That(parsed).IsTypeOf<ContextCompactedEvent>();
         await Assert.That(((ContextCompactedEvent)parsed!).EncryptedContent).IsEqualTo("x");
     }
+
+    [Test]
+    public async Task A_stored_claude_compaction_reads_back_with_its_counts() {
+        var parsed = (ContextCompactedEvent)CanonicalEventJson.TryParse(CanonicalEventTypes.ContextCompacted,
+            """{"replacement_history":null,"encrypted_content":null,"pre_tokens":167005,"trigger":"auto"}""")!;
+
+        await Assert.That(parsed.PreTokens).IsEqualTo(167_005L);
+        await Assert.That(parsed.PostTokens).IsNull();
+        await Assert.That(parsed.Trigger).IsEqualTo("auto");
+    }
 }

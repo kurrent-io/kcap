@@ -28,6 +28,7 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
     readonly ConcurrentQueue<string> _log = new();
     readonly ConcurrentDictionary<string, int> _beats = new();
+    readonly ConcurrentDictionary<string, RecorderAttempt> _attempts = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
     readonly ConcurrentDictionary<string, bool> _logThrows = new();
     readonly ConcurrentDictionary<string, bool> _beatThrows = new();
@@ -55,8 +56,9 @@ public class RecorderHostTests {
 
             return new NoStamps();
         },
-        (source, _) => {
+        (source, beat) => {
             factoryHook?.Invoke("context");
+            if (beat.Target is RecorderAttempt attempt) _attempts[source.Key] = attempt;
 
             return new RecorderContext(
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
@@ -93,11 +95,19 @@ public class RecorderHostTests {
 
     int LinesSent(string sessionId) => _transport.Batches.Where(batch => batch.SessionId == sessionId).Sum(batch => batch.Lines.Length);
 
-    /// <summary>Waits for <paramref name="condition"/>, moving the clock by <paramref name="step"/> on each look.</summary>
-    async Task Eventually(Func<bool> condition, string what, TimeSpan? step = null) {
+    /// <summary>Waits for <paramref name="condition"/>, moving the clock by <paramref name="step"/> on each look. With
+    /// <paramref name="progress"/>, the deadline counts from its last change, so a loaded runner still recording is not
+    /// failed for being slow, and one that has stopped still times out.</summary>
+    async Task Eventually(Func<bool> condition, string what, TimeSpan? step = null, Func<long>? progress = null) {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
+        var seen     = progress?.Invoke();
 
         while (!condition()) {
+            if (progress?.Invoke() is { } now && now != seen) {
+                seen     = now;
+                deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(20);
+            }
+
             if (DateTimeOffset.UtcNow > deadline) throw new TimeoutException($"Never saw: {what}");
 
             if (step is { } advance) _time.Advance(advance);
@@ -105,6 +115,27 @@ public class RecorderHostTests {
             await Task.Delay(5);
         }
     }
+
+    /// <summary>Waits for <paramref name="condition"/>, moving the clock a second at a time but never more than half the
+    /// watchdog's threshold past the beat its watchdog last saw from <paramref name="key"/>: a clock that outruns a slow
+    /// runner's loop starves the watchdog of beats the source does make. A heartbeat slice the loop arms only once the
+    /// clock has reached that cap is still let fire, but nothing past it, so the clock stays well short of the watchdog
+    /// until a fresh beat. A source that stops beating stops the clock, and the wait times out.</summary>
+    async Task EventuallyPacedBy(string key, Func<bool> condition, string what) =>
+        await Eventually(() => {
+            if (condition()) return true;
+
+            if (_attempts.TryGetValue(key, out var attempt)) {
+                var now = _time.GetUtcNow();
+                var cap = now - attempt.SinceBeat + RecorderHost.WedgedAfter / 2;
+
+                if (_time.SliceDueAt is { } due && due > cap) cap = due < cap + TranscriptRecorder.HeartbeatSlice ? due : cap + TranscriptRecorder.HeartbeatSlice;
+
+                if (now < cap) _time.Advance(TimeSpan.FromSeconds(1));
+            }
+
+            return condition();
+        }, what);
 
     /// <summary>Spends a shutdown's wait for its sends and not a moment of its bound: stepping the clock past this would
     /// reach the bound however quickly a cut drain spools, and a test of the spool would be reading the bound's mark.</summary>
@@ -814,16 +845,16 @@ public class RecorderHostTests {
 
         stalled.Exhausted = true;
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Held}\n{Later}\n");
-        await Eventually(() => _log.Any(line => line.Contains("Holding line 1 back", StringComparison.Ordinal)), "the hold", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => _log.Any(line => line.Contains("Holding line 1 back", StringComparison.Ordinal)), "the hold");
         var held = _time.GetUtcNow();
-        await Eventually(() => _time.GetUtcNow() - held > RecorderHost.WedgedAfter * 2, "the hold to outlast the threshold twice", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => _time.GetUtcNow() - held > RecorderHost.WedgedAfter * 2, "the hold to outlast the threshold twice");
 
         await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
         await Assert.That(GivenUp(source.Key)).IsFalse();
         await Assert.That(_transport.Connects).IsEqualTo(1);
 
         stalled.Exhausted = false;
-        await Eventually(() => LinesSent(source.SessionId) == 3, "the held line", TimeSpan.FromSeconds(1));
+        await EventuallyPacedBy(source.Key, () => LinesSent(source.SessionId) == 3, "the held line");
         await Assert.That(GivenUp(source.Key)).IsFalse();
     }
 
@@ -2808,13 +2839,17 @@ public class RecorderHostTests {
             await Eventually(() => _log.Any(line => line.StartsWith(heldPrefix, StringComparison.Ordinal)), "a held initial read");
             redaction.Exhausted = false;
 
-            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1));
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1));
+            // Capped per source, so a source already at its target cannot keep a stalled one's wait alive.
+            long LinesToward(int target) => sources.Sum(source => (long) Math.Min(LinesSent(source.SessionId), target));
+            long TicksToward(Func<RecordingSource, int> target) => sources.Sum(source => (long) Math.Min(Ticks(source.Key), target(source)));
+
+            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1), () => LinesToward(60));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1), () => TicksToward(_ => 2));
 
             var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
             var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
 
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1), () => TicksToward(source => ticksBefore[source.Key] + IdleTicks));
 
             // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
             var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
@@ -2850,10 +2885,16 @@ public class RecorderHostTests {
 
         public IReadOnlyList<(int Attempts, TimeSpan Due)> Timers => [.._timers];
 
+        /// <summary>When the timer no longer than a heartbeat slice armed last falls due: a loop parked between beats.
+        /// Stamped once the timer is registered, so it is never earlier than the due time the timer holds.</summary>
+        public DateTimeOffset? SliceDueAt { get; private set; }
+
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
             _timers.Enqueue((Attempts(), dueTime));
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime > TimeSpan.Zero && dueTime <= TranscriptRecorder.HeartbeatSlice) SliceDueAt = GetUtcNow() + dueTime;
 
-            return base.CreateTimer(callback, state, dueTime, period);
+            return timer;
         }
     }
 }

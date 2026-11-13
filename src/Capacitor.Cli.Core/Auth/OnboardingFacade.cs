@@ -264,6 +264,9 @@ public sealed class OnboardingFacade(
     /// </summary>
     internal IKeyWatcher KeyWatcher { get; init; } = NoKeyWatcher.Instance;
 
+    /// <summary>Test seam for the device grant's gap between polls; unset, it waits on the real clock.</summary>
+    internal Func<TimeSpan, CancellationToken, Task>? DevicePollDelay { get; init; }
+
     /// <summary>
     /// Asks each discovered WorkOS workspace whether it is still there, given the org-less sign-in's bearer.
     /// Only <see cref="WorkspaceAnswer.Gone"/> and <see cref="WorkspaceAnswer.Pending"/> leave one out; an outage keeps it. Unset, every listed
@@ -349,7 +352,7 @@ public sealed class OnboardingFacade(
             HttpClient http, AuthDiscoveryResponse config, bool forceDevice, LoginTarget target, CancellationToken ct) {
         var accessToken = await OAuthLoginFlow.AcquireGitHubTokenAsync(
             github, config.GithubClientId!, config.GithubCodeExchangeUrl, forceDevice, launcher,
-            telemetry.Join, time, ct, progress);
+            telemetry.Join, time, ct, progress, DevicePollDelay);
 
         if (accessToken is null) return Stop("GitHub sign-in did not complete.", ct, AuthFailureReason.SigninDenied);
 
@@ -371,7 +374,7 @@ public sealed class OnboardingFacade(
 
         var authenticated = await OAuthLoginFlow.WorkOSTokensForServerAsync(
             workos, apiBase, target.ServerUrl, config.ClientId!, config.OrganizationId, forceDevice, launcher,
-            telemetry.Join, WorkOSBrowser, ct, progress, time, KeyWatcher);
+            telemetry.Join, WorkOSBrowser, ct, progress, time, KeyWatcher, DevicePollDelay);
 
         if (authenticated is null) return Stop("WorkOS sign-in did not complete.", ct, AuthFailureReason.SigninDenied);
 
@@ -441,7 +444,8 @@ public sealed class OnboardingFacade(
             ? await WorkOSOrglessLogin(ct)
             : await OAuthLoginFlow.AcquireWorkOSAsync(
                   workos, WorkOSClient.ApiBase, proxyConfig.WorkOSClientId, organizationId: null, forceDevice,
-                  launcher, telemetry.Join, time, browser: null, ct: ct, progress: progress, keys: KeyWatcher);
+                  launcher, telemetry.Join, time, browser: null, ct: ct, progress: progress, keys: KeyWatcher,
+                  pollDelay: DevicePollDelay);
 
         if (auth is null) return Halted(AuthProvider.WorkOS, "WorkOS sign-in failed.", ct);
 
@@ -465,7 +469,7 @@ public sealed class OnboardingFacade(
 
         var accessToken = await OAuthLoginFlow.AcquireGitHubTokenAsync(
             github, proxyConfig.GitHubClientId, proxyConfig.GitHubCodeExchangeUrl, forceDevice, launcher,
-            telemetry.Join, time, ct, progress);
+            telemetry.Join, time, ct, progress, DevicePollDelay);
 
         if (accessToken is null) return Halted(AuthProvider.GitHubApp, "GitHub sign-in did not complete.", ct);
 
@@ -509,7 +513,8 @@ public sealed class OnboardingFacade(
                 // Org-less: the sign-in picks the organization, and discovery reconciles it afterwards.
                 : OAuthLoginFlow.AcquireWorkOSAsync(
                     workos, WorkOSClient.ApiBase, clientId, organizationId: null, forceDevice, launcher,
-                    telemetry.Join, time, browser: null, ct: ct, progress: progress, keys: KeyWatcher),
+                    telemetry.Join, time, browser: null, ct: ct, progress: progress, keys: KeyWatcher,
+                    pollDelay: DevicePollDelay),
             orgSwitch: (refreshToken, organizationId) =>
                 workos.SwitchOrganizationAsync(WorkOSClient.ApiBase, clientId, refreshToken, organizationId, ct),
             orglessRefresh: async (refreshToken, refreshCt) =>
@@ -545,7 +550,7 @@ public sealed class OnboardingFacade(
 
         var accessToken = await OAuthLoginFlow.AcquireGitHubTokenAsync(
             github, proxyConfig.GitHubClientId, proxyConfig.GitHubCodeExchangeUrl, forceDevice, launcher,
-            telemetry.Join, time, ct, progress);
+            telemetry.Join, time, ct, progress, DevicePollDelay);
 
         if (accessToken is null) return Stop("GitHub sign-in did not complete.", ct, AuthFailureReason.SigninDenied);
 

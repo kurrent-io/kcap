@@ -1409,4 +1409,14 @@ public class TrayViewModelTests {
         await Assert.That(crowded.ToolTip).StartsWith("kcap — ");
         await Assert.That(crowded.ToolTip).EndsWith("…");
     }
+
+    /// A hint leads the tooltip, so the notification area's length limit trims the state instead of it.
+    [Test]
+    public async Task A_tooltip_hint_comes_before_the_state() {
+        var model = new TrayMenuModel(TrayState.Idle, 0, new string('x', 300), [], new TrayPauseItem(false, false), 0,
+            ToolTipHint: CloseToTrayHint.TrayText);
+
+        await Assert.That(model.ToolTip).StartsWith(CloseToTrayHint.TrayText + "\nkcap — ");
+        await Assert.That(model.ToolTip.Length).IsEqualTo(127);
+    }
 }

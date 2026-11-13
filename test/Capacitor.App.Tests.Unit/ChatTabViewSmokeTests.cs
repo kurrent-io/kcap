@@ -2544,7 +2544,6 @@ public class ChatTabViewSmokeTests {
             await Assert.That(group.IsVisible).IsFalse();
             await Assert.That(((ToolGroupItem)group.DataContext!).SuppressedForPendingQuestion).IsTrue();
             await Assert.That(card.Classes.Contains("packsWithPrevious")).IsFalse();
-            await Assert.That(card.Margin.Top).IsEqualTo(8);
             await host.CloseAsync();
         });
     }

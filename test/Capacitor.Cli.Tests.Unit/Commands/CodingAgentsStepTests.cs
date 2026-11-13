@@ -1815,7 +1815,7 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CopilotHooksInstalled).IsTrue();
         await Assert.That(calls.CopilotHooksArg).IsEqualTo("/fake/.copilot/hooks/kcap.json");
         await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot hooks installed"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session, and quit and reopen VS Code"));
     }
 
     [Test]
@@ -1937,7 +1937,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(
             options, detected, TestPaths(), calls.AsInstallers(),
@@ -1949,6 +1949,58 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running kiro session"));
     }
 
+    /// <summary>Kiro found by its IDE or its data, with no kiro-cli to clone the default agent: the clone is not tried, the
+    /// reason is said once, and the MCP servers still register.</summary>
+    [Test]
+    public async Task Kiro_without_kiro_cli_skips_the_clone_and_still_registers_mcp() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers(),
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(calls.KiroHooksCalled).IsFalse();
+        await Assert.That(result.KiroHooksInstalled).IsFalse();
+        await Assert.That(sink.Lines).Contains(l => l.Contains("kiro-cli is not on PATH"));
+        await Assert.That(sink.Lines).DoesNotContain(l => l.Contains("Could not set up"));
+        await Assert.That(sink.Lines).DoesNotContain(l => l.Contains("Kiro CLI detected"));
+        await Assert.That(calls.RegisterKiroMcpCalled).IsTrue();
+        await Assert.That(result.KiroMcpRegistered).IsTrue();
+    }
+
+    /// <summary>The missing-kiro-cli line names only what setup will still install, never a part a flag skips.</summary>
+    [Test]
+    public async Task Kiro_without_kiro_cli_under_skip_kiro_mcp_does_not_promise_mcp() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiroMcp: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false);
+
+        await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        var line = sink.Lines.Single(l => l.Contains("kiro-cli is not on PATH"));
+        await Assert.That(line).Contains("Skills are still installed.");
+        await Assert.That(line).DoesNotContain("MCP");
+        await Assert.That(calls.RegisterKiroMcpCalled).IsFalse();
+    }
+
+    [Test]
+    public async Task Kiro_without_kiro_cli_still_refreshes_an_agent_already_cloned() {
+        using var tmp   = new TempDir();
+        var       agent = tmp.CreateFile("kcap.json", "{}");
+        var       calls = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: false);
+
+        await RunAsync(options, detected, TestPaths() with { KiroHooksPath = agent }, calls.AsInstallers(),
+            prompt: _ => true, writeLine: new Sink().Write);
+
+        await Assert.That(calls.KiroHooksArg).IsEqualTo(agent);
+    }
+
     [Test]
     public async Task Kiro_installs_even_if_prompt_would_decline() {
         // The per-vendor prompt is gone — Kiro hooks install regardless of what a (no longer
@@ -1956,7 +2008,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(
             options, detected, TestPaths(), calls.AsInstallers(),
@@ -1989,7 +2041,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(
             options, detected, TestPaths(), calls.AsInstallers(),
@@ -2008,7 +2060,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2023,7 +2075,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { KiroHooksReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2037,7 +2089,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false, SkipKiroMcp: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2053,7 +2105,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2075,7 +2127,7 @@ public class CodingAgentsStepTests {
         var calls     = new InstallerCalls();
         var hookCalls = 0;
         var options   = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected  = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected  = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
         var installers = calls.AsInstallers() with {
             InstallKiroCrewHook = () => { hookCalls++; return KiroCrewHookInstaller.Outcome.Written; }
         };
@@ -2093,7 +2145,7 @@ public class CodingAgentsStepTests {
     public async Task Kiro_crew_hook_honours_skip_kiro_hooks() {
         var hookCalls = 0;
         var options   = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true);
-        var detected  = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected  = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
         var installers = new InstallerCalls().AsInstallers() with {
             InstallKiroCrewHook = () => { hookCalls++; return KiroCrewHookInstaller.Outcome.Written; }
         };
@@ -2108,7 +2160,7 @@ public class CodingAgentsStepTests {
     public async Task Kiro_crew_skills_are_not_installed_without_crew() {
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: new Sink().Write);
 
@@ -2121,7 +2173,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false, SkipKiroSkills: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2136,7 +2188,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { KiroHooksReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2150,7 +2202,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2164,7 +2216,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2179,7 +2231,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2192,7 +2244,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { RegisterKiroMcpReturns = JsonMcpConfigWriter.Change.Failed };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2208,7 +2260,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2226,7 +2278,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true, SkipKiroMcp: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2245,7 +2297,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipKiro: false);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => false, writeLine: sink.Write);
 
@@ -2259,7 +2311,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true, SkipKiroMcp: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2553,6 +2605,45 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("Could not register OpenCode MCP"));
     }
 
+    // ── A re-run over wiring that is already current ───────────────────────────
+
+    static readonly string[] HookFiles = [
+        "/fake/.claude/settings.json", "/fake/.codex/hooks.json", "/fake/.copilot/hooks/kcap.json",
+        "/fake/.pi/agent/extensions/kcap.ts", "/fake/.pi/agent/extensions/kcap-mcp.ts", "/fake/.config/opencode/plugins/kcap.ts",
+    ];
+
+    static Task<Result> RunOverCurrentWiring(Installers installers, Sink sink) => RunAsync(
+        new Options(SkipClaude: false, SkipCodex: false, SkipCursor: true, SkipCopilot: false, NoPrompt: true, SkipCodexNetworkAccess: true),
+        new DetectedAgents(Claude: true, Codex: true, Cursor: false, Copilot: true, Pi: true, OpenCode: true),
+        TestPaths(), installers, prompt: _ => true, writeLine: sink.Write);
+
+    /// <summary>Setup run again over current wiring says so per harness and lists none of those files as changed,
+    /// while each harness still counts as installed.</summary>
+    [Test]
+    public async Task Current_wiring_is_reported_as_already_installed_and_not_as_changed() {
+        var sink   = new Sink();
+        var result = await RunOverCurrentWiring(new InstallerCalls { AlreadyCurrent = true }.AsInstallers(), sink);
+
+        foreach (var what in new[] { "Claude Code plugin", "Codex hooks", "Copilot hooks", "Pi extension", "Pi MCP extension", "OpenCode plugin" }) {
+            await Assert.That(sink.Lines).Contains(l => l.Contains($"{what} already installed — no change needed"));
+            await Assert.That(sink.Lines).DoesNotContain(l => l.Contains($"{what} installed"));
+        }
+        await Assert.That(InstalledPaths(result, TestPaths()).Intersect(HookFiles).ToList()).IsEmpty();
+        await Assert.That(result.ClaudeInstalled && result.CodexHooksInstalled && result.CopilotHooksInstalled).IsTrue();
+        await Assert.That(result.PiExtensionInstalled && result.PiMcpInstalled && result.OpenCodeExtensionInstalled).IsTrue();
+    }
+
+    [Test]
+    public async Task Only_the_files_a_re_run_rewrote_are_listed_as_changed() {
+        var sink       = new Sink();
+        var installers = new InstallerCalls { AlreadyCurrent = true }.AsInstallers() with { InstallCodexHooks = _ => SettingsEdit.Changed };
+
+        var result = await RunOverCurrentWiring(installers, sink);
+
+        await Assert.That(InstalledPaths(result, TestPaths()).Intersect(HookFiles).ToList()).IsEquivalentTo(["/fake/.codex/hooks.json"]);
+        await Assert.That(sink.Lines).Contains(l => l.Contains("Codex hooks installed"));
+    }
+
     // ── InstallAgents gate (single unified consent decision) ───────────────────
 
     [Test]
@@ -2561,7 +2652,7 @@ public class CodingAgentsStepTests {
         // NOTHING on disk, even with every agent detected and no --skip-* flags set — every
         // installer delegate below throws if invoked, proving none of them are reached.
         var sink     = new Sink();
-        var detected = new DetectedAgents(Claude: true, Codex: true, Cursor: true, Copilot: true, Gemini: true, Kiro: true, Pi: true, OpenCode: true, Antigravity: true);
+        var detected = new DetectedAgents(Claude: true, Codex: true, Cursor: true, Copilot: true, Gemini: true, Kiro: true, KiroCli: true, Pi: true, OpenCode: true, Antigravity: true);
         var options  = new Options(SkipClaude: false, SkipCodex: false, SkipCursor: false, SkipCopilot: false, NoPrompt: false, InstallAgents: false);
 
         var result = await RunAsync(
@@ -2604,7 +2695,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2618,7 +2709,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true, SkipKiroMcp: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2632,7 +2723,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true, SkipKiro: true, SkipKiroSkills: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2649,7 +2740,7 @@ public class CodingAgentsStepTests {
         var sink     = new Sink();
         var calls    = new InstallerCalls();
         var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: true);
-        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, Kiro: true, KiroCli: true);
 
         var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
@@ -2777,6 +2868,11 @@ public class CodingAgentsStepTests {
     }
 
     sealed class InstallerCalls {
+        /// <summary>Every install that succeeds finds its file already current.</summary>
+        public bool AlreadyCurrent { get; set; }
+
+        SettingsEdit Edit(bool ok) => !ok ? SettingsEdit.Failed : AlreadyCurrent ? SettingsEdit.Unchanged : SettingsEdit.Changed;
+
         public bool                                 ClaudeCalled  { get; private set; }
         public (string Settings, string PluginDir)? ClaudeArgs    { get; private set; }
         public bool                                 ClaudeReturns { get; set; } = true;
@@ -2880,31 +2976,31 @@ public class CodingAgentsStepTests {
                 ClaudeCalled = true;
                 ClaudeArgs   = (s, p);
 
-                return ClaudeReturns;
+                return Edit(ClaudeReturns);
             },
             InstallCodexHooks: h => {
                 CodexHooksCalled = true;
                 CodexHooksArg    = h;
 
-                return CodexHooksReturns;
+                return Edit(CodexHooksReturns);
             },
             InstallCursorHooks: h => {
                 CursorHooksCalled = true;
                 CursorHooksArg    = h;
 
-                return CursorHooksReturns;
+                return Edit(CursorHooksReturns);
             },
             InstallCopilotHooks: h => {
                 CopilotHooksCalled = true;
                 CopilotHooksArg    = h;
 
-                return CopilotHooksReturns;
+                return Edit(CopilotHooksReturns);
             },
             InstallGeminiHooks: h => {
                 GeminiHooksCalled = true;
                 GeminiHooksArg    = h;
 
-                return GeminiHooksReturns;
+                return Edit(GeminiHooksReturns);
             },
             CapacitorOnPath: () => {
                 CapacitorOnPathCalled = true;
@@ -2914,25 +3010,25 @@ public class CodingAgentsStepTests {
                 KiroHooksCalled = true;
                 KiroHooksArg    = h;
 
-                return KiroHooksReturns;
+                return Edit(KiroHooksReturns);
             },
             InstallPiExtension: p => {
                 PiExtensionCalled = true;
                 PiExtensionArg    = p;
 
-                return PiExtensionReturns;
+                return Edit(PiExtensionReturns);
             },
             InstallOpenCodeExtension: p => {
                 OpenCodeExtensionCalled = true;
                 OpenCodeExtensionArg    = p;
 
-                return OpenCodeExtensionReturns;
+                return Edit(OpenCodeExtensionReturns);
             },
             InstallAntigravityHooks: h => {
                 AntigravityHooksCalled = true;
                 AntigravityHooksArg    = h;
 
-                return AntigravityHooksReturns;
+                return Edit(AntigravityHooksReturns);
             },
             InstallAgentSkills: (s, d) => {
                 AgentSkillsCalled = true;
@@ -3017,7 +3113,7 @@ public class CodingAgentsStepTests {
                 InstallPiMcpCalled = true;
                 InstallPiMcpArg    = p;
 
-                return InstallPiMcpReturns;
+                return Edit(InstallPiMcpReturns);
             },
             InstallPiInstructions: () => {
                 InstallPiInstructionsCalled = true;

@@ -119,6 +119,32 @@ public class LocalControlOpsTests {
     }
 
     [Test]
+    public async Task ListCommandsAsync_sends_the_agent_and_returns_its_commands() {
+        if (OperatingSystem.IsWindows()) return;
+        string? asked = null;
+        ConnScript answer = async (_, s, ct) => {
+            var f = await FrameCodec.ReadAsync(s, ct);
+            if (f?.Type != FrameType.AgentCommands) return;
+            asked = f.Text;
+            await FrameCodec.WriteAsync(s, LocalFrame.AgentCommandsReply("""[{"name":"review","description":"Review the diff","argument_hint":"[pr]"}]"""), ct);
+        };
+        await WithOpsAsync([answer], async ops => {
+            var commands = await ops.ListCommandsAsync("a1", CancellationToken.None);
+            await Assert.That(commands).IsEquivalentTo([new HostedAgentCommand("review", "Review the diff", "[pr]")]);
+            await Assert.That(asked).IsEqualTo("a1");
+        });
+    }
+
+    [Test]
+    public async Task ListCommandsAsync_is_empty_when_the_daemon_never_answers() {
+        if (OperatingSystem.IsWindows()) return;
+
+        await WithOpsAsync([Stall()], async ops => {
+            await Assert.That(await ops.ListCommandsAsync("a1", CancellationToken.None)).IsEmpty();
+        }, configure: ops => ops.ReplyTimeout = TimeSpan.FromMilliseconds(100));
+    }
+
+    [Test]
     public async Task ReadHandoffOutcomeAsync_sends_the_session_and_returns_the_stored_outcome() {
         if (OperatingSystem.IsWindows()) return;
         string? asked = null;

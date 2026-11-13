@@ -138,6 +138,21 @@ public class WindowsDesktopNotificationSinkTests {
         await Assert.That(replies[0]).IsEqualTo("allow");
     }
 
+    /// Toasts the registry allows but no notification manager registered for cannot be shown, so access
+    /// must not read as Allowed: the close-to-tray hint then says it in the tray tooltip instead.
+    [Test]
+    public async Task Access_reads_Allowed_only_while_a_manager_can_show_toasts() {
+        var allowed = new FakeDesktopNotificationAccess(DesktopNotificationAccess.Allowed);
+        using var unavailable = new WindowsDesktopNotificationSink(null, a => a(), allowed);
+        var live = new WindowsDesktopNotificationSink(new Manager(), a => a(), allowed);
+
+        await Assert.That(await unavailable.GetAsync()).IsEqualTo(DesktopNotificationAccess.Unknown);
+        await Assert.That(await unavailable.RequestAsync()).IsEqualTo(DesktopNotificationAccess.Unknown);
+        await Assert.That(await live.GetAsync()).IsEqualTo(DesktopNotificationAccess.Allowed);
+        live.Dispose();
+        await Assert.That(await live.GetAsync()).IsEqualTo(DesktopNotificationAccess.Unknown);
+    }
+
     sealed class QueueContext(Queue<Action> queued) : SynchronizationContext {
         public override void Post(SendOrPostCallback callback, object? state) => queued.Enqueue(() => callback(state));
     }

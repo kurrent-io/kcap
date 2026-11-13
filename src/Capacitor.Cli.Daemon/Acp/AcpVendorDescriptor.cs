@@ -73,21 +73,13 @@ internal enum AcpBorrowedReviewContainment {
 /// onboarding another ACP-speaking vendor means adding one descriptor + a factory registration
 /// line, not touching AcpHostedAgentRuntimeFactory itself.
 ///
-/// <b>Round 2 Finding 2 — the selector object is the only source of truth:</b> there is
+/// <b>The selector object is the only source of truth:</b> there is
 /// deliberately no separate "does this vendor support model selection" boolean.
 /// <see cref="ModelSelector"/> alone decides: a vendor that doesn't select models carries
 /// <see cref="NoOpModelSelector.Instance"/>; Cursor carries
-/// <see cref="ConfigOptionModelSelector.Instance"/>. An earlier revision shipped a
-/// <c>SupportsModelSelection</c> flag plus a construction-time invariant rejecting a
-/// <c>false</c>-flagged descriptor that still carried a real selector — but by the time that
-/// invariant existed, <see cref="Services.AcpHostedAgentRuntimeFactory.StartAsync"/> (D4) already forwarded
-/// <see cref="ModelSelector"/> unconditionally and never branched on the flag, so the flag gated no
-/// behavior; worse, the invariant only checked ONE of its two possible contradictions (it rejected
-/// <c>SupportsModelSelection: false</c> + a real selector, but still accepted the equally
-/// contradictory <c>SupportsModelSelection: true</c> + <c>NoOpModelSelector.Instance</c>). Removing
-/// the field removes the dead state and the asymmetric guard together: there is exactly one thing
-/// to get right — which selector object the descriptor carries — not a boolean that also has to
-/// agree with it. This also drops any expectation that <c>ModelSelector</c> be
+/// <see cref="ConfigOptionModelSelector.Instance"/>.
+/// <see cref="Services.AcpHostedAgentRuntimeFactory.StartAsync"/> forwards <see cref="ModelSelector"/>
+/// unconditionally, so a flag beside it could only disagree with it. Nor need <c>ModelSelector</c> be
 /// <c>ReferenceEquals</c> to one of the selector singletons (<c>ConfigOptionModelSelector</c>,
 /// <c>SetModelSelector</c>, <c>NoOpModelSelector</c>): the runtime only needs SOME
 /// <see cref="IAcpModelSelector"/>, so a future vendor's own implementation, or a test double, is
@@ -318,7 +310,7 @@ internal static class AcpVendorDescriptors {
         SupportsBorrowedReviewFlow: true,
         BorrowedReviewContainment: AcpBorrowedReviewContainment.IndependentSnapshot,
         UnattendedInteractionPolicy: AcpUnattendedInteractionPolicy.Fail,
-        // Probe-verified 2026-08-04 (docs/probes/2026-08-04-acp-reconnect-c0/): session/load works
+        // Probe-verified (docs/probes/2026-08-04-acp-reconnect-c0/): session/load works
         // across a SIGKILLed owner, the response-after-replay barrier holds, and a loaded session
         // prompts normally. Note the same probe found Cursor's replay REWRITES toolCallIds and
         // drops the interrupted turn — both irrelevant to the suppress-the-replay resume, but they
@@ -334,7 +326,7 @@ internal static class AcpVendorDescriptors {
     /// measurement, not on the <c>mcpCapabilities</c> advertisement</b> — the advertised
     /// <c>{http, sse}</c> shape cannot decide this flag either way (Kiro and Gemini advertise exactly
     /// the same shape and both honour stdio servers). Measured on macOS against Copilot CLI 1.0.78
-    /// (2026-08-04): a purpose-built stdio server passed in <c>session/new.mcpServers</c> is silently
+    /// a purpose-built stdio server passed in <c>session/new.mcpServers</c> is silently
     /// ignored. <c>session/new</c> succeeds, but the server process is never spawned (its own log
     /// stays empty), no tool-call frame ever references it, and the model reports the tool
     /// unavailable — identical on the interactive argv and on the full unattended review argv, where
@@ -363,7 +355,7 @@ internal static class AcpVendorDescriptors {
         // If the platform special case were ever dropped, this default disables borrowed review
         // rather than silently permitting an unverified surface — the safe direction to fail.
         UnattendedInteractionPolicy: AcpUnattendedInteractionPolicy.AutoApprove,
-        // Probe-verified 2026-08-04 (docs/probes/2026-08-04-acp-reconnect-c0/): session/load works
+        // Probe-verified (docs/probes/2026-08-04-acp-reconnect-c0/): session/load works
         // across a SIGKILLed owner, the barrier holds, toolCallIds are stable, and — unlike
         // Cursor — Copilot PERSISTS a mid-turn-killed prompt agent-side, which is why the
         // interrupted-turn disposition keys on local send facts, never on replay content.
@@ -440,7 +432,7 @@ internal static class AcpVendorDescriptors {
         ModelSelector:       SetModelSelector.Instance,
         SupportsMcpServers:  true,
         ReviewFlowMcpTransport: AcpReviewFlowMcpTransport.SessionNew,
-        // Measured INELIGIBLE 2026-08-04 (docs/probes/2026-08-04-acp-reconnect-c0/): Kiro advertises
+        // Measured INELIGIBLE (docs/probes/2026-08-04-acp-reconnect-c0/): Kiro advertises
         // loadSession but refuses session/load after a SIGKILLed owner with a DURABLE stale-owner
         // lock — "Failed to start session: Session is active in another process (PID <dead>)",
         // byte-identical at 0s/+15s/+45s, so bounded-backoff retries cannot clear it. Flip only
@@ -457,25 +449,17 @@ internal static class AcpVendorDescriptors {
     /// resume}</c>.</para>
     ///
     /// <para><b><see cref="AcpVendorDescriptor.SupportsMcpServers"/> is <c>true</c> on a CALL-level probe</b>, not on the
-    /// advertisement — OpenCode advertises the same <c>mcpCapabilities {http, sse}</c> shape Kiro,
-    /// Gemini and Copilot all advertise, and those three do not agree with each other, so the
-    /// advertisement decides nothing. A purpose-built stdio server passed in
-    /// <c>session/new.mcpServers</c> was driven spawn → <c>initialize</c> →
-    /// <c>notifications/initialized</c> → <c>tools/list</c> → <c>tools/call</c>, with the tool's nonce
-    /// reaching the model and the turn ending <c>end_turn</c>. That is the Kiro result, not the
-    /// Copilot one, so no <c>--additional-mcp-config</c>-style preload is needed.</para>
+    /// advertisement, which Kiro, Gemini and Copilot share while disagreeing in behaviour. A stdio server
+    /// passed in <c>session/new.mcpServers</c> reached <c>tools/call</c> with its nonce reaching the model —
+    /// the Kiro result, so no <c>--additional-mcp-config</c>-style preload is needed.</para>
     ///
-    /// <para><b><see cref="ConfigOptionModelSelector"/>, and the READ half is a different shape from
-    /// every other vendor's.</b> OpenCode returns NO <c>models</c> object; its selectable models are
-    /// <c>session/new</c>'s <c>configOptions[id=="model"].options[]</c> (see
-    /// <see cref="Core.Acp.AcpSessionModelList"/>, which reads both shapes). The write half is
-    /// <c>session/set_config_option {configId:"model", value:"provider/model"}</c>, which answers with
-    /// the full updated option list — and, because an echoed success is exactly the silent-failure
-    /// mode that keeps <see cref="Gemini"/> on <see cref="NoOpModelSelector"/>, it was additionally
-    /// verified at EFFECT level: with <c>currentValue</c> moved to
-    /// <c>opencode/deepseek-v4-flash-free</c> the model self-identified as that id and never named the
-    /// previous one. <c>session/set_model</c> also exists here (it answers <c>{}</c>, so not
-    /// <c>-32601</c>) but is redundant — only the config-option surface has a matching read half.</para>
+    /// <para><b><see cref="ConfigOptionModelSelector"/>, with a different READ shape.</b> OpenCode returns NO
+    /// <c>models</c> object; its models are <c>session/new</c>'s <c>configOptions[id=="model"].options[]</c>
+    /// (<see cref="Core.Acp.AcpSessionModelList"/> reads both shapes). The write is
+    /// <c>session/set_config_option {configId:"model", value:"provider/model"}</c>, verified at EFFECT level
+    /// (the model self-identified as the selected id), since an echoed success alone is the silent failure
+    /// that keeps <see cref="Gemini"/> on <see cref="NoOpModelSelector"/>. <c>session/set_model</c> answers
+    /// <c>{}</c> but has no matching read half.</para>
     ///
     /// <para><b>The model slot reads <c>DaemonConfig.OpenCodeModel</c></b>
     /// (<c>KCAP_OPENCODE_MODEL</c>), default NULL: a zero-configuration launch keeps OpenCode's own
@@ -508,8 +492,7 @@ internal static class AcpVendorDescriptors {
     /// <c>SupportsUnattended</c> being true here only makes the vendor eligible;
     /// <see cref="OpenCodeReviewerCapability"/> decides per daemon. It refuses when the operator has
     /// EXPLICITLY disabled the vendor, or when the installed build is below this daemon's recorded
-    /// minimum. There is no opt-in: gating one vendor never narrowed anything, since the reviewer vendor
-    /// is caller-chosen and four others run ungated with more capability.</para>
+    /// minimum.</para>
     ///
     /// <para><b><see cref="AcpVendorDescriptor.SupportsReconnectResume"/> is <c>false</c> as UNPROBED</b>, which is a
     /// different claim from <see cref="Kiro"/>'s and <see cref="Gemini"/>'s — both of those are
@@ -618,7 +601,7 @@ internal static class AcpVendorDescriptors {
     /// append — the option is comma-coerced, so a second option occurrence would widen the gate rather
     /// than move it). Every one of those names is a per-launch alias, because a canonical id is a fixed
     /// public literal the reviewed repository could declare its own server under and have it spawned as
-    /// the daemon user (the impersonation shape measured in spec §2.3/§2.6; multi-name admission
+    /// the daemon user (the impersonation shape measured for Gemini; multi-name admission
     /// measured on 0.53.0 — both admitted servers reach <c>tools/call</c>, an injected name outside the
     /// gate never spawns). An interactive launch injects nothing and keeps the unguessable deny-all,
     /// which permits nothing and costs nothing; a future interactive caller populating
@@ -648,18 +631,18 @@ internal static class AcpVendorDescriptors {
                               "--allowed-mcp-server-names", UnmatchableMcpNamePlaceholder],
         // --approval-mode yolo is REQUIRED for a reviewer, not a convenience: without it Gemini emits
         // session/request_permission before invoking its OWN injected result-channel tool, and no human is
-        // there to answer, so the reviewer cannot report at all. Measured both ways (spec §2.4). Review
-        // launches only — an interactive hosted session must behave as the user's own does (§3.3).
+        // there to answer, so the reviewer cannot report at all. Measured both ways. Review
+        // launches only — an interactive hosted session must behave as the user's own does.
         UnattendedTrustArgv: ["--approval-mode", "yolo"],
         SupportsUnattended:  true,
         ModelSelector:       NoOpModelSelector.Instance,
         // Measured: Gemini DOES honour session/new.mcpServers — it spawns the stdio server, lists its tools
         // and calls them. This resolves the transport to SessionNew, which is what carries the reviewer's
-        // result channel. the hosting work deferred this as a call-level probe; the answer is yes (spec §2.1).
+        // result channel. the hosting work deferred this as a call-level probe; the answer is yes.
         SupportsMcpServers:  true,
         // Fail rather than AutoApprove: with --approval-mode yolo, Gemini emits NO interaction frame at all,
         // so receiving one means the launch contract regressed (a dropped flag, a vendor change) and the
-        // honest response is to reap the reviewer rather than auto-approve whatever it asked for (§3.4).
+        // honest response is to reap the reviewer rather than auto-approve whatever it asked for.
         UnattendedInteractionPolicy: AcpUnattendedInteractionPolicy.Fail,
         // Ineligible: Gemini answers session/load before most of its replay, and replay suppression
         // ends once that response is in, so the rest would reach the transcript as live output.

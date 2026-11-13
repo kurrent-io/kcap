@@ -16,7 +16,7 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// <para><b>Why unguessable.</b> A vendor whose MCP gate is a name allowlist matches names exactly, and the
 /// repository being worked in can declare MCP servers of its own. A predictable allowlisted name is
 /// therefore a repository-impersonation hole — a repository naming its server that gets a process spawned as
-/// the daemon user. Measured for Gemini; see the Gemini reviewer design spec §2.3 and §2.6/§2.7.</para>
+/// the daemon user. Measured for Gemini.</para>
 ///
 /// <para><b>Vendor-neutral by shape, not by accident.</b> The two concepts — "the result channel's name on
 /// the wire" and "a name nothing can match" — belong to any vendor with a name-matched MCP gate. This also
@@ -58,7 +58,7 @@ internal sealed record LaunchIdentity {
     /// launch's allowlist suffix — the vendor's MCP gate is an exact-name allowlist that must admit these
     /// servers, and admitting the CANONICAL id would let the repository being worked in declare a server of
     /// that fixed, public name and have it spawned as the daemon user (the same impersonation shape measured
-    /// for the result channel; see the Gemini reviewer design spec §2.3/§2.6). For every other vendor this
+    /// for the result channel). For every other vendor this
     /// returns the input unchanged, keeping their wire behaviour byte-identical.
     /// </summary>
     public string AllowlistWireName(string canonicalId) =>
@@ -77,8 +77,8 @@ internal sealed record LaunchIdentity {
 
     /// <summary>
     /// Test seam. Takes concrete <see cref="Guid"/> VALUES rather than a factory delegate: a delegate would
-    /// close over its caller's scope, which is how an earlier revision of this design left
-    /// derivation-from-launch-context legal while its tests still passed. A value cannot close over anything.
+    /// close over its caller's scope and make derivation-from-launch-context legal while the tests
+    /// still pass. A value cannot close over anything.
     /// </summary>
     internal static LaunchIdentity FromGuids(Guid resultChannel, Guid unmatchable, Guid allowlistSuffix, bool aliasResultChannel) {
         // No fallback, predictable or otherwise. The security property is that these strings are unguessable

@@ -27,7 +27,7 @@ internal sealed class AcpRpcException : Exception {
 /// Owns framing (one JSON object per line, UTF-8), outbound request/response correlation, and
 /// routing of inbound notifications and server→client requests. Decoupled from <see cref="System.Diagnostics.Process"/>
 /// — the ctor takes plain <see cref="Stream"/>s so tests can drive it over in-memory pipes; the
-/// real caller (<c>AcpHostedAgentRuntime</c>, Task 9) passes the child process's stdin/stdout.
+/// real caller (<c>AcpHostedAgentRuntime</c>) passes the child process's stdin/stdout.
 ///
 /// Concurrency model:
 /// - Outbound id allocation is an <see cref="Interlocked"/> counter.
@@ -126,8 +126,8 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// successful EMPTY result must return an explicit <see cref="JsonElement"/> (e.g. an empty
     /// object via <see cref="JsonSerializer.SerializeToElement{T}(T, System.Text.Json.Serialization.Metadata.JsonTypeInfo{T})"/>), never <see langword="null"/>.
     ///
-    /// Typed <see cref="JsonElement"/>? rather than <c>object?</c> (PR #244 review, Fix #3): the
-    /// old <c>object?</c> contract let a handler return an un-serialized CLR object that
+    /// Typed <see cref="JsonElement"/>? rather than <c>object?</c>: an <c>object?</c> contract
+    /// would let a handler return an un-serialized CLR object that
     /// <see cref="WriteServerResponseAsync"/> could only reject with a thrown
     /// <see cref="InvalidOperationException"/> — which happened OUTSIDE any try/catch here, so it
     /// propagated up through <see cref="DispatchLineAsync"/>'s broad catch (log-and-skip) and the
@@ -208,7 +208,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
         } finally {
             // Latch + pre-fault hook run BEFORE pending requests fault: the runtime must observe
             // "reconnecting" before the faulted prompt's continuation (and its finally-flush) can
-            // run, or the two race (design-of-record C6.2; reconnect spec §5.2).
+            // run, or the two race.
             MarkTransportEnded();
             FaultAllPending(new ObjectDisposedException(nameof(AcpConnection), "ACP connection read loop ended with requests still pending."));
         }
@@ -302,7 +302,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
             // GetInt32()/GetString() accessors here, and DispatchLineAsync's broad catch would
             // log+skip the frame — leaving this TCS orphaned and its caller hanging until the
             // connection disposed. Every read below is TryGetProperty + ValueKind-gated so this
-            // block can never throw (PR #244 review, Fix D).
+            // block can never throw.
             var code = error.ValueKind == JsonValueKind.Object
                     && error.TryGetProperty("code", out var codeEl)
                     && codeEl.ValueKind == JsonValueKind.Number
@@ -332,8 +332,8 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// <summary>
     /// Handles one inbound agent→client request. MUST write exactly one response frame for
     /// <paramref name="idElement"/> no matter what happens — a missing response wedges the agent's
-    /// wait on this id forever (PR #244 review, Fix #3). The handler-invoke try/catch (existing)
-    /// and the outer try/catch around response serialization+write (new) together guarantee this:
+    /// wait on this id forever. The handler-invoke try/catch
+    /// and the outer try/catch around response serialization+write together guarantee this:
     /// any failure — a thrown handler, or a result that fails to serialize/write — falls back to a
     /// JSON-RPC "Internal error" response keyed on the ORIGINAL request id, rather than letting the
     /// exception escape to <see cref="DispatchLineAsync"/>'s log-and-skip catch.
@@ -424,7 +424,7 @@ internal sealed partial class AcpConnection : IAsyncDisposable {
     /// <summary>
     /// Writes the JSON-RPC response for one inbound server request. <paramref name="result"/> is
     /// already a <see cref="JsonElement"/>? by construction (the <see cref="OnServerRequest"/>
-    /// delegate is typed <c>Task&lt;JsonElement?&gt;</c> — PR #244 review, Fix #3 — so there is no
+    /// delegate is typed <c>Task&lt;JsonElement?&gt;</c>, so there is no
     /// runtime shape to validate here, only to serialize+write; the caller
     /// (<see cref="HandleServerRequestAsync"/>) wraps this call so a failure here still yields an
     /// internal-error fallback response rather than none at all).

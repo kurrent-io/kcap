@@ -25,8 +25,8 @@ internal enum GeminiReviewerDecision {
 /// one of those is also ADVERTISED, a caller blocked from <c>vendor: "gemini"</c> simply asked for one of
 /// them, so the gate cost the operator a service-unit edit without narrowing the capability class reachable
 /// — though not literally nothing, since a Gemini reviewer burns the operator's own Gemini credentials.
-/// Where only gated vendors are advertised, the flip does widen what a non-operator can cause to run. The
-/// switch is now an opt-OUT (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>); the decision that actually scopes
+/// Where only gated vendors are advertised, the opt-out default does widen what a non-operator can cause to
+/// run. The switch is an opt-OUT (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>); the decision that actually scopes
 /// this is whether to permit unattended reviews on the daemon at all, which is <c>kcap daemon consent</c> —
 /// note that DEFAULTS TO ALLOW, so it scopes nothing until configured.</para>
 ///
@@ -34,29 +34,21 @@ internal enum GeminiReviewerDecision {
 /// allowlist behaving as an exclusive exact-match gate that the repository's own settings cannot widen. That
 /// was established by reading <c>gemini-cli</c> 0.53.0's own matcher, and the binary the daemon launches is
 /// whatever <c>GeminiPath</c> resolves — an upgrade can change matching, config precedence, or empty-list
-/// semantics, so a capability flag set months ago must not silently carry consent across it.</para>
+/// semantics, so a capability flag alone must not carry consent to any build.</para>
 ///
-/// <para>This was previously a maintainer-curated set of certified versions, and that shape failed in
-/// practice: the reviewer went offline at <c>0.54.0</c>, one patch ahead of the certified <c>0.53.0</c>, and
-/// could only come back via a kcap release. Every Gemini release repeated it. It now uses Kiro's model —
-/// fail closed when the installed build CHANGES, cleared by the operator who is already the consenting
-/// party, via <c>kcap daemon reviewer affirm --vendor gemini</c>.</para>
+/// <para>It follows Kiro's model — fail closed when no minimum is recorded, or the installed build is below
+/// it or cannot be identified or ordered against it, cleared by the operator who is already the consenting
+/// party, via <c>kcap daemon reviewer affirm --vendor gemini</c>. A
+/// maintainer-curated set of certified versions takes the reviewer offline on every Gemini patch until a
+/// kcap release catches up. An affirmation is the weaker claim (the operator accepted this build, not a
+/// maintainer read its matcher), made by the party who carries the risk.</para>
 ///
-/// <para><b>What that trade is, stated plainly.</b> The certified set asserted that a maintainer had read
-/// that build's matcher. An affirmation asserts only that the operator accepted this build. It is the weaker
-/// claim — but it is made by the party who carries the risk, on the machine that carries it, and the
-/// alternative was a reviewer nobody could run.</para>
-///
-/// <para><b>And the recorded value is now a MINIMUM, not an exact match — which this doc used to argue
-/// against.</b> The paragraph is kept rather than deleted, because it states the real cost: a floor
-/// assumes the allowlist's semantics can only improve, which is an assumption about someone else's code,
-/// and it silently admits a future build that changed matching to prefix, flipped empty-list semantics, or
-/// let repository settings win. That objection stands on its merits and was overruled deliberately —
-/// exact-match kept the treadmill the certified set was abandoned for, merely relocating it from a kcap
-/// release onto the operator, who then re-took the same acceptance on every patch. The acceptance now
-/// carries forward across upgrades instead, and the affirm verb raises the floor past a build once found
-/// to be bad. If a Gemini release is ever found to have weakened the allowlist, this is the paragraph that
-/// says what to reach for.</para>
+/// <para><b>The recorded value is a MINIMUM, not an exact match</b>: a build at or above it keeps its
+/// consent across an upgrade. The cost: a floor assumes the
+/// allowlist's semantics can only improve, and it silently admits a future build that changed matching to
+/// prefix, flipped empty-list semantics, or let repository settings win. Exact-match would make the
+/// operator re-take the same acceptance on every patch. If a Gemini release is ever found to have
+/// weakened the allowlist, the affirm verb raises the floor past it.</para>
 ///
 /// <para>Deliberately stricter than the interactive hosting path, which runs any installed Gemini.
 /// Broken hosting degrades to a broken agent; a broken MCP gate degrades to repository-controlled process

@@ -6,7 +6,7 @@ namespace Capacitor.Tests.Helpers.Guards;
 /// Assembly-wide pin for the config directory. Unpinned, anything resolving a
 /// <see cref="ConfigRoot"/> for itself reads the developer's real <c>~/.config/kcap</c> — a stale
 /// token there once read as an auth lapse two layers down. The value cannot be created on purpose:
-/// every test takes a <c>[TempConfigRoot]</c> and <see cref="KcapProcess"/> pins a usable one per
+/// every test takes a <c>[TempConfigRoot]</c> and <c>KcapProcess</c> pins a usable one per
 /// spawn, so whatever reaches this has bypassed both.
 /// </summary>
 public class ConfigDirGlobalSetup {

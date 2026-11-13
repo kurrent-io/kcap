@@ -7,11 +7,11 @@ namespace Capacitor.Models.Transcripts.Harness.Codex;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(CodexSessionExtension))]
 [JsonSerializable(typeof(CodexAssistantTextExtension))]
+[JsonSerializable(typeof(CodexUserMessageExtension))]
 [JsonSerializable(typeof(CodexAgentMessageExtension))]
 [JsonSerializable(typeof(CodexToolCallExtension))]
 [JsonSerializable(typeof(CodexExecResultExtension))]
 [JsonSerializable(typeof(CodexPatchResultExtension))]
 [JsonSerializable(typeof(CodexTurnTimingExtension))]
 [JsonSerializable(typeof(CodexUsageBackfilledEvent))]
-[JsonSerializable(typeof(ContextCompactedEvent))]
 public sealed partial class CodexJsonContext : JsonSerializerContext;

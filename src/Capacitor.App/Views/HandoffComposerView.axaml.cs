@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Capacitor.App.ViewModels;
@@ -9,13 +8,14 @@ namespace Capacitor.App.Views;
 /// only from its button, never from a key typed into a prompt. Esc closes the hand-off settings the
 /// user opened over Resume. DataContext is supplied by the host.
 public partial class HandoffComposerView : UserControl {
-    AttachmentDropPaste? _attachments;
+    readonly Composer _composer;
 
     public HandoffComposerView() {
         InitializeComponent();
+        _composer = Composer.Attach(HandoffCard, HandoffInput, HandoffAttachButton);
     }
 
-    internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
+    internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     protected override void OnKeyDown(KeyEventArgs e) {
         if (e.Key == Key.Escape && DataContext is HandoffComposerViewModel { CanCloseStrip: true } vm) {
@@ -24,19 +24,5 @@ public partial class HandoffComposerView : UserControl {
             return;
         }
         base.OnKeyDown(e);
-    }
-
-    /// Paired with the visual tree, as the chat's composer is: a detached view comes back with it.
-    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
-        base.OnAttachedToVisualTree(e);
-        _attachments ??= AttachmentDropPaste.Attach(
-            HandoffCard, HandoffInput, HandoffAttachButton,
-            () => DataContext as HandoffComposerViewModel, TimeProvider.System);
-    }
-
-    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
-        _attachments?.Dispose();
-        _attachments = null;
-        base.OnDetachedFromVisualTree(e);
     }
 }

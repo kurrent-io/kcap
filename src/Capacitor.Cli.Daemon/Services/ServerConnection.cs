@@ -58,7 +58,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     static readonly TimeSpan AcpRetryPollInterval         = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan ParkRetryPollInterval        = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>§2.7 B6 arm-A: an upper bound on the WHOLE park report (readiness gate + retries).
+    /// <summary>An upper bound on the WHOLE park report (readiness gate + retries).
     /// <c>ParkReviewerAsync</c> holds the reap claim across this call, so — unlike the other
     /// <see cref="ConnectionRetry"/> callers, whose waits are bounded only by daemon shutdown — an
     /// unbounded wait for <see cref="IsReady"/> here would pin an idle reviewer (claimed, slot not freed)
@@ -107,7 +107,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public Func<RunQuestionCommand,    Task<QuestionResultV2>>? RunQuestionV2Handler  { get; set; }
     public Func<FinalizeEvalV2Command, Task<FinalizeResult>>?   FinalizeEvalV2Handler { get; set; }
 
-    /// <summary>Task 8: handler for the server's <c>ResolveReviewerModel</c> client-result
+    /// <summary>Handler for the server's <c>ResolveReviewerModel</c> client-result
     /// invocation — the side-effect-free reviewer-model preflight. Set by <see cref="AgentOrchestrator"/>
     /// at startup; when null (early startup / an old daemon build), the registration below returns a
     /// fail-closed <c>"unavailable"</c> reply so the server never applies an unresolved override.</summary>
@@ -121,8 +121,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public Func<FindRepoForRemoteRequest, Task<string[]>>? FindRepoForRemoteHandler { get; set; }
 
     /// <summary>
-    /// Handler for the server's <c>ProbeBorrowSource</c> client-result invocation (Phase A,
-    /// task A3): "can you borrow this path?". Receives a filesystem path and returns the
+    /// Handler for the server's <c>ProbeBorrowSource</c> client-result invocation:
+    /// "can you borrow this path?". Receives a filesystem path and returns the
     /// daemon-computed authorization + canonical paths. Set by <see cref="AgentOrchestrator"/> at
     /// startup; when null, returns <c>BorrowProbeResult(false, null, null, "no handler")</c>.
     /// </summary>
@@ -206,12 +206,12 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.4): snapshot of the un-acked resolved-
+    /// <summary>Snapshot of the un-acked resolved-
     /// candidates ledger, re-advertised on <c>DaemonConnect</c> (mirrors <see cref="GetLiveAgents"/>).
     /// Optional — null when not wired (tests / early startup) ⇒ no candidates advertised.</summary>
     public Func<ResolvedStartupCandidate[]>? GetResolvedStartupCandidates { get; set; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): the per-platform startup-completeness signals,
+    /// <summary>The per-platform startup-completeness signals,
     /// re-advertised on <c>DaemonConnect</c> alongside the periodic <c>DaemonStatusReport</c>. Set by
     /// <see cref="AgentOrchestrator"/> at startup; optional — null when not wired (tests / early startup)
     /// ⇒ the additive field defaults (StartupReapComplete/StartupDiscovery null, no blocked candidates).</summary>
@@ -219,14 +219,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public Func<UnresolvedStartupCandidate[]>? GetUnresolvedStartupCandidates { get; set; }
     public Func<StartupDiscovery?>?            GetStartupDiscovery            { get; set; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §5.5): the resolved-candidates ledger's
+    /// <summary>The resolved-candidates ledger's
     /// daemon-lifetime monotonic high-water, re-advertised on <c>DaemonConnect</c> alongside
     /// <see cref="GetResolvedStartupCandidates"/> so that once sparse acks prune entries the server still
     /// knows the generation frontier. Null when unwired (tests / early startup) ⇒ the additive field
     /// stays null, wire-compatible with old servers.</summary>
     public Func<long?>?                        GetHighestResolutionGeneration { get; set; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.2): the sequenced-command watermark counters
+    /// <summary>The sequenced-command watermark counters
     /// (the processor's HighestAcceptedSeq / LastProcessedSeq) and the kill-quarantine snapshot, mirrored
     /// onto the enriched <c>DaemonConnect</c> payload alongside the periodic <c>DaemonStatusReport</c>. Set
     /// by <see cref="AgentOrchestrator"/> at startup; null (tests / early startup) ⇒ the additive fields
@@ -235,14 +235,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public Func<long?>?                  GetLastProcessedSeq   { get; set; }
     public Func<QuarantinedAgentInfo[]>? GetQuarantined        { get; set; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): the daemon's per-boot epoch, advertised on
+    /// <summary>The daemon's per-boot epoch, advertised on
     /// <c>DaemonConnect</c>. Set by <see cref="AgentOrchestrator"/> to return its own <c>_daemonEpoch</c>
     /// so the connect epoch and the orchestrator/processor epoch read ONE source (no test-divergence
     /// footgun). Null when unwired (tests / early startup) ⇒ falls back to <c>_config.DaemonEpoch</c>,
     /// which <c>DaemonRunner</c> pins before services build, so prod behaviour is unchanged.</summary>
     public Func<string?>?                GetDaemonEpoch        { get; set; }
 
-    /// <summary>Phase B (D2): send the periodic daemon self-report ONE-WAY (never
+    /// <summary>Send the periodic daemon self-report ONE-WAY (never
     /// <c>InvokeAsync</c>) — an old server without the <c>DaemonStatusReport</c> handler produces only
     /// a server-side log line, and any send exception is swallowed so the agent loops are untouched.
     /// Virtual so tests can capture the report without a live hub.</summary>
@@ -264,7 +264,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     internal virtual Task SendAccountsChangedRawAsync(AccountsSnapshotDto snapshot) =>
         _hub.SendAsync("AccountsChanged", snapshot, cancellationToken: _ct);
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.2): answer a sequenced command ONE-WAY (never
+    /// <summary>Answer a sequenced command ONE-WAY (never
     /// <c>InvokeAsync</c>) — an old server without the <c>CommandAck</c>/<c>CommandRejected</c> handler
     /// produces only a server-side log line, and any send exception is swallowed so the agent loops are
     /// untouched. Virtual so tests can capture the sends without a live hub.</summary>
@@ -329,12 +329,12 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         // rollout.
         _hub.On<ResizeTerminalCommand>("ResizeTerminalAggregate", cmd => SafeInvoke("ResizeTerminalAggregate", () => OnResizeTerminal?.Invoke(cmd)));
 
-        // Phase B2-b (sequenced-settlement design §4.2.4): one-way server→daemon receive that prunes the
+        // One-way server→daemon receive that prunes the
         // resolved-candidates ledger per-entry. The handler is SYNCHRONOUS (the ledger Ack is void), so
         // invoke it inline and return a completed task — no work is awaited.
         _hub.On<AckResolvedCandidates>("AckResolvedCandidates", ack => { OnAckResolvedCandidates?.Invoke(ack); return Task.CompletedTask; });
 
-        // Phase B2-b (sequenced-settlement design §4.2.2): the sequenced-command receive seams. StopAgentV2
+        // The sequenced-command receive seams. StopAgentV2
         // and RequestStatusReport route through SafeInvoke like every other command handler (so a throwing
         // handler is logged, not surfaced to the hub); AckProcessedPrefix is a synchronous void state
         // mutation, so it invokes inline and returns a completed task.
@@ -381,7 +381,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             cmd => FinalizeEvalV2Handler?.Invoke(cmd)
                 ?? Task.FromResult(new FinalizeResult(false, "no handler", null)));
 
-        // Task 8: side-effect-free reviewer-model preflight (server→daemon client-result
+        // Side-effect-free reviewer-model preflight (server→daemon client-result
         // invocation). When the orchestrator hasn't wired the handler (early startup), fail closed with
         // an "unavailable" reply that still echoes RequestId/Vendor so the server's correlation guard
         // passes and it treats the model as simply unavailable. PolicyVersion is always THIS daemon's own
@@ -967,7 +967,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// <see cref="RegisterDaemonAsync"/>. Used when the heartbeat ping times out
     /// or throws — the WebSocket is hung and only a fresh connection
     /// recovers it. The stop is capped at <see cref="ForceStopCap"/> so a wedged
-    /// transport can't stall the heartbeat loop indefinitely (Qodo). The cap is
+    /// transport can't stall the heartbeat loop indefinitely. The cap is
     /// enforced from OUTSIDE via <c>WaitAsync</c>: <c>HubConnection.StopAsync</c>'s
     /// cancellation token is dead in the pinned client (its connection-lock wait and
     /// transport stop run on <c>token: default</c>), so passing the token in would
@@ -1250,7 +1250,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     }
 
     /// <summary>
-    /// Task 8: reports the CONCRETE resolved model an explicit-model reviewer actually launched
+    /// Reports the CONCRETE resolved model an explicit-model reviewer actually launched
     /// with (the post-launch counterpart of the preflight RPC), over the persistent connection to the
     /// server's <c>ReportExplicitReviewerModelResolved</c> hub method — a single-record (arity 1)
     /// payload so the wire shape can evolve additively. Distinct from
@@ -1333,19 +1333,23 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     ///
     /// <para>Best-effort by contract: every step is contained, and a failure in one does not skip the
     /// rest. Nothing here retries — the caller is holding a shutdown open.</para>
+    ///
+    /// <para><paramref name="runInstanceId"/> is the daemon process that holds the run on the server, null when the
+    /// caller cannot be sure which one does; see <see cref="AgentRunStopped"/>.</para>
     /// </summary>
     public Task ReportAgentEndedForShutdownAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) =>
-        SendShutdownReportAsync(agentId, sessionId, status, reason, exitCode, endSession: !EndsNoSession(agentId, sessionId), ct);
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, CancellationToken ct) =>
+        SendShutdownReportAsync(agentId, sessionId, status, reason, exitCode, runInstanceId, endSession: !EndsNoSession(agentId, sessionId), ct);
 
     protected virtual async Task SendShutdownReportAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, bool endSession, CancellationToken ct) {
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, bool endSession,
+            CancellationToken ct) {
         await SafeShutdownStepAsync(
             () => _hub.InvokeAsync("AgentStatusChanged", new AgentStatusChanged(agentId, status, sessionId), cancellationToken: ct),
             agentId, "status");
 
         await SafeShutdownStepAsync(
-            () => _eventQueue.PostDirectAsync(agentId, new AgentRunStopped(reason, exitCode), ct), agentId, "run-stopped");
+            () => _eventQueue.PostDirectAsync(agentId, new AgentRunStopped(reason, exitCode, runInstanceId), ct), agentId, "run-stopped");
 
         if (endSession) {
             await SafeShutdownStepAsync(
@@ -1901,7 +1905,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         ) => _hub.InvokeAsync<AcpLaunchConfirmOutcome>("ConfirmSessionLaunch", acpSessionId, ownershipToken, cancellationToken: ct);
 
     /// <summary>
-    /// §2.7 B6: reports a settled, resumable hosted reviewer that the daemon is about to
+    /// Reports a settled, resumable hosted reviewer that the daemon is about to
     /// PARK (freeing its slot while keeping its app-server thread alive for a later resume) to the
     /// server's <c>ReportParticipantParked</c> hub method, and folds the reply into a
     /// <see cref="ParkAck"/>. Gated on <see cref="IsReady"/> and wrapped in <see cref="ConnectionRetry"/>
@@ -2223,7 +2227,7 @@ internal sealed class AcpBindRejectedException(string agentId, string acpSession
 }
 
 /// <summary>
-/// §2.7 B6: the daemon-local result of <see cref="ServerConnection.ReportParticipantParkedAsync"/> —
+/// The daemon-local result of <see cref="ServerConnection.ReportParticipantParkedAsync"/> —
 /// purely in-memory, never (de)serialized. Widens the server's two-value wire outcome
 /// (<see cref="ParkParticipantOutcome"/>) with a third, daemon-only case the wire never encodes:
 /// <see cref="Ambiguous"/> covers any transport error, timeout, <c>HubException</c>, or otherwise

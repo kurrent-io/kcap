@@ -14,6 +14,9 @@ public static class CodexExtension {
     public const string Patch        = "patch";
     public const string Task         = "task";
 
+    /// A user message's field, as CodexUserMessageExtension packs it.
+    public const string ContentItemKinds = "content_item_kinds";
+
     public static Struct Pack<T>(T record, JsonTypeInfo<T> info) => Struct.Parser.ParseJson(JsonSerializer.Serialize(record, info));
 
     public static Struct Nest<T>(string field, T record, JsonTypeInfo<T> info) {

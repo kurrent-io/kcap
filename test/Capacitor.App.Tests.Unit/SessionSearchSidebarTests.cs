@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
@@ -66,6 +67,23 @@ public class SessionSearchSidebarTests {
             });
             h.Scheduler.AdvanceBy(TimeSpan.FromSeconds(1));
             await Assert.That(h.Requests).IsEmpty();
+        });
+    }
+
+    /// Opening search lists the whole sidebar at once; it lands as one swap, not one change per row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Opening_on_a_long_sidebar_fills_the_list_in_one_change() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            for (var i = 0; i < 150; i++) h.Add($"s{i}", $"Session {i}");
+            var changes = 0;
+            ((INotifyCollectionChanged)h.Vm.Hits).CollectionChanged += (_, _) => changes++;
+
+            h.Vm.Refresh();
+
+            await Assert.That(h.Vm.Hits.Count).IsEqualTo(150);
+            await Assert.That(changes).IsEqualTo(1);
         });
     }
 

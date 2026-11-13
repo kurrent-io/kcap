@@ -70,7 +70,7 @@ public sealed class StatusCommand(
         foreach (var h in harnesses) {
             if (!harnesses.Detected(h.Id)) continue;
             if (h.Signals.IsWired) continue;
-            await Line($"           {h.Label} installed but kcap not configured — run `{(baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id))}`");
+            await Line($"           {UnconfiguredLine(h, baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id), harnesses.ResolveExecutable(h.Id) is not null)}");
         }
 
         var activity = new HookActivity(config, time);
@@ -122,11 +122,13 @@ public sealed class StatusCommand(
                 var trust     = h.Id == HarnessId.Codex ? HooksTrustToken(codexTrust) : null;
 
                 // Reinstalling cannot trust a hook, so an untrusted one names no install command.
+                var install = installed && !wired && trust != HookTrustStates.Untrusted ? InstallCommandFor(h.Id) : null;
+
                 return new StatusHarnessJson(
-                    h.VendorId, installed, wired,
-                    installed && !wired && trust != HookTrustStates.Untrusted ? InstallCommandFor(h.Id) : null,
+                    h.VendorId, installed, wired, install,
                     wired ? activity.LastEvent(h.VendorId) : null,
-                    trust);
+                    trust,
+                    install is null ? null : MissingCli(h, harnesses.ResolveExecutable(h.Id) is not null));
             })],
             ReadDaemonEntries(store));
 
@@ -307,6 +309,16 @@ public sealed class StatusCommand(
         remaining.TotalHours > 1
             ? $"expires in {remaining.TotalHours:F0}h"
             : $"expires in {remaining.TotalMinutes:F0}m";
+
+    /// <summary>The CLI a vendor's wiring runs, when it is not on PATH. Such a vendor is found by its app or data too,
+    /// so its install command alone would fail.</summary>
+    internal static string? MissingCli(IHarness h, bool cliOnPath) =>
+        !cliOnPath && h.Signals.NeedsCliToWire ? h.CliBinary : null;
+
+    internal static string UnconfiguredLine(IHarness h, string command, bool cliOnPath) =>
+        MissingCli(h, cliOnPath) is { } cli
+            ? $"{h.Label} found, but {cli} is not on PATH; install it, then run `{command}`"
+            : $"{h.Label} installed but kcap not configured — run `{command}`";
 
     static string InstallCommandFor(HarnessId id) =>
         id.PluginInstallFlag is { } flag ? $"kcap plugin install {flag}" : "kcap plugin install";

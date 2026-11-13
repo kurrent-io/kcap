@@ -51,7 +51,7 @@ public class DaemonConfig {
     public string? KcapCliPath { get; set; } = Core.Mcp.KcapBinaryCommand.ResolveCliSibling();
 
     /// <summary>
-    /// Phase B (D3): backstop lifetime/idle bounds for a hosted review-flow reviewer, enforced
+    /// Backstop lifetime/idle bounds for a hosted review-flow reviewer, enforced
     /// in the daemon heartbeat. A reviewer whose run went terminal on the server without the daemon
     /// hearing about it (or whose driver vanished) is reaped here so it can't hold a slot forever.
     /// Defaults 6h lifetime / 2h idle; <see cref="TimeSpan.Zero"/> disables that bound. Overridden at
@@ -62,7 +62,7 @@ public class DaemonConfig {
     public TimeSpan ReviewerMaxLifetime { get; set; } = TimeSpan.FromHours(6);
     public TimeSpan ReviewerIdleTimeout { get; set; } = TimeSpan.FromHours(2);
 
-    /// <summary>§2.7 B6 arm-A: how long a RESUMABLE hosted reviewer (app-server Codex) may sit idle
+    /// <summary>How long a RESUMABLE hosted reviewer (app-server Codex) may sit idle
     /// between rounds before the daemon PARKS it (freeing the slot, keeping the thread for resume) —
     /// distinct from and shorter than <see cref="ReviewerIdleTimeout"/> (arm-B, the 2h hard reap).</summary>
     public TimeSpan ReviewerResumableIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
@@ -74,7 +74,7 @@ public class DaemonConfig {
     /// <see cref="ReviewerMaxLifetime"/>/<see cref="ReviewerIdleTimeout"/> — the server-sent inactivity
     /// bound gates nothing here (see <c>AgentOrchestrator.FindReviewersToReap</c>).
     ///
-    /// <para>Deliberately NOT sent by the server (spec decision 6): its equivalent
+    /// <para>Deliberately NOT sent by the server: its equivalent
     /// <c>Flows:TurnWedgeCeilingSeconds</c> is independently defaulted on the same 60m (the
     /// <c>kcap watch</c> long-tool envelope) rather than plumbed onto the wire — this is a local safety
     /// net against an evidence-free held turn. <see cref="TimeSpan.Zero"/> disables it. Overridden at
@@ -118,16 +118,16 @@ public class DaemonConfig {
     /// <summary>Whether the resolved profile opted out of the update check; false when nothing was resolved.</summary>
     public bool UpdateCheckOff => _profiles?.Effective?.UpdateCheck == false;
 
-    /// <summary>Phase B (D4): a fresh per-boot epoch (GUID). Written into each spawned child's
+    /// <summary>A fresh per-boot epoch (GUID). Written into each spawned child's
     /// <c>KCAP_DAEMON_EPOCH</c> env marker; the startup env-marker scan kills same-daemon children
     /// whose epoch differs from the current one (i.e. survivors of a prior incarnation). Null → the
     /// orchestrator generates one at construction. <c>DaemonRunner</c> pins this before building
-    /// services (Phase B2-b) so the advertised connect epoch and the orchestrator's own boot epoch
+    /// services so the advertised connect epoch and the orchestrator's own boot epoch
     /// agree.</summary>
     public string? DaemonEpoch { get; set; }
 
     /// <summary>
-    /// Phase B2-b (sequenced-settlement design §4.2.3): the durable coverage boot-chain verdict,
+    /// The durable coverage boot-chain verdict,
     /// folded by <c>CoverageJournal.RecordBoot</c> in <c>DaemonRunner</c> BEFORE any Connect/spawn and
     /// advertised on <c>DaemonConnect</c>. True only where OS containment leaves genuinely no recordless
     /// survivor class (the Windows Job Object); absent/false ⇒ "has a recordless class" (the server
@@ -467,7 +467,7 @@ public class DaemonConfig {
     /// Optional daemon-wide default model for hosted OpenCode agents, resolved against
     /// <c>session/new</c>'s selectable-model list at launch time by <c>AcpModelResolver.Resolve</c>
     /// and applied via <c>session/set_config_option</c> — probe-verified at effect level
-    /// (<c>docs/probes/2026-08-07-opencode-acp/</c> §2: the model self-identified as the requested id).
+    /// (<c>docs/probes/2026-08-07-opencode-acp/</c>: the model self-identified as the requested id).
     /// Overridable via <c>KCAP_OPENCODE_MODEL</c>, mirroring <see cref="KiroModel"/>.
     ///
     /// <para>Ids are <c>provider/model</c> (e.g. <c>opencode/big-pickle</c>), and OpenCode publishes
@@ -577,8 +577,7 @@ public class DaemonConfig {
     /// descriptor is not probe-verified reconnect-capable, a launch that is a review flow, or a
     /// session whose handshake didn't advertise <c>loadSession</c> — a child-process death keeps
     /// today's behavior byte-for-byte: the read loop ends and the agent finalizes. Deliberately the
-    /// only knob: attempts, backoff, and the per-session resume cap are fixed constants
-    /// (reconnect spec §4).
+    /// only knob: attempts, backoff, and the per-session resume cap are fixed constants.
     /// </summary>
     public bool AcpReconnectEnabled { get; set; } = true;
 

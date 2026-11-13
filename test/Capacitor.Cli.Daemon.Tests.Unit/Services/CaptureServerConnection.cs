@@ -536,6 +536,9 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public List<(string AgentId, int? ExitCode)> ShutdownReportExitCodes { get; } = [];
 
+    /// <summary>The daemon process each shutdown report's stop names as holding the run.</summary>
+    public List<(string AgentId, string? RunInstanceId)> ShutdownReportRunInstances { get; } = [];
+
     public List<string> UpdatedTitles { get; } = [];
 
     internal override Task<bool> UpdateTitleAsync(string sessionId, string title, CancellationToken ct) {
@@ -548,13 +551,15 @@ sealed class CaptureServerConnection : ServerConnection {
     public List<string> ShutdownSessionEnds { get; } = [];
 
     protected override async Task SendShutdownReportAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, bool endSession, CancellationToken ct) {
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, bool endSession,
+            CancellationToken ct) {
         lock (ShutdownReports) {
             ShutdownReports.Add((agentId, status, reason, ct.IsCancellationRequested));
             if (endSession) ShutdownSessionEnds.Add(agentId);
         }
 
         lock (ShutdownReportExitCodes) ShutdownReportExitCodes.Add((agentId, exitCode));
+        lock (ShutdownReportRunInstances) ShutdownReportRunInstances.Add((agentId, runInstanceId));
 
         if (ShutdownReportHangs) await Task.Delay(Timeout.Infinite, ct);
         if (ShutdownReportGate is { } gate) await gate.Task.WaitAsync(ct);

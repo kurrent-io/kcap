@@ -1,6 +1,7 @@
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.LogicalTree;
@@ -53,6 +54,17 @@ sealed class SearchWindowHost : IDisposable {
         Dispatcher.UIThread.RunJobs();
         Window.UpdateLayout();
         Dispatcher.UIThread.RunJobs();
+    }
+
+    /// Pointer input is routed by hit-testing the rendered scene, which headless only refreshes when its render timer
+    /// ticks; Windows sometimes needs a second tick before a freshly built row is in it.
+    public void Present() {
+        Settle();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        Window.UpdateLayout();
     }
 
     /// Past the debounce, and the answer applied.

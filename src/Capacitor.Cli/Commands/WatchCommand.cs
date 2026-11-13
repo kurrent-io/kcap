@@ -3,7 +3,10 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Harness.Copilot;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
@@ -251,6 +254,11 @@ class WatchCommand(
         // guarantees the write is observed even though awaits already act as memory
         // barriers in practice.
         var parentExited = 0;
+        var stopRequested = 0;
+        // The run the transcript named when a stop arrived, and when; what follows belongs to whatever runs next.
+        string? stopRunId   = null;
+        var     stopNoted   = 0;
+        long    stopTicks   = 0;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
@@ -298,18 +306,69 @@ class WatchCommand(
         //
         // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
         // waits on any other exit, so these tell the recorder rather than only cancelling.
+        void NoteStopRequest() {
+            Interlocked.Exchange(ref stopRequested, 1);
+
+            if (Interlocked.Exchange(ref stopNoted, 1) != 0) return;
+
+            Interlocked.Exchange(ref stopTicks, time.GetUtcNow().UtcTicks);
+            if (vendor == "copilot") Volatile.Write(ref stopRunId, CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath));
+        }
+
+        // The run this watcher recorded: the one the transcript named when the stop arrived, or names now when the run was
+        // found over some other way. Unreadable, the spans opened by the stop, or by now.
+        WorkspaceRunCutoff RunCutoff() {
+            var ticks = Interlocked.Read(ref stopTicks);
+
+            return new WorkspaceRunCutoff(
+                ticks > 0 ? Volatile.Read(ref stopRunId) : CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath),
+                ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow());
+        }
+
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
+            NoteStopRequest();
             recorder.RequestStop();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
+            NoteStopRequest();
             recorder.RequestStop();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
+            NoteStopRequest();
             recorder.RequestStop();
         });
+
+        // Quitting VS Code terminates the watchers it started, and a session whose sessionEnd hook Copilot skipped has
+        // nothing else to send its end. Any other owner's end may arrive too: the server keeps a session's first.
+        var copilotSession = vendor == "copilot" && agentId is null;
+
+        bool CopilotStopEndApplies() =>
+            copilotSession && Volatile.Read(ref stopRequested) == 1 && !DisabledSessions.IsDisabledByPerson(sessionId, config);
+
+        // The end is held before the wait, which the teardown that stopped this watcher can cut short; a later spool
+        // drain sends it once the runtime has gone or the transcript ends on its shutdown line.
+        async Task<string?> CopilotStopEndAsync(string path) {
+            var held     = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+            var holding  = CopilotPendingEnd.WriteWithRetryAsync(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, HeldEndWriteWindow,
+                RunCutoff().RunId, Environment.ProcessId);
+
+            var reason = await CopilotStopRequestEnd.DecideAsync(
+                () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
+                () => CopilotFinalizeDrainCommand.LastLineIsShutdown(path),
+                time, CopilotStopRequestEnd.Wait);
+
+            // A premature first end is permanent, where a lost one is the server's stale sweep's to recover, so an end that
+            // could not be held for a session not shown over is left unsent.
+            var isHeld = await holding;
+            Log(time, reason is not null ? $"Stopped with the Copilot session over; ending it ({reason})"
+                : isHeld                 ? "Stopped before the Copilot session was over; its end is held for a later spool drain"
+                                         : "Stopped before the Copilot session was over and its end could not be held; leaving it to the server");
+
+            return reason;
+        }
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
         // delivering SIGHUP to us, but if a shell forwards SIGHUP explicitly to
@@ -473,6 +532,7 @@ class WatchCommand(
         try {
             await recorder.RunAsync(cts.Token);
         } catch (OperationCanceledException) when (transport.StoppedBeforeConnect) {
+            var earlyRun = RunCutoff();
             await hubConnection.DisposeAsync();
 
             // A watcher stopped before it connected is still the one the Muse hook may have handed an
@@ -487,6 +547,11 @@ class WatchCommand(
                 }
             }
 
+            if (CopilotStopEndApplies() && await CopilotStopEndAsync(transcriptPath) is { } early) {
+                watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
+                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early, earlyRun);
+            }
+
             await logWriter.DisposeAsync();
 
             return 0;
@@ -499,6 +564,9 @@ class WatchCommand(
             state.BufferedLines.Clear();
             state.BufferedLineNumbers.Clear();
         }
+
+        // Before the final drain and any post or wait, each of which a replacement run can start during.
+        var run = RunCutoff();
 
         await recorder.FinishAsync(CancellationToken.None);
 
@@ -530,6 +598,8 @@ class WatchCommand(
             idle:          recorder.EndedIdle,
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
             copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
+
+        if (endReason is null && CopilotStopEndApplies()) endReason = await CopilotStopEndAsync(transcriptPath);
 
         // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the
         // sessionEnd hook or the server's lease-gated sweep, and posting here would race whichever fires.
@@ -571,7 +641,8 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
-                    await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
+                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason, run);
+                    else await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
         }
@@ -579,6 +650,26 @@ class WatchCommand(
         await logWriter.DisposeAsync();
 
         return 0;
+    }
+
+    // Within the 5 s KillWatcher gives a stopping watcher before it force-kills.
+    static readonly TimeSpan HeldEndWriteWindow = TimeSpan.FromSeconds(4);
+
+    /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
+    /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>
+    /// <param name="run">The run this watcher recorded, taken before any wait or post: a replacement run's spans are not
+    /// this end's to close.</param>
+    internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, WorkspaceRunCutoff run) {
+        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
+
+        // Recording may have been turned off during the stop wait or the drain, and the end carries the session's paths.
+        if (DisabledSessions.IsDisabledByPerson(sessionId, config)) {
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
+            return;
+        }
+
+        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
     }
 
     /// <summary>
@@ -611,7 +702,8 @@ class WatchCommand(
             string?            cwd,
             string             vendor,
             RepositoryPayload? repository,
-            string             reason = "parent_exited"
+            string             reason = "parent_exited",
+            WorkspaceRunCutoff? run        = null
         ) {
         if (!KnownVendors.Contains(vendor)) {
             Log(time, $"Parent-exit session-end skipped: unknown vendor '{vendor}'");
@@ -701,7 +793,11 @@ class WatchCommand(
         // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:
         // a vendor without turn hooks opened its span at SessionStart, and one with them may have died mid-turn.
         // Its drain is bounded, and is the last chance a session with no other hook gets.
-        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
+        // A run cutoff keeps this end to its own run's spans, should a later run already have opened one.
+        if (posted) {
+            var spans = new WorkspaceSpanHook(config, profiles, http, time);
+            await (run is not null ? spans.EndRunAsync(sessionId, run, WorkspaceEndCap) : spans.EndAsync(sessionId, WorkspaceEndCap));
+        }
 
         return posted;
     }

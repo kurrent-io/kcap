@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Monotonic per-agent activity clock (liveness-supervision spec §0/§1). One instance per launch — a
+/// Monotonic per-agent activity clock. One instance per launch — a
 /// relaunch gets a fresh one — fed by PTY output chunks, ACP transcript envelopes, ACP turn
 /// start/end, Antigravity's and Pi's own <c>agentActivity</c>-flagged advances, two independent
 /// <c>LocalPermissionBridge</c> reviewer tool-call-hit sites, and (round-dispatch grace) a
@@ -120,14 +120,14 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
         get { lock (_gate) return _launchStage; }
     }
 
-    /// <summary>Fires the out-of-cycle status report (spec §1). Invoked OUTSIDE <see cref="_gate"/>,
+    /// <summary>Fires the out-of-cycle status report. Invoked OUTSIDE <see cref="_gate"/>,
     /// exactly once per GENUINE <see cref="SetLaunchStage"/> transition — never on a same-value re-set,
     /// and never from the other mutators; at most 4 per launch, so no cadence concern. Settable
     /// post-construction because the clock exists before the runtime that stamps stages does.</summary>
     public Action? OnLaunchStageChanged { get; set; }
 
     /// <summary>Monotonic elapsed time since the last <see cref="Advance"/>, sampled fresh on every
-    /// read — never a value stamped once and reused. Spec §0's confirmed-idle rule depends on that:
+    /// read — never a value stamped once and reused. The confirmed-idle rule depends on that:
     /// a status report attests silence measured AT report creation.</summary>
     public ulong IdleForMs {
         get {
@@ -509,7 +509,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     }
 
     /// <summary>Clears the stage stamp once the agent reaches Running — its absence from then on is
-    /// the steady-state, not a missing capability (spec §2).</summary>
+    /// the steady-state, not a missing capability.</summary>
     public void ClearLaunchStage() {
         lock (_gate) {
             _launchStage = null;

@@ -516,6 +516,7 @@ public class LocalInstallerTests {
         ], CollectionOrdering.Matching);
         await Assert.That(_events.Reports.OfType<LocalInstallEvent.Reused>().Single()).IsEqualTo(new LocalInstallEvent.Reused(first.ServerUrl, Version));
         await Assert.That(ConfigMutator.LoadPure(ConfigPath).Profiles["default"].ServerUrl).IsEqualTo(first.ServerUrl);
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.Starting>().Single().AlreadyRunning).IsTrue();
     }
 
     [Test]
@@ -591,6 +592,7 @@ public class LocalInstallerTests {
         await Assert.That(_log).DoesNotContain("start");
         await Assert.That(Service.Installed!.Embedding?.Model).IsEqualTo(OllamaClient.DefaultModel);
         await Assert.That(EventAt<LocalInstallEvent.EmbeddingsConfigured>()).IsLessThan(EventAt<LocalInstallEvent.Starting>());
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.Starting>().Single().AlreadyRunning).IsFalse();
     }
 
     [Test]

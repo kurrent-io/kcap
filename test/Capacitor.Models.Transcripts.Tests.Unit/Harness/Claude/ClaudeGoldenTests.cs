@@ -8,7 +8,8 @@ namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.Claude;
 
 /// <summary>The whole projection of a synthetic transcript that exercises every server rule at once —
 /// usage and its memory across records, multi-block and multi-result records, a rejected line, images,
-/// origin fields and the fallback id — compared against a reviewed golden file. Run with
+/// origin fields, the fallback id, a cancelled prompt and compaction boundaries — compared against a
+/// reviewed golden file. Run with
 /// <c>KCAP_UPDATE_GOLDEN=1</c> to rewrite the golden after a deliberate change, then review the diff.</summary>
 public class ClaudeGoldenTests {
     static readonly DateTimeOffset Received = new(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
@@ -42,12 +43,19 @@ public class ClaudeGoldenTests {
         ["id"]             = e.EventId.ToString(),
         ["causedBy"]       = e.CausedBy,
         ["recordTimestamp"] = e.RecordTimestamp,
-        ["payload"]        = JsonNode.Parse(JsonFormatter.Default.Format((IMessage)e.Payload)),
+        ["payload"]        = Payload(e.Payload),
         ["usage"]          = e.Usage is null ? null : JsonNode.Parse(JsonFormatter.Default.Format(e.Usage)),
         ["cacheCreation"]  = e.CacheCreationTokens,
         ["attachments"]    = e.Attachments is null ? null : new JsonArray([.. e.Attachments.Select(a => (JsonNode)new JsonObject {
             ["id"] = a.Id.ToString(), ["fileName"] = a.FileName, ["contentType"] = a.ContentType, ["bytes"] = a.Data.Length,
         })]),
+    };
+
+    static JsonNode? Payload(object payload) => payload switch {
+        IMessage message                    => JsonNode.Parse(JsonFormatter.Default.Format(message)),
+        ContextCompactedEvent compacted     => JsonNode.Parse(JsonSerializer.Serialize(compacted, TranscriptEventJsonContext.Default.ContextCompactedEvent)),
+        UserMessageRetractedEvent retracted => JsonNode.Parse(JsonSerializer.Serialize(retracted, TranscriptEventJsonContext.Default.UserMessageRetractedEvent)),
+        _ => throw new InvalidOperationException($"No rendering for {payload.GetType().Name}"),
     };
 
     static string SourceDir([CallerFilePath] string path = "") => Path.GetDirectoryName(path)!;

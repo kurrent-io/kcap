@@ -22,6 +22,11 @@ public sealed record CodexUsageBackfilledEvent {
     [JsonPropertyName("reasoning_tokens")]
     public long? ReasoningTokens { get; init; }
 
+    /// Billed apart from InputTokens. Stored events that counted their cache writes inside
+    /// InputTokens have none, and must keep folding as zero here.
+    [JsonPropertyName("cache_write_tokens")]
+    public long? CacheWriteTokens { get; init; }
+
     [JsonPropertyName("model_context_window")]
     public long? ModelContextWindow { get; init; }
 
@@ -33,6 +38,8 @@ public sealed record CodexUsageBackfilledEvent {
     [JsonPropertyName("targets")]
     public List<CodexUsageBackfillTarget> Targets { get; init => field = value ?? []; } = [];
 
+    /// Zero for a backfill with neither targets nor occupancy: a hosted agent's usage delta, which can
+    /// span many model calls, so its input is no context fill.
     [JsonIgnore]
-    public long PeakCandidateTokens => OccupancyTokens ?? InputTokens + CacheReadTokens;
+    public long PeakCandidateTokens => OccupancyTokens ?? (Targets.Count > 0 ? InputTokens + CacheReadTokens + (CacheWriteTokens ?? 0) : 0);
 }

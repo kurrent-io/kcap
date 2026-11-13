@@ -38,7 +38,11 @@ internal static class CodingAgentsStep {
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every shell-form
     /// hook through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null);
+    /// <param name="KiroCli">Whether <c>kiro-cli</c> is on PATH. Kiro is detected by its IDE or its data too, but only
+    /// the CLI can clone the default agent kcap's hooks ride on.</param>
+    /// <param name="KiroAgentCloned">Whether kcap's Kiro agent is already cloned: a refresh of it needs no
+    /// <c>kiro-cli</c>, and still makes it the default agent.</param>
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null, bool KiroCli = false, bool KiroAgentCloned = false);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -77,20 +81,20 @@ internal static class CodingAgentsStep {
         );
 
     internal record Installers(
-            Func<string /*settingsPath*/, string /*pluginDir*/, bool> InstallClaudePlugin,
-            Func<string /*hooksPath*/, bool>                          InstallCodexHooks,
-            Func<string /*hooksPath*/, bool>                          InstallCursorHooks,
-            Func<string /*hooksPath*/, bool>                          InstallCopilotHooks,
-            Func<string /*settingsPath*/, bool>                       InstallGeminiHooks,
+            Func<string /*settingsPath*/, string /*pluginDir*/, SettingsEdit> InstallClaudePlugin,
+            Func<string /*hooksPath*/, SettingsEdit>                  InstallCodexHooks,
+            Func<string /*hooksPath*/, SettingsEdit>                  InstallCursorHooks,
+            Func<string /*hooksPath*/, SettingsEdit>                  InstallCopilotHooks,
+            Func<string /*settingsPath*/, SettingsEdit>               InstallGeminiHooks,
             Func<bool>                                                CapacitorOnPath,
             Func<string /*srcDir*/, string /*dstDir*/, SkillsInstallFailure?> InstallAgentSkills,
             Func<string /*legacyDir*/, bool>                          CleanLegacyCodexSkills,
-            Func<string /*agentJsonPath*/, bool>?                     InstallKiroHooks = null,
-            Func<string /*extensionPath*/, bool>?                     InstallPiExtension = null,
-            Func<string /*pluginPath*/, bool>?                        InstallOpenCodeExtension = null,
+            Func<string /*agentJsonPath*/, SettingsEdit>?             InstallKiroHooks = null,
+            Func<string /*extensionPath*/, SettingsEdit>?             InstallPiExtension = null,
+            Func<string /*pluginPath*/, SettingsEdit>?                InstallOpenCodeExtension = null,
             Func<CodexConfigToml.Change>?                            EnableCodexNetworkAccess = null,
             Func<CodexConfigToml.Change>?                            RegisterCodexMcp = null,
-            Func<string /*hooksPath*/, bool>?                        InstallAntigravityHooks = null,
+            Func<string /*hooksPath*/, SettingsEdit>?                InstallAntigravityHooks = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterCursorMcp = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterCopilotMcp = null,
             Func<AgentInstructionsWriter.Change>?                    InstallCopilotInstructions = null,
@@ -102,13 +106,13 @@ internal static class CodingAgentsStep {
             Func<JsonMcpConfigWriter.Change>?                        RegisterOpenCodeMcp = null,
             Func<AgentInstructionsWriter.Change>?                    InstallOpenCodeInstructions = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterKiroMcp = null,
-            Func<string /*mcpExtensionPath*/, bool>?                 InstallPiMcp = null,
+            Func<string /*mcpExtensionPath*/, SettingsEdit>?         InstallPiMcp = null,
             Func<AgentInstructionsWriter.Change>?                    InstallPiInstructions = null,
             Func<KiroCrewHookInstaller.Outcome>?                     InstallKiroCrewHook = null,
-            Func<string /*hooksTomlPath*/, bool>?                    InstallVibeHooks = null,
+            Func<string /*hooksTomlPath*/, SettingsEdit>?            InstallVibeHooks = null,
             Func<TomlConfigFile.Outcome>?                           RegisterVibeMcp = null,
-            Func<string /*hooksJsonPath*/, bool>?                    InstallGrokHooks = null,
-            Func<string /*settingsPath*/, bool>?                     InstallMuseHooks = null,
+            Func<string /*hooksJsonPath*/, SettingsEdit>?            InstallGrokHooks = null,
+            Func<string /*settingsPath*/, SettingsEdit>?             InstallMuseHooks = null,
             Func<bool>?                                              CopilotHooksNeedPath = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
@@ -150,6 +154,10 @@ internal static class CodingAgentsStep {
             bool MuseHooksInstalled = false,
             bool MuseMcpRegistered = false
         ) {
+        /// <summary>Files an installer found already current. Their harness still counts as installed; the files are
+        /// left out of <see cref="InstalledPaths"/>, which lists only what this run wrote.</summary>
+        internal IReadOnlySet<string> UnchangedPaths { get; init; } = FrozenSet<string>.Empty;
+
         /// <summary>
         /// True when at least one agent's hooks were installed — i.e. there's a
         /// session that will start streaming on the agent's next launch. Skills-only
@@ -173,40 +181,42 @@ internal static class CodingAgentsStep {
             if (done && !string.IsNullOrEmpty(path) && !paths.Contains(path)) paths.Add(path);
         }
 
-        Add(r.ClaudeInstalled, p.ClaudeSettingsPath);
-        Add(r.CodexHooksInstalled, p.CodexHooksPath);
+        bool Wrote(bool installed, string path) => installed && !r.UnchangedPaths.Contains(path);
+
+        Add(Wrote(r.ClaudeInstalled, p.ClaudeSettingsPath), p.ClaudeSettingsPath);
+        Add(Wrote(r.CodexHooksInstalled, p.CodexHooksPath), p.CodexHooksPath);
         Add(r.CodexNetworkAccessApplied || r.CodexMcpRegistered, p.CodexConfigTomlPath);
         Add(r.AgentSkillsInstalled, p.AgentsSkillsDir);
-        Add(r.CursorHooksInstalled, p.CursorHooksPath);
+        Add(Wrote(r.CursorHooksInstalled, p.CursorHooksPath), p.CursorHooksPath);
         Add(r.CursorMcpRegistered, p.CursorMcpPath);
-        Add(r.CopilotHooksInstalled, p.CopilotHooksPath);
+        Add(Wrote(r.CopilotHooksInstalled, p.CopilotHooksPath), p.CopilotHooksPath);
         Add(r.CopilotMcpRegistered, p.CopilotMcpPath);
         Add(r.CopilotInstructionsInstalled, p.CopilotInstructionsPath);
-        Add(r.GeminiHooksInstalled || r.GeminiMcpRegistered, p.GeminiSettingsPath);
+        Add(Wrote(r.GeminiHooksInstalled, p.GeminiSettingsPath) || r.GeminiMcpRegistered, p.GeminiSettingsPath);
         Add(r.GeminiInstructionsInstalled, p.GeminiInstructionsPath);
-        Add(r.KiroHooksInstalled, p.KiroHooksPath);
-        if (r.KiroHooksInstalled && p.KiroHooksPath.Length > 0)
+        Add(Wrote(r.KiroHooksInstalled, p.KiroHooksPath), p.KiroHooksPath);
+        if (Wrote(r.KiroHooksInstalled, p.KiroHooksPath) && p.KiroHooksPath.Length > 0)
             Add(true, PluginCommand.KiroSettingsPathFor(p.KiroHooksPath));
         Add(r.KiroMcpRegistered, p.KiroMcpPath);
         Add(r.KiroSkillsInstalled, p.KiroSkillsDir);
         Add(r.KiroCrewHookInstalled, p.KiroCrewHookScript);
         Add(r.KiroCrewSkillsInstalled, p.KiroCrewSkillsDir);
-        Add(r.PiExtensionInstalled, p.PiExtensionPath);
-        Add(r.PiMcpInstalled, p.PiMcpExtensionPath);
+        Add(Wrote(r.PiExtensionInstalled, p.PiExtensionPath), p.PiExtensionPath);
+        Add(Wrote(r.PiMcpInstalled, p.PiMcpExtensionPath), p.PiMcpExtensionPath);
         Add(r.PiInstructionsInstalled, p.PiAgentsMdPath);
-        Add(r.OpenCodeExtensionInstalled, p.OpenCodeExtensionPath);
+        Add(Wrote(r.OpenCodeExtensionInstalled, p.OpenCodeExtensionPath), p.OpenCodeExtensionPath);
         Add(r.OpenCodeMcpRegistered, p.OpenCodeMcpPath);
         Add(r.OpenCodeInstructionsInstalled, p.OpenCodeInstructionsPath);
-        Add(r.AntigravityHooksInstalled, p.AntigravityHooksPath);
-        if (r.AntigravityHooksInstalled && Path.GetDirectoryName(p.AntigravityHooksPath) is { Length: > 0 } agyDir)
+        Add(Wrote(r.AntigravityHooksInstalled, p.AntigravityHooksPath), p.AntigravityHooksPath);
+        if (Wrote(r.AntigravityHooksInstalled, p.AntigravityHooksPath) && Path.GetDirectoryName(p.AntigravityHooksPath) is { Length: > 0 } agyDir)
             Add(true, Path.Combine(agyDir, AntigravityHooksInstaller.PluginManifestFileName));
         Add(r.AntigravityMcpRegistered, p.AntigravityMcpPath);
         Add(r.AntigravityInstructionsInstalled, p.AntigravityInstructionsPath);
         Add(r.AntigravitySkillsInstalled, p.AntigravitySkillsDir);
-        Add(r.VibeHooksInstalled, p.VibeHooksPath);
+        Add(Wrote(r.VibeHooksInstalled, p.VibeHooksPath), p.VibeHooksPath);
         Add(r.VibeMcpRegistered, p.VibeConfigPath);
-        Add(r.GrokHooksInstalled, p.GrokHooksPath);
-        Add(r.MuseHooksInstalled || r.MuseMcpRegistered, p.MuseSettingsPath);
+        Add(Wrote(r.GrokHooksInstalled, p.GrokHooksPath), p.GrokHooksPath);
+        Add(Wrote(r.MuseHooksInstalled, p.MuseSettingsPath) || r.MuseMcpRegistered, p.MuseSettingsPath);
 
         return paths;
     }
@@ -239,6 +249,9 @@ internal static class CodingAgentsStep {
 
             return Task.FromResult(new Result(false, false, false, false, false));
         }
+
+        var unchanged = new HashSet<string>(StringComparer.Ordinal);
+        installers = Tracking(installers, unchanged);
 
         var claudeInstalled       = HandleClaude(options, detected, paths, installers, writeLine);
         var codexHooksInstalled   = HandleCodexHooks(options, detected, paths, installers, writeLine);
@@ -335,9 +348,51 @@ internal static class CodingAgentsStep {
                 GrokHooksInstalled: grokHooksInstalled,
                 MuseHooksInstalled: museHooksInstalled,
                 MuseMcpRegistered: museMcpRegistered
-            )
+            ) { UnchangedPaths = unchanged }
         );
     }
+
+    /// <summary>Notes the path of every install that found its file already current.</summary>
+    static Installers Tracking(Installers i, ISet<string> unchanged) {
+        SettingsEdit Note(SettingsEdit edit, string path) {
+            if (edit == SettingsEdit.Unchanged) unchanged.Add(path);
+
+            return edit;
+        }
+
+        Func<string, SettingsEdit>? Wrap(Func<string, SettingsEdit>? install) =>
+            install is null ? null : path => Note(install(path), path);
+
+        return i with {
+            InstallClaudePlugin      = (settings, plugin) => Note(i.InstallClaudePlugin(settings, plugin), settings),
+            InstallCodexHooks        = Wrap(i.InstallCodexHooks)!,
+            InstallCursorHooks       = Wrap(i.InstallCursorHooks)!,
+            InstallCopilotHooks      = Wrap(i.InstallCopilotHooks)!,
+            InstallGeminiHooks       = Wrap(i.InstallGeminiHooks)!,
+            InstallKiroHooks         = Wrap(i.InstallKiroHooks),
+            InstallPiExtension       = Wrap(i.InstallPiExtension),
+            InstallOpenCodeExtension = Wrap(i.InstallOpenCodeExtension),
+            InstallAntigravityHooks  = Wrap(i.InstallAntigravityHooks),
+            InstallPiMcp             = Wrap(i.InstallPiMcp),
+            InstallVibeHooks         = Wrap(i.InstallVibeHooks),
+            InstallGrokHooks         = Wrap(i.InstallGrokHooks),
+            InstallMuseHooks         = Wrap(i.InstallMuseHooks),
+        };
+    }
+
+    static bool Installed(SettingsEdit edit) => edit is SettingsEdit.Changed or SettingsEdit.Unchanged;
+
+    static string AlreadyInstalledLine(string what) => $"  [dim]· {what} already installed — no change needed[/]";
+
+    /// <summary>Names only what the skip flags leave to install, so the line never promises a skipped part.</summary>
+    internal static string KiroCliMissingLine(bool skipMcp, bool skipSkills) =>
+        "kiro-cli is not on PATH, so kcap cannot make its agent your default: Kiro CLI sessions are not recorded."
+      + (skipMcp, skipSkills) switch {
+            (false, false) => " MCP servers and skills are still installed.",
+            (false, true)  => " MCP servers are still installed.",
+            (true, false)  => " Skills are still installed.",
+            _              => "",
+        };
 
     static bool HandleKiroHooks(
             Options            options,
@@ -355,7 +410,7 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        writeLine("  [green]✓[/] Kiro CLI detected");
+        writeLine(detected.KiroCli ? "  [green]✓[/] Kiro CLI detected" : "  [green]✓[/] Kiro detected");
 
         // Both flags → nothing will be written (no agent clone, no MCP), so short-circuit with the
         // accurate message BEFORE the PATH precheck — that check only matters when we'd write a
@@ -389,16 +444,27 @@ internal static class CodingAgentsStep {
         // registers even if the clone below fails.
         selected = true;
 
-        var ok = installers.InstallKiroHooks?.Invoke(paths.KiroHooksPath) ?? false;
+        // An agent already cloned needs no kiro-cli to refresh.
+        if (!detected.KiroCli && !File.Exists(paths.KiroHooksPath)) {
+            writeLine($"  [dim]· {Markup.Escape(KiroCliMissingLine(options.SkipKiroMcp, options.SkipKiroSkills))}[/]");
 
-        if (!ok) {
+            return false;
+        }
+
+        var edit = installers.InstallKiroHooks?.Invoke(paths.KiroHooksPath) ?? SettingsEdit.Failed;
+
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not set up the Kiro agent hooks (needs kiro-cli on PATH to clone your default agent; the clone or default-agent update may have failed).");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Kiro hooks installed ({Markup.Escape(paths.KiroHooksPath)})");
-        writeLine("  [dim]  Note: Kiro loads agent hooks at startup — restart any running kiro session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Kiro hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Kiro hooks installed ({Markup.Escape(paths.KiroHooksPath)})");
+            writeLine("  [dim]  Note: Kiro loads agent hooks at startup — restart any running kiro session to pick them up.[/]");
+        }
 
         return true;
     }
@@ -594,16 +660,20 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        var ok = installers.InstallCopilotHooks(paths.CopilotHooksPath);
+        var edit = installers.InstallCopilotHooks(paths.CopilotHooksPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write Copilot hooks file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Copilot hooks installed ({Markup.Escape(paths.CopilotHooksPath)})");
-        writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Copilot hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Copilot hooks installed ({Markup.Escape(paths.CopilotHooksPath)})");
+            writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session, and quit and reopen VS Code, to pick them up[/]");
+        }
 
         return true;
     }
@@ -662,9 +732,9 @@ internal static class CodingAgentsStep {
 
         selected = true;  // opted in + kcap on PATH → GEMINI.md may install even if the hook write fails
 
-        var ok = installers.InstallGeminiHooks(paths.GeminiSettingsPath);
+        var edit = installers.InstallGeminiHooks(paths.GeminiSettingsPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not install Gemini hooks — ensure settings.json is valid JSON (left untouched).");
 
             return false;
@@ -675,8 +745,12 @@ internal static class CodingAgentsStep {
         // the MCP write would fail too. Everywhere else the two are separate files.
         toolsEligible = true;
 
-        writeLine($"  [green]✓[/] Gemini hooks installed ({Markup.Escape(paths.GeminiSettingsPath)})");
-        writeLine("  [dim]  Note: Gemini loads hook config at startup — restart any running gemini session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Gemini hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Gemini hooks installed ({Markup.Escape(paths.GeminiSettingsPath)})");
+            writeLine("  [dim]  Note: Gemini loads hook config at startup — restart any running gemini session to pick them up.[/]");
+        }
 
         return true;
     }
@@ -724,14 +798,20 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        if (installers.InstallVibeHooks is null || !installers.InstallVibeHooks(paths.VibeHooksPath)) {
+        var edit = installers.InstallVibeHooks?.Invoke(paths.VibeHooksPath) ?? SettingsEdit.Failed;
+
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not install Vibe hooks — ensure hooks.toml is valid TOML (left untouched).");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Vibe hooks installed ({Markup.Escape(paths.VibeHooksPath)})");
-        writeLine("  [dim]  Note: Vibe loads hook config at startup — restart any running vibe session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Vibe hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Vibe hooks installed ({Markup.Escape(paths.VibeHooksPath)})");
+            writeLine("  [dim]  Note: Vibe loads hook config at startup — restart any running vibe session to pick them up.[/]");
+        }
 
         return true;
     }
@@ -765,14 +845,20 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        if (installers.InstallGrokHooks is null || !installers.InstallGrokHooks(paths.GrokHooksPath)) {
+        var edit = installers.InstallGrokHooks?.Invoke(paths.GrokHooksPath) ?? SettingsEdit.Failed;
+
+        if (!Installed(edit)) {
             writeLine($"  [yellow]⚠[/] Could not write Grok hooks to {Markup.Escape(paths.GrokHooksPath)}.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Grok hooks installed ({Markup.Escape(paths.GrokHooksPath)})");
-        writeLine("  [dim]  Note: Grok loads hooks at startup — restart any running grok session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Grok hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Grok hooks installed ({Markup.Escape(paths.GrokHooksPath)})");
+            writeLine("  [dim]  Note: Grok loads hooks at startup — restart any running grok session to pick them up.[/]");
+        }
 
         return true;
     }
@@ -845,7 +931,9 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        if (installers.InstallMuseHooks is null || !installers.InstallMuseHooks(paths.MuseSettingsPath)) {
+        var edit = installers.InstallMuseHooks?.Invoke(paths.MuseSettingsPath) ?? SettingsEdit.Failed;
+
+        if (!Installed(edit)) {
             // Hooks and MCP servers share settings.json, so a file that will not take one will not take the other.
             writeLine("  [yellow]⚠[/] Could not install Muse hooks for every event — settings.json must be valid JSON with a hooks object of arrays.");
 
@@ -854,8 +942,12 @@ internal static class CodingAgentsStep {
 
         toolsEligible = true;
 
-        writeLine($"  [green]✓[/] Muse hooks installed ({Markup.Escape(paths.MuseSettingsPath)})");
-        writeLine("  [dim]  Note: Muse loads hook config at startup — restart any running muse session to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Muse hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Muse hooks installed ({Markup.Escape(paths.MuseSettingsPath)})");
+            writeLine("  [dim]  Note: Muse loads hook config at startup — restart any running muse session to pick them up.[/]");
+        }
 
         return true;
     }
@@ -945,16 +1037,20 @@ internal static class CodingAgentsStep {
         selected      = true;
         toolsEligible = true;
 
-        var ok = installers.InstallPiExtension(paths.PiExtensionPath);
+        var edit = installers.InstallPiExtension(paths.PiExtensionPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write the Pi extension file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Pi extension installed ({Markup.Escape(paths.PiExtensionPath)})");
-        writeLine("  [dim]  Note: Pi loads extensions at startup — restart any running pi session to pick it up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Pi extension"));
+        } else {
+            writeLine($"  [green]✓[/] Pi extension installed ({Markup.Escape(paths.PiExtensionPath)})");
+            writeLine("  [dim]  Note: Pi loads extensions at startup — restart any running pi session to pick it up.[/]");
+        }
 
         return true;
     }
@@ -977,8 +1073,12 @@ internal static class CodingAgentsStep {
 
         var path = Markup.Escape(paths.PiMcpExtensionPath);
 
-        if (installers.InstallPiMcp(paths.PiMcpExtensionPath)) {
-            writeLine($"  [green]✓[/] Pi MCP extension installed ([dim]{path}[/])");
+        var edit = installers.InstallPiMcp(paths.PiMcpExtensionPath);
+
+        if (Installed(edit)) {
+            writeLine(edit == SettingsEdit.Unchanged
+                ? AlreadyInstalledLine("Pi MCP extension")
+                : $"  [green]✓[/] Pi MCP extension installed ([dim]{path}[/])");
 
             return true;
         }
@@ -1067,16 +1167,20 @@ internal static class CodingAgentsStep {
 
         if (installers.InstallOpenCodeExtension is null) return false;
 
-        var ok = installers.InstallOpenCodeExtension(paths.OpenCodeExtensionPath);
+        var edit = installers.InstallOpenCodeExtension(paths.OpenCodeExtensionPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write the OpenCode plugin file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] OpenCode plugin installed ({Markup.Escape(paths.OpenCodeExtensionPath)})");
-        writeLine("  [dim]  Note: OpenCode loads plugins at startup — restart any running opencode session to pick it up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("OpenCode plugin"));
+        } else {
+            writeLine($"  [green]✓[/] OpenCode plugin installed ({Markup.Escape(paths.OpenCodeExtensionPath)})");
+            writeLine("  [dim]  Note: OpenCode loads plugins at startup — restart any running opencode session to pick it up.[/]");
+        }
 
         return true;
     }
@@ -1137,16 +1241,20 @@ internal static class CodingAgentsStep {
         selected      = true;
         toolsEligible = true;
 
-        var ok = installers.InstallAntigravityHooks(paths.AntigravityHooksPath);
+        var edit = installers.InstallAntigravityHooks(paths.AntigravityHooksPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write the Antigravity hooks file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Antigravity hooks installed ({Markup.Escape(paths.AntigravityHooksPath)})");
-        writeLine("  [dim]  Note: Antigravity loads hooks at startup — restart it to pick them up.[/]");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Antigravity hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Antigravity hooks installed ({Markup.Escape(paths.AntigravityHooksPath)})");
+            writeLine("  [dim]  Note: Antigravity loads hooks at startup — restart it to pick them up.[/]");
+        }
 
         return true;
     }
@@ -1404,15 +1512,19 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        var ok = installers.InstallCodexHooks(paths.CodexHooksPath);
+        var edit = installers.InstallCodexHooks(paths.CodexHooksPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write Codex hooks file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Codex hooks installed (user: {Markup.Escape(paths.CodexHooksPath)})");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Codex hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Codex hooks installed (user: {Markup.Escape(paths.CodexHooksPath)})");
+        }
 
         return true;
     }
@@ -1559,15 +1671,19 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        var ok = installers.InstallCursorHooks(paths.CursorHooksPath);
+        var edit = installers.InstallCursorHooks(paths.CursorHooksPath);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine("  [yellow]⚠[/] Could not write Cursor hooks file.");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Cursor hooks installed ({Markup.Escape(paths.CursorHooksPath)})");
+        if (edit == SettingsEdit.Unchanged) {
+            writeLine(AlreadyInstalledLine("Cursor hooks"));
+        } else {
+            writeLine($"  [green]✓[/] Cursor hooks installed ({Markup.Escape(paths.CursorHooksPath)})");
+        }
 
         return true;
     }
@@ -1839,15 +1955,17 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        var ok = installers.InstallClaudePlugin(paths.ClaudeSettingsPath, paths.PluginDir);
+        var edit = installers.InstallClaudePlugin(paths.ClaudeSettingsPath, paths.PluginDir);
 
-        if (!ok) {
+        if (!Installed(edit)) {
             writeLine($"  [yellow]⚠[/] Could not update Claude settings file. Install manually inside Claude Code: [cyan]/plugin install {Markup.Escape(paths.PluginDir)}[/]");
 
             return false;
         }
 
-        writeLine($"  [green]✓[/] Claude Code plugin installed ({Markup.Escape(paths.ClaudeScopeLabel)}: {Markup.Escape(paths.ClaudeSettingsPath)})");
+        writeLine(edit == SettingsEdit.Unchanged
+            ? AlreadyInstalledLine("Claude Code plugin")
+            : $"  [green]✓[/] Claude Code plugin installed ({Markup.Escape(paths.ClaudeScopeLabel)}: {Markup.Escape(paths.ClaudeSettingsPath)})");
 
         if (detected.ClaudeHooksViaPowerShell && ClaudePluginHooks.StartThroughShell(paths.PluginDir)) {
             writeLine("  [yellow]⚠[/] Claude Code finds no Git Bash, so it starts each kcap hook through PowerShell, which can take longer than the hook is allowed, and kcap then misses that event.");

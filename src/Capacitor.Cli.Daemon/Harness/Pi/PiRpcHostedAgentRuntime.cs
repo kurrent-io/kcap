@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
@@ -253,6 +254,14 @@ internal sealed class PiRpcHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscr
         // and Pi may answer before WriteLineAsync's continuation even resumes.
         _pumpTask      = RunPumpAsync();
         _handshakeTask = RunHandshakeAsync();
+    }
+
+    readonly HostedAgentCommandsRelay _commandsRelay = new();
+
+    /// <inheritdoc/>
+    public Action<IReadOnlyList<HostedAgentCommand>>? OnCommandsAvailable {
+        get => _commandsRelay.Callback;
+        set => _commandsRelay.Callback = value;
     }
 
     public string Vendor              => "pi";
@@ -541,6 +550,22 @@ internal sealed class PiRpcHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscr
         }
     }
 
+    async Task PublishCommandsAsync() {
+        var id     = NextCommandId();
+        var waiter = RegisterPending(id);
+
+        try {
+            await _process.WriteLineAsync(PiRpc.GetCommandsCommand(id), _ownerToken).ConfigureAwait(false);
+            var response = await waiter.Task.WaitAsync(_readyDeadline, _time).ConfigureAwait(false);
+
+            if (PiCommands.Extract(response.Root) is { Count: > 0 } commands) _commandsRelay.Publish(commands);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Pi: get_commands failed; no commands listed (agentId={AgentId}).", _agentId);
+        } finally {
+            _pending.TryRemove(id, out _);
+        }
+    }
+
     /// <summary>Applies a <c>get_state</c> response. Fails CLOSED on a refused response or a
     /// missing <c>sessionId</c>: reporting <c>""</c> as the session identity would bind the
     /// transcript to nothing, permanently and silently.</summary>
@@ -579,6 +604,8 @@ internal sealed class PiRpcHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscr
 
         ActivityClock?.SetLaunchStage("session_created");
 
+        // Ahead of the barrier, so the listing goes out before any prompt. A reviewer has no composer.
+        if (_guards is null) _ = PublishCommandsAsync();
         _sessionReady.TrySetResult();
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
@@ -51,6 +52,22 @@ public class SessionSearchViewModelTests {
         MatchedField = matched, Snippet = "T \u0002" + id + "\u0003", EndedAt = endedAt,
         RepoOwner = "acme", RepoName = "app", OwnerDisplayName = "Ada Lovelace", OwnerUser = "ada"
     };
+
+    /// A result set lands as one swap, so a long list lays out once rather than once per hit.
+    [Test]
+    public async Task A_result_set_replaces_the_hits_in_one_change() {
+        using var h = new Harness();
+        h.Vm.Query = "local";
+        h.Advance(150);
+        var changes = 0;
+        ((INotifyCollectionChanged)h.Vm.Hits).CollectionChanged += (_, _) => changes++;
+
+        await h.Complete(0, Sessions([.. Enumerable.Range(0, 150).Select(i => $"s{i}")]));
+
+        await Assert.That(h.Vm.Hits.Count).IsEqualTo(150);
+        await Assert.That(changes).IsEqualTo(1);
+        await Assert.That(h.Vm.Hits[0].IsHighlighted).IsTrue();
+    }
 
     [Test]
     public async Task Waits_150ms_after_the_last_keystroke() {

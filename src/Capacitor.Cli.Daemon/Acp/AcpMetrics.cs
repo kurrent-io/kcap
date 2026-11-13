@@ -21,7 +21,7 @@ internal static class AcpMetrics {
     public static readonly Counter<long> ElicitationUnrenderable = Meter.CreateCounter<long>("acp.elicitation_unrenderable");
 
     /// <summary><paramref name="outcome"/> is <c>"resumed"</c>, <c>"exhausted"</c>, or
-    /// <c>"stopped"</c> — the reconnect incident's terminal disposition (reconnect spec §10).</summary>
+    /// <c>"stopped"</c> — the reconnect incident's terminal disposition.</summary>
     public static void RecordReconnect(string outcome) =>
         Reconnects.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
 

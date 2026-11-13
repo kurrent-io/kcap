@@ -18,6 +18,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Composer;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
@@ -217,6 +218,7 @@ public partial class App : Application {
     NotificationSettingsService? _notificationSettings;
     IDesktopNotificationSink? _notificationSink;
     IDesktopNotificationAccess? _notificationAccess;
+    CloseToTrayHint? _closeToTrayHint;
     IDisposable? _notificationAccessPrompt;
     IDisposable? _notificationBadgeSubscription;
     DesktopWindowLifecycle? _windowLifecycle;
@@ -432,6 +434,12 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
+             && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var warning = await RefreshIntegrationsAfterUpdateAsync(install);
+                if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
+            }
             if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
@@ -507,6 +515,23 @@ public partial class App : Application {
 
     Action<UpdateCandidate> HandOver(string entry) => candidate =>
         AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time, _updates?.DaemonLeftStopped == true).Save(_config);
+
+    /// The agents' hooks, MCP servers and skills were installed by the kcap this update replaced, so a launch that
+    /// finishes an update has the new bundled CLI install them again. The marker outlives a failed run, which the
+    /// next launch retries. Scheduled whatever the sign-in state: an expired token still has integrations to
+    /// refresh, and every refresh step is a no-op for an agent kcap was never installed into.
+    async Task<string?> RefreshIntegrationsAfterUpdateAsync(Platform.Windows.VelopackInstall install) {
+        var refresh = new ApplicationIntegrationRefresh(_config, new ProcessRunner(_time));
+        if (_postUpdate is not null) {
+            try {
+                await Task.Run(() => refresh.Schedule(install.Root), _shutdown.Token);
+            } catch (Exception ex) when (ex is not OperationCanceledException) {
+                // Lock timeout, mutex ACL or a marker AV holds open: none of them may fail the launch.
+                Console.Error.WriteLine($"kcap: could not schedule the integration refresh: {ex.Message}");
+            }
+        }
+        return await refresh.RunPendingAsync(install.Root, install.Cli, _shutdown.Token);
+    }
 
     /// Reads what an update left for this launch. A record for another version is an update that did not apply:
     /// Velopack relaunches the old version after a failed apply, so it is reported rather than finished.
@@ -1286,6 +1311,9 @@ public partial class App : Application {
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
         _usageClock = readings.Clock;
         var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
+        var pickers = new ComposerPickers(
+            new FileCatalog(new ProcessRunner(_time), _userHome, _shutdown.Token),
+            new CommandCatalog(ops, shownService.Status, _userHome, _time, _shutdown.Token));
         // The shown status: a planned restart must read as one in the workspace too, not as a dead daemon.
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
             agentId, shownService, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
@@ -1299,6 +1327,7 @@ public partial class App : Application {
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+            pickers: pickers,
             inAppPages: () => inAppPages.IsOn);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
@@ -1338,7 +1367,7 @@ public partial class App : Application {
                 OpenWindow() is { } window ? window.ReopenServerSessionAsync(sessionId, presentation) : Task.FromResult(false),
             notifier: notifier, appServerUrl: profiles?.Resolution.ServerUrl,
             modelCatalog: modelCatalog.Catalog, onUnauthorized: serverLane.ParkSignedOut, time: _time,
-            localMachineId: () => localMachine.Id, accounts: readings, accountMemory: _appState, shutdown: _shutdown.Token);
+            localMachineId: () => localMachine.Id, accounts: readings, accountMemory: _appState, pickers: pickers, shutdown: _shutdown.Token);
         // A session the server lists with no daemon behind it: read-only, so no terminal surface.
         RemoteSessionViewModel? BuildServer(string sessionId) =>
             directory.Rows.Lookup($"server:{sessionId}") is { HasValue: true, Value: var row }
@@ -1353,6 +1382,14 @@ public partial class App : Application {
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
                 : null;
 
+        // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
+        _closeToTrayHint = OperatingSystem.IsWindows()
+            ? new CloseToTrayHint(_appState,
+                // Only Allowed: an access that cannot tell may have no toast to show, and the tooltip is never lost.
+                async () => _notificationSink is not null && _notificationAccess is { } access
+                    && await access.GetAsync() == DesktopNotificationAccess.Allowed,
+                notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
+            : null;
         _coordinator = new MainWindowCoordinator(
             () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1390,10 +1427,12 @@ public partial class App : Application {
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
                 harnessesSettingsAction: _openHarnessesSettings,
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
-                openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
+                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
-            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
+            restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
+            onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
+            onShown: () => _closeToTrayHint?.OnShown());
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
         // close-protected (BeginShutdownPass's rule 1 is the general defense; this is the
@@ -1514,7 +1553,10 @@ public partial class App : Application {
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings,
             finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
-            openLaunchApprovals: launchApprovals.Show);
+            openLaunchApprovals: launchApprovals.Show,
+            toolTipHint: _closeToTrayHint is { } hint
+                ? Observable.FromEvent<string?>(h => hint.TrayHintChanged += h, h => hint.TrayHintChanged -= h).StartWith(hint.TrayHint)
+                : null);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }
@@ -2284,6 +2326,7 @@ public partial class App : Application {
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
             IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
@@ -2343,6 +2386,7 @@ public partial class App : Application {
             listing: remoteAgents?.Listing, daemonAccounts: remoteAgents?.DaemonAccounts, localAccounts: localAccounts,
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
+            pickers: pickers,
             launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);

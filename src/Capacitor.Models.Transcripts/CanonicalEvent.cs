@@ -22,8 +22,14 @@ public sealed record CanonicalEvent(
 public sealed record EventAmendment(Guid TargetEventId, string Slug, Struct Extension);
 
 /// Usage to stamp onto earlier events of the same response cluster; the caller decides which
-/// targets it still holds. Never persisted as itself.
-public sealed record UsageApplied(TokenUsage Usage, Guid AnchorEventId, IReadOnlyList<UsageTarget> Targets);
+/// targets it still holds. Never persisted as itself. CacheCreationTokens rides beside Usage, as
+/// on a CanonicalEvent, because the schema's usage has no slot for cache writes.
+public sealed record UsageApplied(
+        TokenUsage                Usage,
+        Guid                      AnchorEventId,
+        long?                     CacheCreationTokens,
+        IReadOnlyList<UsageTarget> Targets
+    );
 
 public sealed record UsageTarget(Guid EventId, string EventType, string? ToolName, bool IsEcho);
 

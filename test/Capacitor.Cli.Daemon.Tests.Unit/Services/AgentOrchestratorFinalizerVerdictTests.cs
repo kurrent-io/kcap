@@ -411,12 +411,13 @@ public class AgentOrchestratorFinalizerVerdictTests {
     }
 
     /// <summary>A stop reports Completed only once the agent is gone. One whose process outlives the
-    /// terminate is reported Failed, here and on the server, so a live agent never reads as stopped.</summary>
+    /// terminate is reported Failed, here and on the server, so a live agent never reads as stopped. The
+    /// stop names this process, which launched the run and so holds it on the server.</summary>
     [Test]
     public async Task Stop_of_an_agent_that_never_exits_reports_failed_not_completed() {
         var server = new CaptureServerConnection();
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
-            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: c => c.InstanceId = "instance-now");
 
         var agent = orch.SeedAgentForTest("stop-stuck-1", status: "Running", pty: new RecordingPtyProcess());
 
@@ -426,7 +427,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
             .IsEquivalentTo(["Failed"]);
         await Assert.That(agent.Status).IsEqualTo("Failed");
         await Assert.That(server.RunEvents.Single(e => e.AgentId == "stop-stuck-1").Event)
-            .IsEqualTo(new AgentRunStopped("failed", null));
+            .IsEqualTo(new AgentRunStopped("failed", null, "instance-now"));
     }
 
     /// <summary>Overlapping stops of one agent report its ending once, after the last of them settles.</summary>

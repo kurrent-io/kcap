@@ -11,6 +11,7 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// <param name="DaemonBusy">An attempt to start the service is in flight.</param>
 /// <param name="ServiceDetail">What the daemon's last outcome reported beyond the problem itself, or null.</param>
 /// <param name="PathAdded">This setup put kcap on the terminal's PATH, which only terminals opened afterwards see.</param>
+/// <param name="CopilotRecording">Copilot's hooks installed; a VS Code already running may keep the hooks it started with.</param>
 public sealed record DoneFacts(
     IReadOnlyList<string> Recording,
     bool                  CodexRecording,
@@ -24,6 +25,7 @@ public sealed record DoneFacts(
     string?               DashboardUrl = null,
     bool                  DaemonBusy = false,
     string?               ServiceDetail = null,
-    bool                  PathAdded = false) {
+    bool                  PathAdded = false,
+    bool                  CopilotRecording = false) {
     public static readonly DoneFacts Empty = new([], false, false, null, false, "this machine", null);
 }

@@ -20,6 +20,18 @@ public class AppStateStoreTests {
         await Assert.That(state).IsEqualTo(new AppState());
     }
 
+    /// A state file written before the close-to-tray hint existed reads as not yet explained.
+    [Test]
+    public async Task A_state_file_without_the_close_to_tray_flag_reads_it_as_unexplained() {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        File.WriteAllText(path, """{"shim_offered":true}""");
+
+        var state = await new AppStateStore(path).LoadAsync();
+
+        await Assert.That(state.ShimOffered).IsTrue();
+        await Assert.That(state.CloseToTrayExplained).IsFalse();
+    }
+
     [Test]
     public async Task Update_then_fresh_store_load_sees_it() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);

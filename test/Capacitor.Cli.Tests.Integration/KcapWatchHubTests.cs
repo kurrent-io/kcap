@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -79,6 +80,7 @@ public class KcapWatchHubTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_terminate_signal_drains_before_exit() {
         await using var hub        = await WatcherHubHost.StartAsync();
         var             sessionId  = NewSession();
@@ -99,14 +101,14 @@ public class KcapWatchHubTests {
 
     [Test]
     public async Task A_watcher_connects_once_the_hub_comes_up() {
-        var port       = WatcherHubHost.ReservePort();
+        await using var hub = await WatcherHubHost.StartAsync(down: true);
         var transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
 
-        await using var watcher = await StartWatcherAsync($"http://127.0.0.1:{port}", NewSession(), transcript);
+        await using var watcher = await StartWatcherAsync(hub.Url, NewSession(), transcript);
 
         await watcher.WaitForLogAsync("SignalR connect failed", "the first failed connect");
 
-        await using var hub = await WatcherHubHost.StartAsync(port);
+        hub.ComeUp();
         await hub.WaitForAsync(h => h.ReceivedLineNumbers.Count >= 2, "the lines, once the hub is up");
 
         await Assert.That(Numbers(hub.ReceivedLineNumbers)).IsEqualTo("0,1");
@@ -116,11 +118,12 @@ public class KcapWatchHubTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_stop_before_connect_exits_early() {
-        var port       = WatcherHubHost.ReservePort();
+        await using var hub = await WatcherHubHost.StartAsync(down: true);
         var transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
 
-        await using var watcher = await StartWatcherAsync($"http://127.0.0.1:{port}", NewSession(), transcript);
+        await using var watcher = await StartWatcherAsync(hub.Url, NewSession(), transcript);
 
         await watcher.WaitForLogAsync("SignalR connect failed", "the first failed connect");
         watcher.SignalTerm();
@@ -136,6 +139,7 @@ public class KcapWatchHubTests {
     /// <summary>The connect has left the client, so this is not a stop before connect: nobody can say nothing was
     /// registered, and the watcher fails as it always has, without waiting for the server's answer.</summary>
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/kill
     public async Task A_stop_while_the_server_holds_the_connect_fails_the_watcher() {
         await using var hub        = await WatcherHubHost.StartAsync();
         var             landed     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
