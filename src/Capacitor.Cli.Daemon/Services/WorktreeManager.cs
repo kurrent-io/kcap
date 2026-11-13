@@ -677,9 +677,7 @@ public partial class WorktreeManager(
             await CheckoutInTargetContextAsync(created.Path, () => RefuseIfRepositoryMovedAsync(created.SourceRepo, pinned, pinnedCommonDir));
             RefuseIfSourceMoved(created.SourceRepo, pinned);
             StripWorkspaceMcpConfig(created.Path);
-            var caseSensitive = ProbeCaseSensitiveFileSystem(created.Path);
-            await SkipReservedIndexEntriesAsync(
-                created.Path, PlanSnapshotExclusions("", caseSensitive), caseSensitive, time, CancellationToken.None);
+            await SkipStrippedIndexEntriesAsync(created.Path);
             RecordDaemonBaseline(created.Path);
         } catch {
             // A half-created worktree holds nothing of the agent's: its empty index reads as every file deleted.
@@ -1761,29 +1759,18 @@ public partial class WorktreeManager(
             right.TryGetValue(pair.Key, out var other) && pair.Value.Mode == other.Mode &&
             pair.Value.Length == other.Length && pair.Value.Hash.AsSpan().SequenceEqual(other.Hash));
 
-    /// <summary>Hides the excluded config paths from the snapshot's git status, and keeps
-    /// <c>.attached/</c> out of it.</summary>
-    static async Task ApplyReservedIndexPolicyAsync(
-            string destination, SnapshotExclusionPlan plan, bool caseSensitive, TimeProvider time,
-            CancellationToken ct) {
-        await SkipReservedIndexEntriesAsync(destination, plan, caseSensitive, time, ct);
-
-        Directory.CreateDirectory(Path.Combine(destination, ".git", "info"));
-        File.AppendAllText(Path.Combine(destination, ".git", "info", "exclude"), "\n.attached/\n");
-    }
-
-    /// <summary>Marks every index entry the plan reserves <c>skip-worktree</c>, so a config file the daemon
-    /// removed or never materialised is not reported, staged or committed as a deletion — a deletion an
-    /// agent would otherwise review, or commit, as if the branch had made it.
+    /// <summary>Marks every index entry the plan reserves <c>skip-worktree</c>, so a config file the snapshot
+    /// never materialised is not reported, staged or committed as a deletion — a deletion a reviewer would
+    /// otherwise read as the branch's.
     ///
-    /// <para>Reads the tree's own index: in a snapshot, a path staged but uncommitted in the source is
-    /// absent here, and naming it would fail <c>update-index</c>. Membership comes from that listing, so
-    /// an <c>update-index</c> failure is real and propagates.</para>
+    /// <para>Reads the destination's own index: a path staged but uncommitted in the source is absent here,
+    /// and naming it would fail <c>update-index</c>. Membership comes from that listing, so an
+    /// <c>update-index</c> failure is real and propagates.</para>
     ///
     /// <para>Paths go on stdin, not argv: the expanded set grows with cwd depth past <c>ARG_MAX</c>, and
     /// <c>--stdin</c> paths are literal where an argv path starting with <c>:</c> or <c>-</c> is
     /// not.</para></summary>
-    static async Task SkipReservedIndexEntriesAsync(
+    static async Task ApplyReservedIndexPolicyAsync(
             string destination, SnapshotExclusionPlan plan, bool caseSensitive, TimeProvider time,
             CancellationToken ct) {
         var indexListing = await RunGitCaptureBytes(destination, GitTimeout, time, false, ct, "ls-files", "-z");
@@ -1802,7 +1789,46 @@ public partial class WorktreeManager(
 
         if (targets.Count > 0)
             await RunGitWithNulStdinAsync(
-                destination, GitTimeout, time, targets, ct, "update-index", "--skip-worktree", "-z", "--stdin");
+                destination, GitTimeout, time, targets, ct, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
+
+        Directory.CreateDirectory(Path.Combine(destination, ".git", "info"));
+        File.AppendAllText(Path.Combine(destination, ".git", "info", "exclude"), "\n.attached/\n");
+    }
+
+    /// <summary>Marks what the strip removed from an owned worktree <c>skip-worktree</c>, so the removal is not
+    /// reported, staged or committed as the branch deleting it.
+    ///
+    /// <para>Runs on a fresh checkout, so a tracked path now missing was removed by the strip. It is marked
+    /// only when it is a config path, under one, or a link the strip unlinked on the way to one: content a
+    /// link pointed at stays visible. Writing the index fires <c>post-index-change</c>, hence the hook
+    /// override.</para></summary>
+    async Task SkipStrippedIndexEntriesAsync(string worktreePath) {
+        var caseSensitive = ProbeCaseSensitiveFileSystem(worktreePath);
+        var reserved      = PlanSnapshotExclusions("", caseSensitive).Reserved;
+        var missing       = await RunGitCaptureBytes(
+            worktreePath, GitTimeout, time, false, CancellationToken.None, "ls-files", "-d", "-z");
+
+        var targets = SplitNulRecords(missing)
+            .Where(record => ClassifyReservedPath(record.Span, reserved, caseSensitive).Kind != ReservedPathMatchKind.Unrelated
+                          || RoutesToReservedPath(record.Span, reserved, caseSensitive))
+            .Select(record => StrictUtf8.GetString(record.Span))
+            .ToList();
+
+        if (targets.Count > 0)
+            await RunGitWithNulStdinAsync(
+                worktreePath, GitTimeout, time, targets, CancellationToken.None, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
+    }
+
+    /// <summary>Whether <paramref name="rawPath"/> is a proper ancestor of a reserved path.</summary>
+    static bool RoutesToReservedPath(
+            ReadOnlySpan<byte> rawPath, (string Canonical, byte[] Bytes)[] reserved, bool caseSensitive) {
+        foreach (var candidate in reserved)
+            if (candidate.Bytes.Length > rawPath.Length && candidate.Bytes[rawPath.Length] == (byte)'/'
+             && AsciiPathEquals(rawPath, candidate.Bytes.AsSpan(0, rawPath.Length), caseSensitive))
+                return true;
+        return false;
     }
 
     static FileStream OpenSequentialRead(string path) => new(path, new FileStreamOptions {
