@@ -124,6 +124,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     bool _recheckAfterLaunch;
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
+    bool _sourceModelRead;
     string? _checkout;
     ProbePlan? _plan;
     bool _originChecked;
@@ -561,6 +562,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                     _ => ContextUnavailable,
                 });
             _context = fetched;
+        }
+        // Read once: a later check must not move a chip the user has been looking at.
+        if (!_sourceModelRead) {
+            var summary = await _sessions.ReadSummaryAsync(_session.SessionId, ct);
+            _sourceModelRead = true;
+            _choices.SeedModel(summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source.Model : null);
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);

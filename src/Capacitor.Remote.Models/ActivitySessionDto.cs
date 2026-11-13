@@ -7,6 +7,7 @@ public sealed record ActivitySessionDto {
     [JsonPropertyName("session_id")]    public required string SessionId { get; init; }
     [JsonPropertyName("slug")]          public string? Slug { get; init; }
     [JsonPropertyName("title")]         public string? Title { get; init; }
+    [JsonPropertyName("model")]         public string? Model { get; init; }
     [JsonPropertyName("vendor")]        public string? Vendor { get; init; }
     [JsonPropertyName("cwd")]           public string? Cwd { get; init; }
     /// "active" or "ended".

@@ -20,6 +20,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _catalog;
     readonly AccountChooser _accounts;
     readonly AppStateStore? _state;
+    readonly string? _sessionVendor;
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
     IReadOnlyDictionary<string, string>? _accountMemory;
     // Picks made before the stored memory loaded, replayed over it so the older read cannot win.
@@ -39,6 +40,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null,
             string? repoPath = null, AccountReadings? readings = null, AppStateStore? state = null) {
         _selectedVendor = string.IsNullOrWhiteSpace(sessionVendor) ? HomeViewModel.DefaultVendor : sessionVendor;
+        _sessionVendor = sessionVendor;
         RepoPath = repoPath ?? "";
         _state = state;
         _accounts = new AccountChooser(
@@ -271,8 +273,21 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             _accounts.Restore(restored.Choice.Id);
     }
 
+    bool _seeded;
+
+    /// The ended session's own model, offered once in place of the default while the chips still show
+    /// the session's agent and no model. A restored draft settles the chips first.
+    public void SeedModel(string? model) {
+        if (_seeded) return;
+        _seeded = true;
+        if (model is not { Length: > 0 } || SelectedModel.Length > 0 || !string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase))
+            return;
+        SelectedModel = model;
+    }
+
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
     public void Restore(HandoffDraft draft) {
+        _seeded = true;
         SetVendor(draft.Vendor);
         Revalidate(Harnesses);
         if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {

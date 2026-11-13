@@ -67,6 +67,16 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
             ? new HandoffContextFetch(ServerReadOutcome.Ok, context)
             : new HandoffContextFetch(HandoffContextOutcome == ServerReadOutcome.Ok ? ServerReadOutcome.Failed : HandoffContextOutcome, null));
 
+    /// What ReadSummaryAsync answers; null answers Failed.
+    public ActivitySessionDto? Summary;
+    public int SummaryReads;
+    public Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct) {
+        SummaryReads++;
+        return Task.FromResult(Summary is { } summary
+            ? new SummaryFetch(ServerReadOutcome.Ok, summary)
+            : new SummaryFetch(ServerReadOutcome.Failed, null));
+    }
+
     public void Unpin() {
         _pinRequest++;
         UnpinCalls++;
