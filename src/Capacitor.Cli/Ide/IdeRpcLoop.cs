@@ -10,11 +10,14 @@ namespace Capacitor.Cli.Ide;
 internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDisposable {
     readonly Dictionary<string, Func<JsonObject?, CancellationToken, Task<JsonNode?>>> _handlers = new(StringComparer.Ordinal);
     readonly SemaphoreSlim _writeGate = new(1, 1);
+    volatile bool _closed;
 
     public void Dispose() => _writeGate.Dispose();
 
     /// <summary>Register before <see cref="RunAsync"/>; the table is not guarded against concurrent change.</summary>
-    public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) => _handlers[method] = handler;
+    public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) {
+        if (!_handlers.TryAdd(method, handler)) throw new InvalidOperationException($"A handler for '{method}' is already registered.");
+    }
 
     public Task NotifyAsync(string method, JsonNode parameters) => WriteAsync(new JsonObject {
         ["jsonrpc"] = "2.0",
@@ -23,7 +26,7 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
     });
 
     public async Task RunAsync(CancellationToken ct) {
-        while (await reader.ReadLineAsync(ct) is { } line) {
+        while (!_closed && await reader.ReadLineAsync(ct) is { } line) {
             if (string.IsNullOrWhiteSpace(line)) continue;
             if (TryParse(line) is not { } message) continue;
 
@@ -61,11 +64,25 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
         return new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["error"] = error };
     }
 
+    /// <summary>One message and a single line feed, flushed, whatever the writer's <c>NewLine</c> and auto-flush. A peer that has
+    /// closed its end closes the loop; later writes are dropped.</summary>
     async Task WriteAsync(JsonObject message) {
-        var line = message.ToJsonString();
-        await _writeGate.WaitAsync();
+        var line = message.ToJsonString() + "\n";
         try {
-            await writer.WriteLineAsync(line);
+            await _writeGate.WaitAsync();
+        } catch (ObjectDisposedException) {
+            return;
+        }
+
+        try {
+            if (_closed) return;
+
+            try {
+                await writer.WriteAsync(line);
+                await writer.FlushAsync(CancellationToken.None);
+            } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+                _closed = true;
+            }
         } finally {
             _writeGate.Release();
         }

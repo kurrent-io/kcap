@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Ide;
@@ -7,19 +6,49 @@ namespace Capacitor.Cli.Tests.Unit.Ide;
 
 /// <summary>The stdio loop answers each request under its own id, one at a time, and every write is a whole line.</summary>
 public class IdeRpcLoopTests {
+    /// Takes each message in two halves with a yield between them, so writes that overlap interleave and show up
+    /// both in <see cref="Overlapped"/> and as lines that no longer parse.
     sealed class Lines : TextWriter {
-        readonly ConcurrentQueue<string> _lines = new();
+        readonly StringBuilder _text = new();
+        int _active;
+        int _writes;
+        int _flushes;
 
         public override Encoding Encoding => Encoding.UTF8;
 
-        public override Task WriteLineAsync(string? value) {
-            _lines.Enqueue(value!);
-            return Task.CompletedTask;
+        public Func<Exception?>? FailWrite { get; set; }
+
+        public bool Overlapped { get; private set; }
+
+        public int Writes => Volatile.Read(ref _writes);
+
+        public int Flushes => Volatile.Read(ref _flushes);
+
+        public string Text { get { lock (_text) return _text.ToString(); } }
+
+        public IReadOnlyList<string> Raw => Text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        public IReadOnlyList<JsonObject> All => [.. Raw.Select(l => JsonNode.Parse(l)!.AsObject())];
+
+        public override async Task WriteAsync(string? value) {
+            Interlocked.Increment(ref _writes);
+            if (Interlocked.Increment(ref _active) > 1) Overlapped = true;
+            try {
+                if (FailWrite?.Invoke() is { } failure) throw failure;
+
+                var half = value!.Length / 2;
+                lock (_text) _text.Append(value, 0, half);
+                await Task.Yield();
+                lock (_text) _text.Append(value, half, value.Length - half);
+            } finally {
+                Interlocked.Decrement(ref _active);
+            }
         }
 
-        public IReadOnlyList<string> Raw => [.. _lines];
-
-        public IReadOnlyList<JsonObject> All => [.. _lines.Select(l => JsonNode.Parse(l)!.AsObject())];
+        public override Task FlushAsync(CancellationToken cancellationToken) {
+            Interlocked.Increment(ref _flushes);
+            return Task.CompletedTask;
+        }
     }
 
     static string Request(string id, string method, string? parameters = null) =>
@@ -113,6 +142,7 @@ public class IdeRpcLoopTests {
         await loop.RunAsync(CancellationToken.None);
 
         var all = output.All;
+        await Assert.That(output.Overlapped).IsFalse();
         await Assert.That(all.Count).IsEqualTo(201);
         await Assert.That(all.Count(l => l["method"]?.GetValue<string>() == "tick" && !l.ContainsKey("id"))).IsEqualTo(200);
         await Assert.That(all.Count(l => l["id"] is not null)).IsEqualTo(1);
@@ -123,5 +153,86 @@ public class IdeRpcLoopTests {
         var loop = new IdeRpcLoop(new StringReader(""), new Lines());
 
         await loop.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public async Task Each_message_ends_with_a_single_line_feed() {
+        var output = new Lines { NewLine = "\r\n" };
+        var loop   = new IdeRpcLoop(new StringReader(Request("1", "fine")), output);
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        await loop.RunAsync(CancellationToken.None);
+        await loop.NotifyAsync("tick", new JsonObject());
+
+        await Assert.That(output.Text).DoesNotContain("\r");
+        await Assert.That(output.Text.Count(c => c == '\n')).IsEqualTo(2);
+        await Assert.That(output.Text).EndsWith("\n");
+    }
+
+    [Test]
+    public async Task Each_message_is_flushed() {
+        var output = new Lines();
+        var loop   = new IdeRpcLoop(new StringReader(string.Join('\n', Request("1", "fine"), Request("2", "fine"))), output);
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        await loop.RunAsync(CancellationToken.None);
+        await loop.NotifyAsync("tick", new JsonObject());
+
+        await Assert.That(output.Flushes).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Run_returns_when_the_peer_stops_reading() {
+        var output  = new Lines { FailWrite = () => new IOException("broken pipe") };
+        var handled = 0;
+        var loop    = new IdeRpcLoop(new StringReader(string.Join('\n', Request("1", "fine"), Request("2", "fine"), Request("3", "fine"))), output);
+        loop.Handle("fine", (_, _) => { handled++; return Task.FromResult<JsonNode?>(null); });
+
+        await loop.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        await Assert.That(handled).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Notify_after_the_peer_is_gone_does_nothing() {
+        var output = new Lines { FailWrite = () => new ObjectDisposedException("pipe") };
+        var loop   = new IdeRpcLoop(new StringReader(Request("1", "fine")), output);
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+        await loop.RunAsync(CancellationToken.None);
+        var writes = output.Writes;
+
+        await loop.NotifyAsync("tick", new JsonObject());
+
+        await Assert.That(output.Writes).IsEqualTo(writes);
+    }
+
+    [Test]
+    public async Task Notify_after_dispose_does_nothing() {
+        var output = new Lines();
+        var loop   = new IdeRpcLoop(new StringReader(""), output);
+        loop.Dispose();
+
+        await loop.NotifyAsync("tick", new JsonObject());
+
+        await Assert.That(output.Writes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_write_failure_other_than_a_closed_peer_propagates() {
+        var output = new Lines { FailWrite = () => new InvalidOperationException("bug") };
+        var loop   = new IdeRpcLoop(new StringReader(Request("1", "fine")), output);
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        await Assert.That(() => loop.RunAsync(CancellationToken.None)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Registering_a_method_twice_throws() {
+        var loop = new IdeRpcLoop(new StringReader(""), new Lines());
+        loop.Handle("once", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => loop.Handle("once", (_, _) => Task.FromResult<JsonNode?>(null)));
+
+        await Assert.That(ex.Message).Contains("once");
     }
 }
