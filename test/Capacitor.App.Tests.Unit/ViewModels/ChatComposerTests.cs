@@ -1,0 +1,409 @@
+using System.Reactive.Linq;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Threading;
+using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
+using Capacitor.App.Views;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalIpc;
+using DynamicData;
+using Microsoft.Extensions.Time.Testing;
+using static Capacitor.App.Tests.Unit.AvaloniaSession;
+using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
+
+namespace Capacitor.App.Tests.Unit.ViewModels;
+
+public class ChatComposerTests {
+    static async Task<(FakeDaemonClientService Daemon, FakeTimeProvider Time, TerminalTabViewModel Terminal, ChatTabViewModel Chat, FakeTerminalAttachClient Client, RecordingOpener Opener)>
+            BuildAttachedAsync(FakePermissionService? permissions = null) {
+        var daemon = new FakeDaemonClientService();
+        var factory = new FakeTerminalAttachClientFactory();
+        var time = new FakeTimeProvider();
+        var opener = new RecordingOpener();
+        var terminal = new TerminalTabViewModel("a1", daemon, factory.Factory, () => new FakeTerminalSurface(), time);
+        var chat = new ChatTabViewModel(
+            "a1", daemon, new TerminalChatInput(terminal, "a1", daemon, new ScriptedLocalControlOps(), Observable.Never<AgentPresence>()), new NoAttachmentUploader(), TranscriptChat.For("claude"), opener, time, permissions ?? new FakePermissionService(), new SessionRuns(time));
+        daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["claude", "codex"]));
+        daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo", model: "claude-opus-5") with { Status = "Running" });
+        // The Avalonia scheduler always posts, even when the caller is already on the UI thread,
+        // so the resolve does not start until the dispatcher runs.
+        Dispatcher.UIThread.RunJobs();
+        await (terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+        var client = factory.Created.Single();
+        await client.TriggerAttached([]);
+        return (daemon, time, terminal, chat, client, opener);
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Send_clears_the_text_on_acceptance_and_keeps_it_on_refusal() {
+        await RunOnUiAsync(async () => {
+            var (_, time, terminal, chat, client, _) = await BuildAttachedAsync();
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+
+            chat.ComposerText = "hello";
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+            await chat.SendCommand.Execute();
+            await Assert.That(chat.ComposerText).IsEqualTo("");
+            await Assert.That(chat.ComposerHint).IsEqualTo("Sending…");
+
+            chat.ComposerText = "second";
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+            time.Advance(TimeSpan.FromMilliseconds(150));
+            await terminal.PendingDeliveryForTesting!;
+            await Assert.That(chat.ComposerText).IsEqualTo("second");
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+            await Assert.That(client.SentInput).Count().IsEqualTo(2);
+            await chat.TeardownAsync();
+        });
+    }
+
+    /// Pins what a code block's "run it" does: the text goes down the composer's own send path, so
+    /// the prompt is queued, recorded and cleared exactly as a typed one is.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Running_a_code_block_sends_its_text_through_the_composer() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, client, _) = await BuildAttachedAsync();
+            await chat.RunCodeCommand.Execute("! kcap agent ls");
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("! kcap agent ls"));
+            await Assert.That(chat.ComposerText).IsEqualTo("");
+            await chat.TeardownAsync();
+        });
+    }
+
+    /// Pins the gate: a channel that cannot take text cannot be made to take it through a code
+    /// block either.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Running_a_code_block_is_refused_once_the_session_has_ended() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, client, _) = await BuildAttachedAsync();
+            await Assert.That(await chat.RunCodeCommand.CanExecute.FirstAsync()).IsTrue();
+
+            daemon.Agents.Remove("a1");
+            await Assert.That(await chat.RunCodeCommand.CanExecute.FirstAsync()).IsFalse();
+            await Assert.That(client.SentInput).IsEmpty();
+            await chat.TeardownAsync();
+        });
+    }
+
+    /// Pins that text sent from outside the composer goes down the same channel as a typed
+    /// message and leaves whatever the user is typing alone.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_text_from_outside_the_composer_pastes_it_and_keeps_the_draft() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, client, _) = await BuildAttachedAsync();
+            chat.ComposerText = "draft";
+            await Assert.That(chat.CanSendText).IsTrue();
+
+            await Assert.That(await chat.SendTextAsync("/compact")).IsTrue();
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("/compact"));
+            await Assert.That(chat.ComposerText).IsEqualTo("draft");
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_text_is_refused_once_the_session_has_ended() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, client, _) = await BuildAttachedAsync();
+            daemon.Agents.Remove("a1");
+            await Assert.That(chat.CanSendText).IsFalse();
+            await Assert.That(await chat.SendTextAsync("/compact")).IsFalse();
+            await Assert.That(client.SentInput).IsEmpty();
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Hint_follows_send_availability() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, terminal, chat, client, _) = await BuildAttachedAsync();
+            await Assert.That(chat.VendorLabel).IsEqualTo("Claude Code");
+            await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", AwaitingInput = false });
+            await Assert.That(chat.ShowsInterrupt).IsTrue();
+            client.Result.SetResult(new AttachOutcome.Detached());
+            await terminal.CurrentRunForTesting!;
+            await Assert.That(chat.ComposerHint).IsEqualTo("Reattach the terminal to send");
+            await Assert.That(chat.ShowsInterrupt).IsFalse();
+            await Assert.That(await chat.InterruptCommand.CanExecute.FirstAsync()).IsFalse();
+
+            // Only the run's own Exited/Failed verdict outranks a cache removal, so a removal after
+            // a detach lands SessionEnded — and the hint follows the terminal there too.
+            daemon.Agents.Remove("a1");
+            await Assert.That(chat.ComposerHint).IsEqualTo("This session has ended");
+            await Assert.That(chat.ShowsComposer).IsFalse();
+
+            var attached = TerminalSessionState.Attached(null);
+            await Assert.That(TerminalChatInput.HintFor(SendAvailability.Transitioning, attached)).IsEqualTo("Updating the terminal connection…");
+            await Assert.That(TerminalChatInput.HintFor(SendAvailability.ReadOnly, TerminalSessionState.Attached("review"))).IsEqualTo("Read-only: review");
+            await Assert.That(TerminalChatInput.HintFor(SendAvailability.Connecting, TerminalSessionState.Connecting)).IsEqualTo("Connecting to the terminal…");
+            await Assert.That(TerminalChatInput.HintFor(SendAvailability.Ended, TerminalSessionState.SessionEnded)).IsEqualTo("This session has ended");
+            await Assert.That(TerminalChatInput.HintFor(SendAvailability.NoTerminal, TerminalSessionState.NotFound)).IsEqualTo("No terminal to send to");
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Composer_hides_when_agent_status_becomes_Failed() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, _, _) = await BuildAttachedAsync();
+            await Assert.That(chat.ShowsComposer).IsTrue();
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Failed" });
+            await Assert.That(chat.ComposerHint).IsEqualTo("This session has ended");
+            await Assert.That(chat.ShowsComposer).IsFalse();
+            chat.ComposerText = "too late";
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Footer_reflects_the_dto() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, _, _) = await BuildAttachedAsync();
+            await Assert.That(chat.ModelLabel).IsEqualTo("Claude Opus 5");
+            await Assert.That(chat.StatusText).IsEqualTo("Running");
+            await Assert.That(chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Other);
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { AwaitingInput = true });
+            await Assert.That(chat.StatusText).IsEqualTo("Idle");
+            await Assert.That(chat.AgentStatus.AccessibleName).IsEqualTo("Idle");
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Failed" });
+            await Assert.That(chat.StatusText).IsEqualTo("Failed");
+            await Assert.That(chat.ModelLabel).IsEqualTo("Default");
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Links_open_only_through_the_policy_and_an_opener_fault_is_contained() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, _, opener) = await BuildAttachedAsync();
+
+            await chat.OpenLinkCommand.Execute("https://example.com/a");
+            await chat.OpenLinkCommand.Execute("file:///etc/passwd");
+            await chat.OpenLinkCommand.Execute("javascript:alert(1)");
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://example.com/a" });
+
+            opener.ThrowOnOpen = new InvalidOperationException("no browser");
+            await chat.OpenLinkCommand.Execute("https://example.com/b");
+            await Assert.That(opener.Opened).Count().IsEqualTo(2);
+            await chat.TeardownAsync();
+        });
+    }
+
+    /// A flow participant is unmessageable by kind, not by handshake: even a read-write attach
+    /// (an older daemon that doesn't flag protected attaches) must leave the composer closed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_flow_participant_chat_never_sends_even_over_a_writable_attach() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var factory = new FakeTerminalAttachClientFactory();
+            var time = new FakeTimeProvider();
+            var terminal = new TerminalTabViewModel("r1", daemon, factory.Factory, () => new FakeTerminalSurface(), time);
+            var chat = new ChatTabViewModel(
+                "r1", daemon, new TerminalChatInput(terminal, "r1", daemon, new ScriptedLocalControlOps(), Observable.Never<AgentPresence>()), new NoAttachmentUploader(), TranscriptChat.For("claude"), new RecordingOpener(), time,
+                new FakePermissionService(), new SessionRuns(time));
+            daemon.Agents.AddOrUpdate(
+                Agent("r1", "claude", hasTerminal: true, kind: "review-flow") with { FlowRunId = "f1", FlowRole = "reviewer" });
+            await (terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await factory.Created.Single().TriggerAttached([]);
+
+            await Assert.That(terminal.CanAcceptText).IsTrue();
+            await Assert.That(chat.IsReadOnlyParticipant).IsTrue();
+            await Assert.That(chat.ReadOnlyNotice).IsEqualTo("review-flow agent (flow f1, role reviewer)");
+            chat.ComposerText = "hello";
+            await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+            await Assert.That(chat.ComposerHint).IsEqualTo("");
+            await Assert.That(await chat.InterruptCommand.CanExecute.FirstAsync()).IsFalse();
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    public async Task Participant_notice_mirrors_the_daemon_protection_reason() {
+        await Assert.That(ChatTabViewModel.ParticipantNotice(Agent("a", "claude", true))).IsEqualTo("");
+        await Assert.That(ChatTabViewModel.ParticipantNotice(Agent("a", "claude", true, kind: "review"))).IsEqualTo("");
+        await Assert.That(ChatTabViewModel.ParticipantNotice(
+            Agent("a", "claude", true, kind: "review-flow") with { FlowRunId = "f1" })).IsEqualTo("review-flow agent (flow f1)");
+        await Assert.That(ChatTabViewModel.ParticipantNotice(Agent("a", "claude", true, kind: "sidekick"))).IsEqualTo("sidekick agent");
+    }
+
+    /// A review agent takes text but no files: both daemon lanes refuse its attachments, so offering
+    /// the picker would upload files only for the send to fail.
+    [Test]
+    public async Task Only_a_plain_agent_takes_attachments() {
+        await Assert.That(ChatSessionInfo.FromLocal(Agent("a", "claude", true), ended: false).TakesAttachments).IsTrue();
+        await Assert.That(ChatSessionInfo.FromLocal(Agent("a", "claude", true, kind: "review"), ended: false).TakesAttachments).IsFalse();
+        await Assert.That(ChatSessionInfo.FromLocal(Agent("a", "claude", true, kind: "review-flow"), ended: false).TakesAttachments).IsFalse();
+    }
+
+    /// Thread identity: the hint's own change lands on the UI thread even when the terminal's
+    /// state flips from a pool thread.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_pool_thread_state_flip_updates_the_hint_on_the_ui_thread() {
+        var onUi = await DispatchAsync(async () => {
+            var (_, _, terminal, chat, client, _) = await BuildAttachedAsync();
+            bool? hintChangedOnUi = null;
+            chat.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ChatTabViewModel.ComposerHint)) hintChangedOnUi = Dispatcher.UIThread.CheckAccess(); };
+
+            await Task.Run(() => client.Result.SetResult(new AttachOutcome.Exited(0)));
+            await terminal.CurrentRunForTesting!;
+            await WaitUntilAsync(() => chat.ComposerHint == "This session has ended", what: "hint");
+            await chat.TeardownAsync();
+            return hintChangedOnUi;
+        });
+        await Assert.That(onUi).IsTrue();
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Working_turn_surfaces_interrupt_and_escape_from_chat_list_preserves_the_draft() {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, client, _) = await BuildAttachedAsync();
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Running", AwaitingInput = true });
+            var view = new ChatTabView { DataContext = chat };
+            var window = new Window { Content = view, Width = 550, Height = 600 };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+
+                var interruptButton = view.FindControl<Button>("InterruptButton")!;
+                var chatItems = view.FindControl<ItemsControl>("ChatItems")!;
+
+                await Assert.That(chat.ShowsInterrupt).IsFalse();
+                await Assert.That(interruptButton.IsEffectivelyVisible).IsFalse();
+                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+
+                daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Running", AwaitingInput = false, TurnAttested = true });
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+
+                await Assert.That(chat.ShowsInterrupt).IsTrue();
+                await Assert.That(interruptButton.IsEffectivelyVisible).IsTrue();
+                await Assert.That(await chat.InterruptCommand.CanExecute.FirstAsync()).IsTrue();
+                chat.ComposerText = "keep this draft";
+                chatItems.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape, KeyModifiers = KeyModifiers.Control });
+                await Assert.That(client.SentInput).IsEmpty();
+
+                chatItems.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                await WaitUntilAsync(() => client.SentInput.Count == 1, what: "escape sent from chat list");
+                await Assert.That(client.SentInput[0]).IsEquivalentTo(new byte[] { 0x1b });
+                await Assert.That(chat.ComposerText).IsEqualTo("keep this draft");
+
+                daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Running", AwaitingInput = true });
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+
+                await Assert.That(chat.ShowsInterrupt).IsFalse();
+                await Assert.That(interruptButton.IsEffectivelyVisible).IsFalse();
+                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                await chat.TeardownAsync();
+            }
+        });
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Escape_does_not_interrupt_a_turn_awaiting_input(bool composer) {
+        await RunOnUiAsync(async () => {
+            var (daemon, _, _, chat, client, _) = await BuildAttachedAsync();
+            var view = new ChatTabView { DataContext = chat };
+            var window = new Window { Content = view, Width = 800, Height = 600 };
+            try {
+                daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Running", AwaitingInput = true });
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                await Assert.That(chat.ShowsInterrupt).IsFalse();
+                await Assert.That(await chat.InterruptCommand.CanExecute.FirstAsync()).IsFalse();
+                chat.ComposerText = "keep this draft";
+                var source = view.FindControl<Control>(composer ? "ComposerInput" : "ChatItems")!;
+                source.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(client.SentInput).IsEmpty();
+                await Assert.That(chat.ComposerText).IsEqualTo("keep this draft");
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                await chat.TeardownAsync();
+            }
+        });
+    }
+
+    /// A screen reader announces the composer by its purpose, not as a bare "edit".
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_composer_speaks_its_name() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, _, _) = await BuildAttachedAsync();
+            var view = new ChatTabView { DataContext = chat };
+            var window = new Window { Content = view, Width = 800, Height = 600 };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var composer = ControlView.Descendants(window).Single(peer => peer.GetAutomationId() == "ComposerInput");
+                await Assert.That(composer.GetAutomationControlType()).IsEqualTo(Avalonia.Automation.Peers.AutomationControlType.Edit);
+                await Assert.That(composer.GetName()).IsEqualTo("Message the agent");
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                await chat.TeardownAsync();
+            }
+        });
+    }
+
+    [Test]
+    [Arguments("permission")]
+    [Arguments("question")]
+    [Arguments("menu")]
+    [Arguments("limit")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Interrupt_is_unavailable_while_a_prompt_or_menu_needs_a_response(string prompt) {
+        await RunOnUiAsync(async () => {
+            var permissions = new FakePermissionService();
+            var (daemon, _, _, chat, _, _) = await BuildAttachedAsync(permissions);
+            try {
+                var agent = Agent("a1", "claude", hasTerminal: true) with { Status = "Running", AwaitingInput = false };
+                daemon.Agents.AddOrUpdate(agent);
+                await Assert.That(chat.ShowsInterrupt).IsTrue();
+                switch (prompt) {
+                    case "permission": permissions.Add(PermissionEntries.Entry("r1", "a1")); break;
+                    case "question": permissions.Add(PermissionEntries.Question("r1")); break;
+                    case "menu":
+                        daemon.Agents.AddOrUpdate(agent with { TerminalDialog = new TerminalDialogDto("Continue?", "", ["Yes", "No"], 0, "") });
+                        break;
+                    case "limit":
+                        daemon.Agents.AddOrUpdate(agent with { UsageLimit = new UsageLimitNoticeDto(UsageLimitKinds.Blocked, "Usage limit", "Continue?", [new(1, "Wait")]) });
+                        break;
+                }
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(chat.ShowsInterrupt).IsFalse();
+                await Assert.That(await chat.InterruptCommand.CanExecute.FirstAsync()).IsFalse();
+            } finally { await chat.TeardownAsync(); }
+        });
+    }
+}
