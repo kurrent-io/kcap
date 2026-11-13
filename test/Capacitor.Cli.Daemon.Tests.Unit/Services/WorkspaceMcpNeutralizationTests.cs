@@ -321,6 +321,30 @@ public class WorkspaceMcpNeutralizationTests {
         await Assert.That(File.Exists(marker)).IsFalse();
     }
 
+    /// <summary>A tracked config file the creation path strips stays tracked but is not reported as a
+    /// deletion, so <c>git add -A</c> in the worktree cannot commit its removal.</summary>
+    [Test]
+    public async Task CreateAsync_hides_stripped_tracked_config_from_git_status() {
+        using var repo = GitRepo.Create();
+        repo.CreateFile("README.md", "hi");
+        repo.CreateFile(".mcp.json", """{"mcpServers":{}}""");
+        repo.CreateFile(".kiro/settings/mcp.json", """{"mcpServers":{}}""");
+        repo.CommitAll("branch ships workspace MCP config");
+
+        var worktree = await Manager().CreateAsync(repo);
+        var git      = GitRepo.At(worktree.Path);
+
+        await Assert.That(File.Exists(Path.Combine(worktree.Path, ".mcp.json"))).IsFalse()
+            .Because("the strip itself must still happen");
+        await Assert.That(git.Status).IsEmpty();
+
+        var flags = git.Do("ls-files", "-v").Text.Split('\n');
+        await Assert.That(flags).Contains("S .mcp.json");
+        await Assert.That(flags).Contains("S .kiro/settings/mcp.json");
+        await Assert.That(flags).Contains("H README.md")
+            .Because("only the stripped paths are marked");
+    }
+
     /// <summary>
     /// Borrowed snapshots are a launch mode too, so the exclusion list must cover every declared workspace
     /// config path — including <c>.kiro/settings/mcp.json</c>, which Kiro executes at session setup.

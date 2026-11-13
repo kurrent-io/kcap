@@ -280,7 +280,7 @@ public class WorktreeManagerTests {
         await Assert.That(Directory.Exists(Path.Combine(repo, ".capacitor", "worktrees", "invalid-ref"))).IsFalse();
     }
 
-    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, CommitThenSwitchedAway }
+    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, StrippedConfigRecreated, CommitThenSwitchedAway }
 
     /// <summary>Removal never destroys work that exists only in the worktree: a change, an untracked
     /// file or a commit no other ref has, on HEAD or on the worktree's own branch, keeps the worktree and
@@ -300,6 +300,7 @@ public class WorktreeManagerTests {
     [Arguments(WorktreeState.LaunchConfigEditedAfter, true)]
     [Arguments(WorktreeState.AgentEditBeforeRelaunch, true)]
     [Arguments(WorktreeState.StagedConfigChange, true)]
+    [Arguments(WorktreeState.StrippedConfigRecreated, true)]
     [Arguments(WorktreeState.CommitThenSwitchedAway, true)]
     public async Task RemoveAsync_keeps_a_worktree_holding_work_that_exists_nowhere_else(WorktreeState state, bool kept) {
         using var repo = MakeUpstreamWithSideRef("refs/pull/1/head", out _);
@@ -358,7 +359,11 @@ public class WorktreeManagerTests {
             }
             case WorktreeState.StagedConfigChange:
                 tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
-                tree.Do("add", ".mcp.json");
+                // The stripped config is skip-worktree, so a plain add refuses it.
+                tree.Do("add", "--sparse", ".mcp.json");
+                break;
+            case WorktreeState.StrippedConfigRecreated:
+                tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
                 break;
             case WorktreeState.LinkToOverlay:
                 Skip.When(OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI lacks");
