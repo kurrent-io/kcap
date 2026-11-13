@@ -302,15 +302,15 @@ public class PtyHostedAgentRuntimeTests {
 
         await DrawAsync(6);
         runtime.NotePromptShown(true);
-        await DrawAsync(2);
-        await Assert.That(Pasted()).IsFalse().Because("the prompt box has stood only half a quiet window");
+        await DrawAsync(3);
+        await Assert.That(Pasted()).IsFalse().Because("the prompt box has stood only three quarters of a quiet window");
 
         runtime.NotePromptShown(false);
         runtime.NotePromptShown(true);
         await DrawAsync(3);
         await Assert.That(Pasted()).IsFalse().Because("the prompt box went and came back three quarters of a window ago");
 
-        await DrawAsync(4);
+        await DrawAsync(5);
         await Assert.That(Pasted()).IsTrue();
         pty.Exit();
     }
