@@ -52,7 +52,7 @@ class RecapCommand(
             await Console.Out.WriteLineAsync($"## {title}");
             await Console.Out.WriteLineAsync($"*Session {entry.SessionId} | {date}*");
             await Console.Out.WriteLineAsync();
-            await Console.Out.WriteLineAsync(entry.Summary);
+            await Console.Out.WriteLineAsync(RecapTranscript.Printable(entry.Summary));
             await Console.Out.WriteLineAsync();
             await Console.Out.WriteLineAsync($"Full transcript: `kcap recap --full {entry.SessionId}`");
             await Console.Out.WriteLineAsync();
@@ -80,7 +80,7 @@ class RecapCommand(
             return 1;
         }
 
-        var entries = ((RecapResult.Found)result).Entries;
+        var entries = RecapTranscript.Printable(((RecapResult.Found)result).Entries);
 
         if (entries.Count == 0) {
             await Console.Out.WriteLineAsync("No recap entries found.");

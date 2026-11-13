@@ -211,11 +211,15 @@ static class RecapTranscript {
             }
         }
 
-        return WithoutByteOrderMarks(sb);
+        return Printable(sb.ToString());
     }
 
-    // A file read or written with a byte order mark keeps it in the stored text; a console prints it as a character.
-    static string WithoutByteOrderMarks(StringBuilder sb) => sb.Replace("﻿", "").ToString();
+    /// <summary>Text with its byte order marks left out. A file read or written with one keeps it in the stored
+    /// text, and a console prints it as a character.</summary>
+    internal static string Printable(string text) => text.Replace("\uFEFF", "", StringComparison.Ordinal);
+
+    /// <inheritdoc cref="Printable(string)"/>
+    internal static List<RecapEntry> Printable(IEnumerable<RecapEntry> entries) => [.. entries.Select(e => e with { Content = Printable(e.Content) })];
 
     /// <summary>A trace kind as a heading in the style of the fixed ones ("Assistant", "Tool: …").</summary>
     internal static string Heading(string kind) =>
@@ -323,7 +327,7 @@ static class RecapTranscript {
             }
         }
 
-        return WithoutByteOrderMarks(sb);
+        return sb.ToString();
     }
 
     static string LanguageHint(string filePath) =>
