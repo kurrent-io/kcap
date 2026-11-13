@@ -276,13 +276,15 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     bool _seeded;
 
     /// The ended session's own model, offered once in place of the default while the chips still show
-    /// the session's agent and no model. A restored draft settles the chips first.
+    /// the session's agent and no model, and only when that agent lists it. A restored draft settles
+    /// the chips first.
     public void SeedModel(string? model) {
         if (_seeded) return;
         _seeded = true;
         if (model is not { Length: > 0 } || SelectedModel.Length > 0 || !string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase))
             return;
-        SelectedModel = model;
+        if (ModelChoicesFor(SelectedVendor).FirstOrDefault(m => string.Equals(m.Slug, model, StringComparison.OrdinalIgnoreCase)) is { } listed)
+            SelectedModel = listed.Slug;
     }
 
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.

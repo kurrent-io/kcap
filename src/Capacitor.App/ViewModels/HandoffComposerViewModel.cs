@@ -124,7 +124,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     bool _recheckAfterLaunch;
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
-    bool _sourceModelRead;
+    // Seeded once: a later check must not move a chip the user has been looking at.
+    bool _modelSeeded;
+    Task<string?>? _sourceModel;
     string? _checkout;
     ProbePlan? _plan;
     bool _originChecked;
@@ -212,6 +214,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 if (c) {
                     _features = null;
                     _context = null;
+                    if (!_modelSeeded) _sourceModel = null;
                 }
                 Recheck();
             })
@@ -563,11 +566,10 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 });
             _context = fetched;
         }
-        // Read once: a later check must not move a chip the user has been looking at.
-        if (!_sourceModelRead) {
-            var summary = await _sessions.ReadSummaryAsync(_session.SessionId, ct);
-            _sourceModelRead = true;
-            _choices.SeedModel(summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source.Model : null);
+        if (!_modelSeeded) {
+            _sourceModel ??= ReadSourceModelAsync();
+            _choices.SeedModel(await _sourceModel.WaitAsync(ct));
+            _modelSeeded = true;
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
@@ -963,6 +965,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     static bool HasResume(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeInPlaceWire.Capability) == true;
+
+    async Task<string?> ReadSourceModelAsync() {
+        var summary = await _sessions.ReadSummaryAsync(_session.SessionId, _shutdown);
+        return summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source.Model : null;
+    }
 
     /// A verified fork's head, or a head in the session's own repository; anything else, including a
     /// head the server could not classify, falls back to the recorded branch.
