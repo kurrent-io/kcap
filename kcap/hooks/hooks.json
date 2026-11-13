@@ -195,7 +195,7 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 36000,
+            "timeout": 86400,
             "onFailure": "continue"
           }
         ]

@@ -2767,6 +2767,17 @@ public class ClaudeHookCommandTests {
         await Assert.That(TimeSpan.FromSeconds(timeout)).IsEqualTo(ClaudeHookCommand.SessionStartCeiling);
     }
 
+    /// <summary>Claude gives up on the hook at the manifest's timeout and leaves its own prompt open, so a timeout that
+    /// ends with the server's expiry loses the server's answer.</summary>
+    [Test]
+    public async Task The_permission_hook_outlives_the_servers_expiry() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var timeout  = TimeSpan.FromSeconds(manifest["hooks"]!["PermissionRequest"]![0]!["hooks"]![0]!["timeout"]!.GetValue<int>());
+
+        await Assert.That(timeout).IsGreaterThan(PermissionRequestHook.ServerExpiry);
+        await Assert.That(timeout).IsEqualTo(PermissionRequestHook.Timeout);
+    }
+
     /// <summary>Claude cancels a synchronous plugin SessionEnd hook after 1.5s whatever its timeout, which a
     /// slow shell start alone can exceed; an async one is started and left running past Claude's exit.</summary>
     [Test]
