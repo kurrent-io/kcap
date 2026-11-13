@@ -455,22 +455,18 @@ public class HandoffComposerViewModelTests {
         await Assert.That(rig.Launch.Requests.Single().Handoff).IsEqualTo(AttachedStart with { SourceSessionId = SessionId });
     });
 
-    /// What launches is what the strip showed: a start origin moved is shown, and only the next Start sends it.
+    /// One Start launches from origin's answer even when origin moved on from the start the strip showed.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_start_origin_has_moved_is_shown_rather_than_launched() => Run(async rig => {
+    public Task A_start_origin_has_moved_launches_from_origin_on_the_first_start() => Run(async rig => {
         var moved = AttachedStart with { StartSha = MovedSha };
         rig.Ops.Answer = request => Reply(request.LocalOnly ? AttachedStart : moved);
         var vm = await rig.ReadyAsync();
 
         await vm.StartCommand.Execute();
 
-        await Assert.That(rig.Launch.Requests).IsEmpty();
-        await Assert.That(vm.Error).IsEqualTo(HandoffComposerViewModel.OriginMoved);
+        await Assert.That(vm.Error).IsNull();
         await Assert.That(vm.ProbedStart).IsEqualTo(moved);
-
-        await vm.StartCommand.Execute();
-
         await Assert.That(rig.Launch.Requests.Single().Handoff!.StartSha).IsEqualTo(MovedSha);
         await Assert.That(rig.Ops.Probes.Count(p => !p.LocalOnly)).IsEqualTo(1);
     });
