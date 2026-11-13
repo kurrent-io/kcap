@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Text;
 
 namespace Capacitor.Cli.Daemon.Services;
 
@@ -193,7 +194,7 @@ public partial class WorktreeManager {
             if (path.Contains('\\', StringComparison.Ordinal) ||
                 path.Contains('\r', StringComparison.Ordinal) ||
                 path.Contains('\n', StringComparison.Ordinal) ||
-                !path.IsNormalized(NormalizationForm.FormC))
+                !UnicodeNormalization.IsNfc(path))
                 throw new InvalidOperationException(
                     $"borrowed_snapshot_review_context_invalid_path_encoding: {path}");
 

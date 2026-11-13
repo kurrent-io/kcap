@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Text;
 
 namespace Capacitor.Cli.Core.Auth;
 
@@ -31,7 +32,7 @@ public static partial class SlugValidator {
     // Best-effort default slug from an org name: strip diacritics, lowercase,
     // non-alphanumeric -> '-', collapse repeats, trim hyphens, cap at 40.
     public static string Derive(string orgName) {
-        var decomposed = orgName.Normalize(NormalizationForm.FormD);
+        var decomposed = UnicodeNormalization.ToNfd(orgName);
         var sb = new StringBuilder(decomposed.Length);
         foreach (var ch in decomposed) {
             if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark) continue;
