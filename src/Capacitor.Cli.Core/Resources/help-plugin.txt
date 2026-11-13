@@ -106,6 +106,13 @@ Options:
                       `install --copilot` writes a small kcap-owned, marker-delimited
                       block (non-destructive — preserves your own instructions) that
                       nudges Copilot to use the kcap tools for why/history questions.
+  --skip-copilot-tool-search
+                      With --copilot: leave Copilot's tool search alone. By default
+                      `install --copilot` sets "toolSearch": true in
+                      ~/.copilot/settings.json when you have not set it, so Copilot
+                      loads MCP tools on demand instead of sending every definition
+                      with each request. The setting is user-wide and covers every
+                      MCP server; a value you set yourself is never changed.
   --skip-gemini-skills
                       With --gemini: skip installing the kcap skills into
                       ~/.agents/skills.
@@ -256,8 +263,9 @@ Notes:
   Copilot hook payloads don't carry one — registers the kcap MCP servers in
   ~/.copilot/mcp-config.json (see --skip-copilot-mcp to opt out), and installs a
   kcap-owned steering block into ~/.copilot/copilot-instructions.md (see
-  --skip-copilot-instructions to opt out). All three are non-destructive and
-  idempotent. Copilot loads hook + MCP + instructions config at startup, so
+  --skip-copilot-instructions to opt out). It also turns on Copilot's tool
+  search in ~/.copilot/settings.json when you have not set it (see
+  --skip-copilot-tool-search). All are non-destructive and idempotent. Copilot loads hook + MCP + instructions config at startup, so
   restart any running copilot session, and quit and reopen VS Code, after
   install. Copilot has no project-scope
   hooks dir, so --project has no effect with --copilot.

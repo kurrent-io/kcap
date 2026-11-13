@@ -38,6 +38,7 @@ internal static class MuseAssistantPosture {
         SkipCopilot                 = true,
         SkipCopilotMcp              = true,
         SkipCopilotInstructions     = true,
+        SkipCopilotToolSearch       = true,
         SkipGemini                  = true,
         SkipGeminiMcp               = true,
         SkipGeminiInstructions      = true,

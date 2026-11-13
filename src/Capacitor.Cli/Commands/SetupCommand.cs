@@ -677,6 +677,7 @@ sealed class SetupCommand(
         var skipCopilotFlag  = args.Contains("--skip-copilot-hooks");
         var skipCopilotMcpFlag = args.Contains("--skip-copilot-mcp");
         var skipCopilotInstructionsFlag = args.Contains("--skip-copilot-instructions");
+        var skipCopilotToolSearchFlag = args.Contains("--skip-copilot-tool-search");
         var skipGeminiFlag   = args.Contains("--skip-gemini-hooks");
         var skipGeminiMcpFlag = args.Contains("--skip-gemini-mcp");
         var skipGeminiInstructionsFlag = args.Contains("--skip-gemini-instructions");
@@ -961,6 +962,7 @@ sealed class SetupCommand(
             CursorMcpPath:        cursor.UserMcpJson,
             CopilotMcpPath:       copilot.McpConfigJson,
             CopilotInstructionsPath: copilot.InstructionsMd,
+            CopilotSettingsPath: copilot.SettingsJson,
             GeminiInstructionsPath: gemini.GeminiMd,
             AntigravityMcpPath:       agy.McpConfigJson,
             AntigravityInstructionsPath: agy.InstructionsMd,
@@ -1133,6 +1135,7 @@ sealed class SetupCommand(
             SkipCursorMcp: skipCursorMcpFlag,
             SkipCopilotMcp: skipCopilotMcpFlag,
             SkipCopilotInstructions: skipCopilotInstructionsFlag,
+            SkipCopilotToolSearch: skipCopilotToolSearchFlag,
             SkipGeminiMcp: skipGeminiMcpFlag,
             SkipGeminiInstructions: skipGeminiInstructionsFlag,
             SkipAntigravityMcp: skipAntigravityMcpFlag,
@@ -1193,6 +1196,7 @@ sealed class SetupCommand(
             RegisterCopilotMcp:       () => HarnessMcpProjections.Copilot.Register(copilot.McpConfigJson, home),
             InstallCopilotInstructions: () => AgentInstructionsWriter.Write(
                 copilot.InstructionsMd, KcapAgentInstructions.Body),
+            EnableCopilotToolSearch:  () => CopilotToolSearch.Enable(copilot.SettingsJson),
             // Skills are already current when the on-disk marker matches this build AND
             // every owned kcap-* folder is present; used to skip the prompt + re-copy
             // (mirrors PluginCommand's postinstall fast path). A missing/stale marker — or a
