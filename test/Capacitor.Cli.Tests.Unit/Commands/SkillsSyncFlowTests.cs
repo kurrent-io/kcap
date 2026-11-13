@@ -791,13 +791,13 @@ public class SkillsSyncFlowTests {
     /// deletes nothing.
     ///
     /// <para>The lease is real and cross-process, but its name hashes the fixture's own config root,
-    /// so it can contend with nothing outside this test; the wait the sync then makes is bounded by
-    /// the lock's own timeout, so a failure cannot hang the suite.</para></summary>
+    /// so it can contend with nothing outside this test.</para></summary>
     [Test]
     public async Task A_migration_lock_held_elsewhere_leaves_the_retirement_for_the_next_run() {
         using var repo    = Checkout("repo");
         var       alpha   = SkillsSyncFixture.Skill("alpha");
-        var       fx      = new SkillsSyncFixture(Tmp, repo.Path, StubSkillsApi.Refusing("never asked"));
+        var       fx      = new SkillsSyncFixture(Tmp, repo.Path, StubSkillsApi.Refusing("never asked"),
+                                                  lockWait: TimeSpan.FromMilliseconds(100));
         var       retired = new SkillsIdentity("previous-user", SkillsSyncFixture.ServerUrl);
         var       owned   = fx.Materialize(alpha);
         var       global  = Tmp.CreateDir("home", ".claude", "skills").PathTo("kcap-alpha");

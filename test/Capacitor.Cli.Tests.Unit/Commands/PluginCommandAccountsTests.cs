@@ -27,7 +27,10 @@ public class PluginCommandAccountsTests {
         }
     }
 
-    PluginEnvironment Env() {
+    /// <summary>For a test that holds the registry lock until the command gives up on it.</summary>
+    static readonly TimeSpan ShortLockWait = TimeSpan.FromMilliseconds(100);
+
+    PluginEnvironment Env(TimeSpan? lockWait = null) {
         var plugin = PluginDir;
         return new(
             Home:              Home,
@@ -39,7 +42,7 @@ public class PluginCommandAccountsTests {
             Harnesses            = TestHarnesses.Under(Home),
             Binaries             = TestBinaries.None,
             ResolveMcpBinaryPath = () => "/usr/local/bin/kcap",
-            Accounts             = new AccountStore(Tmp.PathTo("accounts")),
+            Accounts             = new AccountStore(Tmp.PathTo("accounts")) { LockWait = lockWait },
         };
     }
 
@@ -269,7 +272,7 @@ public class PluginCommandAccountsTests {
 
     [Test]
     public async Task User_remove_with_the_registry_lock_held_flags_accounts_left_wired() {
-        var env = Env();
+        var env = Env(ShortLockWait);
         Directory.CreateDirectory(Home.PathTo(".claude-work"));
         AccountAdoption.EnsureDefault(env.Accounts!, HarnessId.Claude, Home.PathTo(".claude-work"), TimeProvider.System);
         await new PluginCommand(env, Workdir).HandleAsync(["plugin", "install"]);
@@ -417,8 +420,8 @@ public class PluginCommandAccountsTests {
 
     /// <summary>An installed work account with a stale marker, beside a default layout kcap is not installed in, so a
     /// refresh wires only the account and never adopts the default (which would take the lock on its own).</summary>
-    async Task<PluginEnvironment> StaleWorkAccountOnly() {
-        var env = Env();
+    async Task<PluginEnvironment> StaleWorkAccountOnly(TimeSpan? lockWait = null) {
+        var env = Env(lockWait);
         Directory.CreateDirectory(Home.PathTo(".claude-work"));
         AccountAdoption.EnsureDefault(env.Accounts!, HarnessId.Claude, Home.PathTo(".claude-work"), TimeProvider.System);
         await new PluginCommand(env, Workdir).HandleAsync(["plugin", "install"]);
@@ -467,7 +470,7 @@ public class PluginCommandAccountsTests {
 
     [Test]
     public async Task Refresh_warns_and_succeeds_when_the_registry_lock_stays_held() {
-        var env  = await StaleWorkAccountOnly();
+        var env  = await StaleWorkAccountOnly(ShortLockWait);
         var work = Home.PathTo(".claude-work", "settings.json");
 
         int exit;
