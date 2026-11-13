@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Notifications;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -394,8 +395,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             // Tunnelled: a focused text box marks ⌘← and ⌘→ handled even when it is empty.
             AddHandler(KeyDownEvent, (_, e) => {
                 if (DataContext is not MainWindowViewModel vm) return;
-                var focusedText = (FocusManager?.GetFocusedElement() as TextBox)?.Text;
-                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, TerminalFocus.Has(this), focusedText) is not { } stepBack) return;
+                var box = FocusManager?.GetFocusedElement() as TextBox;
+                // The preedit lives on the presenter only: Text stays empty until the composition commits.
+                var preedit = box?.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault()?.PreeditText;
+                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, TerminalFocus.Has(this), box?.Text, preedit) is not { } stepBack) return;
                 System.Windows.Input.ICommand command = stepBack ? vm.GoBackCommand : vm.GoForwardCommand;
                 if (!command.CanExecute(null)) return;
                 e.Handled = true;

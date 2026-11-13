@@ -8,12 +8,12 @@ public class HistoryShortcutsTests {
     [Arguments(Key.Left, true)]
     [Arguments(Key.Right, false)]
     public async Task Command_arrow_steps_when_nothing_holding_text_has_focus(Key key, bool back) {
-        await Assert.That(HistoryShortcuts.CaretArrowStep(key, KeyModifiers.Meta, terminalFocused: false, focusedText: null)).IsEqualTo(back);
+        await Assert.That(HistoryShortcuts.CaretArrowStep(key, KeyModifiers.Meta, terminalFocused: false, focusedText: null, preeditText: null)).IsEqualTo(back);
     }
 
     [Test]
     public async Task Command_arrow_steps_from_an_empty_text_box() {
-        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, false, "")).IsTrue();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, false, "", "")).IsTrue();
     }
 
     /// A text box holding text keeps ⌘← and ⌘→ as line start and end, whitespace included.
@@ -21,13 +21,20 @@ public class HistoryShortcutsTests {
     [Arguments("draft")]
     [Arguments(" ")]
     public async Task Command_arrow_stays_with_a_text_box_that_holds_text(string text) {
-        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, false, text)).IsNull();
-        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Right, KeyModifiers.Meta, false, text)).IsNull();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, false, text, null)).IsNull();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Right, KeyModifiers.Meta, false, text, null)).IsNull();
+    }
+
+    /// An input method holds its composition outside Text, so an empty box can still be composing.
+    [Test]
+    public async Task Command_arrow_stays_with_an_uncommitted_composition_in_an_empty_text_box() {
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, false, "", "に")).IsNull();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Right, KeyModifiers.Meta, false, null, "に")).IsNull();
     }
 
     [Test]
     public async Task Command_arrow_stays_with_a_focused_terminal() {
-        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, terminalFocused: true, null)).IsNull();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(Key.Left, KeyModifiers.Meta, terminalFocused: true, null, null)).IsNull();
     }
 
     /// Shift+⌘← selects to the line start and a bare arrow moves the caret; neither is a step.
@@ -37,7 +44,7 @@ public class HistoryShortcutsTests {
     [Arguments(Key.Left, KeyModifiers.Alt)]
     [Arguments(Key.Up, KeyModifiers.Meta)]
     public async Task Only_a_bare_command_arrow_is_a_step(Key key, KeyModifiers modifiers) {
-        await Assert.That(HistoryShortcuts.CaretArrowStep(key, modifiers, false, null)).IsNull();
+        await Assert.That(HistoryShortcuts.CaretArrowStep(key, modifiers, false, null, null)).IsNull();
     }
 
     [Test]
