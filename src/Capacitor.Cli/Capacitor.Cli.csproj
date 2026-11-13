@@ -29,6 +29,7 @@
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
         <ProjectReference Include="..\Capacitor.Cli.Recording\Capacitor.Cli.Recording.csproj" />
+        <ProjectReference Include="..\Capacitor.Client\Capacitor.Client.csproj" />
     </ItemGroup>
     <ItemGroup>
         <Using Include="Capacitor.Models.Transcripts" />
