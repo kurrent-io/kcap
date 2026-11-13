@@ -119,7 +119,9 @@ internal sealed class DaemonCommandsServiceInstallTests {
         var manager = new CountingManager();
         var spec = new ServiceSpec(id, "/x/kcap-daemon", "/x/log", new Dictionary<string, string>(), []);
 
-        var exit = await new DaemonServiceCommands(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, "test-id", Home, TimeProvider.System).InstallPlain(spec, startNow: true);
+        var exit = await new DaemonServiceCommands(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, "test-id", Home, TimeProvider.System) {
+            LockWait = TimeSpan.FromMilliseconds(100),
+        }.InstallPlain(spec, startNow: true);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(manager.InstallCalls).IsEqualTo(0);

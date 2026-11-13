@@ -158,7 +158,7 @@ sealed class DaemonServiceCommands(
         if (windows.Enrollment is not { } enrollment) return 0;
         var name = enrollment.Name;
 
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, Wait(TimeSpan.FromSeconds(10)), time);
         if (txn is null) return await RefuseContendedAsync(name, "The Windows service was not changed.");
 
         var daemonPath = File.Exists(enrollment.DaemonPath) ? enrollment.DaemonPath : UnitIdentity.ResolveDaemonBinary();
@@ -229,7 +229,7 @@ sealed class DaemonServiceCommands(
     /// <summary>Held from reading the unit's PATH to the last write, so a concurrent install's unit is never
     /// merged into or restored over.</summary>
     async Task<PathRefresh?> RefreshStalePathAsync(HarnessRegistry harnesses) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, ForcedLockWait, time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(ForcedLockWait), time);
         if (txn is null) return new(UnitRefresh.Contended);
 
         if (manager.UnitEnvironment(id) is not { } env) return null;
@@ -375,6 +375,11 @@ sealed class DaemonServiceCommands(
 
     /// <summary>Whether the daemon of a service id hosts this process. Test seam; production asks <see cref="HostedCaller"/>.</summary>
     internal Func<string, bool>? HostsCaller { get; init; }
+
+    /// <summary>Replaces each verb's own bounded wait for a service lock held elsewhere; null keeps them.</summary>
+    internal TimeSpan? LockWait { get; init; }
+
+    TimeSpan Wait(TimeSpan own) => LockWait ?? own;
 
     static Func<string, bool> HostsCallerOf(DaemonStore store) => serviceId => HostedCaller.HostedBy(store, serviceId);
 
@@ -523,7 +528,7 @@ sealed class DaemonServiceCommands(
         string?     error = null;
         ReloadStop? stop  = null;
         try {
-            using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, ForcedLockWait, time);
+            using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(ForcedLockWait), time);
             if (txn is null) {
                 outcome = UnitRefresh.Contended;
             } else {
@@ -743,7 +748,7 @@ sealed class DaemonServiceCommands(
     /// null lock → the same coded-contention message, exit 1, without calling <c>Install</c>. Internal so
     /// the lock-contention path is testable without <see cref="UnitIdentity.ResolveDaemonBinary"/> in the loop.</summary>
     internal async Task<int> InstallPlain(ServiceSpec spec, bool startNow) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(spec.ServiceId);
 
@@ -792,7 +797,7 @@ sealed class DaemonServiceCommands(
     }
 
     internal async Task<int> Uninstall() {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(id);
 
@@ -826,7 +831,7 @@ sealed class DaemonServiceCommands(
             try {
                 if (!Owned(unit)) continue;
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -906,7 +911,7 @@ sealed class DaemonServiceCommands(
                     continue;
                 }
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -990,7 +995,7 @@ sealed class DaemonServiceCommands(
                     continue;
                 }
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -1090,7 +1095,7 @@ sealed class DaemonServiceCommands(
     async Task<int> StartPlain(bool waitOutOthers = false) {
         using var txn = waitOutOthers
             ? await AcquireWaitingOutOthersAsync()
-            : await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+            : await ServiceTxnLock.TryAcquireAsync(store, id, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(id);
 
