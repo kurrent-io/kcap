@@ -15,7 +15,6 @@ internal static class SessionRowMapping {
         Model: row.Model,
         Branch: row.Branch,
         RepoLabel: row.RepoGroupLabel,
-        CheckoutLabel: row.CheckoutLabel,
         WorktreePath: row.WorktreePath,
         CreatedAt: Utc(row.CreatedAt),
         LastActivityAt: row.LastActivityAt is { } lastActivity ? Utc(lastActivity) : null,

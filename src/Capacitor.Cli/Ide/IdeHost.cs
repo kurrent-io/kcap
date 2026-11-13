@@ -107,6 +107,10 @@ internal sealed class IdeHost : IDisposable {
         var request = Read(parameters, IdeJsonContext.Default.SubscribeParams);
         if (string.IsNullOrEmpty(request.SubscriptionId) || request.GitRoots is null || request.GitRoots.Any(root => root is null))
             throw InvalidParams("subscription_id and git_roots are required");
+        // A relative root would resolve against this process's working directory, which is not the client's.
+        // A blank one selects nothing, as ProjectScope already treats it.
+        if (request.GitRoots.Any(root => !string.IsNullOrWhiteSpace(root) && !Path.IsPathFullyQualified(root)))
+            throw InvalidParams("git_roots must be absolute paths");
 
         // Resolving the roots reads git metadata, so it stays outside the lock the row feed takes.
         var subscription = new IdeSubscription(request.SubscriptionId, ProjectScope.For(request.GitRoots, _repoIdentity, _resolveMainRoot));
@@ -120,7 +124,6 @@ internal sealed class IdeHost : IDisposable {
         lock (_lock) {
             if (_disposed) return Task.CompletedTask;
 
-            _subscriptions[subscription.Id] = subscription;
             List<SessionRow> rows = [];
             foreach (var row in _rows.Values) {
                 if (!subscription.Scope.Matches(row)) continue;
@@ -130,6 +133,8 @@ internal sealed class IdeHost : IDisposable {
                 rows.Add(wire);
             }
 
+            // Registered only once its snapshot is built: a throw above leaves no subscription without one.
+            _subscriptions[subscription.Id] = subscription;
             Send("sessions/snapshot", new SessionsSnapshot(subscription.Id, [.. rows]), IdeJsonContext.Default.SessionsSnapshot, subscription);
         }
 

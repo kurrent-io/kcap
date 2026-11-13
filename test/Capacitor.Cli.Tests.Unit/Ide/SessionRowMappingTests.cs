@@ -33,7 +33,6 @@ public class SessionRowMappingTests {
               "model": "model-1",
               "branch": "branch-1",
               "repo_label": "repo-label-1",
-              "checkout_label": "checkout-label-1",
               "worktree_path": "/worktree-1",
               "created_at": "2026-01-02T03:04:05Z",
               "last_activity_at": "2026-01-03T04:05:06Z",
@@ -49,9 +48,34 @@ public class SessionRowMappingTests {
             }
             """);
 
-        var actual = Wire(Row());
+        // The same row with every boolean flipped, so a mapping that swaps two of them fails one of the two.
+        var flipped = Row(status: "Completed") with { AwaitingInput = true, IsStale = false, IsTerminalSession = true, OwnerIsViewer = false };
+        var expectedFlipped = expected!.DeepClone();
+        expectedFlipped["status"]              = "Completed";
+        expectedFlipped["awaiting_input"]      = true;
+        expectedFlipped["is_stale"]            = false;
+        expectedFlipped["is_ended"]            = true;
+        expectedFlipped["is_terminal_session"] = true;
+        expectedFlipped["owner_is_viewer"]     = false;
 
-        await Assert.That(actual.ToJsonString()).IsEqualTo(expected!.ToJsonString());
+        await Assert.That(Wire(Row()).ToJsonString()).IsEqualTo(expected.ToJsonString());
+        await Assert.That(Wire(flipped).ToJsonString()).IsEqualTo(expectedFlipped.ToJsonString());
+    }
+
+    [Test]
+    public async Task Times_are_sent_as_utc_whatever_their_kind() {
+        var utc         = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var unspecified = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Unspecified);
+
+        static string CreatedAt(DateTime value) => Wire(Row() with { CreatedAt = value })["created_at"]!.GetValue<string>();
+
+        var mapped = SessionRowMapping.From(Row() with { CreatedAt = unspecified }).CreatedAt;
+        await Assert.That(mapped.DateTime).IsEqualTo(unspecified);
+        await Assert.That(mapped.Offset).IsEqualTo(TimeSpan.Zero);
+        await Assert.That(CreatedAt(unspecified)).IsEqualTo("2026-01-02T03:04:05Z");
+        await Assert.That(CreatedAt(utc)).IsEqualTo("2026-01-02T03:04:05Z");
+        // Tells a conversion from a reinterpretation only where the local zone is not UTC.
+        await Assert.That(CreatedAt(utc.ToLocalTime())).IsEqualTo("2026-01-02T03:04:05Z");
     }
 
     [Test]

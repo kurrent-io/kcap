@@ -17,7 +17,6 @@ internal sealed record SessionRow(
     string? Model,
     string? Branch,
     string RepoLabel,
-    string CheckoutLabel,
     string? WorktreePath,
     DateTimeOffset CreatedAt,
     DateTimeOffset? LastActivityAt,

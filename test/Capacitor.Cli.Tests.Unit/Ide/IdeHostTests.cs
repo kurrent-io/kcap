@@ -5,14 +5,16 @@ using Capacitor.Cli.Ide;
 using Capacitor.Client;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Ide;
 
 /// <summary>The host over a live loop: requests go in one line at a time and every message it writes is read back in order.</summary>
 public class IdeHostTests {
     const string CliVersion = "9.8.7";
-    const string App = "/src/app";
-    const string Lib = "/src/lib";
+    // The host refuses a root that is not fully qualified, and on Windows that needs a drive.
+    static readonly string App = OperatingSystem.IsWindows() ? @"C:\src\app" : "/src/app";
+    static readonly string Lib = OperatingSystem.IsWindows() ? @"C:\src\lib" : "/src/lib";
 
     sealed class Requests : TextReader {
         readonly Channel<string> _lines = Channel.CreateUnbounded<string>();
@@ -233,7 +235,7 @@ public class IdeHostTests {
     [Test]
     public async Task Subscribe_sends_a_snapshot_of_the_projects_rows_only() {
         using var host = new Host();
-        host.Directory.Rows.AddOrUpdate([Row("a1", App), Row("a2", $"{App}/src"), Row("l1", Lib)]);
+        host.Directory.Rows.AddOrUpdate([Row("a1", App), Row("a2", Path.Combine(App, "src")), Row("l1", Lib)]);
         await host.InitializeAsync();
 
         var snapshot = await host.SubscribeAsync("sub-1", App);
@@ -335,6 +337,58 @@ public class IdeHostTests {
     }
 
     [Test]
+    public async Task Unsubscribe_drops_a_batch_already_pending() {
+        using var host = new Host();
+        await host.InitializeAsync();
+        await host.SubscribeAsync("sub-1", App);
+
+        host.Directory.Rows.AddOrUpdate(Row("a1", App));
+        host.Time.Advance(TimeSpan.FromMilliseconds(50));
+        await host.CallAsync("sessions/unsubscribe", new JsonObject { ["subscription_id"] = "sub-1" });
+        host.Time.Advance(TimeSpan.FromMilliseconds(100));
+        var seen = await host.SettleAsync();
+
+        await Assert.That(Changes(seen, "sub-1")).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_relative_git_root_is_refused() {
+        using var host = new Host();
+        host.Directory.Rows.AddOrUpdate(Row("a1", App));
+        await host.InitializeAsync();
+
+        var reply = await host.CallAsync("sessions/subscribe", new JsonObject {
+            ["subscription_id"] = "sub-1",
+            ["git_roots"]       = new JsonArray(App, Path.Combine("src", "app")),
+        });
+
+        await Assert.That(reply["error"]!["code"]!.GetValue<int>()).IsEqualTo(IdeErrorCodes.InvalidParams);
+        await Assert.That(host.Seen.Where(m => Method(m) == "sessions/snapshot")).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_blank_git_root_is_ignored() {
+        using var host = new Host();
+        host.Directory.Rows.AddOrUpdate(Row("a1", App));
+        await host.InitializeAsync();
+
+        var snapshot = await host.SubscribeAsync("sub-1", "", "  ", App);
+
+        await Assert.That(Keys(snapshot["params"]!["rows"])).IsEquivalentTo(["local:a1"]);
+    }
+
+    [Test, RunOn(OS.Windows)]
+    public async Task A_forward_slash_root_is_accepted_on_windows() {
+        using var host = new Host();
+        host.Directory.Rows.AddOrUpdate(Row("a1", App));
+        await host.InitializeAsync();
+
+        var snapshot = await host.SubscribeAsync("sub-1", App.Replace('\\', '/'));
+
+        await Assert.That(Keys(snapshot["params"]!["rows"])).IsEquivalentTo(["local:a1"]);
+    }
+
+    [Test]
     public async Task Unsubscribe_of_an_unknown_id_answers_an_empty_result() {
         using var host = new Host();
         await host.InitializeAsync();
@@ -409,6 +463,7 @@ public class IdeHostTests {
     [Arguments("""{"subscription_id":1,"git_roots":[]}""")]
     [Arguments("""{"subscription_id":"sub-1","git_roots":"/src/app"}""")]
     [Arguments("""{"subscription_id":"sub-1","git_roots":[null]}""")]
+    [Arguments("""{"subscription_id":"sub-1","git_roots":[1]}""")]
     public async Task Subscribe_with_missing_or_wrong_params_answers_32602(string? parameters) {
         using var host = new Host();
         await host.InitializeAsync();
