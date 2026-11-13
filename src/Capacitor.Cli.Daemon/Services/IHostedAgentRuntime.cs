@@ -62,6 +62,10 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// output read loop for the chunk it was read from, before the next chunk is read.</summary>
     void NoteTerminalDialog(bool showing) { }
 
+    /// <summary>Whether the agent's own prompt box is on the terminal, for a runtime whose screen is
+    /// read. Called on the output read loop like <see cref="NoteTerminalDialog"/>.</summary>
+    void NotePromptShown(bool shown) { }
+
     /// <summary>A hook relayed a turn starting or ending for this agent, which only a submitted prompt
     /// causes.</summary>
     void NoteTurnRelayed() { }

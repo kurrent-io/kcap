@@ -280,7 +280,7 @@ public class WorktreeManagerTests {
         await Assert.That(Directory.Exists(Path.Combine(repo, ".capacitor", "worktrees", "invalid-ref"))).IsFalse();
     }
 
-    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, CommitThenSwitchedAway }
+    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, StrippedConfigRecreated, CommitThenSwitchedAway }
 
     /// <summary>Removal never destroys work that exists only in the worktree: a change, an untracked
     /// file or a commit no other ref has, on HEAD or on the worktree's own branch, keeps the worktree and
@@ -288,6 +288,21 @@ public class WorktreeManagerTests {
     /// writes, a file identical to the source checkout's) are not work; that config edited after the
     /// daemon recorded it is, as is a staged change to it, and so is a link, even to an identical file,
     /// since the link itself would be lost.</summary>
+    /// <summary>On a case-insensitive volume a stripped <c>.MCP.JSON</c> is the file the daemon recorded as
+    /// <c>.mcp.json</c>; still holding what the daemon wrote, it is not the agent's work.</summary>
+    [Test]
+    [Arguments(true, 0)]
+    [Arguments(false, 1)]
+    public async Task HiddenEdits_matches_the_baseline_by_gits_case_rule(bool ignoreCase, int edits) {
+        using var tmp = new TempDir();
+        tmp.CreateFile(".MCP.JSON", "{}");
+        var stamp    = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData("{}"u8));
+        var baseline = new Dictionary<string, string>(StringComparer.Ordinal) { [".mcp.json"] = stamp };
+
+        await Assert.That(WorktreeManager.HiddenEdits(tmp.Path, baseline, "S .MCP.JSON\0", ignoreCase))
+            .IsEqualTo(edits);
+    }
+
     [Test]
     [Arguments(WorktreeState.Clean, false)]
     [Arguments(WorktreeState.ChangedFile, true)]
@@ -300,6 +315,7 @@ public class WorktreeManagerTests {
     [Arguments(WorktreeState.LaunchConfigEditedAfter, true)]
     [Arguments(WorktreeState.AgentEditBeforeRelaunch, true)]
     [Arguments(WorktreeState.StagedConfigChange, true)]
+    [Arguments(WorktreeState.StrippedConfigRecreated, true)]
     [Arguments(WorktreeState.CommitThenSwitchedAway, true)]
     public async Task RemoveAsync_keeps_a_worktree_holding_work_that_exists_nowhere_else(WorktreeState state, bool kept) {
         using var repo = MakeUpstreamWithSideRef("refs/pull/1/head", out _);
@@ -358,7 +374,11 @@ public class WorktreeManagerTests {
             }
             case WorktreeState.StagedConfigChange:
                 tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
-                tree.Do("add", ".mcp.json");
+                // The stripped config is skip-worktree, so a plain add refuses it.
+                tree.Do("add", "--sparse", ".mcp.json");
+                break;
+            case WorktreeState.StrippedConfigRecreated:
+                tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
                 break;
             case WorktreeState.LinkToOverlay:
                 Skip.When(OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI lacks");
