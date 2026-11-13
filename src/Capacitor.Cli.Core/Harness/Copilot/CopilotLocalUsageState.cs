@@ -19,6 +19,14 @@ public sealed class CopilotLocalUsageState(VsCodeChatSessionCache log) {
         StagedCredits.Clear();
     }
 
+    /// <summary>Sends everything again on the next drain; each line's id comes from what it reports, so the server
+    /// drops what it already holds.</summary>
+    public void ForgetSent() {
+        SentRequests.Clear();
+        SentCredits.Clear();
+        Unstage();
+    }
+
     public void Commit() {
         SentRequests.UnionWith(StagedRequests);
         foreach (var (requestId, nano) in StagedCredits) {

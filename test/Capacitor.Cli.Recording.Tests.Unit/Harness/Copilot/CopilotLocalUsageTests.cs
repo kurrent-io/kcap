@@ -91,6 +91,23 @@ public class CopilotLocalUsageTests {
         });
     }
 
+    /// <summary>A server found behind on reconnect may have lost usage with the gap, and its frontier cannot say, so
+    /// the next drain sends the usage again.</summary>
+    [Test]
+    public async Task A_rewind_on_reconnect_sends_the_usage_again() {
+        var transcript = Transcript();
+        var state      = new WatchState { ThresholdReached = true };
+        Recorders.Transport.IsConnected = true;
+        await File.WriteAllTextAsync(ChatLog, Log(Request("request_1", 1, 430, 0.5)));
+        await Drain(transcript, state);
+
+        using var gate = new SemaphoreSlim(1, 1);
+        await Recorders.For(Sid, transcript, null, "copilot").GatedReregisterAsync(gate, state, _ => Task.FromResult(0), null, CancellationToken.None);
+        await Drain(transcript, state);
+
+        await Assert.That(Sent.Count(l => Shape(l).Type == "kcap.vscode_request_credits")).IsEqualTo(2);
+    }
+
     [Test]
     public async Task Usage_the_final_drain_cannot_send_marks_the_session_for_import() {
         var transcript = Transcript();

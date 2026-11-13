@@ -1743,7 +1743,11 @@ public sealed class TranscriptRecorder(
 
             TryLog($"Server behind ({serverPosition} vs {state.LinesProcessed}), rewinding to resend gap");
 
-            return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
+            if (!await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct)) return false;
+
+            // Usage lines sit above the server's frontier, so it cannot say whether it lost them with the gap.
+            state.CopilotLocalUsage?.ForgetSent();
+            return true;
         } finally {
             gate.Release();
         }

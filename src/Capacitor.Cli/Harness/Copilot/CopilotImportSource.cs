@@ -442,7 +442,8 @@ internal sealed class CopilotImportSource : IImportSource {
     /// when the server refused the usage, so the import fails and can be run again; a missing or unreadable log fails
     /// nothing.</summary>
     async Task<bool> PostVsCodeLocalAsync(ImportContext ctx, string sessionId, string transcriptPath, string chatLog, CancellationToken ct) {
-        var cache = new VsCodeChatSessionCache(chatLog, Path.GetFileNameWithoutExtension(transcriptPath), _ => { });
+        var cache = new VsCodeChatSessionCache(
+            chatLog, Path.GetFileNameWithoutExtension(transcriptPath), note => ctx.Progress?.Report(new ChatLogPartsSkipped(sessionId, null, note)));
         if (cache.Current() is not { } session) return true;
 
         var delivered = true;

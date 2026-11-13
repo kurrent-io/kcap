@@ -345,6 +345,35 @@ public class CopilotImportSourceTests {
         await Assert.That(title.RequestMessage.Body!).Contains("Create notes.md");
     }
 
+    /// <summary>A chat log with parts of an unexpected shape still imports what it can, and says what it left out.</summary>
+    [Test]
+    public async Task an_import_reports_chat_log_parts_it_left_out() {
+        using var tmp = new TempDir();
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage");
+        WriteLocalSession(storage, "ws1", Sid1, new Uri(tmp.CreateDir("work").Path).AbsoluteUri);
+        storage.CreateFile(["ws1", "chatSessions", Sid1 + ".jsonl"],
+            """{"kind":0,"v":{"version":3,"sessionId":"SID","requests":[]}}""".Replace("SID", Sid1) + "\n" + """{"kind":9}""" + "\n");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":0}"""));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client   = new HttpClient();
+        var       progress = new CollectingProgress();
+
+        var source     = new CopilotImportSource(Config.Root, Layout(tmp), [storage.Path], router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false, Progress: progress), CancellationToken.None);
+
+        await Assert.That(progress.Events.OfType<ChatLogPartsSkipped>().Single().SessionId).IsEqualTo(classified[0].SessionId);
+    }
+
+    sealed class CollectingProgress : IProgress<ImportProgress> {
+        public List<ImportProgress> Events { get; } = [];
+        public void Report(ImportProgress value) => Events.Add(value);
+    }
+
     /// <summary>Usage the server refuses fails the import, so it can be run again rather than read as done.</summary>
     [Test]
     public async Task an_import_whose_usage_the_server_refuses_fails() {
