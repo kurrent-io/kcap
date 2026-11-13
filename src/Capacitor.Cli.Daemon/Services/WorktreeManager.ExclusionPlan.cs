@@ -310,8 +310,8 @@ public partial class WorktreeManager {
     /// paths are literal.</para></summary>
     static async Task RunGitWithNulStdinAsync(
             string cwd, TimeSpan timeout, TimeProvider time, IReadOnlyCollection<string> lines,
-            CancellationToken ct, params string[] args) {
-        var psi = NewGitPsi(cwd, args);
+            CancellationToken ct, GitConfigOverride[] config, params string[] args) {
+        var psi = NewGitPsi(cwd, args, config: config);
         psi.RedirectStandardInput = true;
         using var process = Process.Start(psi)!;
         using var cap        = new CancellationTokenSource(timeout, time);
