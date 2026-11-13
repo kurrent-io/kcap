@@ -84,4 +84,17 @@ public class CopilotWorkspaceYamlTests {
     public async Task unquote_handles_yaml_scalar_quote_forms(string raw, string expected) {
         await Assert.That(CopilotWorkspaceYaml.Unquote(raw)).IsEqualTo(expected);
     }
+
+    [Test]
+    public async Task workspace_yaml_parser_reads_a_block_scalar_name() {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, "cwd: /work\nname: |-\n  Review this PR.\n\n  Additional instructions:\n    (none)\nuser_named: false\n");
+
+        var meta = CopilotWorkspaceYaml.TryRead(path);
+
+        await Assert.That(meta!.Name).IsEqualTo("Review this PR.\n\nAdditional instructions:\n  (none)");
+        await Assert.That(meta.UserNamed).IsFalse();
+    }
 }

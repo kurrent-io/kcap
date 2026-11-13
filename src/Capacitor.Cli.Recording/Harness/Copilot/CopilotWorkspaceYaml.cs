@@ -4,7 +4,7 @@ namespace Capacitor.Cli.Recording.Harness.Copilot;
 
 /// <summary>
 /// Minimal reader for Copilot's per-session <c>workspace.yaml</c>. The file is
-/// flat <c>key: value</c> lines (no nesting, no quoting in practice) — a full
+/// flat <c>key: value</c> lines, quoted where YAML needs it, a multi-line name as a block scalar — a full
 /// YAML dependency would be overkill for the fields we need, and a parse
 /// failure must never break discovery (returns null / partial data instead).
 /// </summary>
@@ -23,12 +23,16 @@ public sealed record CopilotWorkspaceYaml(
             DateTimeOffset? createdAt = null;
             DateTimeOffset? updatedAt = null;
 
-            foreach (var line in File.ReadLinesShared(path)) {
-                var idx = line.IndexOf(": ", StringComparison.Ordinal);
+            var lines = File.ReadLinesShared(path).ToList();
+
+            for (var i = 0; i < lines.Count; i++) {
+                var line = lines[i];
+                var idx  = line.IndexOf(": ", StringComparison.Ordinal);
                 if (idx <= 0) continue;
 
                 var key   = line[..idx].Trim();
-                var value = Unquote(line[(idx + 2)..].Trim());
+                var raw   = line[(idx + 2)..].Trim();
+                var value = raw is ['|' or '>', ..] ? BlockScalar(lines, ref i, folded: raw[0] == '>') : Unquote(raw);
 
                 if (value.Length == 0) continue;
 
@@ -67,6 +71,24 @@ public sealed record CopilotWorkspaceYaml(
         }
 
         return value;
+    }
+
+    /// <summary>The indented lines after a <c>|</c> or <c>&gt;</c> indicator, which Copilot writes for a multi-line
+    /// name. Leaves <paramref name="i"/> on the block's last line.</summary>
+    static string BlockScalar(List<string> lines, ref int i, bool folded) {
+        var block  = new List<string>();
+        int? indent = null;
+
+        while (i + 1 < lines.Count && (lines[i + 1].Length == 0 || lines[i + 1][0] == ' ')) {
+            var next = lines[++i];
+            if (next.Trim().Length > 0) indent ??= next.Length - next.TrimStart(' ').Length;
+
+            block.Add(next);
+        }
+
+        var text = block.Select(l => l.Trim().Length == 0 ? "" : l[Math.Min(indent ?? 0, l.Length)..]);
+
+        return string.Join(folded ? " " : "\n", text).Trim('\n', ' ');
     }
 
     static DateTimeOffset? ParseTimestamp(string value) =>
