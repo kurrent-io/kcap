@@ -8,14 +8,18 @@ namespace Capacitor.Cli.Ide;
 /// from any thread never lands inside a response line.
 /// </summary>
 internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDisposable {
-    readonly Dictionary<string, Func<JsonObject?, CancellationToken, Task<JsonNode?>>> _handlers = new(StringComparer.Ordinal);
+    readonly Dictionary<string, Func<JsonObject?, CancellationToken, Task<IdeReply>>> _handlers = new(StringComparer.Ordinal);
     readonly SemaphoreSlim _writeGate = new(1, 1);
     volatile bool _closed;
 
     public void Dispose() => _writeGate.Dispose();
 
     /// <summary>Register before <see cref="RunAsync"/>; the table is not guarded against concurrent change.</summary>
-    public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) {
+    public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) =>
+        HandleThen(method, async (parameters, ct) => new IdeReply(await handler(parameters, ct)));
+
+    /// <inheritdoc cref="Handle"/>
+    public void HandleThen(string method, Func<JsonObject?, CancellationToken, Task<IdeReply>> handler) {
         if (!_handlers.TryAdd(method, handler)) throw new InvalidOperationException($"A handler for '{method}' is already registered.");
     }
 
@@ -33,27 +37,38 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
             // No id is a notification from the peer; no method is a response to a request this side never sends.
             if (message["id"] is not { } id || message["method"] is not JsonValue methodValue || !methodValue.TryGetValue(out string? method)) continue;
 
-            await WriteAsync(await AnswerAsync(id, method, message["params"], ct));
+            var (answer, then) = await AnswerAsync(id, method, message["params"], ct);
+            await WriteAsync(answer);
+            if (then is not null && !_closed) await FollowUpAsync(method, then);
         }
     }
 
-    async Task<JsonObject> AnswerAsync(JsonNode id, string method, JsonNode? parameters, CancellationToken ct) {
+    async Task<(JsonObject Answer, Func<Task>? Then)> AnswerAsync(JsonNode id, string method, JsonNode? parameters, CancellationToken ct) {
         if (!_handlers.TryGetValue(method, out var handler))
-            return Error(id, IdeErrorCodes.MethodNotFound, "method_not_found", null);
+            return (Error(id, IdeErrorCodes.MethodNotFound, "method_not_found", null), null);
         if (parameters is not null and not JsonObject)
-            return Error(id, IdeErrorCodes.InvalidParams, "params must be an object", null);
+            return (Error(id, IdeErrorCodes.InvalidParams, "params must be an object", null), null);
 
         try {
-            var result = await handler(parameters as JsonObject, ct) ?? new JsonObject();
+            var reply  = await handler(parameters as JsonObject, ct);
+            var result = reply.Result ?? new JsonObject();
 
-            return new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result.DeepClone() };
+            return (new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result.DeepClone() }, reply.Then);
         } catch (IdeRpcException ex) {
-            return Error(id, ex.Code, ex.Message, ex.Detail);
+            return (Error(id, ex.Code, ex.Message, ex.Detail), null);
         } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
             // The peer is not told what failed; stderr keeps the detail.
             await LogAsync($"kcap ide: handler for {method} failed: {ex}");
 
-            return Error(id, IdeErrorCodes.InternalError, "internal_error", null);
+            return (Error(id, IdeErrorCodes.InternalError, "internal_error", null), null);
+        }
+    }
+
+    static async Task FollowUpAsync(string method, Func<Task> then) {
+        try {
+            await then();
+        } catch (Exception ex) {
+            await LogAsync($"kcap ide: follow-up for {method} failed: {ex}");
         }
     }
 

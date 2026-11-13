@@ -235,4 +235,97 @@ public class IdeRpcLoopTests {
 
         await Assert.That(ex.Message).Contains("once");
     }
+
+    [Test]
+    public async Task Registering_a_method_through_both_forms_throws() {
+        var loop = new IdeRpcLoop(new StringReader(""), new Lines());
+        loop.Handle("once", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => loop.HandleThen("once", (_, _) => Task.FromResult(new IdeReply(null))));
+
+        await Assert.That(ex.Message).Contains("once");
+    }
+
+    [Test]
+    public async Task Then_runs_once_its_reply_is_written() {
+        var output      = new Lines();
+        var loop        = new IdeRpcLoop(new StringReader(Request("1", "start")), output);
+        var linesAtThen = -1;
+        loop.HandleThen("start", (_, _) => Task.FromResult(new IdeReply(new JsonObject { ["ok"] = true }, async () => {
+            linesAtThen = output.Raw.Count;
+            await loop.NotifyAsync("after", new JsonObject());
+        })));
+
+        await loop.RunAsync(CancellationToken.None);
+
+        var all = output.All;
+        await Assert.That(linesAtThen).IsEqualTo(1);
+        await Assert.That(all.Count).IsEqualTo(2);
+        await Assert.That(all[0].ToJsonString()).IsEqualTo("""{"jsonrpc":"2.0","id":1,"result":{"ok":true}}""");
+        await Assert.That(all[1]["method"]!.GetValue<string>()).IsEqualTo("after");
+    }
+
+    [Test]
+    public async Task Then_comes_between_its_reply_and_the_next_reply_on_the_wire() {
+        var output = new Lines();
+        var loop   = new IdeRpcLoop(new StringReader(string.Join('\n', Request("1", "start"), Request("2", "fine"))), output);
+        loop.HandleThen("start", (_, _) => Task.FromResult(new IdeReply(null, async () => {
+            // A yield lets the next request overtake if the loop does not wait for the follow-up.
+            await Task.Yield();
+            await loop.NotifyAsync("after", new JsonObject());
+        })));
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        await loop.RunAsync(CancellationToken.None);
+
+        await Assert.That(output.Text).IsEqualTo(
+            """
+            {"jsonrpc":"2.0","id":1,"result":{}}
+            {"jsonrpc":"2.0","method":"after","params":{}}
+            {"jsonrpc":"2.0","id":2,"result":{}}
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    [Test]
+    public async Task An_error_reply_sends_nothing_after_it() {
+        var output = new Lines();
+        var loop   = new IdeRpcLoop(new StringReader(Request("1", "start")), output);
+        loop.HandleThen("start", (_, _) => throw new IdeRpcException(IdeErrorCodes.InvalidParams, "bad"));
+
+        await loop.RunAsync(CancellationToken.None);
+
+        var all = output.All;
+        await Assert.That(all.Count).IsEqualTo(1);
+        await Assert.That(all[0]["error"]!["code"]!.GetValue<int>()).IsEqualTo(IdeErrorCodes.InvalidParams);
+    }
+
+    [Test]
+    public async Task Then_does_not_run_once_the_peer_is_gone() {
+        var output = new Lines { FailWrite = () => new IOException("broken pipe") };
+        var ran    = false;
+        var loop   = new IdeRpcLoop(new StringReader(Request("1", "start")), output);
+        loop.HandleThen("start", (_, _) => Task.FromResult(new IdeReply(null, () => { ran = true; return Task.CompletedTask; })));
+
+        await loop.RunAsync(CancellationToken.None);
+
+        await Assert.That(ran).IsFalse();
+    }
+
+    [Test, NotInParallel]
+    public async Task A_failing_Then_goes_to_stderr_and_the_loop_continues() {
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        var output = new Lines();
+        var loop   = new IdeRpcLoop(new StringReader(string.Join('\n', Request("1", "start"), Request("2", "fine"))), output);
+        loop.HandleThen("start", (_, _) => Task.FromResult(new IdeReply(null, () => throw new InvalidOperationException("follow-up broke"))));
+        loop.Handle("fine", (_, _) => Task.FromResult<JsonNode?>(null));
+
+        await loop.RunAsync(CancellationToken.None);
+
+        var all = output.All;
+        await Assert.That(all.Count).IsEqualTo(2);
+        await Assert.That(all[1]["id"]!.GetValue<int>()).IsEqualTo(2);
+        await Assert.That(stderr.GetCapturedError()).Contains("follow-up broke");
+        await Assert.That(output.Text).DoesNotContain("follow-up broke");
+    }
 }
