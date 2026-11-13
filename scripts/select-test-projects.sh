@@ -6,10 +6,12 @@
 # directly or transitively, is selected. TestSelectionDirectory items declare directories read by
 # source-scanning tests without a project reference; their paths are relative to the .csproj.
 # A path in no project directory (build files, workflows, scripts, the plugin) selects all, since
-# nothing proves it is unread by a test. So does anything that cannot be resolved here: a reference
-# built from MSBuild properties, an item whose Include is not on its opening line, a declared
-# directory that does not exist. Markdown outside kcap/ is skipped: the workflow trigger already
-# treats it as unable to affect a test.
+# nothing proves it is unread by a test. The exception is markdown under kcap/ that a declared
+# directory covers: markdown is never a build input, so the declaring suites are all it can reach.
+# Anything that cannot be resolved here also selects all: a reference built from MSBuild
+# properties, an item whose Include is not on its opening line, a declared directory that does not
+# exist. Markdown outside kcap/ is skipped: the workflow trigger already treats it as unable to
+# affect a test.
 #
 # Usage: select-test-projects.sh [repo-root] < changed-paths
 set -euo pipefail
@@ -90,16 +92,22 @@ while IFS= read -r path; do
     *.md) continue ;;
   esac
   proj="$(owner "$path" || true)"
-  [ -n "$proj" ] || all
-  printf '%s\n' "$selected" | grep -Fxq -- "$proj" || selected+="$proj"$'\n'
+  if [ -n "$proj" ]; then
+    printf '%s\n' "$selected" | grep -Fxq -- "$proj" || selected+="$proj"$'\n'
+  else
+    case "$path" in *.md) ;; *) all ;; esac
+  fi
+  covered=""
   while read -r scanner directory; do
     [ -n "$scanner" ] || continue
     case "$path" in
       "$directory"*)
+        covered=1
         printf '%s\n' "$selected" | grep -Fxq -- "$scanner" || selected+="$scanner"$'\n'
         ;;
     esac
   done <<< "$inputs"
+  [ -n "$proj" ] || [ -n "$covered" ] || all
 done <<< "$changed"
 
 # Reverse-dependency closure.
