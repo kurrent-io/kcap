@@ -84,4 +84,28 @@ new_repo
 put src/A.cs $'class A\n{\n    // Regression for a Qodo-flagged false positive\n}'
 check "a bot-flagged regression note fails" 1 "src/A.cs:3:"
 
+new_repo
+put src/A.cs $'class A\n{\n    string value = " // Task 1";\n}'
+check "a quoted C# marker opens no comment" 0
+
+new_repo
+put src/A.cs $'class A\n{\n    char q = \'"\'; // Task 2\n}'
+check "a char literal opens no string" 1 "src/A.cs:3:"
+
+new_repo
+put scripts/a.sh $'#!/usr/bin/env bash\necho " # Phase B" \' # Phase C\''
+check "a quoted shell marker opens no comment" 0
+
+new_repo
+put src/A.cs $'class A\n{\n    int x;// Task 1\n}'
+check "a line comment right after code fails" 1 "src/A.cs:3:"
+
+new_repo
+put src/A.cs $'class A\n{\n    int y;/* Task 2 */\n}'
+check "a block comment right after code fails" 1 "src/A.cs:3:"
+
+new_repo
+put src/A.cs $'class A\n{\n    void F() {}// Task 3\n}'
+check "a comment right after a closing brace fails" 1 "src/A.cs:3:"
+
 [ "$fail" -eq 0 ] && echo "ok" || exit 1
