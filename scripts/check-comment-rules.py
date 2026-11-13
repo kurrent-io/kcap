@@ -39,7 +39,12 @@ PARSERS = {
     )
 }
 COMMENTS = {name: Query(parser.language, "(comment) @comment") for name, parser in PARSERS.items()}
-SCRIPTS = Query(PARSERS["yaml"].language, "(block_mapping_pair key: (_) @key value: (block_node (block_scalar) @script))")
+SCRIPTS = Query(PARSERS["yaml"].language, """
+(block_mapping_pair
+  key: (_) @steps
+  value: (block_node (block_sequence (block_sequence_item (block_node (block_mapping
+    (block_mapping_pair key: (_) @key value: (block_node (block_scalar) @script))))))))
+""")
 
 
 def shell_comments(source, workflow=False):
@@ -95,6 +100,8 @@ def syntax_comments(source, language, github=False):
     if language == "yaml" and github:
         for _, captures in QueryCursor(SCRIPTS).matches(root):
             key, script = captures["key"][0], captures["script"][0]
+            if captures["steps"][0].text.strip(b"'\"") != b"steps":
+                continue
             if key.text.strip(b"'\"") != b"run" or not script.text.startswith(b"|"):
                 continue
             # Only literal Bash/sh scripts retain the source's line structure and comment syntax.
