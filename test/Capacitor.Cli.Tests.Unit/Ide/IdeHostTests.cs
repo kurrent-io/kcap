@@ -211,9 +211,10 @@ public class IdeHostTests {
     public async Task A_method_before_initialize_is_refused_with_32002() {
         using var host = new Host();
 
-        var reply = await host.CallAsync("sessions/subscribe", Fixture("sessions.subscribe.request.json")["params"]);
+        host.Input.Send(Fixture("sessions.subscribe.request.json").ToJsonString());
+        var reply = await host.UntilAsync(m => m.ContainsKey("id"), "the reply to the subscribe");
 
-        await Assert.That(reply["error"]!["code"]!.GetValue<int>()).IsEqualTo(IdeErrorCodes.NotInitialized);
+        await Assert.That(JsonNode.DeepEquals(reply, Fixture("error.not_initialized.json"))).IsTrue();
         await Assert.That(host.Seen).IsEmpty();
     }
 

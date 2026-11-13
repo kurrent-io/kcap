@@ -52,6 +52,9 @@ public class IdeRpcLoopTests {
         }
     }
 
+    static JsonObject Fixture(string name) =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "test-fixtures", "ide-protocol", name)))!.AsObject();
+
     static string Request(string id, string method, string? parameters = null) =>
         $$"""{"jsonrpc":"2.0","id":{{id}},"method":"{{method}}"{{(parameters is null ? "" : $",\"params\":{parameters}")}}}""";
 
@@ -84,10 +87,11 @@ public class IdeRpcLoopTests {
 
     [Test]
     public async Task Unknown_method_answers_32601() {
-        var output = await RunAsync(Request("1", "no/such"), _ => { });
+        var expected = Fixture("error.method_not_found.json");
 
-        var error = output.All.Single()["error"]!;
-        await Assert.That(error["code"]!.GetValue<int>()).IsEqualTo(IdeErrorCodes.MethodNotFound);
+        var output = await RunAsync(Request(expected["id"]!.ToJsonString(), "no/such"), _ => { });
+
+        await Assert.That(JsonNode.DeepEquals(output.All.Single(), expected)).IsTrue();
     }
 
     [Test]
