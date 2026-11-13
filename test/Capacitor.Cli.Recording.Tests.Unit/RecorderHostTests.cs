@@ -2839,15 +2839,17 @@ public class RecorderHostTests {
             await Eventually(() => _log.Any(line => line.StartsWith(heldPrefix, StringComparison.Ordinal)), "a held initial read");
             redaction.Exhausted = false;
 
-            long Progress() => _transport.Batches.Count + sources.Sum(source => (long) Ticks(source.Key));
+            // Capped per source, so a source already at its target cannot keep a stalled one's wait alive.
+            long LinesToward(int target) => sources.Sum(source => (long) Math.Min(LinesSent(source.SessionId), target));
+            long TicksToward(Func<RecordingSource, int> target) => sources.Sum(source => (long) Math.Min(Ticks(source.Key), target(source)));
 
-            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1), Progress);
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1), Progress);
+            await Eventually(() => sources.All(source => LinesSent(source.SessionId) == 60), "every source's first read", TimeSpan.FromSeconds(1), () => LinesToward(60));
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1), () => TicksToward(_ => 2));
 
             var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
             var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
 
-            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1), Progress);
+            await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1), () => TicksToward(source => ticksBefore[source.Key] + IdleTicks));
 
             // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
             var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
