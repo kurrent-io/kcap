@@ -336,12 +336,11 @@ public class WorkspaceMcpNeutralizationTests {
         repo.CreateFile(".mcp.json", """{"mcpServers":{}}""");
         repo.CommitAll("ship config");
 
-        var hook = Path.Combine(repo, ".githooks", "post-index-change");
-        Directory.CreateDirectory(Path.GetDirectoryName(hook)!);
-        File.WriteAllText(hook, $"#!/bin/sh\nprintf fired > '{marker}'\n");
-        File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        repo.CreateExecutable(".githooks/post-index-change", $"#!/bin/sh\nprintf fired > '{marker}'\n");
         repo.CommitAll("branch ships its own post-index-change");
 
+        // The commit's own index writes fire the hook, so the control starts from no marker.
+        File.Delete(marker);
         repo.Do("update-index", "--skip-worktree", "README.md");
         await Assert.That(File.Exists(marker)).IsTrue()
             .Because("the control must reproduce the hook firing on update-index");

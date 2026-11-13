@@ -288,6 +288,21 @@ public class WorktreeManagerTests {
     /// writes, a file identical to the source checkout's) are not work; that config edited after the
     /// daemon recorded it is, as is a staged change to it, and so is a link, even to an identical file,
     /// since the link itself would be lost.</summary>
+    /// <summary>On a case-insensitive volume a stripped <c>.MCP.JSON</c> is the file the daemon recorded as
+    /// <c>.mcp.json</c>; still holding what the daemon wrote, it is not the agent's work.</summary>
+    [Test]
+    [Arguments(true, 0)]
+    [Arguments(false, 1)]
+    public async Task HiddenEdits_matches_the_baseline_by_gits_case_rule(bool ignoreCase, int edits) {
+        using var tmp = new TempDir();
+        tmp.CreateFile(".MCP.JSON", "{}");
+        var stamp    = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData("{}"u8));
+        var baseline = new Dictionary<string, string>(StringComparer.Ordinal) { [".mcp.json"] = stamp };
+
+        await Assert.That(WorktreeManager.HiddenEdits(tmp.Path, baseline, "S .MCP.JSON\0", ignoreCase))
+            .IsEqualTo(edits);
+    }
+
     [Test]
     [Arguments(WorktreeState.Clean, false)]
     [Arguments(WorktreeState.ChangedFile, true)]

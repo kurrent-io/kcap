@@ -946,9 +946,13 @@ public partial class WorktreeManager(
             worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "ls-files", "-t", "-z");
         if (index.ExitCode != 0) return "its git index could not be read";
 
+        // Git's own record of the volume's case rule: a stripped `.MCP.JSON` is the file recorded as `.mcp.json`.
+        var ignoreCase = await RunGitCaptureResult(
+            worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "config", "--type=bool", "core.ignorecase");
+
         var baseline = ReadDaemonBaseline(worktree.Path);
         var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry))
-                     + HiddenEdits(worktree.Path, baseline, index.Stdout);
+                     + HiddenEdits(worktree.Path, baseline, index.Stdout, ignoreCase.Stdout.Trim() == "true");
         if (changes > 0) return $"{changes} uncommitted {(changes == 1 ? "change" : "changes")}";
 
         // An owned branch is deleted with the worktree, so its commits count even with HEAD moved elsewhere.
@@ -1001,12 +1005,17 @@ public partial class WorktreeManager(
     /// <summary>Counts <c>skip-worktree</c> entries that differ from what the daemon recorded there, or
     /// from the absence it left when it has no record. Status never reports these paths, so without this an
     /// agent's edit to a stripped config file would be removed with the worktree.</summary>
-    static int HiddenEdits(string worktreePath, Dictionary<string, string>? baseline, string lsFilesTagged) =>
-        lsFilesTagged.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+    internal static int HiddenEdits(
+            string worktreePath, Dictionary<string, string>? baseline, string lsFilesTagged, bool ignoreCase) {
+        var recorded = new Dictionary<string, string>(
+            baseline ?? [], ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
+        return lsFilesTagged.Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Where(static record => record.StartsWith("S ", StringComparison.Ordinal))
             .Select(static record => record[2..])
             .Count(path => SafeStamp(Path.Combine(worktreePath, path)) is not { } stamp
-                        || stamp != (baseline?.GetValueOrDefault(path) ?? "-"));
+                        || stamp != recorded.GetValueOrDefault(path, "-"));
+    }
 
     static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, PorcelainEntry entry) {
         // Unstaged and still exactly as the daemon left it; anything staged is the agent's.
