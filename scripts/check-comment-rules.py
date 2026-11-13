@@ -79,15 +79,35 @@ def mapping_value(node, key):
     return None
 
 
+def runner_shell(runner):
+    if runner is None:
+        return b""
+    labels = mapping_value(runner, b"labels")
+    if labels is not None:
+        runner = labels
+    elif mapping_value(runner, b"group") is not None:
+        return b""
+    if b"${{" in runner.text:
+        return b""
+    labels = re.findall(rb"[a-z0-9_.-]+", runner.text.lower())
+    if any(label in (b"linux", b"macos") or label.startswith((b"ubuntu-", b"macos-", b"xcode-"))
+           for label in labels):
+        return b"bash"
+    return b""
+
+
 def run_shell(pair):
     scope = pair.parent
     shell = mapping_value(scope, b"shell")
+    runner = None
     while shell is None and scope is not None:
         if scope.type == "block_mapping":
+            if runner is None:
+                runner = mapping_value(scope, b"runs-on")
             defaults = mapping_value(scope, b"defaults")
             shell = mapping_value(mapping_value(defaults, b"run"), b"shell")
         scope = scope.parent
-    return shell.text.strip(b"'\"") if shell is not None else b"bash"
+    return shell.text.strip(b"'\"") if shell is not None else runner_shell(runner)
 
 
 def syntax_comments(source, language, github=False):

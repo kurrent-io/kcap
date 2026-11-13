@@ -79,3 +79,40 @@ jobs:
     steps:
       - run: |
           # Task 19 HIT
+  windows:
+    runs-on: windows-latest
+    steps:
+      - run: |
+          if ($true) { Write-Output ok }
+          Write-Output '# Task 120'
+      - run: |
+          # Task 20 HIT
+        shell: bash
+  self_hosted_linux:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - run: |
+          # Task 21 HIT
+  unknown_matrix_shell:
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: |
+          if ($true) { Write-Output '# Task 121' }
+  group_named_like_linux:
+    runs-on:
+      group: ubuntu-latest
+    steps:
+      - run: |
+          if ($true) { Write-Output '# Task 122' }
+  self_hosted_mac:
+    runs-on:
+      group: mac-runners
+      labels: [self-hosted, macOS, ARM64]
+    steps:
+      - run: |
+          # Task 22 HIT
+  mac:
+    runs-on: macos-latest
+    steps:
+      - run: |
+          # Task 23 HIT
