@@ -5,7 +5,6 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Notifications;
-using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -392,13 +391,11 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             }
             Apply();
             DataContextChanged += (_, _) => Apply();
+            TextBoxPresenters.Track();
             // Tunnelled: a focused text box marks ⌘← and ⌘→ handled even when it is empty.
             AddHandler(KeyDownEvent, (_, e) => {
                 if (DataContext is not MainWindowViewModel vm) return;
-                var box = FocusManager?.GetFocusedElement() as TextBox;
-                // The preedit lives on the presenter only: Text stays empty until the composition commits.
-                var preedit = box?.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault()?.PreeditText;
-                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, TerminalFocus.Has(this), box?.Text, preedit) is not { } stepBack) return;
+                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, FocusedCaret) is not { } stepBack) return;
                 System.Windows.Input.ICommand command = stepBack ? vm.GoBackCommand : vm.GoForwardCommand;
                 if (!command.CanExecute(null)) return;
                 e.Handled = true;
@@ -426,6 +423,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             e.Handled = true;
             ui.Execute(null);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+    }
+
+    // The preedit lives on the presenter only: Text stays empty until the composition commits.
+    (bool TerminalFocused, string? Text, string? Preedit) FocusedCaret() {
+        var box = FocusManager?.GetFocusedElement() as TextBox;
+        return (TerminalFocus.Has(this), box?.Text, TextBoxPresenters.Of(box)?.PreeditText);
     }
 
     public const string TitleEnvVar = "KCAP_APP_TITLE";

@@ -14,10 +14,12 @@ public static class HistoryShortcuts {
 
     /// ⌘← and ⌘→ step only when they have no caret to move: a focused text box holding text or an
     /// input method's uncommitted composition keeps them, and a focused terminal keeps them as its
-    /// own keys. Returns true for back, false for forward, null when the key stays with the control.
-    public static bool? CaretArrowStep(Key key, KeyModifiers modifiers, bool terminalFocused, string? focusedText, string? preeditText) {
+    /// own keys. Focus is read only for a bare ⌘← or ⌘→, never on ordinary typing. Returns true for
+    /// back, false for forward, null when the key stays with the control.
+    public static bool? CaretArrowStep(Key key, KeyModifiers modifiers, Func<(bool TerminalFocused, string? Text, string? Preedit)> focus) {
         if (modifiers != KeyModifiers.Meta || key is not (Key.Left or Key.Right)) return null;
-        if (terminalFocused || !string.IsNullOrEmpty(focusedText) || !string.IsNullOrEmpty(preeditText)) return null;
+        var (terminalFocused, text, preedit) = focus();
+        if (terminalFocused || !string.IsNullOrEmpty(text) || !string.IsNullOrEmpty(preedit)) return null;
         return key == Key.Left;
     }
 }
