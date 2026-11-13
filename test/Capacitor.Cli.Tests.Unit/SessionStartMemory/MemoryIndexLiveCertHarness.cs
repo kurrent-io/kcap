@@ -158,7 +158,6 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start `kcap mcp memory`.");
-        OnProcessStarted?.Invoke(process.Id);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
@@ -621,10 +620,6 @@ internal static partial class MemoryIndexLiveCertHarness {
         }
     }
 
-    /// <summary>Test-only seam: notified with the PID of every spawned process, so the cleanup test
-    /// can confirm a timed-out child is actually gone. Never set by production code.</summary>
-    internal static Action<int>? OnProcessStarted;
-
     /// <summary>
     /// Runs a child process with its output captured and a hard timeout, killing the whole tree on
     /// expiry so a hung harness CLI is never orphaned. <paramref name="stdin"/> is written and the
@@ -658,7 +653,6 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start '{fileName}'.");
-        OnProcessStarted?.Invoke(process.Id);
 
         using var timeoutCts = new CancellationTokenSource(timeout ?? ProcessTimeout);
         try {
