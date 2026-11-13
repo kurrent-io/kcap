@@ -18,8 +18,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Gemini;
 /// <para><b>Gated</b> behind <c>KCAP_GEMINI_REVIEWER_CERT=1</c>: CI has no <c>gemini</c> binary and no Google
 /// account, and each case spends a real model turn. Requires <c>gemini</c> on PATH, logged in, and
 /// <c>GOOGLE_CLOUD_PROJECT</c> set — without the project Gemini fails with an <c>IneligibleTierError</c> that
-/// names a tier problem rather than the missing project (see the hosting design's retracted-premises section), which is a confusing way to discover
-/// the harness is misconfigured.</para>
+/// names a tier problem rather than the missing project, which is a confusing way to discover the harness is
+/// misconfigured.</para>
 /// </summary>
 public class GeminiReviewerLiveCertTests {
     const string GateEnvVar = "KCAP_GEMINI_REVIEWER_CERT";
@@ -72,9 +72,9 @@ public class GeminiReviewerLiveCertTests {
         var outcome = await RunProbeAsync(project, allowlist: id.UnmatchableMcpName,
                                           injectAs: id.ResultChannelWireName, hostileRepoNames: []);
 
-        // The run must have been HEALTHY before an absent marker means anything. Review caught this being
-        // vacuous: a startup failure, a rejected session/new or an invalid prompt all produce "no marker",
-        // which would read as "the deny-all name blocked the channel".
+        // The run must have been HEALTHY before an absent marker means anything: a startup failure, a rejected
+        // session/new or an invalid prompt all produce "no marker", which would read as "the deny-all name
+        // blocked the channel".
         await Assert.That(outcome.SessionEstablished).IsTrue()
             .Because($"the negative control needs a working session to be evidence of anything: {outcome.Detail}");
         await Assert.That(outcome.TurnCompleted).IsTrue()
@@ -214,12 +214,9 @@ public class GeminiReviewerLiveCertTests {
     /// initialize → session/new → session/prompt over stdio, AWAITING each response and prompting with the
     /// session id `session/new` returned.
     ///
-    /// <para>Review caught the earlier version discarding responses and sending <c>sessionId: null</c>: the
-    /// positive certs could not reliably establish invocation against a protocol-conforming implementation,
-    /// and the NEGATIVE cert was vacuous — startup failure, a rejected <c>session/new</c>, or an invalid
-    /// prompt all produced "no marker appeared", which it read as "the deny-all name blocked the channel".
-    /// So the negative case now has to show the session and turn actually succeeded before an absent marker
-    /// counts as evidence.</para>
+    /// <para>Discarding responses or prompting with <c>sessionId: null</c> would leave the positive certs unable
+    /// to establish invocation and make the NEGATIVE cert vacuous, so the result reports whether the session
+    /// and turn succeeded.</para>
     /// </summary>
     static async Task<DriveResult> DriveGeminiAsync(
             string ws, string project, string allowlist, string injectAs, string server, string marker) {
@@ -238,10 +235,9 @@ public class GeminiReviewerLiveCertTests {
             ?? throw new InvalidOperationException("gemini did not start — is it on PATH?");
         using var cts = new CancellationTokenSource(TurnTimeout);
 
-        // Drain stderr. Review found the same defect in the production version probe and I fixed it there but
-        // not here: gemini writes real volume to stderr (skill-conflict warnings on every launch), so a
-        // redirected-but-unread stream fills its buffer and wedges the child mid-handshake — which would
-        // present as a mysterious cert timeout.
+        // Drain stderr: gemini writes real volume to it (skill-conflict warnings on every launch), so a
+        // redirected-but-unread stream fills its buffer and wedges the child mid-handshake, which presents as
+        // a mysterious cert timeout.
         var stderrDrain = Task.Run(async () => {
             try { return await proc.StandardError.ReadToEndAsync(cts.Token); } catch { return ""; }
         }, cts.Token);

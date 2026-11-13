@@ -1181,10 +1181,9 @@ public class AntigravityReviewerLaunchTests {
 
     /// <summary>
     /// The control for the test above, and it must carry NON-EMPTY output that simply is not an auth
-    /// signal. An earlier revision used a child that said nothing at all — a mutation check showed
-    /// that made the assertion vacuous, because a null-diagnostics child is rejected by the pattern
-    /// match before the classifier is ever consulted, so a classifier hard-wired to <c>true</c>
-    /// survived. With real, unrelated output the classifier is the guard that decides.
+    /// signal. A child that says nothing is rejected by the pattern match before the classifier is
+    /// consulted, so a classifier hard-wired to <c>true</c> would pass. With real, unrelated output
+    /// the classifier is the guard that decides.
     /// </summary>
     [Test]
     public async Task A_first_turn_that_dies_with_unrelated_output_is_not_reported_as_an_auth_failure() {

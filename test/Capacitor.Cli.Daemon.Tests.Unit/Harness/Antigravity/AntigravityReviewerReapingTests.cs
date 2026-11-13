@@ -69,9 +69,8 @@ public class AntigravityReviewerReapingTests {
     /// <para>The wedge ceiling is disabled for this orchestrator deliberately. It is the one rule a
     /// held turn leaves armed, so with it in force the mid-turn agent at 2h1m would be reaped as
     /// <c>turn_wedged</c> — a different rule reaching the same verdict, which would prove nothing
-    /// about idle suppression. An earlier revision instead advanced the running clock only 30m, and a
-    /// mutation check showed that made the assertion vacuous: 30m is under the idle bound anyway, so
-    /// it passed with the flag never set at all. The wedge itself is covered by
+    /// about idle suppression. The clock must also pass the idle bound: under it the assertion passes
+    /// with the flag never set at all. The wedge itself is covered by
     /// <c>ReviewerReapingTests</c>.</para>
     /// </summary>
     [Test]

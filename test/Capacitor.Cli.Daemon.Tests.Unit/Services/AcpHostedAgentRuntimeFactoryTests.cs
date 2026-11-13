@@ -2571,9 +2571,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// <summary>
     /// The capability gate must be reached BEFORE any connection source runs — including a supplied one.
     ///
-    /// <para>Review found the gate lived only in <c>BuildProcessStartInfo</c>, which only the DEFAULT source
-    /// calls, so a supplied source was invoked for a disabled daemon and could spawn directly. A test seam is
-    /// still a bypass of the claimed invariant, so this asserts the source is never even called.</para>
+    /// <para>A gate in <c>BuildProcessStartInfo</c> alone is not enough: only the DEFAULT source calls it, so a
+    /// supplied source could spawn for a disabled daemon. A test seam is still a bypass of the claimed
+    /// invariant, so this asserts the source is never even called.</para>
     /// </summary>
     [Test]
     public async Task Gemini_ADisabledDaemon_NeverReachesASuppliedConnectionSource() {

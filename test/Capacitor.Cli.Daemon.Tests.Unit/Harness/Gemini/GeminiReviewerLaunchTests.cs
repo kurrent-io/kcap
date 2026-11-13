@@ -106,9 +106,8 @@ public class GeminiReviewerLaunchTests {
     [Test]
     public async Task ReviewLaunch_AllowlistNamesExactlyTheInjectedResultChannel() {
         // ONE context, so this proves the two consumers agree on the SAME identity instance rather than two
-        // fixtures that happen to hold equal GUIDs. Review caught the earlier version building each from its
-        // own Ctx() call: it stayed green even if production handed a different identity to each consumer,
-        // which is exactly the silent failure the type exists to prevent.
+        // fixtures that happen to hold equal GUIDs. A Ctx() per consumer would stay green even if production
+        // handed each consumer a different identity, the silent failure the type exists to prevent.
         var ctx = Ctx(isReviewFlow: true);
 
         var argv = AcpHostedAgentRuntimeFactory.BuildProcessStartInfo(
@@ -396,9 +395,8 @@ public class GeminiReviewerLaunchTests {
     /// The canonical vectors must NOT throw — a guard that rejects everything is not a guard.
     ///
     /// <para>The vectors are written out INDEPENDENTLY rather than fetched from
-    /// <c>ExpectedGeminiArgv</c>. Review caught the earlier version feeding that helper straight back into an
-    /// assertion that derives its expectation from the same helper — tautological, and it would have passed
-    /// with the helper returning anything at all.</para>
+    /// <c>ExpectedGeminiArgv</c>: feeding that helper into an assertion that derives its expectation from the
+    /// same helper is tautological and passes whatever the helper returns.</para>
     /// </summary>
     [Test]
     public async Task TheCanonicalReviewVector_PassesTheAssertion() {

@@ -103,10 +103,10 @@ public class BorrowedReviewRuntimeRootsTests {
     /// error without it. Probed — this was the last grant standing between the narrowed profile and a
     /// vendor that would not start.
     ///
-    /// <para>Granted as individual FILES, not as their directories. An earlier revision granted
-    /// <c>etc/openssl@3</c> wholesale, which also admits <c>certs/</c>, <c>misc/</c> and by convention
-    /// <c>private/</c> — locally managed certificates and their keys. The fixture plants a
-    /// <c>private/server.key</c> so that regression cannot pass unnoticed.</para></summary>
+    /// <para>Granted as individual FILES, not as their directories: <c>etc/openssl@3</c> wholesale also
+    /// admits <c>certs/</c>, <c>misc/</c> and by convention <c>private/</c> — locally managed certificates
+    /// and their keys. The fixture plants a <c>private/server.key</c> so a directory grant cannot pass
+    /// unnoticed.</para></summary>
     [Test]
     public async Task Package_installed_crypto_config_is_granted_as_files_not_directories() {
         var binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
@@ -124,12 +124,11 @@ public class BorrowedReviewRuntimeRootsTests {
 
     /// <summary>A bare command name grants nothing.
     ///
-    /// <para>The severe route review found: every vendor path defaults to a bare command
-    /// (<c>"copilot"</c>), and <see cref="Path.GetFullPath(string)"/> resolves that against the DAEMON'S
-    /// CURRENT DIRECTORY — making that directory the package directory and granting it recursively,
-    /// while sandbox-exec separately executed the real binary from PATH. A daemon started from a source
-    /// checkout or a home directory would have handed the reviewer an unrelated tree with nothing in the
-    /// profile looking wrong. Callers resolve through the binary probe first; this refuses the
+    /// <para>Every vendor path defaults to a bare command (<c>"copilot"</c>), and
+    /// <see cref="Path.GetFullPath(string)"/> resolves that against the DAEMON'S CURRENT DIRECTORY — making
+    /// that directory the package directory and granting it recursively, while sandbox-exec executes the
+    /// real binary from PATH. A daemon started from a source checkout or a home directory would hand the
+    /// reviewer an unrelated tree with nothing in the profile looking wrong. Callers resolve through the binary probe first; this refuses the
     /// class regardless.</para></summary>
     [Test]
     [Arguments("copilot")]
@@ -245,12 +244,11 @@ public class BorrowedReviewRuntimeRootsTests {
 
     /// <summary>Never the filesystem root, in EITHER of the two ways it can be reached.
     ///
-    /// <para>An earlier revision of this test asserted only that the root's software subdirectories
-    /// (<c>/bin</c>, <c>/lib</c>, …) were absent, and it passed against a build that granted
-    /// <c>(subpath "/")</c> outright — the package-directory of a binary resolving to <c>/copilot</c>
-    /// is <c>/</c>. That grant is the entire filesystem, so every named-tree containment assertion
-    /// elsewhere would also have passed while the boundary was gone. Both routes are now asserted, and
-    /// the root itself first.</para></summary>
+    /// <para>Asserting only that the root's software subdirectories (<c>/bin</c>, <c>/lib</c>, …) are
+    /// absent passes against a grant of <c>(subpath "/")</c> outright — the package-directory of a binary
+    /// resolving to <c>/copilot</c> is <c>/</c>. That grant is the entire filesystem, so every named-tree
+    /// containment assertion elsewhere would also pass while the boundary was gone. Both routes are
+    /// asserted, and the root itself first.</para></summary>
     [Test]
     [Arguments("/copilot")]
     [Arguments("/opt")]
@@ -306,9 +304,8 @@ public class BorrowedReviewRuntimeRootsTests {
     /// <para><c>bin</c> + <c>lib</c> is a compatibility classifier, not a confidentiality-safe one, and
     /// below home it is not safe at all: a source repository or a mixed-use <c>~/toolbox</c> with
     /// ordinary <c>bin/</c> and <c>lib/</c> names matches it, and the exact-home exclusion does not
-    /// apply because the match is a descendant rather than home itself. An earlier revision granted
-    /// exactly that, and the test that was supposed to cover per-user installs removed the sibling
-    /// <c>lib</c>, so it could not see the route.</para>
+    /// apply because the match is a descendant rather than home itself. The fixture keeps the sibling
+    /// <c>lib</c>: without it the shape rule never matches and the test cannot see the route.</para>
     ///
     /// <para>The cost is deliberate and stated rather than hidden: a per-user install (nvm, Volta,
     /// <c>~/.local</c>) gets only the executable literal, so the launch fails loudly at exec instead of
