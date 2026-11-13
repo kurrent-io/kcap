@@ -149,8 +149,8 @@ public class ReviewerVersionAffirmationsTests {
             .Because("ordinal-equal pairs were allowed before this change and must stay allowed");
     }
 
-    /// <summary>Two unorderable but DIFFERENT strings were refused before and still are — the fallback
-    /// preserves the old behaviour in both directions, not just the permissive one.</summary>
+    /// <summary>Two unorderable but DIFFERENT strings are refused: the fallback is exact equality in
+    /// both directions, not just the permissive one.</summary>
     [Test]
     public async Task TwoDifferentUnorderableStrings_AreStillRefused() {
         await Assert.That(ReviewerVersionAffirmations.Decide("daily-20240806", "daily-20240101"))

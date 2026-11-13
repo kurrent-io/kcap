@@ -114,8 +114,9 @@ public enum ReviewerVersionAffirmation {
 ///
 /// <para><b>The recorded value is a MINIMUM, not an exact match.</b> An exact match would take a
 /// reviewer offline on every vendor patch release until an operator re-ran the affirm verb. The
-/// recorded value means "the oldest build this daemon will run", and a vendor upgrade needs no
-/// action at all.</para>
+/// recorded value means "the oldest build this daemon will run", so an upgrade between orderable
+/// versions needs no action. A value that does not order still matches only exactly, so changing
+/// it needs re-affirming (<see cref="Decide"/>).</para>
 ///
 /// <para><b>What that gives up.</b> A future vendor build that weakens its own containment behaviour
 /// is admitted silently — for Gemini the MCP-allowlist semantics, for Kiro the <c>KIRO_HOME</c>

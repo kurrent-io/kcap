@@ -7,7 +7,7 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task A2.1: the Partial-resume branch must post exactly one
+/// The Partial-resume branch must post exactly one
 /// <c>session-end/{vendor}</c> AFTER a successful fail-closed transcript tail — end-only
 /// reassert, since SessionStarted uses random ids (re-asserting start would duplicate it)
 /// while session-end has server-side idempotency — and must NEVER finalize when the tail

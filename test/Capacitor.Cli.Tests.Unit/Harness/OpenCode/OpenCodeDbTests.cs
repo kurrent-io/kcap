@@ -198,10 +198,9 @@ public class OpenCodeDbTests {
         var db = BuildDb(tmp.Path);
         InsertSession(db, "ses_root", null, "/w", "Root", 100);
 
-        // MaxCountingNodes + 50 direct (depth-1, well within MaxDescendantDepth=8) children —
-        // before the fix, the old `visited.Count >= MaxCountingNodes` ceiling (which counted the
-        // root + every discovered id, in-cap or not) would silently stop importing after ~10,000
-        // total visited ids, dropping the tail of this real, in-cap import set.
+        // MaxCountingNodes + 50 direct (depth-1, well within MaxDescendantDepth=8) children: a
+        // ceiling on every visited id, in-cap or not, would silently stop importing after ~10,000
+        // ids, dropping the tail of this real, in-cap import set.
         const int childCount = OpenCodeDb.MaxCountingNodes + 50;
         InsertManyChildren(db, "ses_root", "ses_kid", childCount, baseTime: 200);
 

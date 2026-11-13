@@ -1392,7 +1392,7 @@ partial class McpFlowsServer(
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 4 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
             if (v4Resp.StatusCode != System.Net.HttpStatusCode.NotFound) return v4Resp;
-            v4Resp.Dispose(); // old server without /v4 — fall through to the pre-B3 route below
+            v4Resp.Dispose(); // old server without /v4 — fall through to the v3/v2 route below
         }
 
         // v3/v2 route selection (and the /v4 fallback), the server-capability signal that fails closed:

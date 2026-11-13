@@ -7,7 +7,7 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 
 /// <summary>
-/// Task F1/F2 (D5, CLI side): the subagent correlator's INPUT is widened to
+/// The subagent correlator's INPUT is widened to
 /// same-workspace discovery (ignoring --session/--cwd/--since/scope), so a filtered/scoped
 /// import still stamps a correlated child even when its parent falls outside this run's slice —
 /// and such an orphaned child must import STANDALONE rather than being silently dropped.
@@ -38,7 +38,7 @@ public class CursorOrphanedChildStandaloneTests {
 
     [Test]
     public async Task classify_correlates_child_to_parent_even_when_parent_is_outside_the_filtered_slice() {
-        // Task F1: `--session <child>` narrows DiscoverAsync's own output to just the child, but
+        // `--session <child>` narrows DiscoverAsync's own output to just the child, but
         // ClassifyAsync must still widen its correlator input to the whole same-workspace
         // agent-transcripts/ dir (ignoring the filter) so it can see the parent's Task prompt.
         using var fx = new ProjectsDirFixture();
@@ -95,7 +95,7 @@ public class CursorOrphanedChildStandaloneTests {
 
     [Test]
     public async Task orphaned_child_imports_standalone_when_parent_is_not_in_the_routed_plan() {
-        // Task F2: once F1 has stamped the child as a subagent child whose parent is absent from
+        // Once classify has stamped the child as a subagent child whose parent is absent from
         // `routed` (simulating a `--session <child>` run), ImportCommand's reconciliation must
         // clear the flags so the child's own ImportSessionAsync call runs the ordinary standalone
         // lifecycle — never Skipped/dropped, and never a subagent-start/-stop against the parent.

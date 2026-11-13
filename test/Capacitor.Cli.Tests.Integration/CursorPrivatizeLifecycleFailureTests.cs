@@ -72,12 +72,10 @@ public class CursorPrivatizeLifecycleFailureTests : IDisposable {
     }
 
     /// <summary>
-    /// Case 1 (finding scenario 1): the child transcript POST succeeds (content persisted), but
-    /// the subsequent session-end lifecycle POST FAILS. Old code: ImportSessionAsync returns
-    /// Failed, the session never joins importedSessionIds, --private never privatizes it —
-    /// content is left public forever. New code: the session is captured into
-    /// privateScopeSessionIds unconditionally (before the outcome switch), so it's privatized
-    /// regardless of the Failed outcome.
+    /// The child transcript POST succeeds (content persisted), but the subsequent session-end
+    /// lifecycle POST FAILS, so ImportSessionAsync returns Failed and the session never joins
+    /// importedSessionIds. It is still privatized: privateScopeSessionIds captures it before the
+    /// outcome switch, so persisted content is never left public.
     /// </summary>
     [Test]
     public async Task private_run_privatizes_even_when_lifecycle_post_fails_after_content_persisted() {
@@ -111,12 +109,11 @@ public class CursorPrivatizeLifecycleFailureTests : IDisposable {
     }
 
     /// <summary>
-    /// Case 2 (finding scenario 2, the self-heal-on-retry contract): the session now classifies
-    /// AlreadyLoaded (server already has every non-blank line) — the exact shape a retry sees
-    /// after a prior run's content-then-lifecycle-failure. Old code: IsLifecycleOnlyRoutedReplay
-    /// treats this as a no-op replay, excluded from importedSessionIds; a public session stays
-    /// public even on repeated --private re-runs. New code: privatization no longer depends on
-    /// that classification at all — the session is captured unconditionally.
+    /// The self-heal-on-retry contract: the session classifies AlreadyLoaded (server already has
+    /// every non-blank line) — the exact shape a retry sees after a prior run's
+    /// content-then-lifecycle-failure. IsLifecycleOnlyRoutedReplay treats it as a no-op replay,
+    /// excluded from importedSessionIds, yet privatization does not depend on that
+    /// classification, so a --private re-run still privatizes it.
     /// </summary>
     [Test]
     public async Task private_retry_run_privatizes_an_already_loaded_session_with_no_new_content() {
@@ -150,9 +147,8 @@ public class CursorPrivatizeLifecycleFailureTests : IDisposable {
     }
 
     /// <summary>
-    /// Case 3 (no-regression guard): a NON-private run must never call PUT /visibility, even
-    /// though the session imports cleanly. Guards against the union-based fix accidentally
-    /// widening privatization to plain imports.
+    /// A NON-private run must never call PUT /visibility, even though the session imports
+    /// cleanly: the unconditional capture must not widen privatization to plain imports.
     /// </summary>
     [Test]
     public async Task non_private_run_never_calls_set_visibility() {
