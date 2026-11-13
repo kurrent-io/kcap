@@ -97,9 +97,10 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
     public async Task a_routed_replay_is_not_imported_when_it_could_not_be_made_private_first() {
         // The routed half of the fail-closed preflight. The probe is an existing session, so it is
         // narrowed before any content moves; when that write is lost it must be dropped from the run
-        // rather than replayed into while still carrying its old audience.
+        // rather than replayed into while still carrying its old audience. A status the retry policy
+        // does not retry reaches the same lost-write branch without waiting out its budget.
         _server.Given(Request.Create().WithPath("/api/sessions/*/visibility").UsingPut())
-            .RespondWith(Response.Create().WithStatusCode(500));
+            .RespondWith(Response.Create().WithStatusCode(403));
 
         var stdout = await CaptureStdoutAsync(async console => {
             await new ImportCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: console).HandleImport(
