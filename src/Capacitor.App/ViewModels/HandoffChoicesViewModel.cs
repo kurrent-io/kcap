@@ -20,6 +20,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _catalog;
     readonly AccountChooser _accounts;
     readonly AppStateStore? _state;
+    readonly string? _sessionVendor;
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
     IReadOnlyDictionary<string, string>? _accountMemory;
     // Picks made before the stored memory loaded, replayed over it so the older read cannot win.
@@ -39,6 +40,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null,
             string? repoPath = null, AccountReadings? readings = null, AppStateStore? state = null) {
         _selectedVendor = string.IsNullOrWhiteSpace(sessionVendor) ? HomeViewModel.DefaultVendor : sessionVendor;
+        _sessionVendor = sessionVendor;
         RepoPath = repoPath ?? "";
         _state = state;
         _accounts = new AccountChooser(
@@ -69,7 +71,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         this.WhenAnyValue(x => x.EffectiveModelCatalog)
             .Scan((Prev: ServerVendorModelCatalog.Empty, Next: ServerVendorModelCatalog.Empty), (acc, next) => (acc.Next, next))
             .Subscribe(pair => {
-                if (HomeViewModel.ShouldClearSelection(SelectedVendor, SelectedModel, pair.Prev, pair.Next)) SelectedModel = "";
+                if (HomeViewModel.ShouldClearSelection(SelectedVendor, SelectedModel, pair.Prev, pair.Next)) SetModel("");
             })
             .DisposeWith(_disposables);
 
@@ -148,8 +150,14 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     string _selectedModel = "";
     public string SelectedModel {
         get => _selectedModel;
-        set => this.RaiseAndSetIfChanged(ref _selectedModel, value);
+        // A pick, Default included, settles the chip against the source session's model.
+        set {
+            _seeded = true;
+            SetModel(value);
+        }
     }
+
+    void SetModel(string model) => this.RaiseAndSetIfChanged(ref _selectedModel, model, nameof(SelectedModel));
 
     public IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>> EffectiveModelCatalog => _catalog.Value;
 
@@ -160,6 +168,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         EffectiveModelCatalog.TryGetValue(vendor, out var models) ? models : HostedHarnessCatalog.ModelChoicesFor(vendor);
 
     public Task ChooseHarnessAsync(string vendor) {
+        _seeded = true;
         _restored = null;
         _picked = null;
         SetVendor(vendor);
@@ -271,12 +280,27 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             _accounts.Restore(restored.Choice.Id);
     }
 
+    bool _seeded;
+
+    /// The ended session's own model, offered once in place of the default while the chips still show
+    /// the session's agent, and only when that agent lists it. A restored draft or the user's own pick
+    /// of agent or model settles the chips first.
+    public void SeedModel(string? model) {
+        if (_seeded) return;
+        _seeded = true;
+        if (model is not { Length: > 0 } || !string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase))
+            return;
+        if (ModelChoicesFor(SelectedVendor).FirstOrDefault(m => string.Equals(m.Slug, model, StringComparison.OrdinalIgnoreCase)) is { } listed)
+            SetModel(listed.Slug);
+    }
+
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
     public void Restore(HandoffDraft draft) {
+        _seeded = true;
         SetVendor(draft.Vendor);
         Revalidate(Harnesses);
         if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {
-            SelectedModel = draft.Model;
+            SetModel(draft.Model);
             if (draft.Account is { } account) {
                 _restored = (draft.Vendor, account);
                 ReapplyRestored();
@@ -316,7 +340,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     /// Model ids are vendor-specific, so a vendor change drops the model.
     void SetVendor(string vendor) {
         var changed = !string.Equals(vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase);
-        if (changed) SelectedModel = "";
+        if (changed) SetModel("");
         SelectedVendor = vendor;
         if (!changed) return;
         _picked = null;

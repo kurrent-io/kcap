@@ -1329,6 +1329,105 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Error).IsEqualTo($"the upload failed. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
     });
 
+    // ---- source choices ----
+
+    static ActivitySessionDto Summary(string? model) => new() {
+        SessionId = SessionId, Status = "ended", StartedAt = DateTimeOffset.UnixEpoch, Model = model,
+    };
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_source_sessions_model_is_the_default_and_starts_the_hand_off() => Run(async rig => {
+        rig.Sessions.Summary = Summary("GPT-5.6");
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("gpt-5.6");
+        await vm.StartCommand.Execute();
+        await Assert.That(rig.Launch.Requests.Single().Model).IsEqualTo("gpt-5.6");
+    });
+
+    public static IEnumerable<Func<(string Case, string Vendor, string? Model)>> UnusableSources() {
+        yield return () => ("unread summary", "codex", null);
+        yield return () => ("no recorded model", "codex", "");
+        yield return () => ("a model the agent does not list", "codex", "gpt-4");
+        yield return () => ("an agent this daemon does not host", "gemini", "gemini-3-pro");
+    }
+
+    [Test]
+    [MethodDataSource(nameof(UnusableSources))]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_model_the_agent_does_not_offer_keeps_the_default((string Case, string Vendor, string? Model) source) =>
+        Run(async rig => {
+            rig.Session = rig.Session with { Vendor = source.Vendor };
+            rig.Sessions.Summary = source.Model is null ? null : Summary(source.Model);
+            var vm = await rig.ReadyAsync();
+
+            await Assert.That(vm.Choices.SelectedModel).IsEqualTo("");
+        });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Another_agent_drops_the_source_model_and_later_checks_never_bring_it_back() => Run(async rig => {
+        rig.Sessions.Summary = Summary("gpt-5.6");
+        var vm = await rig.ReadyAsync();
+
+        await vm.Choices.ChooseHarnessAsync("claude");
+        await vm.Choices.ChooseHarnessAsync("codex");
+        rig.Lane.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+        rig.Lane.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("");
+        await Assert.That(rig.Sessions.SummaryReads).IsEqualTo(1);
+    });
+
+    [Test]
+    [Arguments("my-model")]
+    [Arguments("")]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_model_picked_while_the_read_is_pending_is_kept(string picked) => Run(async rig => {
+        rig.Sessions.Summary = Summary("gpt-5.6");
+        rig.Sessions.SummaryGate = new TaskCompletionSource();
+        var vm = rig.Build();
+        var ready = vm.InitializeAsync(CancellationToken.None);
+        await rig.Sessions.SummaryHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        vm.Choices.SelectedModel = picked;
+        rig.Sessions.SummaryGate.SetResult();
+        await ready;
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo(picked);
+    });
+
+    /// The first check is cancelled while its read is in flight; the check that replaces it seeds from that read.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_recheck_during_the_read_reads_once_and_still_seeds() => Run(async rig => {
+        rig.Sessions.Summary = Summary("gpt-5.6");
+        rig.Sessions.SummaryGate = new TaskCompletionSource();
+        var vm = rig.Build();
+        var first = vm.InitializeAsync(CancellationToken.None);
+        await rig.Sessions.SummaryHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        vm.UpdateSource(rig.Session with { Title = "Renamed" });
+        rig.Sessions.SummaryGate.SetResult();
+        await first;
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("gpt-5.6");
+        await Assert.That(rig.Sessions.SummaryReads).IsEqualTo(1);
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_returned_draft_outranks_the_source_model() => Run(async rig => {
+        rig.Sessions.Summary = Summary("gpt-5.6");
+        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("carry on", [], "codex", "", "low",
+            HomeViewModel.DefaultPermissionMode, null, null, null));
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("");
+        await Assert.That(vm.Choices.SelectedEffort).IsEqualTo("low");
+    });
+
     // ---- account ----
 
     [Test]

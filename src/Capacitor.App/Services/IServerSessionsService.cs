@@ -46,6 +46,7 @@ public interface IServerSessionsService {
     void Unpin();
     /// What a hand-off of an ended session starts from.
     Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct);
+    Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct);
     /// Shows a rename the server applied at once, in every set that lists the session, and holds it
     /// over reads that still carry a title it replaced.
     void ApplyRename(string sessionId, string title);
