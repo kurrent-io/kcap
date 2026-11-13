@@ -132,13 +132,14 @@ public class ChatTabViewSmokeTests {
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
         public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
-                ChatFindMemory? findMemory = null) {
+                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
-                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory);
+                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory,
+                handoffOutcome: handoffOutcome);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -553,6 +554,34 @@ public class ChatTabViewSmokeTests {
             } finally { await host.CloseAsync(); }
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_handoff_card_sits_above_the_transcript_and_its_close_button_dismisses_it() => RunOnUiAsync(async () => {
+        using var cards = new BehaviorSubject<HandoffOutcomeViewModel?>(null);
+        var dismissed = 0;
+        cards.OnNext(new HandoffOutcomeViewModel(Capacitor.Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"), () => {
+            dismissed++;
+            cards.OnNext(null);
+            return Task.CompletedTask;
+        }));
+        var host = new Host(handoffOutcome: cards);
+        try {
+            await host.LoadAsync(Tmp.CreateFile("handoff.jsonl", Enumerable.Repeat(UserLine, 80).ToArray()));
+            var card = host.View.FindControl<Border>("HandoffOutcomeCard")!;
+            var list = host.View.FindControl<ItemsControl>("ChatItems")!;
+            var close = host.View.FindControl<Button>("HandoffOutcomeDismiss")!;
+            await Assert.That(card.IsEffectivelyVisible).IsTrue();
+            var cardBottom = card.TranslatePoint(new Point(0, card.Bounds.Height), host.Window)!.Value.Y;
+            await Assert.That(list.TranslatePoint(default, host.Window)!.Value.Y).IsGreaterThanOrEqualTo(cardBottom);
+            await Assert.That(AutomationProperties.GetName(close)).IsEqualTo("Dismiss");
+
+            Click(host, close);
+
+            await Assert.That(dismissed).IsEqualTo(1);
+            await Assert.That(card.IsVisible).IsFalse();
+        } finally { await host.CloseAsync(); }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]

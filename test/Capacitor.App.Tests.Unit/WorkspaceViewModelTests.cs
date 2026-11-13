@@ -130,6 +130,50 @@ public class WorkspaceViewModelTests {
         });
     }
 
+    /// The reopened view reads only the other session: the dismissed one is not read at all.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Dismissing_the_handoff_outcome_hides_it_and_a_reopened_view_does_not_show_it_again() {
+        await RunOnUiAsync(async () => {
+            var path = Tmp.PathTo("app-state.json");
+            var daemon = new FakeDaemonClientService();
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            var asked = new List<string>();
+            var ops = new ScriptedLocalControlOps {
+                ReadHandoffOutcome = id => {
+                    lock (asked) asked.Add(id);
+                    return Task.FromResult<Cli.Core.Handoff.HandoffOutcomeDto?>(Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"));
+                },
+            };
+            var time = new FakeTimeProvider();
+            WorkspaceViewModel Open() => new("a1", daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()),
+                new FakeTerminalAttachClientFactory().Factory, () => new FakeTerminalSurface(), time, new RecordingOpener(),
+                new FakePermissionService(), new FakeWorkContextSource(), ops, new NoAttachmentUploader(),
+                handoffOutcomes: new HandoffOutcomeReader(daemon, ops, time, new HandoffOutcomeDismissals(new AppStateStore(path))));
+
+            var first = Open();
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/x", sessionId: Session));
+            await (first.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await WaitUntilAsync(() => first.Chat?.HandoffOutcome is not null, what: "the outcome");
+
+            await first.Chat!.HandoffOutcome!.DismissCommand.Execute();
+            await WaitUntilAsync(() => first.Chat!.HandoffOutcome is null, what: "the card dismissed");
+            await first.TeardownAsync();
+
+            lock (asked) asked.Clear();
+            var reopened = Open();
+            await (reopened.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+            await Assert.That(reopened.Chat!.HandoffOutcome).IsNull();
+
+            const string other = "fedcba9876543210fedcba9876543210";
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/x", sessionId: other));
+            await WaitUntilAsync(() => reopened.Chat!.HandoffOutcome is not null, what: "the other session's outcome");
+            await Assert.That(asked.ToArray()).IsEquivalentTo(new[] { other });
+            await reopened.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_new_session_id_clears_the_previous_sessions_handoff_outcome() {

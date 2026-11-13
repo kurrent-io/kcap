@@ -1310,7 +1310,7 @@ public partial class App : Application {
         var transcripts = new LocalTranscripts();
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
         _usageClock = readings.Clock;
-        var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
+        var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time, new HandoffOutcomeDismissals(_appState));
         var pickers = new ComposerPickers(
             new FileCatalog(new ProcessRunner(_time), _userHome, _shutdown.Token),
             new CommandCatalog(ops, shownService.Status, _userHome, _time, _shutdown.Token));

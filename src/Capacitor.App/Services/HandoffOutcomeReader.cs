@@ -1,4 +1,6 @@
 using System.Reactive.Linq;
+using Capacitor.App.ViewModels;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 
@@ -7,7 +9,8 @@ namespace Capacitor.App.Services;
 /// Follows the daemon's stored hand-off outcome for a session id. The daemon keeps it by the
 /// successor's id, so the answer is the same whether the view is the live agent or the server row
 /// the successor became.
-public sealed class HandoffOutcomeReader(IDaemonClientService daemon, ILocalControlOps ops, TimeProvider time) {
+public sealed class HandoffOutcomeReader(
+        IDaemonClientService daemon, ILocalControlOps ops, TimeProvider time, HandoffOutcomeDismissals? dismissals = null) {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan NullWindow = TimeSpan.FromMinutes(2);
 
@@ -35,11 +38,27 @@ public sealed class HandoffOutcomeReader(IDaemonClientService daemon, ILocalCont
         });
 
     /// The chat card's stream for one session id, inside a Switch over ids: it opens with null so a
-    /// card from the previous id is cleared rather than carried over.
-    public static IObservable<HandoffOutcomeDto?> CardFor(HandoffOutcomeReader reader, string? sessionId) =>
+    /// card from the previous id is cleared rather than carried over. A session whose card the user
+    /// closed is not read at all, and closing a card clears it and ends the reads.
+    public static IObservable<HandoffOutcomeViewModel?> CardFor(HandoffOutcomeReader reader, string? sessionId) =>
         sessionId is null
-            ? Observable.Return<HandoffOutcomeDto?>(null)
-            : reader.Watch(sessionId).Select(outcome => (HandoffOutcomeDto?)outcome).StartWith((HandoffOutcomeDto?)null);
+            ? Observable.Return<HandoffOutcomeViewModel?>(null)
+            : reader.Cards(sessionId).StartWith((HandoffOutcomeViewModel?)null);
+
+    IObservable<HandoffOutcomeViewModel?> Cards(string sessionId) {
+        if (dismissals is not { } closing)
+            return Watch(sessionId).Select(outcome => (HandoffOutcomeViewModel?)new HandoffOutcomeViewModel(outcome));
+
+        var key = SessionIds.Canonical(sessionId);
+        var closed = closing.Dismissed.Where(id => id == key).Take(1).Select(_ => (HandoffOutcomeViewModel?)null);
+        return Observable.FromAsync(() => closing.IsDismissedAsync(sessionId))
+            .SelectMany(dismissed => dismissed
+                ? Observable.Empty<HandoffOutcomeViewModel?>()
+                : Watch(sessionId)
+                    .Select(outcome => (HandoffOutcomeViewModel?)new HandoffOutcomeViewModel(outcome, () => closing.DismissAsync(sessionId)))
+                    .TakeUntil(closed)
+                    .Merge(closed));
+    }
 
     IObservable<HandoffOutcomeDto> Poll(string sessionId) =>
         Observable.Create<HandoffOutcomeDto>(async (observer, ct) => {
