@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -36,5 +37,23 @@ public class RecapTraceFormattingTests {
 
         await Assert.That(RecapTranscript.Arguments(args)).IsEqualTo(
             string.Join(Environment.NewLine, "old_string:", "  a", "  b", "new_string: c", ""));
+    }
+
+    /// <summary>A file read with a byte order mark keeps it in the stored result; the transcript prints the text
+    /// around it and leaves the mark out, since a console shows it as a character.</summary>
+    [Test]
+    public async Task A_byte_order_mark_is_left_out_and_an_emoji_kept() {
+        var text = Trace("""[ {"kind":"tool_result","output":"﻿# Shop API 🚀"} ]""");
+
+        await Assert.That(text).Contains("# Shop API 🚀");
+        await Assert.That(text).DoesNotContain("﻿");
+    }
+
+    [Test]
+    public async Task A_byte_order_mark_in_a_written_file_is_left_out() {
+        var text = RecapTranscript.RenderEntries([new RecapEntry("write", null, null, null, "﻿# Shop API", "README.md", DateTimeOffset.UnixEpoch)]);
+
+        await Assert.That(text).Contains("```markdown" + Environment.NewLine + "# Shop API");
+        await Assert.That(text).DoesNotContain("﻿");
     }
 }

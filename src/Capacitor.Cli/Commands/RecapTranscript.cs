@@ -211,8 +211,11 @@ static class RecapTranscript {
             }
         }
 
-        return sb.ToString();
+        return WithoutByteOrderMarks(sb);
     }
+
+    // A file read or written with a byte order mark keeps it in the stored text; a console prints it as a character.
+    static string WithoutByteOrderMarks(StringBuilder sb) => sb.Replace("﻿", "").ToString();
 
     /// <summary>A trace kind as a heading in the style of the fixed ones ("Assistant", "Tool: …").</summary>
     internal static string Heading(string kind) =>
@@ -320,7 +323,7 @@ static class RecapTranscript {
             }
         }
 
-        return sb.ToString();
+        return WithoutByteOrderMarks(sb);
     }
 
     static string LanguageHint(string filePath) =>
