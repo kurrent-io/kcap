@@ -1,3 +1,6 @@
+using Capacitor.App.Tests.Unit.Services;
+using Capacitor.App.Tests.Unit.ViewModels.Onboarding;
+using Capacitor.App.Tests.Unit.ViewModels;
 using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using Avalonia;
