@@ -197,6 +197,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugin-docs == 'true'
     runs-on: ubuntu-latest
+    # Measured at 7.5m; this only has to catch a wedge.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
