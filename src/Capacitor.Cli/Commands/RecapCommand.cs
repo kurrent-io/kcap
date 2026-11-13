@@ -259,7 +259,7 @@ class RecapCommand(
 
         foreach (var turn in doc.RootElement.EnumerateArray()) {
             var turnIndex  = turn.TryGetProperty("turn_index", out var ti) ? ti.GetInt32() : -1;
-            var userPrompt = turn.TryGetProperty("user_prompt", out var up) ? up.GetString() ?? "" : "";
+            var userPrompt = RecapTranscript.Printable(turn.TryGetProperty("user_prompt", out var up) ? up.GetString() ?? "" : "");
             var prompt     = userPrompt.Length == 0
                 ? $"(turn {turnIndex})"
                 : userPrompt.Length > 80 ? userPrompt[..80] + "…" : userPrompt;
@@ -362,7 +362,7 @@ class RecapCommand(
                 sb.AppendLine(FormatOutlineLine(turn));
             }
 
-            return sb.ToString();
+            return RecapTranscript.Printable(sb.ToString());
         } catch (JsonException) {
             // Empty/truncated body, or a non-JSON page (e.g. a proxy 200 with an HTML error).
             // The outline is best-effort enrichment, so treat unparseable input as "nothing to show"
