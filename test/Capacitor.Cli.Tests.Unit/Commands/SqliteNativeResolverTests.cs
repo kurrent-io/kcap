@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Capacitor.Cli.Commands;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -9,18 +10,18 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// The AOT binary doesn't bundle e_sqlite3; <see cref="SqliteNativeResolver"/> downloads
 /// the pristine per-RID native, integrity-checks it, caches it, and loads it.
 /// </summary>
-// PristineNativePath resolves under HOME, so a concurrent HOME mutator sends it at that test's temp
-// directory and the pin lookup finds nothing.
 public class SqliteNativeResolverTests {
     /// <summary>
-    /// Drift guard for ALL shipped RIDs, not just the test runner's: the SQLite native
-    /// package ships every runtime native after restore, so a single CI agent can validate
-    /// all six pins. Catches a typo in (say) the macOS or musl-arm64 hash that linux/windows
-    /// CI would otherwise miss, letting the release publish an asset users can't verify.
+    /// Drift guard for ALL shipped RIDs, not just the test runner's: the build output carries
+    /// every runtime native of the SQLite package, so a single CI agent can validate all six
+    /// pins. Catches a typo in (say) the macOS or musl-arm64 hash that linux/windows CI would
+    /// otherwise miss, letting the release publish an asset users can't verify.
     /// Fails until EngineVersion + the Assets hashes are regenerated after a bundle bump.
     /// </summary>
     [Test]
     public async Task pinned_hashes_match_restored_natives_for_all_rids() {
+        await Assert.That(RestoredSqliteVersion()).IsEqualTo(SqliteNativeResolver.EngineVersion)
+            .Because("EngineVersion must name the SQLite package the bundle restores");
         foreach (var (rid, asset) in SqliteNativeResolver.Assets) {
             var pristine = PristineNativePath(rid);
             await Assert.That(File.Exists(pristine))
@@ -90,16 +91,22 @@ public class SqliteNativeResolverTests {
 
     // --- helpers -----------------------------------------------------------
 
-    // SQLite is the native package SQLitePCLRaw.bundle_e_sqlite3 actually restores (NOT
-    // SQLitePCLRaw.lib.e_sqlite3). EngineVersion is its version; this path exists on any
-    // machine that restored the project, so the drift guard fails loudly if the bundle bumps.
-    static string PristineNativePath(string rid) {
-#pragma warning disable RS0030 // the real package cache is what the drift guard reads
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-#pragma warning restore RS0030
-        return Path.Combine(home, ".nuget", "packages", "sqlite",
-            SqliteNativeResolver.EngineVersion, "runtimes", rid, "native",
+    // A RID-less build copies every RID's native from the SQLite package (which
+    // SQLitePCLRaw.bundle_e_sqlite3 restores, NOT SQLitePCLRaw.lib.e_sqlite3) under runtimes/,
+    // so the pins are checked against build output and never against the NuGet cache.
+    static string PristineNativePath(string rid) =>
+        Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native",
             SqliteNativeResolver.Assets[rid].FileName);
+
+    static string? RestoredSqliteVersion() {
+        var depsFile = Path.Combine(AppContext.BaseDirectory,
+            $"{typeof(SqliteNativeResolverTests).Assembly.GetName().Name}.deps.json");
+        using var deps = JsonDocument.Parse(File.ReadAllText(depsFile));
+        return deps.RootElement.GetProperty("libraries").EnumerateObject()
+            .Select(lib => lib.Name.Split('/'))
+            .Where(parts => parts is ["SQLite", _])
+            .Select(parts => parts[1])
+            .SingleOrDefault();
     }
 
     static string Sha256(string path) {
