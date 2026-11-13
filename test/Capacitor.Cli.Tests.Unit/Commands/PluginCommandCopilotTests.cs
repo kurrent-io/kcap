@@ -68,7 +68,7 @@ public class PluginCommandCopilotTests {
 
         PluginCommand.InstallCopilotHooks(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
         CopilotHooksInstaller.DeleteMarker(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
-        await File.WriteAllTextAsync(settings, """{"banner":"never"}""");
+        home.CreateFile([".copilot", "settings.json"], """{"banner":"never"}""");
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
         await Assert.That(exit).IsEqualTo(0);
