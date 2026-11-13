@@ -39,9 +39,9 @@ public sealed class TranscriptRecorder(
     // The rewrite guard's checkpoint and pending range persist from poll to poll. Only Cursor has one.
     readonly CursorRewriteGuard? _cursorGuard = source.Vendor == "cursor" ? new(context.Server.Config, source.SessionId, time, context.Log) : null;
 
-    // Serializes a reconnect rewind against a drain: both move the byte and line frontiers and the
-    // guard's checkpoint, and the transport can report a reconnect while the loop is mid-drain.
-    readonly SemaphoreSlim? _cursorRewindGate = source.Vendor == "cursor" ? new(1, 1) : null;
+    // A drain and a reconnect's re-registration take turns. Both move the frontiers, and the server drops a line at or
+    // below one it took, so a line sent before the server's answer would sit above the gap a rewind resends.
+    readonly SemaphoreSlim _rewindGate = new(1, 1);
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
@@ -168,7 +168,7 @@ public sealed class TranscriptRecorder(
 
         _titleCts.Dispose();
         _givenUp.Dispose();
-        _cursorRewindGate?.Dispose();
+        _rewindGate.Dispose();
     }
 
     /// <summary>Tails the transcript until <paramref name="ct"/> or the recorder itself stops it. A failure to
@@ -355,7 +355,7 @@ public sealed class TranscriptRecorder(
             try {
                 finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                // Cut off behind a reconnect's rewind. The spool below takes the lines.
+                // Cut off behind a reconnect's re-registration. The spool below takes the lines.
             }
 
             // Whatever comes next outlives this recorder: a spooled tail replays, and a mark asks for an import.
@@ -594,20 +594,13 @@ public sealed class TranscriptRecorder(
         try {
             if (HasLostClaim()) return;
 
-            var stop           = _stop.Token;
-            var serverPosition = await ConnectAsync(stop);
+            var rewound = await GatedReregisterAsync(_rewindGate, State, ct => ConnectAsync(ct), _cursorGuard, _stop.Token);
+            PublishAckedLines(State);
 
-            if (serverPosition < State.LinesProcessed) {
-                TryLog($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");
-
-                var rewound = await GatedApplyReconnectRewindAsync(_cursorRewindGate, State, serverPosition, _cursorGuard, stop);
-                PublishAckedLines(State);
-
-                if (!rewound) {
-                    // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
-                    TryLog("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
-                    _stop.Cancel();
-                }
+            if (!rewound) {
+                // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
+                TryLog("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
+                _stop.Cancel();
             }
         } catch (ObjectDisposedException) {
             // Already finished.
@@ -653,7 +646,7 @@ public sealed class TranscriptRecorder(
 
         context.Housekeeping.RefreshTranscript(TranscriptPath);
 
-        return GatedDrainNewLinesAsync(_cursorRewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
+        return GatedDrainNewLinesAsync(_rewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
     }
 
     /// <summary>Splits a total wait into consecutive chunks of at most <paramref name="maxSlice"/>, so the caller can
@@ -1728,17 +1721,20 @@ public sealed class TranscriptRecorder(
         return true;
     }
 
-    /// <summary>Runs <see cref="ApplyReconnectRewindAsync"/> under <paramref name="gate"/>, the gate
-    /// <see cref="GatedDrainNewLinesAsync"/> holds, so a rewind can't land in a drain that already read the
-    /// frontiers it is moving. Null for every vendor but Cursor.</summary>
-    internal async Task<bool> GatedApplyReconnectRewindAsync(
-            SemaphoreSlim? gate, WatchState state, int serverPosition, CursorRewriteGuard? cursorGuard, CancellationToken ct) {
-        if (gate is null) {
-            return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
-        }
-
+    /// <summary>Registers through <paramref name="register"/> and, when the server's frontier is behind the cursor,
+    /// rewinds to it with <see cref="ApplyReconnectRewindAsync"/>, all under <paramref name="gate"/>, the gate
+    /// <see cref="GatedDrainNewLinesAsync"/> holds. False, with neither frontier moved, when the rewind quarantined
+    /// the session.</summary>
+    internal async Task<bool> GatedReregisterAsync(
+            SemaphoreSlim gate, WatchState state, Func<CancellationToken, Task<int>> register, CursorRewriteGuard? cursorGuard, CancellationToken ct) {
         await gate.WaitAsync(ct);
+
         try {
+            var serverPosition = await register(ct);
+            if (serverPosition >= state.LinesProcessed) return true;
+
+            TryLog($"Server behind ({serverPosition} vs {state.LinesProcessed}), rewinding to resend gap");
+
             return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
         } finally {
             gate.Release();
@@ -1746,22 +1742,17 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Runs <see cref="DrainNewLines"/> under <paramref name="gate"/>, the counterpart of
-    /// <see cref="GatedApplyReconnectRewindAsync"/>.</summary>
+    /// <see cref="GatedReregisterAsync"/>. The wait beats: it can last as long as the server takes to answer.</summary>
     internal async Task<IReadOnlyList<string>> GatedDrainNewLinesAsync(
-            SemaphoreSlim?      gate,
+            SemaphoreSlim       gate,
             WatchState          state,
             CancellationToken   ct,
             bool                isFinalDrain            = false,
             CursorRewriteGuard? cursorGuard             = null,
             Action?             onCursorRewriteDetected = null
         ) {
-        if (gate is null) {
-            var drained = await DrainNewLines(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
-            PublishAckedLines(state);
-            return drained;
-        }
+        while (!await gate.WaitAsync(HeartbeatSlice, ct)) context.Beat();
 
-        await gate.WaitAsync(ct);
         try {
             var drained = await DrainNewLines(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
             PublishAckedLines(state);
