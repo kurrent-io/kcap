@@ -20,12 +20,13 @@ public sealed class PaneLayout {
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 
-    // The chat column's share of the chat's width, and the narrowest a drag makes it.
+    // The chat column's share of the chat's width, and the agent's lane's share of the column.
     public const double ChatColumnDefaultFraction = 0.75;
-    public const double ChatColumnMinWidth = 564;
-    // The agent's lane's share of the column, and the narrowest a drag makes it.
     public const double ChatLaneDefaultFraction = 0.85;
-    public const double ChatLaneMinWidth = 320;
+    // Neither gets narrower than an agent's message was before the column: this, or the chat less
+    // its 22px gutters when that is narrower.
+    public const double ChatMessageMinWidth = 660;
+    public const double ChatMessageGutters = 44;
 
     // Layout rounding can lay a pane at its minimum out a fraction below it; a click on its splitter
     // must not hide it.

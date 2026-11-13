@@ -124,19 +124,21 @@ public sealed class ChatColumnSizing {
 
     double MaxColumnWidth => Math.Max(0, _items.Bounds.Width - 2 * HandleReserve);
 
-    // Both widths follow their shares all the way down; the minimums only stop a drag.
-    double ColumnWidth() => Math.Min(_column * _items.Bounds.Width, MaxColumnWidth);
+    double MessageMinWidth => Math.Max(0, Math.Min(PaneLayout.ChatMessageMinWidth,
+        _items.Bounds.Width - PaneLayout.ChatMessageGutters));
+
+    double ColumnWidth() => Math.Min(Math.Max(_column * _items.Bounds.Width, MessageMinWidth), MaxColumnWidth);
 
     // A drag to the widest the chat allows stays the widest on any later window size.
     double ColumnFractionOf(double width) => width >= MaxColumnWidth || _items.Bounds.Width <= 0
         ? 1
-        : Math.Max(Math.Min(PaneLayout.ChatColumnMinWidth, MaxColumnWidth), width) / _items.Bounds.Width;
+        : Math.Max(MessageMinWidth, width) / _items.Bounds.Width;
 
-    double LaneWidth(double column) => _lane * column;
+    double LaneWidth(double column) => Math.Min(Math.Max(_lane * column, MessageMinWidth), column);
 
-    static double LaneFractionOf(double width, double column) => column <= 0 || width >= column
+    double LaneFractionOf(double width, double column) => column <= 0 || width >= column
         ? 1
-        : Math.Max(Math.Min(PaneLayout.ChatLaneMinWidth, column), width) / column;
+        : Math.Max(MessageMinWidth, width) / column;
 
     void Commit() {
         if (_panes is not null) {

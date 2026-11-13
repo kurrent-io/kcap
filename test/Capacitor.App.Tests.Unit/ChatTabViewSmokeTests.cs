@@ -60,8 +60,9 @@ public class ChatTabViewSmokeTests {
     static string ResultLine(int n) => ToolResultLine.Replace("\"t1\"", $"\"t{n}\"");
 
     // The short tail leaves its preceding tall reply unmeasured until the reader scrolls up.
-    static string[] UnevenHistory() {
-        var prose = string.Join("\\n\\n", Enumerable.Repeat("A longer reply whose paragraphs wrap across the chat column.", 20));
+    static string[] UnevenHistory(int sentences = 1) {
+        var paragraph = string.Join(" ", Enumerable.Repeat("A longer reply whose paragraphs wrap across the chat column.", sentences));
+        var prose = string.Join("\\n\\n", Enumerable.Repeat(paragraph, 20));
         var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
         return Enumerable.Range(0, 60).SelectMany(_ => new[] { tall, UserLine, UserLine, UserLine, UserLine, UserLine })
             .Concat([UserLine, UserLine]).ToArray();
@@ -746,7 +747,9 @@ public class ChatTabViewSmokeTests {
     public Task Resizing_uneven_history_preserves_the_readers_visible_row(bool lane) => RunOnUiAsync(async () => {
         var host = new Host();
         try {
-            var lines = UnevenHistory();
+            // Room for the lane to narrow above the message minimum, and paragraphs that rewrap when it does.
+            if (lane) host.Window.Width = 1600;
+            var lines = UnevenHistory(lane ? 4 : 1);
             var path = Tmp.CreateFile("resize-scroll.jsonl", lines);
             await host.LoadAsync(path);
             var items = host.View.FindControl<ItemsControl>("ChatItems")!;
@@ -767,7 +770,7 @@ public class ChatTabViewSmokeTests {
             var item = row.DataContext!;
             var beforeY = row.TranslatePoint(default, host.Scroll)!.Value.Y;
             var heights = items.GetRealizedContainers().ToDictionary(container => container.DataContext!, container => container.Bounds.Height);
-            if (lane) host.View.ColumnSizing.UseShares(PaneLayout.ChatColumnDefaultFraction, 0.4);
+            if (lane) host.View.ColumnSizing.UseShares(PaneLayout.ChatColumnDefaultFraction, 0.55);
             else host.Window.Width = 360;
             host.Settle();
             await Assert.That(heights.Any(entry => items.ContainerFromItem(entry.Key) is { } container && Math.Abs(container.Bounds.Height - entry.Value) > 20)).IsTrue();
@@ -830,8 +833,8 @@ public class ChatTabViewSmokeTests {
             column = column / 1400 * 1000;
             await LaidOut(column, lane * column, 1000);
 
-            Drag("ChatLaneHandle", -200);
-            var laneWidth = lane * column - 200;
+            Drag("ChatLaneHandle", -50);
+            var laneWidth = lane * column - 50;
             await LaidOut(column, laneWidth, 1000);
 
             host.Window.Width = 1400;
@@ -845,18 +848,18 @@ public class ChatTabViewSmokeTests {
             Drag("ChatColumnRightHandle", -50);
             wide -= 100;
             await LaidOut(wide, wide, 1400);
-            Drag("ChatLaneHandle", -wide / 2);
-            laneWidth = wide / 2;
-            column = wide;
-            await LaidOut(wide, laneWidth, 1400);
 
+            // Neither drags narrower than an agent's message was before the column.
+            const double message = PaneLayout.ChatMessageMinWidth;
+            Drag("ChatLaneHandle", -5000);
+            await LaidOut(wide, message, 1400);
             Drag("ChatColumnLeftHandle", 5000);
-            await LaidOut(PaneLayout.ChatColumnMinWidth, laneWidth / column * PaneLayout.ChatColumnMinWidth, 1400);
+            await LaidOut(message, message, 1400);
 
-            // Below the drag minimum the column keeps shrinking with its share, never filling the chat.
-            host.Window.Width = 700;
+            // Nor does a narrow window shrink them below that: the column takes the chat less its gutters.
+            host.Window.Width = 600;
             host.Settle();
-            await LaidOut(PaneLayout.ChatColumnMinWidth / 1400 * 700, laneWidth / column * (PaneLayout.ChatColumnMinWidth / 2), 700);
+            await LaidOut(600 - PaneLayout.ChatMessageGutters, 600 - PaneLayout.ChatMessageGutters, 600);
         } finally { await host.CloseAsync(); }
     });
 
