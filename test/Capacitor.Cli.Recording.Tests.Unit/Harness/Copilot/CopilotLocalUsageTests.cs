@@ -91,6 +91,21 @@ public class CopilotLocalUsageTests {
         });
     }
 
+    [Test]
+    public async Task Usage_the_final_drain_cannot_send_marks_the_session_for_import() {
+        var transcript = Transcript();
+        var recorder   = Recorders.For(Sid, transcript, null, "copilot");
+        recorder.State.ThresholdReached = true;
+        Recorders.Transport.IsConnected = true;
+        await recorder.DrainNewLines(recorder.State, CancellationToken.None);
+        await File.WriteAllTextAsync(ChatLog, Log(Request("request_1", 1, 430, 0.5)));
+
+        Recorders.Transport.OnSend = _ => throw new IOException("hub down");
+        await recorder.FinishAsync(CancellationToken.None);
+
+        await Assert.That(new TranscriptSpool(Config.Root, TimeProvider.System, "http://127.0.0.1:1").NeedsImport(Sid)).IsTrue();
+    }
+
     static readonly IReadOnlyDictionary<string, long> NoCredits = FrozenDictionary<string, long>.Empty;
 
     [Test]

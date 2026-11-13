@@ -384,6 +384,13 @@ public sealed class TranscriptRecorder(
 
             LeftLines |= spooled is not (null or TranscriptSpool.AppendResult.Appended);
 
+            // Usage lines are not in the transcript, so the tail spool cannot carry them; an import rebuilds them.
+            if (State.CopilotLocalUsage is { } usage && (usage.StagedRequests.Count > 0 || usage.StagedCredits.Count > 0)) {
+                log("VS Code chat log usage not delivered by the final drain; flagging needs-import");
+                LeftLines = true;
+                MarkForImport(_spool, "shutdown final drain: VS Code chat log usage was not delivered");
+            }
+
             try {
                 await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {

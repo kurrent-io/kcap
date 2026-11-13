@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.Harness.Copilot;
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Copilot;
 
 public class CopilotPathsTests {
-    static CopilotPaths Under(string home, string? copilotHome = null) => new(new(home), copilotHome);
+    static CopilotPaths Under(string home, string? copilotHome = null, string? xdgConfigHome = null) => new(new(home), xdgConfigHome, copilotHome);
 
     [Test]
     public async Task Files_resolve_under_the_copilot_root() {
@@ -48,5 +48,14 @@ public class CopilotPathsTests {
             Path.Combine(userData, "Code", "User", "workspaceStorage"),
             Path.Combine(userData, "Code - Insiders", "User", "workspaceStorage"),
         ]);
+    }
+
+    [Test]
+    public async Task VS_Code_storage_on_linux_follows_xdg_config_home() {
+        if (!OperatingSystem.IsLinux()) return;
+
+        var dirs = Under("/h", xdgConfigHome: "/xdg").VsCodeWorkspaceStorageDirs;
+
+        await Assert.That(dirs).Contains(Path.Combine("/xdg", "Code", "User", "workspaceStorage"));
     }
 }

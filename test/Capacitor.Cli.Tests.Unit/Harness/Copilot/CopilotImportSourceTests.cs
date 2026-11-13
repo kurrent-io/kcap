@@ -26,7 +26,7 @@ public class CopilotImportSourceTests {
     /// <summary>Copilot's layout rooted at a throwaway dir, so discovery walks the real
     /// <c>session-state/</c> and <c>history-session-state/</c> names rather than dirs Copilot
     /// would never use.</summary>
-    static CopilotPaths Layout(TempDir tmp) => new(new UserHome(tmp.Path), copilotHome: tmp.Path);
+    static CopilotPaths Layout(TempDir tmp) => new(new UserHome(tmp.Path), xdgConfigHome: null, copilotHome: tmp.Path);
 
     const string Sid1 = "1053bee4-574f-40e3-84ca-463bd7a82dc2";
     const string Sid2 = "4ae28a73-dd66-46ac-81d2-be94b5e87079";
@@ -296,13 +296,13 @@ public class CopilotImportSourceTests {
     [Test]
     public async Task discovery_finds_vs_code_local_transcripts_with_their_workspace_folder() {
         using var tmp = new TempDir();
-        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage").Path;
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage");
         var folder    = tmp.CreateDir("work", "a b").Path;
         WriteLocalSession(storage, "ws1", Sid1, new Uri(folder).AbsoluteUri);
         WriteLocalSession(storage, "ws2", Sid2, "vscode-vfs://github/acme/repo");
         tmp.CreateFile(Path.Combine("Code", "User", "workspaceStorage", "ws1", "GitHub.copilot-chat", "transcripts", "notes.jsonl"), "{}\n");
 
-        var source   = new CopilotImportSource(Config.Root, Layout(tmp), [storage], router: new GitProviderRouter(), time: TimeProvider.System);
+        var source   = new CopilotImportSource(Config.Root, Layout(tmp), [storage.Path], router: new GitProviderRouter(), time: TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
 
         await Assert.That(sessions.Select(s => (s.SessionId, s.Cwd)).ToArray()).IsEquivalentTo(new (string, string?)[] {
@@ -317,9 +317,9 @@ public class CopilotImportSourceTests {
     [Test]
     public async Task an_import_of_a_vs_code_local_session_posts_its_usage_and_title() {
         using var tmp = new TempDir();
-        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage").Path;
+        var storage   = tmp.CreateDir("Code", "User", "workspaceStorage");
         WriteLocalSession(storage, "ws1", Sid1, new Uri(tmp.CreateDir("work").Path).AbsoluteUri);
-        File.WriteAllText(Path.Combine(storage, "ws1", "chatSessions", Sid1 + ".jsonl"),
+        storage.CreateFile(["ws1", "chatSessions", Sid1 + ".jsonl"],
             """{"kind":0,"v":{"version":3,"sessionId":"SID","requests":[{"requestId":"r1","modelState":{"value":1},"completionTokens":430,"copilotCredits":0.5,"result":{"metadata":{"resolvedModel":"gpt-6-luna"}}}]}}"""
                 .Replace("SID", Sid1) + "\n" + """{"kind":1,"k":["customTitle"],"v":"Create notes.md"}""" + "\n");
 
@@ -329,7 +329,7 @@ public class CopilotImportSourceTests {
         server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
         using var client = new HttpClient();
 
-        var source     = new CopilotImportSource(Config.Root, Layout(tmp), [storage], router: new GitProviderRouter(), time: TimeProvider.System);
+        var source     = new CopilotImportSource(Config.Root, Layout(tmp), [storage.Path], router: new GitProviderRouter(), time: TimeProvider.System);
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
         await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
@@ -345,13 +345,11 @@ public class CopilotImportSourceTests {
         await Assert.That(title.RequestMessage.Body!).Contains("Create notes.md");
     }
 
-    static void WriteLocalSession(string storage, string workspace, string dashedSid, string folderUri) {
-        var dir = Path.Combine(storage, workspace);
-        Directory.CreateDirectory(Path.Combine(dir, "GitHub.copilot-chat", "transcripts"));
-        Directory.CreateDirectory(Path.Combine(dir, "chatSessions"));
-        File.WriteAllText(Path.Combine(dir, "workspace.json"), new JsonObject { ["folder"] = folderUri }.ToJsonString());
-        File.WriteAllText(
-            Path.Combine(dir, "GitHub.copilot-chat", "transcripts", dashedSid + ".jsonl"),
+    static void WriteLocalSession(TempDirHandle storage, string workspace, string dashedSid, string folderUri) {
+        storage.CreateDir(workspace, "chatSessions");
+        storage.CreateFile([workspace, "workspace.json"], new JsonObject { ["folder"] = folderUri }.ToJsonString());
+        storage.CreateFile(
+            [workspace, "GitHub.copilot-chat", "transcripts", dashedSid + ".jsonl"],
             """{"type":"session.start","data":{"sessionId":"x","producer":"copilot-agent"},"id":"11111111-1111-4111-8111-111111111111","timestamp":"2026-11-10T10:00:00Z","parentId":null}""" + "\n");
     }
 

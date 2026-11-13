@@ -39,7 +39,7 @@ public class ImportDiscoverCaptureScopeTests {
         session.CreateFile("events.jsonl",
             """{"type":"user.message","timestamp":"2026-10-13T10:00:00Z","data":{"content":"hello"}}""" + "\n");
 
-        return new CopilotImportSource(Config.Root, new CopilotPaths(Home, Tmp.PathTo("copilot")), [], new GitProviderRouter(), TimeProvider.System);
+        return new CopilotImportSource(Config.Root, new CopilotPaths(Home, null, Tmp.PathTo("copilot")), [], new GitProviderRouter(), TimeProvider.System);
     }
 
     async Task<ImportCommand.ImportDiscoveryResult> DiscoverAsync(

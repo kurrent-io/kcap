@@ -168,7 +168,7 @@ internal sealed class CopilotImportSource : IImportSource {
         if (!Directory.Exists(storage)) return;
 
         IEnumerable<string> workspaces;
-        try { workspaces = Directory.EnumerateDirectories(storage); } catch { return; }
+        try { workspaces = Directory.EnumerateDirectories(storage); } catch (Exception ex) when (IsUnreadable(ex)) { return; }
 
         foreach (var workspace in workspaces) {
             ct.ThrowIfCancellationRequested();
@@ -189,7 +189,7 @@ internal sealed class CopilotImportSource : IImportSource {
                     if (!seen.Add(dashless)) continue;
 
                     DateTimeOffset? firstTimestamp = null;
-                    try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch { /* best effort */ }
+                    try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch (Exception ex) when (IsUnreadable(ex)) { /* best effort */ }
                     if (sinceUtc is { } cutoff && firstTimestamp is { } ts && ts < cutoff) continue;
 
                     result.Add(new DiscoveredSession(
@@ -203,7 +203,7 @@ internal sealed class CopilotImportSource : IImportSource {
                             [ChatSessionLogKey] = CopilotPaths.ChatSessionLogFor(jsonl),
                         }));
                 }
-            } catch {
+            } catch (Exception ex) when (IsUnreadable(ex)) {
                 // One unreadable workspace must not abort the scan.
             }
         }
@@ -217,10 +217,12 @@ internal sealed class CopilotImportSource : IImportSource {
             return doc.RootElement.Str("folder") is { } folder && Uri.TryCreate(folder, UriKind.Absolute, out var uri) && uri.IsFile
                 ? uri.LocalPath
                 : null;
-        } catch {
+        } catch (Exception ex) when (IsUnreadable(ex) || ex is JsonException) {
             return null;
         }
     }
+
+    static bool IsUnreadable(Exception ex) => ex is IOException or UnauthorizedAccessException;
 
     public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions,

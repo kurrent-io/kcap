@@ -40,10 +40,12 @@ public static class VsCodeChatSessionLog {
         JsonNode? state   = null;
         var       lines   = text.Split('\n');
         var       pending = false;
+        var       any     = false;
 
         for (var i = 0; i < lines.Length; i++) {
             var line = lines[i].TrimEnd('\r');
             if (string.IsNullOrWhiteSpace(line)) continue;
+            any = true;
 
             // A last line with no newline after it may still be being written.
             var unterminated = i == lines.Length - 1;
@@ -63,7 +65,8 @@ public static class VsCodeChatSessionLog {
             }
 
             if (kind == 0) {
-                state = Detach(entry, "v");
+                if (Detach(entry, "v") is JsonObject snapshot) state = snapshot;
+                else skipped.Add($"line {i + 1} is a snapshot that is not an object");
                 continue;
             }
 
@@ -80,6 +83,8 @@ public static class VsCodeChatSessionLog {
             if (!Apply(ref state, entry, kind)) skipped.Add($"line {i + 1} (kind {kind}) does not fit the snapshot");
         }
 
+        if (!any) return null;
+
         if (state is not JsonObject root) {
             if (state is null && pending && skipped.Count == 0) return null;
 
@@ -94,10 +99,12 @@ public static class VsCodeChatSessionLog {
         if (entry["k"] is not JsonArray path || !path.All(IsSegment)) return false;
 
         if (kind == 1) {
-            var value = Detach(entry, "v");
+            // An explicit null is a value; a missing v is not.
+            if (!entry.TryGetPropertyValue("v", out var value)) return false;
+            entry.Remove("v");
             if (path.Count == 0) {
-                if (value is null) return false;
-                state = value;
+                if (value is not JsonObject replacement) return false;
+                state = replacement;
                 return true;
             }
 
@@ -107,14 +114,14 @@ public static class VsCodeChatSessionLog {
         if (kind == 2) {
             // Everything is checked before anything changes, so an entry that does not fit leaves the state as it was.
             long? length = null;
-            if (entry.ContainsKey("i")) {
-                if (Int(entry["i"]) is not (>= 0 and var i)) return false;
+            if (entry.TryGetPropertyValue("i", out var lengthNode)) {
+                if (Int(lengthNode) is not (>= 0 and var i)) return false;
                 length = i;
             }
 
             JsonArray? items = null;
-            if (entry.ContainsKey("v")) {
-                if (entry["v"] is not JsonArray pushed) return false;
+            if (entry.TryGetPropertyValue("v", out var pushedNode)) {
+                if (pushedNode is not JsonArray pushed) return false;
                 items = pushed;
             }
 
@@ -269,15 +276,10 @@ public static class VsCodeChatSessionLog {
 
         if (request["response"] is not JsonArray parts) return null;
 
-        string? fromPart = null;
-        foreach (var part in parts) {
-            if (part is JsonObject obj && Str(obj["kind"]) == "autoModeResolution"
-             && obj["resolved"] is JsonObject chosen && Str(chosen["id"]) is { Length: > 0 } id) {
-                fromPart = id;
-            }
-        }
-
-        return fromPart;
+        return parts.OfType<JsonObject>()
+            .Where(part => Str(part["kind"]) == "autoModeResolution")
+            .Select(part => part["resolved"] is JsonObject chosen ? Str(chosen["id"]) : null)
+            .LastOrDefault(id => id is { Length: > 0 });
     }
 
     static bool SameSession(string a, string b) =>

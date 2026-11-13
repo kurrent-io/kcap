@@ -77,6 +77,9 @@ public class VsCodeChatSessionLogTests {
     [Arguments("""not json at all""", "not JSON")]
     [Arguments("""{"kind":2,"k":["requests"],"i":0,"v":{}}""", "does not fit")]
     [Arguments("""{"kind":2,"k":["requests"],"i":"0","v":[]}""", "does not fit")]
+    [Arguments("""{"kind":1,"k":["requests"]}""", "does not fit")]
+    [Arguments("""{"kind":1,"k":[],"v":[]}""", "does not fit")]
+    [Arguments("""{"kind":0,"v":[]}""", "snapshot that is not an object")]
     public async Task An_entry_of_an_unexpected_shape_is_skipped_and_the_rest_still_applies(string entry, string named) {
         var lines   = OneRequest();
         var session = Replay([.. lines[..3], entry, .. lines[3..]]);
@@ -137,9 +140,11 @@ public class VsCodeChatSessionLogTests {
     }
 
     [Test]
-    public async Task A_missing_log_reads_as_nothing_to_read() {
+    public async Task A_missing_or_empty_log_reads_as_nothing_to_read() {
         using var tmp = new TempDir();
 
         await Assert.That(VsCodeChatSessionLog.Read(tmp.PathTo("absent.jsonl"), Sid)).IsNull();
+        await Assert.That(VsCodeChatSessionLog.Replay("", Sid)).IsNull();
+        await Assert.That(VsCodeChatSessionLog.Replay(" \r\n\n", Sid)).IsNull();
     }
 }

@@ -7,7 +7,8 @@ namespace Capacitor.Cli.Core.Harness.Copilot;
 /// otherwise <c>~/.copilot</c> on every OS.
 /// </summary>
 public sealed class CopilotPaths {
-    public CopilotPaths(UserHome home, string? copilotHome) {
+    /// <param name="xdgConfigHome">Where VS Code keeps its user data on Linux when set.</param>
+    public CopilotPaths(UserHome home, string? xdgConfigHome, string? copilotHome) {
         Root = !string.IsNullOrEmpty(copilotHome) ? copilotHome : Path.Combine(home.Path, ".copilot");
 
 #pragma warning disable RS0030 // Roaming AppData is not derivable from a UserHome
@@ -17,6 +18,7 @@ public sealed class CopilotPaths {
         // An AppData the OS declines to name would leave the paths relative, read against the working directory.
         string? userData = OperatingSystem.IsMacOS() ? Path.Combine(home.Path, "Library", "Application Support")
                          : OperatingSystem.IsWindows() ? (appData.Length > 0 ? appData : null)
+                         : !string.IsNullOrEmpty(xdgConfigHome) ? xdgConfigHome
                          : Path.Combine(home.Path, ".config");
 
         VsCodeWorkspaceStorageDirs = userData is null

@@ -133,7 +133,7 @@ public class ImportExclusionSourcesTests {
                 Tmp.CreateFile("cursor/workspaces/hash/workspace.json", JsonSerializer.Serialize(new { folder = "file://" + cwd }));
                 return new CursorImportSource(Config.Root, Tmp.PathTo("cursor", "projects"), Tmp.PathTo("cursor", "workspaces"), router, time);
             case "copilot":
-                var copilot = new CopilotPaths(Home, Tmp.PathTo("copilot"));
+                var copilot = new CopilotPaths(Home, null, Tmp.PathTo("copilot"));
                 WriteUnder(copilot.SessionStateDir, $"{Id}/workspace.yaml", $"id: {Id}\ncwd: '{cwd.Replace("'", "''")}'\ncreated_at: {Timestamp}\n");
                 WriteUnder(copilot.SessionStateDir, $"{Id}/events.jsonl", $$$$"""{"type":"user.message","timestamp":"{{{{Timestamp}}}}","data":{"content":"hello"}}""" + "\n");
                 return new CopilotImportSource(Config.Root, copilot, [], router, time);

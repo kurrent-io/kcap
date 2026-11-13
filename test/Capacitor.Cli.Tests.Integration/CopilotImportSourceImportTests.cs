@@ -30,7 +30,7 @@ public class CopilotImportSourceImportTests : IDisposable {
 
     /// <summary>Copilot's layout rooted at the throwaway dir, so the session lands under the real
     /// <c>session-state/</c> name discovery walks.</summary>
-    CopilotPaths CopilotLayout => new(new UserHome(_tempDir), copilotHome: _tempDir);
+    CopilotPaths CopilotLayout => new(new UserHome(_tempDir), xdgConfigHome: null, copilotHome: _tempDir);
 
     const string DashedSid = "11111111-2222-3333-4444-555555555555";
 
