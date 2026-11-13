@@ -69,10 +69,15 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
 
     public ActivitySessionDto? Summary;
     public TaskCompletionSource? SummaryGate;
+    /// Completes when a read is held at SummaryGate.
+    public TaskCompletionSource SummaryHeld { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public int SummaryReads;
     public async Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct) {
         SummaryReads++;
-        if (SummaryGate is { } gate) await gate.Task;
+        if (SummaryGate is { } gate) {
+            SummaryHeld.TrySetResult();
+            await gate.Task;
+        }
         return Summary is { } summary
             ? new SummaryFetch(ServerReadOutcome.Ok, summary)
             : new SummaryFetch(ServerReadOutcome.Failed, null);

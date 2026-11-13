@@ -1394,6 +1394,7 @@ public class HandoffComposerViewModelTests {
         rig.Sessions.SummaryGate = new TaskCompletionSource();
         var vm = rig.Build();
         var ready = vm.InitializeAsync(CancellationToken.None);
+        await rig.Sessions.SummaryHeld.Task;
         vm.Choices.SelectedModel = picked;
         rig.Sessions.SummaryGate.SetResult();
         await ready;
@@ -1409,6 +1410,7 @@ public class HandoffComposerViewModelTests {
         rig.Sessions.SummaryGate = new TaskCompletionSource();
         var vm = rig.Build();
         var first = vm.InitializeAsync(CancellationToken.None);
+        await rig.Sessions.SummaryHeld.Task;
         vm.UpdateSource(rig.Session with { Title = "Renamed" });
         rig.Sessions.SummaryGate.SetResult();
         await first;
