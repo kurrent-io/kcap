@@ -507,8 +507,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
 
-    internal static string WorktreeKeyFor(AgentRow row) => row.CheckoutKey;
-
     /// A quit keeps driving the setters and commands after this, so each one ignores a disposed rail.
     public void Dispose() => _disposables.Dispose();
 }
