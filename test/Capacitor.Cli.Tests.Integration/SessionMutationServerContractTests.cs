@@ -83,19 +83,6 @@ public class SessionMutationServerContractTests : IDisposable {
         await Assert.That(run.Stdout).Contains("No server data found");
     }
 
-    /// <summary>
-    /// A server that never answered leaves the local half of the command done, so the diagnostic goes
-    /// to stderr and the command still succeeds. Costs the full 30s transport retry budget.
-    /// </summary>
-    [Test]
-    public async Task Disable_succeeds_locally_when_the_server_is_unreachable() {
-        var run = await RunAsync(UnreachableUrl, sessionIdEnv: null, "disable", SessionId);
-
-        await Assert.That(run.ExitCode).IsEqualTo(0);
-        await Assert.That(run.Stderr).Contains("kcap API cannot be reached");
-        await Assert.That(run.Stdout).Contains("Session disabled locally");
-    }
-
     // --- kcap hide ---
 
     /// <summary>Hiding is a visibility PUT carrying exactly <c>{"visibility":"none"}</c>.</summary>
@@ -252,9 +239,6 @@ public class SessionMutationServerContractTests : IDisposable {
     }
 
     // --- fixtures ---
-
-    /// <summary>No listener has ever bound port 1, so every attempt is refused at once.</summary>
-    const string UnreachableUrl = "http://127.0.0.1:1";
 
     /// <summary><c>update_check: false</c> keeps the exit-time update notice — and its network
     /// probe — out of the child's stderr.</summary>

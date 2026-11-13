@@ -1,12 +1,13 @@
 using Capacitor.Cli.Core.Config;
 using System.Diagnostics;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Commands;
 using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Real-process coverage for parent death and stdio: guarantees fakes can't prove — the
+/// Real-process coverage for parent death and closed stdio, which fakes cannot prove: the
 /// --verify transaction never hangs or crashes when its stdio pipes close, and the service flock is
 /// released when the process exits, even orphaned. Drives <c>kcap daemon service start --verify</c>
 /// against an isolated temp HOME/KCAP_DAEMONS_DIR with no daemon/plist present, so the transaction
@@ -21,6 +22,10 @@ public class ServiceVerifyProcessTests {
     /// AOT cold start doing launchctl work on a shared runner, and nothing here is timing the
     /// binary — a short wait only turns contention into a failure.</summary>
     static readonly TimeSpan LockWait = TimeSpan.FromSeconds(45);
+
+    /// <summary>The forward budget the child's readiness poll gets. The poll cannot succeed here, so the
+    /// production default would only be sat out; this still leaves the lock held long enough to observe.</summary>
+    const string ForwardBudgetMs = "3000";
 
     static (string Home, string Daemons, string Config) NewIsolatedEnv(TempDir tmp) {
         // Daemons itself is deliberately absent — --verify must create it, as on a first run — so only
@@ -58,6 +63,7 @@ public class ServiceVerifyProcessTests {
         var psi = KcapProcess.StartInfo(new DaemonStore(daemons), new ConfigRoot(config), "daemon", "service", "start", "--name", "ptest", "--verify");
         psi.WorkingDirectory = home;
         psi.Environment["HOME"] = home;
+        psi.Environment[DaemonServiceCommands.StartVerifyForwardBudgetEnvVar] = ForwardBudgetMs;
 
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start kcap");
 
@@ -116,6 +122,7 @@ public class ServiceVerifyProcessTests {
                 ["HOME"]             = home,
                 [DaemonStore.DaemonsDirEnvVar] = daemons,
                 [ConfigRoot.ConfigDirEnvVar]  = config,
+                [DaemonServiceCommands.StartVerifyForwardBudgetEnvVar] = ForwardBudgetMs,
             }
         };
 

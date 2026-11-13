@@ -113,6 +113,25 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).IsEqualTo("Session disabled locally (recording stopped, hooks silenced). Server data not deleted.");
     }
 
+    /// <summary>Through the real sessions client to a port nothing listens on: the refusal reaches stderr as the
+    /// unreachable diagnostic and the local steps still count as done. Each clock reading jumps 20s, so one attempt is
+    /// made and the 30s retry budget is spent on the next reading.</summary>
+    [Test]
+    public async Task Disable_succeeds_locally_when_the_server_is_unreachable() {
+        const string unreachable = "http://127.0.0.1:1";
+        var api = new SessionsApi(new FixedCapacitorHttpClient(),
+            new CapacitorServer(unreachable, Config.Root, Resolutions.At(unreachable, Config.Root)),
+            new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromSeconds(20) });
+
+        var exit = await new DisableCommand(Config.Root, Manager(_time), HostedAgent.Terminal) { GetEnv = _ => null }
+            .Handle(Session, () => api, _out, _err);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(_err.ToString()).Contains("kcap API cannot be reached");
+        await Assert.That(_err.ToString()).Contains("connection refused");
+        await Assert.That(Printed).Contains("Session disabled locally");
+    }
+
     [Test]
     public async Task Disable_refused_by_the_server_fails() {
         _sessions.Failure = new CapacitorApiException(403, "Forbidden.");

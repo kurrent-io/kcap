@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
@@ -1109,12 +1110,29 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
+    /// Shortens the readiness window of <c>kcap daemon service start --verify</c>, in whole milliseconds, so the
+    /// real-process tests of its lock and stdio handling need not sit out the default. Honoured in production: a
+    /// shorter window can end a start that would still have become ready.
+    /// </summary>
+    internal const string StartVerifyForwardBudgetEnvVar = "KCAP_SERVICE_START_VERIFY_FORWARD_BUDGET_MS";
+
+    /// <summary>The override's value when it is a positive whole number of milliseconds below the default, else null
+    /// for the default: it can shorten the window but never lengthen it.</summary>
+    internal static TimeSpan? ShortenedStartForwardBudget(string? milliseconds) =>
+        int.TryParse(milliseconds, NumberStyles.None, CultureInfo.InvariantCulture, out var ms)
+     && ms > 0
+     && TimeSpan.FromMilliseconds(ms) < ServiceVerify.DefaultForwardBudget
+            ? TimeSpan.FromMilliseconds(ms)
+            : null;
+
+    /// <summary>
     /// <c>--verify</c>: hands off to the <see cref="ServiceVerify"/> transaction engine, which
     /// acquires the <see cref="ServiceTxnLock"/> itself — no double-acquire here.
     /// </summary>
     async Task<int> StartVerified() {
         var engine = new ServiceVerify(store, root, (LaunchdServiceManager)manager,
             n => DaemonPidProbe.ValidatedPid(store, n), (n, t) => HelloProbe.RunAsync(store, n, time, t), time,
+            forwardBudget: ShortenedStartForwardBudget(Environment.GetEnvironmentVariable(StartVerifyForwardBudgetEnvVar)),
             gateEnv: Environment.GetEnvironmentVariable);
         var exit = await engine.StartVerifiedAsync(id);
 
