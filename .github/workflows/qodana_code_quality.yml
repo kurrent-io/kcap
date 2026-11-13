@@ -45,7 +45,7 @@ jobs:
           cache-dependency-path: Directory.Packages.props
 
       # Natively the CLI keeps NuGet packages and its engine out of cache-dir, leaving only its indexes.
-      # Only the nightly scan saves, so every other run, PRs and branches included, restores main's entry
+      # Only main's scans save, so every other run, PRs and branches included, restores main's entry
       - name: Restore the Qodana cache
         uses: actions/cache/restore@v6
         with:
@@ -63,9 +63,9 @@ jobs:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN_413606919 }}
           QODANA_ENDPOINT: 'https://qodana.cloud'
 
-      # A cache entry is immutable, so the nightly scan deletes the last one before saving its own
+      # A cache entry is immutable, so main's scan deletes the last one before saving its own
       - name: Drop the previous Qodana cache
-        if: github.event_name == 'schedule'
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -75,7 +75,7 @@ jobs:
             gh cache delete "$id"
           done
       - name: Save the Qodana cache
-        if: github.event_name == 'schedule'
+        if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/qodana/caches
