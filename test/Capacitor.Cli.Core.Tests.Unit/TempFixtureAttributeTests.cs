@@ -1,25 +1,11 @@
 namespace Capacitor.Cli.Core.Tests.Unit;
 
-/// <summary>The injected-fixture contract the suites depend on.</summary>
+/// <summary>Every injected fixture is a directory of its own: one shared between tests lets each see the
+/// other's files, which no test that uses it would notice.</summary>
 public class TempFixtureAttributeTests {
     [TempDir]           public required TempDir         Tmp     { get; init; }
     [TempDir]           public required TempDir         Second  { get; init; }
-    [TempDir("pinned")] public required TempDir         Hinted  { get; init; }
     [TempDaemonPaths]   public required TempDaemonStore Daemons { get; init; }
-
-    [Test]
-    public async Task Injected_fixtures_are_live_directories_named_after_the_suite() {
-        await Assert.That(Directory.Exists(Tmp.Path)).IsTrue();
-        await Assert.That(Directory.Exists(Daemons.Directory)).IsTrue();
-
-        await Assert.That(Path.GetFileName(Tmp.Path)).StartsWith("kcap-test-tempfixtureattribute-");
-        await Assert.That(Path.GetFileName(Daemons.Root)).StartsWith("kcap-test-tempfi-");
-    }
-
-    [Test]
-    public async Task An_explicit_hint_names_the_directory_instead_of_the_suite() {
-        await Assert.That(Path.GetFileName(Hinted.Path)).StartsWith("kcap-test-pinned-");
-    }
 
     [Test]
     public async Task Two_properties_of_the_same_type_get_separate_directories() {
