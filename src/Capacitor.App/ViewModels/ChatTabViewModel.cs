@@ -1455,7 +1455,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
         _items.Clear();
+        // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
+        var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;
         _history.Clear();
+        if (restore is not null) ComposerText = restore;
         _literalInputHistory.Clear();
         _unechoed.Clear();
         _superseded.Clear();
@@ -1497,7 +1500,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     void ClearSentDraft(QueuedChatMessage queued) {
-        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = "";
+        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = _history.TakeDraft();
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1625,7 +1628,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
-                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = "";
+                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = _history.TakeDraft();
                 return null;
             }
         }

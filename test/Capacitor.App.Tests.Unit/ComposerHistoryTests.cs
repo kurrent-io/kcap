@@ -74,6 +74,39 @@ public class ComposerHistoryTests {
         await Assert.That(history.Newer("second", None)).IsEqualTo("second edited");
     }
 
+    /// One stash holds the typed draft, so an edited recall over it is a second draft: recall
+    /// refuses rather than overwrite either, and a cleared box gets the stash back.
+    [Test]
+    public async Task An_edited_recall_over_a_stashed_draft_keeps_both() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("second");
+        history.EndNavigation();
+        await Assert.That(history.Older("second!", None)).IsNull();
+        await Assert.That(history.Newer("second!", None)).IsNull();
+
+        await Assert.That(history.Older("", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("typing", None)).IsNull();
+    }
+
+    [Test]
+    public async Task Newer_over_a_cleared_box_restores_the_stashed_draft() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        history.EndNavigation();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("", None)).IsNull();
+    }
+
+    [Test]
+    public async Task TakeDraft_hands_back_the_stash_once_and_ends_navigation() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        await Assert.That(history.TakeDraft()).IsEqualTo("typing");
+        await Assert.That(history.IsShowing("first")).IsFalse();
+        await Assert.That(history.TakeDraft()).IsEqualTo("");
+    }
+
     [Test]
     public async Task Observe_collapses_consecutive_duplicates_and_skips_blanks() {
         await AssertRecallOrder(Seen("a", "a", "  ", "b", "a"), None, "a", "b", "a");

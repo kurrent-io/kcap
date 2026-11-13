@@ -665,7 +665,8 @@ public partial class ChatTabView : UserControl {
             var (line, lines) = ComposerCaretLine();
             var length = ComposerInput.Text?.Length ?? 0;
             var caret = Math.Clamp(ComposerInput.CaretIndex, 0, length);
-            switch (ComposerArrowKey.Decide(e.Key == Key.Up, caret, length, line, lines)) {
+            var composing = !string.IsNullOrEmpty(_composerPresenter?.PreeditText);
+            switch (ComposerArrowKey.Decide(e.Key == Key.Up, caret, length, line, lines, composing)) {
                 case ComposerArrowAction.MoveToStart:
                     ComposerInput.CaretIndex = 0;
                     break;

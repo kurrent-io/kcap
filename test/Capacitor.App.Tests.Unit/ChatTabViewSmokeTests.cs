@@ -1977,6 +1977,32 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// While an input method shows preedit text the arrows pick its candidates, so neither moves
+    /// the caret to an edge nor recalls.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Arrow_keys_during_an_input_method_composition_recall_nothing() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.AttachAsync(Tmp.CreateFile("recall-ime.jsonl", UserLine));
+            await host.SendAsync("first");
+            host.Type("typing");
+            var presenter = host.Composer.GetVisualDescendants().OfType<TextPresenter>().First();
+
+            presenter.PreeditText = "ni";
+            host.Press(PhysicalKey.ArrowUp);
+            host.Press(PhysicalKey.ArrowUp);
+            await Assert.That(host.Composer.Text).IsEqualTo("typing");
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo("typing".Length);
+
+            presenter.PreeditText = null;
+            host.Press(PhysicalKey.ArrowUp);
+            host.Press(PhysicalKey.ArrowUp);
+            await Assert.That(host.Composer.Text).IsEqualTo("first");
+            await host.CloseAsync();
+        });
+    }
+
     /// Pins the other half of the key contract: Shift+Enter stays the TextBox's own newline and
     /// sends nothing.
     [Test]
