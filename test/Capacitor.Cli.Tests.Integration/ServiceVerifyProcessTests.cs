@@ -2,7 +2,6 @@ using Capacitor.Cli.Core.Config;
 using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Services;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -17,7 +16,6 @@ namespace Capacitor.Cli.Tests.Integration;
 // Both tests drive a real launchctl forward-budget poll, and one of them bounds the child's
 // flock acquisition by wall clock — they cannot afford to race each other for a core.
 [NotInParallel(nameof(ServiceVerifyProcessTests))]
-[RunOn(OS.Linux | OS.MacOs)]
 public class ServiceVerifyProcessTests {
     /// <summary>How long a spawned kcap gets to reach a lock state. Long because it is a real
     /// AOT cold start doing launchctl work on a shared runner, and nothing here is timing the

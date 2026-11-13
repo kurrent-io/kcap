@@ -1,7 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -13,7 +12,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// Uses WireMock to stub server endpoints and verify request shapes.
 /// For full end-to-end tests against the real server, see the private repo.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class HookRoundTripTests : IDisposable {
     static readonly JsonSerializerOptions JsonOptions = new() {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower

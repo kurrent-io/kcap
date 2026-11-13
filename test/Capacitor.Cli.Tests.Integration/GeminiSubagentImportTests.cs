@@ -1,6 +1,5 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Harness.Gemini;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,7 +17,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>vendor=gemini</c> with that <c>agent_id</c> so the server routes it to
 /// <c>AgentSubsession-*</c>.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class GeminiSubagentImportTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 

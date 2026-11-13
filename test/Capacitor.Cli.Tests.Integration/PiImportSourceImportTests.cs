@@ -1,7 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Harness.Pi;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,7 +17,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// the transcript batch tagged <c>vendor=pi</c>, and <c>/hooks/session-end/pi</c>
 /// — the integration points most likely to drift from the lower-level helpers.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class PiImportSourceImportTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }

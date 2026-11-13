@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Capacitor.Cli.Core;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -24,7 +23,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// the real process, the real cache-read path, and the real predicate wiring in
 /// <c>Program.cs</c>.</para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class UpdateNoticeDeliveryTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 

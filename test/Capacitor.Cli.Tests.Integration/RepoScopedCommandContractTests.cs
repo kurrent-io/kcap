@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using TUnit.Core.Enums;
 using WireMock.Logging;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -15,7 +14,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>owner/name</c> read from the git remote, so the fixture is a real repository with a remote
 /// and the hash in the asserted path is computed the same way the command computes it.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class RepoScopedCommandContractTests : IDisposable {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }

@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -24,7 +23,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// in CI; the persistence step is the load-bearing wire contract here.
 /// </para>
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class EvalRunnerV2PostTests : IDisposable {
     readonly WireMockServer _server = WireMockServer.Start();
 

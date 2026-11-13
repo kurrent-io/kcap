@@ -14,7 +14,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// command line, with no server configured and every proxy variable aimed at a local listener that
 /// must see no connection.</summary>
 [ParallelLimiter<SubprocessLimit>]
-[RunOn(OS.Linux | OS.MacOs)]
 public class StatusLineWrapperTests : IDisposable {
     const string AccountId = "acct1";
     const string Marker    = "KCAP_STATUSLINE_TEST_MARKER";
@@ -112,6 +111,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Original_gets_identical_stdin_env_and_cwd_and_passes_output_and_exit_code() {
         var script = Tmp.CreateExecutable("original.sh", $"""
             #!/bin/sh
@@ -162,6 +162,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Held_readings_lock_skips_capture_and_original_still_prints_promptly() {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\necho line\n");
         Register(Quoted(script));
@@ -179,6 +180,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/sh kill
     public async Task Slow_original_is_killed_when_the_wrapper_is_terminated() {
         var pidFile = Tmp.PathTo("original.pid");
         var script  = Tmp.CreateExecutable("original.sh", $"""
@@ -212,6 +214,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // sends SIGTERM through /bin/sh kill
     public async Task Terminating_the_wrapper_kills_the_original_s_background_children() {
         var pidFile = Tmp.PathTo("grandchild.pid");
         var script  = Tmp.CreateExecutable("original.sh", $"""
@@ -248,6 +251,7 @@ public class StatusLineWrapperTests : IDisposable {
     [Test]
     [Arguments("")]
     [Arguments("not json {")]
+    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task Empty_or_non_json_stdin_still_runs_the_original(string stdin) {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\ncat\necho ran\n");
         Register(Quoted(script));
@@ -260,6 +264,7 @@ public class StatusLineWrapperTests : IDisposable {
     }
 
     [Test]
+    [RunOn(OS.Linux | OS.MacOs)] // #2690: the original exits 127 on Windows
     public async Task No_network_call() {
         var script = Tmp.CreateExecutable("original.sh", "#!/bin/sh\necho ok\n");
         Register(Quoted(script));

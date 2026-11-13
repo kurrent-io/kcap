@@ -4,12 +4,10 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Text;
 using Capacitor.Cli.Core;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Integration;
 
 [NotInParallel]
-[RunOn(OS.Linux | OS.MacOs)]
 public class McpReviewContextServerIntegrationTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 

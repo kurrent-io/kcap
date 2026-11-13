@@ -1,7 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -14,7 +13,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// <c>registry.npmjs.org</c>, mirroring the harness in
 /// <see cref="Config.ServerUrlProbeIntegrationTests"/>.
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class UpdateChannelQueryTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 

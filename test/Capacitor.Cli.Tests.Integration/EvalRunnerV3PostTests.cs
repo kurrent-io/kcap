@@ -1,7 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
-using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -14,7 +13,6 @@ namespace Capacitor.Cli.Tests.Integration;
 /// carry per-question prompt_version and retrospective_prompt_version.
 /// Drives PersistAggregateV3Async directly (same seam as EvalRunnerV2PostTests).
 /// </summary>
-[RunOn(OS.Linux | OS.MacOs)]
 public class EvalRunnerV3PostTests : IDisposable {
     readonly WireMockServer _server = WireMockServer.Start();
     public void Dispose() => _server.Stop();
