@@ -19,7 +19,7 @@ BEGIN {
     re = "§[ \t]?[0-9]"
     re = re "|" B "(Task|Finding|Decision) [0-9]+" E
     re = re "|" B "Phase [A-D0-9]($|[^A-Za-z_])"
-    re = re "|" B "(Qodo|Bugbot|CodeRabbit)( ?#| ?[(]| PR| P[0-9]| review on| finding| fix| bug| regression|-flagged| flagged)"
+    re = re "|" B "(Qodo|Bugbot|CodeRabbit)( ?#| ?[(](#|PR|[0-9])| PR| P[0-9]| review on| finding| fix| bug| regression|-flagged| flagged)"
     re = re "|" B "[Rr]ound-?[0-9]+ (review|fix|finding)"
     re = re "|" B "[Pp]re-fix" E
     re = re "|" B "[Aa]n earlier (revision|version|draft)" E
@@ -27,8 +27,10 @@ BEGIN {
 }
 # Sets OPOS, OLEN and OBLOCK for the first comment opener outside a quoted string; OPOS 0 if none.
 # C# has no single-quoted strings, only char literals, so `'"'` must not open one; shell `$'…'`
-# takes backslash escapes where plain `'…'` does not.
-function find_open(line, cs,    i, n, c, q, esc, p, prev) {
+# takes backslash escapes where plain `'…'` does not. In YAML a quote inside a plain scalar
+# (`Don't`) is text, so a quote opens only at the start of a word there.
+function find_open(line, lang,    i, n, c, q, esc, p, prev, cs) {
+    cs = lang == "cs"
     OPOS = 0; q = ""; n = length(line)
     for (i = 1; i <= n; i++) {
         c = substr(line, i, 1)
@@ -37,11 +39,12 @@ function find_open(line, cs,    i, n, c, q, esc, p, prev) {
             else if (c == q) q = ""
             continue
         }
-        if (c == "\"" || (c == "'" && !cs)) {
+        prev = i == 1 ? " " : substr(line, i - 1, 1)
+        if ((c == "\"" || (c == "'" && !cs)) && (lang != "yml" || prev ~ /[ \t:[{,=$(]/)) {
             q = c; esc = c == "\"" || substr(line, i - 1, 1) == "$"
             continue
         }
-        if (c == "'") {
+        if (c == "'" && cs) {
             if (substr(line, i + 1, 1) == "\\") { p = index(substr(line, i + 3), "'"); if (p) i += p + 2 }
             else if (substr(line, i + 2, 1) == "'") i += 2
             continue
@@ -65,7 +68,7 @@ function extract(line,    out, j) {
             continue
         }
         if (lang == "xml") { OPOS = index(line, "<!--"); OLEN = 4; OBLOCK = 1 }
-        else find_open(line, lang == "cs")
+        else find_open(line, lang)
         if (OPOS == 0) return out
         if (!OBLOCK) return out " " substr(line, OPOS + OLEN)
         line = substr(line, OPOS + OLEN); inblock = 1
@@ -74,7 +77,7 @@ function extract(line,    out, j) {
 }
 FNR == 1 {
     ext = FILENAME; sub(/.*\./, "", ext); inblock = 0
-    lang = ext == "cs" ? "cs" : (ext == "sh" || ext == "yml" || ext == "yaml") ? "hash" : "xml"
+    lang = ext == "cs" ? "cs" : ext == "sh" ? "sh" : (ext == "yml" || ext == "yaml") ? "yml" : "xml"
     closer = lang == "cs" ? "*/" : "-->"
 }
 {

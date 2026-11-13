@@ -108,4 +108,20 @@ new_repo
 put src/A.cs $'class A\n{\n    void F() {}// Task 3\n}'
 check "a comment right after a closing brace fails" 1 "src/A.cs:3:"
 
+new_repo
+put src/A.cs $'// Parse Qodo (the HTML source).\nclass A {}'
+check "a bot name before a parenthetical with no id passes" 0
+
+new_repo
+put src/A.cs $'// Regression for Qodo (#380, finding 3).\nclass A {}'
+check "a bot name before a parenthesised id fails" 1 "src/A.cs:1:"
+
+new_repo
+put .github/workflows/ci.yml "jobs:"$'\n'"  x:"$'\n'"    name: Don't skip checks # Ta""sk 1"
+check "an apostrophe in a YAML plain scalar opens no string" 1 ".github/workflows/ci.yml:3:"
+
+new_repo
+put .github/workflows/ci.yml "jobs:"$'\n'"  x:"$'\n'"    run: echo \"a # Ta""sk 1\" X='b # Ta""sk 2'"
+check "a quoted string in a YAML run line opens no comment" 0
+
 [ "$fail" -eq 0 ] && echo "ok" || exit 1
