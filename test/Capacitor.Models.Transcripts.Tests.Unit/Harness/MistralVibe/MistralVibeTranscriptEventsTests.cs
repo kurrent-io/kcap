@@ -63,7 +63,7 @@ public class MistralVibeTranscriptEventsTests {
 
     [Test]
     public async Task A_legacy_call_without_an_id_or_a_name_emits_nothing() {
-        const string line = """{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"file_system.bash","arguments":"{}"}},{"id":"call_n","type":"function","function":{"arguments":"{}"}},{"id":"call_k","type":"function","function":{"name":"grep"}}]}""";
+        const string line = """{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"file_system.bash","arguments":"{}"}},{"id":"call_n","type":"function","function":{"arguments":"{}"}},{"id":"call_e","type":"function","function":{"name":"","arguments":"{}"}},{"id":"call_k","type":"function","function":{"name":"grep"}}]}""";
         var events = E(line);
 
         await Assert.That(events.Count).IsEqualTo(1);

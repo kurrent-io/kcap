@@ -5,10 +5,9 @@ using TUnit.Assertions.Enums;
 
 namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.MistralVibe;
 
-/// <summary>The inputs on which the server's Mistral Vibe normalizer and this projection gave different events,
-/// each pinned to the behaviour kept: a call carries its tool kind and the child it spawned, an effect's result
-/// follows its call in source order at the call's own time, and a legacy line's calls are one event each, all on
-/// the ids the server stores.</summary>
+/// <summary>Inputs pinned to the ids kcap-server's Mistral Vibe normalizer stores for them, and to the payload
+/// differences kept on purpose: a call carries both its tool kind and the child it spawned, and an effect's result
+/// and a legacy line's calls keep their line's time, in source order.</summary>
 public class MistralVibeServerDeltaTests {
     static readonly DateTimeOffset Received = new(2026, 10, 7, 0, 0, 0, TimeSpan.Zero);
 
@@ -17,7 +16,7 @@ public class MistralVibeServerDeltaTests {
 
     const string Spawn = """{"type":"effect","id":"effect-s","createdAt":1,"generationStatus":"completed","detail":{"kind":"subagent","toolName":"subagent.spawn","childSessionId":"child-1D89390ca0ec23cdd4c58954","input":{"task":"read hello.py","agent":"explore"}},"state":{"status":"completed","outputText":""}}""";
 
-    /// <summary>The server names the child and no kind; the projection named the kind and no child.</summary>
+    /// <summary>The server stores the child and no tool kind; the projection carries both.</summary>
     [Test]
     public async Task A_spawn_call_carries_its_tool_kind_and_the_child_it_started() {
         var calls = (AssistantToolCallsGenerated)E(Spawn)[0].Payload;
