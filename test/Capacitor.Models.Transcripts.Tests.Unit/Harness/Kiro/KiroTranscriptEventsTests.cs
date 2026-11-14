@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Models.Transcripts.Harness.Kiro;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
 
@@ -248,6 +249,17 @@ public class KiroTranscriptEventsTests {
         await Assert.That(e.Usage.TotalTokens).IsEqualTo(1540L);
         await Assert.That(e.UsageIsEcho).IsFalse();
         await Assert.That(KiroSlug(e)!.Fields["credits"].NumberValue).IsEqualTo(0.1);
+    }
+
+    /// <summary>The server drops a count that is not positive before it writes the usage, so it is neither stored nor summed.</summary>
+    [Test]
+    [Arguments("""{"input_token_count":5,"output_token_count":0,"model":"m"}""")]
+    [Arguments("""{"input_token_count":5,"output_token_count":-3,"model":"m"}""")]
+    [Arguments("""{"input_token_count":5,"model":"m"}""")]
+    public async Task A_count_that_is_not_positive_is_left_out_of_the_usage(string usage) {
+        var e = E($$$"""{"version":"v1","kind":"AssistantMessage","data":{"message_id":"m2","content":[{"kind":"text","data":"Done."}],"_kcap_usage":{{{usage}}}}}""")[0];
+
+        await Assert.That(JsonFormatter.Default.Format(e.Usage!)).IsEqualTo("""{ "inputTokens": "5", "totalTokens": "5", "model": "m" }""");
     }
 
     [Test]
