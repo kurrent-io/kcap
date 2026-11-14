@@ -73,8 +73,10 @@ public class MistralVibeTranscriptEventsTests {
     }
 
     [Test]
-    public async Task Legacy_tool_role_becomes_a_tool_result_paired_by_call_id() {
-        const string line = """{"role":"tool","tool_call_id":"call_1","content":"file.txt"}""";
+    [Arguments("tool_call_id")]
+    [Arguments("call_id")]
+    public async Task Legacy_tool_role_becomes_a_tool_result_paired_by_call_id(string key) {
+        var line   = $$"""{"role":"tool","{{key}}":"call_1","content":"file.txt"}""";
         var events = E(line);
         var result = (ToolResultReceived)events[0].Payload;
         await Assert.That(result.CallId).IsEqualTo("call_1");

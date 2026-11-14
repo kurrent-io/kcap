@@ -72,6 +72,7 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
             case "assistant": {
                 var text = ContentText(msg);
                 if (text.Length > 0) Add(events, new AssistantTextGenerated { Content = text, Timestamp = ts }, recordId, at, recordTs);
+                // Legacy only: a unified assistant message carries no calls, each is its own effect.
                 if (msg.Arr("tool_calls") is { } calls)
                     foreach (var (callId, toolCall) in ToolCalls(calls, ts))
                         Add(events, toolCall, TranscriptIds.VibeToolCall(recordId, callId), at, recordTs);
