@@ -119,3 +119,4 @@ public class SystemdUnitTests {
         await Assert.That(state).IsEqualTo(unitPresent ? ServiceState.Installed : ServiceState.NotInstalled);
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse

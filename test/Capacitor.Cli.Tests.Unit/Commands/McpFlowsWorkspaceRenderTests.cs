@@ -153,3 +153,4 @@ public class McpFlowsWorkspaceRenderTests {
         await Assert.That(text).DoesNotContain("borrowed_cwd");
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse

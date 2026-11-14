@@ -423,3 +423,4 @@ public class CopilotImportSourceTests {
         File.WriteAllText(Path.Combine(dir, "workspace.yaml"), yaml);
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse

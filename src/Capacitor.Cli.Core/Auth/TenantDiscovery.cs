@@ -222,3 +222,4 @@ public class TenantDiscovery(IAuthProxyClient proxy, ITenantPicker picker) {
         };
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse

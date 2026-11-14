@@ -201,3 +201,4 @@ public sealed class FirstRunHeartbeat : IDisposable {
         }
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse

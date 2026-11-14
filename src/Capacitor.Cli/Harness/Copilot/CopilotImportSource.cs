@@ -623,3 +623,4 @@ internal sealed class CopilotImportSource : IImportSource {
             : null;
     }
 }
+// Qodana PR-mode trial: a change for the scan to analyse
