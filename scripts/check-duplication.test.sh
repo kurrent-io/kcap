@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+gate="$here/check-duplication.sh"
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+fail=0
+n=0
+
+body='var total = 0; foreach (var item in items) { if (item.Length > limit) { total += item.Length; } } Console.WriteLine($"total {total} over {limit}"); return total;'
+other='using var stream = File.OpenRead(path); var buffer = new byte[4096]; var read = stream.Read(buffer, 0, buffer.Length); Console.Error.WriteLine(read); return read * 2;'
+
+new_repo() {
+  n=$((n + 1)); repo="$scratch/r$n"
+  mkdir -p "$repo/scripts"
+  git -C "$repo" init -q
+}
+method() {
+  local path="$1" text="$2"
+  mkdir -p "$(dirname "$repo/$path")"
+  printf 'class C\n{\n    // %s\n    static int Sum(string[] items, int limit)\n    {\n        %s\n    }\n}\n' "$path" "$text" > "$repo/$path"
+  git -C "$repo" add -A
+}
+baseline() { printf '%s\n' "$1" > "$repo/scripts/check-duplication.baseline"; }
+check() {
+  local name="$1" expected="$2" snippet="$3"; shift 3
+  if out="$(cd "$repo" && bash "$gate" "$@" 2>&1)"; then rc=0; else rc=$?; fi
+  if [ "$rc" != "$expected" ] || [[ "$out" != *"$snippet"* ]]; then
+    printf 'FAIL: %s -> rc=%s (want %s), expected output containing %s\n%s\n' "$name" "$rc" "$expected" "$snippet" "$out"
+    fail=1
+  fi
+}
+
+new_repo
+method src/A/One.cs "$body"; method src/B/Two.cs "$body"; method src/C/Three.cs "$body"
+baseline 1
+check 'three copies at the baseline' 0 '1 method families, at the baseline'
+baseline 0
+check 'a family above the baseline' 1 'src/C/Three.cs:4'
+baseline 2
+check 'a count below the baseline' 1 'check-duplication.sh --update'
+check 'update lowers the baseline' 0 'baseline set to 1' --update
+check 'the updated baseline holds' 0 'at the baseline'
+
+new_repo
+method src/A/One.cs "$body"; method src/B/Two.cs "$body"
+baseline 0
+check 'two copies are not a family' 0 'at the baseline'
+method src/B/Other.cs "$body"
+check 'a third file makes a family' 1 'x3'
+git -C "$repo" rm -q -f src/B/Other.cs
+method test/T/Three.cs "$body"
+check 'copies outside src are ignored' 0 'at the baseline'
+cp "$repo/src/A/One.cs" "$repo/src/B/Untracked.cs"
+check 'untracked copies are ignored' 0 'at the baseline'
+
+new_repo
+method src/A/One.cs "$body"; method src/B/Two.cs "$body"; method src/C/Three.cs "$other"
+baseline 0
+check 'a dissimilar third body' 0 'at the baseline'
+method src/D/Four.cs "${body/limit)/limit + 1)}"
+check 'a near-identical third body' 1 'x3'
+
+new_repo
+for f in A B C; do method "src/$f/Short.cs" 'return items.Length + limit;'; done
+baseline 0
+check 'one-line bodies are not a family' 0 'at the baseline'
+
+new_repo
+method src/A/One.cs "$body"
+check 'a missing baseline is a checker failure' 2 'Duplication scan failed'
+printf 'class C { void M() { int x = 1 } }\n' > "$repo/src/A/Broken.cs"
+baseline 0
+git -C "$repo" add -A
+check 'a syntax error does not stop the scan' 0 'at the baseline'
+
+[ "$fail" -eq 0 ] && echo 'ok' || exit 1

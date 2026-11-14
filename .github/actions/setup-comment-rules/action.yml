@@ -1,5 +1,5 @@
 name: Set up comment rules
-description: Install the pinned syntax parsers used by the comment gate and its shell tests
+description: Install the pinned syntax parsers used by the comment and duplication gates and their shell tests
 runs:
   using: composite
   steps:
