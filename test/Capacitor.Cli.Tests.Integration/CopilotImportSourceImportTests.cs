@@ -134,12 +134,12 @@ public class CopilotImportSourceImportTests : IDisposable {
     public async Task An_import_sends_no_title_when_copilots_name_only_repeats_the_first_prompt() {
         var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
         Directory.CreateDirectory(dir);
-        File.WriteAllLines(Path.Combine(dir, "events.jsonl"), new[] {
+        await File.WriteAllLinesAsync(Path.Combine(dir, "events.jsonl"), new[] {
             $$"""{"type":"session.start","data":{"sessionId":"{{DashedSid}}"},"id":"e1","timestamp":"2026-06-10T20:23:49.371Z","parentId":null}""",
             """{"type":"user.message","data":{"content":"Where does copper-lantern, the new receipt printer, keep its queue?"},"id":"e2","timestamp":"2026-06-10T20:23:50.000Z","parentId":"e1"}""",
             """{"type":"assistant.message","data":{"content":"In the spooler"},"id":"e3","timestamp":"2026-06-10T20:23:51.000Z","parentId":"e2"}"""
         });
-        File.WriteAllText(Path.Combine(dir, "workspace.yaml"), "cwd: /work/a\nname: Where does copper-lantern, the new recei\nuser_named: false\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "workspace.yaml"), "cwd: /work/a\nname: Where does copper-lantern, the new recei\nuser_named: false\n");
         StubServerHoldingEveryLine();
 
         using var client = new HttpClient();
