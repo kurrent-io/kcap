@@ -2,7 +2,6 @@ using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -39,10 +38,6 @@ internal sealed class OpenCodeImportSource : IImportSource {
     public bool   SupportsTitleGeneration => false; // routed; native title forwarded via /hooks/set-title
     public bool   AttachesChildContentOnReplay => false; // AlreadyLoaded early-returns before any POST
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
     static string Norm(string p) {
         try { return Path.GetFullPath(p).TrimEnd('/', '\\'); } catch { return p.TrimEnd('/', '\\'); }
     }
@@ -71,7 +66,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                 ct.ThrowIfCancellationRequested();
                 if (filters.FilterSession is { } fs && !string.Equals(row.Id, fs, StringComparison.Ordinal)) continue;
                 if (normalizedCwd is not null &&
-                    (row.Directory is null || !Norm(row.Directory).Equals(normalizedCwd, PathComparison))) continue;
+                    (row.Directory is null || !Norm(row.Directory).Equals(normalizedCwd, ImportPaths.PathComparison))) continue;
                 // A null TimeCreated ("unknown") is best-effort KEPT — only a KNOWN-older
                 // row is skipped by the since filter.
                 if (sinceMs is { } cutoff && row.TimeCreated is { } tc && tc < cutoff) continue;
@@ -205,12 +200,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
         var lineOffset = repair ? checked(c.ResumeFromLine + 1) : 0;
 
         // 1. session-start (lifecycle-before-transcript; idempotent server-side).
-        var startPayload = BuildSessionStartPayload(c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp);
+        var startPayload = SyntheticHookPayloads.SessionStart("sessionStart", c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp);
         if (ctx.VisibilityStampFor(c.Status) is { } visibility) {
             startPayload["default_visibility"] = visibility;
         }
 
-        if (!await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/opencode", startPayload, ct))
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-start/opencode", startPayload, ct))
             return ImportOutcome.Failed;
 
         // 2. parent transcript (synthesize to a temp file; SendTranscriptBatches needs a path).
@@ -277,10 +272,10 @@ internal sealed class OpenCodeImportSource : IImportSource {
         // 5. session-end — posted regardless of step 3's outcome, INCLUDING cancellation (see
         //    the finally contract above). Uses CancellationToken.None deliberately: `ct` may
         //    already be cancelled, and the whole point of this call is to re-assert the
-        //    terminal state even so — PostHookAsync/PostWithRetryAsync still bound this to a
+        //    terminal state even so — PostSyntheticHookAsync/PostWithRetryAsync still bound this to a
         //    fixed wall-clock budget (~30s), so it cannot hang.
-        var endOk = await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/opencode",
-            BuildSessionEndPayload(c.SessionId, c.Meta.Cwd, c.Meta.LastTimestamp), CancellationToken.None);
+        var endOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-end/opencode",
+            SyntheticHookPayloads.SessionEnd("sessionEnd", c.SessionId, "opencode-import", c.Meta.Cwd, c.Meta.LastTimestamp), CancellationToken.None);
 
         // `cancellation` above only catches an OCE THROWN BY step 3. A cancellation that arrives
         // AFTER descendants finish — most notably while step 4's PostSetTitleAsync is awaited,
@@ -353,7 +348,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                 }
 
                 // fail-closed: no content unless the subagent registered first.
-                var startOk = await PostHookAsync(client, baseUrl, "subagent-start",
+                var startOk = await Client(client, baseUrl).PostSyntheticHookAsync("subagent-start",
                     OpenCodeSubagentDiscovery.BuildStartPayload(rootId, agentId, agentType, tmp), ct);
                 if (!startOk) throw new HttpRequestException($"subagent-start failed for {child.Id}");
 
@@ -362,7 +357,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                     filePath: tmp, agentId: agentId, startLine: 0, time: _time, vendor: Vendor,
                     lineNumberOffset: childOffset, failOnError: true, progress: progress);
 
-                if (!await PostHookAsync(client, baseUrl, "subagent-stop",
+                if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop",
                         OpenCodeSubagentDiscovery.BuildStopPayload(rootId, agentId, agentType, tmp), ct))
                     throw new HttpRequestException($"subagent-stop failed for {child.Id}");
             } finally {
@@ -481,40 +476,6 @@ internal sealed class OpenCodeImportSource : IImportSource {
             ? ln.GetInt32() : null;
     }
 
-    static JsonObject BuildSessionStartPayload(string sid, string? cwd, DateTimeOffset? startedAt) {
-        var p = new JsonObject {
-            ["hook_event_name"] = "sessionStart",
-            ["session_id"]      = sid,
-            ["source"]          = "startup",
-        };
-        if (cwd is not null) p["cwd"] = cwd;
-        // Fail-open git-root discovery, mirroring ImportChainsAsync
-        // so routed imports carry the same workspace_root the file-based path does.
-        if (cwd is not null && GitRepository.FindRoot(cwd) is { } workspaceRoot) p["workspace_root"] = workspaceRoot;
-        if (startedAt is { } ts) p["started_at"] = ts.ToString("O");
-        p["origin"] = ImportOrigins.Historical;
-        return p;
-    }
-
-    static JsonObject BuildSessionEndPayload(string sid, string? cwd, DateTimeOffset? endedAt) {
-        var p = new JsonObject {
-            ["hook_event_name"] = "sessionEnd",
-            ["session_id"]      = sid,
-            ["reason"]          = "opencode-import",
-        };
-        if (cwd is not null) p["cwd"] = cwd;
-        if (endedAt is { } ts) p["ended_at"] = ts.ToString("O");
-        p["origin"] = ImportOrigins.Historical;
-        return p;
-    }
-
-    async Task<bool> PostHookAsync(HttpClient client, string baseUrl, string route, JsonObject payload, CancellationToken ct) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp = await client.PostWithRetryAsync($"{baseUrl}/hooks/{route}", content, _time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch (OperationCanceledException) {
-            throw; // don't mask cancellation as a hook failure
-        } catch { return false; }
-    }
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
 }
+

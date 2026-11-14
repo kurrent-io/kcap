@@ -1,9 +1,6 @@
 using System.Globalization;
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Recording.Harness.Gemini;
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -35,19 +32,6 @@ internal sealed class GeminiImportSource : IImportSource {
         _time   = time;
     }
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try {
-            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        } catch {
-            return path.TrimEnd('/', '\\');
-        }
-    }
-
     public HarnessId Vendor => HarnessId.Gemini;
 
     public bool IsAvailable => Directory.Exists(_tmpDir);
@@ -62,7 +46,7 @@ internal sealed class GeminiImportSource : IImportSource {
 
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } fc ? NormalizeForComparison(fc) : null;
+        var normalizedCwd = filters.FilterCwd is { } fc ? ImportPaths.NormalizeForComparison(fc) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -96,7 +80,7 @@ internal sealed class GeminiImportSource : IImportSource {
                     // way it cannot satisfy an allow list.
                     if (normalizedCwd is not null
                      && (workspace is null
-                      || !NormalizeForComparison(workspace).Equals(normalizedCwd, PathComparison))) {
+                      || !ImportPaths.NormalizeForComparison(workspace).Equals(normalizedCwd, ImportPaths.PathComparison))) {
                         continue;
                     }
 
@@ -125,102 +109,15 @@ internal sealed class GeminiImportSource : IImportSource {
         return Task.FromResult<IReadOnlyList<DiscoveredSession>>(result);
     }
 
-    public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
+    public Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions,
             ClassifyContext                  ctx,
             CancellationToken                ct
-        ) {
-        var results = new List<ImportCommand.SessionClassification>(sessions.Count);
-
-        foreach (var s in sessions) {
-            var transcriptPath = (string)s.SourceMeta!["TranscriptPath"]!;
-
-            var meta = new SessionMetadata {
-                SessionId      = s.SessionId,
-                Cwd            = s.Cwd,
-                FirstTimestamp = s.FirstTimestamp,
-            };
-
-            int? lastNonBlankIndex;
-            int? lastRelevantIndex;
-            int  nonBlankCount;
-            try {
-                (lastNonBlankIndex, lastRelevantIndex, nonBlankCount) = await ReadTranscriptStatsAsync(transcriptPath, ct);
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "transcript read failed"));
-                continue;
-            }
-
-            if (lastNonBlankIndex is null) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "empty transcript"));
-                continue;
-            }
-
-            if (nonBlankCount < ctx.MinLines) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.TooShort, totalLines: nonBlankCount));
-                continue;
-            }
-
-            if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(MakeClassification(s, meta, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
-                results.Add(excluded);
-                continue;
-            }
-
-            int? serverLastLine;
-            try {
-                serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct);
-            } catch (SessionDeletedException) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.Deleted, totalLines: nonBlankCount));
-                continue;
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: nonBlankCount,
-                                               probeErrorReason: "watermark probe failed"));
-                continue;
-            }
-
-            // Gemini chat records carry a per-message "timestamp" field; prefer the
-            // tail-scanned last one over file mtime, which can be skewed by unrelated
-            // later writes to the same session-scoped file.
-            meta.LastTimestamp = EndedAtResolvers.LastTimestampFromJsonl(transcriptPath) ?? TryGetLastWriteUtc(transcriptPath);
-
-            var status       = ImportCommand.ClassificationStatus.New;
-            var resumeFromLn = 0;
-
-            // Compare the server watermark against the last IMPORT-RELEVANT line,
-            // not the last raw line: Gemini transcripts end with normalizer-skipped
-            // records ($set mutation ops, lastUpdated bumps), so a raw-tail compare
-            // would re-classify a complete session Partial forever.
-            var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
-
-            if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) {
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                } else {
-                    status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
-                }
-            }
-
-            results.Add(new ImportCommand.SessionClassification {
-                SessionId       = s.SessionId,
-                // Empty FilePath keeps Gemini on the routed phase (ImportSessionAsync)
-                // instead of the Claude/Codex chain worker — same contract as Copilot.
-                FilePath        = "",
-                EncodedCwd      = "",
-                Meta            = meta,
-                Status          = status,
-                Vendor          = Vendor,
-                ResumeFromLine  = resumeFromLn,
-                TotalLines      = nonBlankCount,
-                SourceMeta      = s.SourceMeta,
-            });
-        }
-
-        return results;
-    }
+        ) =>
+        RoutedImportClassifier.ClassifyAsync(sessions, ctx, new RoutedClassifyOptions(
+            Vendor, _time, GeminiLines.IsImportRelevantLine,
+            // A record's own timestamp beats mtime, which later unrelated writes to the file can move.
+            path => EndedAtResolvers.LastTimestampFromJsonl(path) ?? ImportPaths.TryGetLastWriteUtc(path)), ct);
 
     public async Task<ImportSessionResult> ImportSessionAsync(
             ImportCommand.SessionClassification classification,
@@ -231,20 +128,19 @@ internal sealed class GeminiImportSource : IImportSource {
 
         if (!File.Exists(transcriptPath)) return ImportOutcome.Failed;
 
+        var client = new RoutedImportClient(ctx.HttpClient, _time, ctx.BaseUrl);
+
         // Lifecycle-before-transcript ordering (see CopilotImportSource): a
         // transcript that advances the watermark past a failed lifecycle POST
         // would leave the session permanently lifecycle-less. Re-runs are
         // idempotent server-side (deterministic lifecycle event ids).
-        var startPayload = BuildSessionStartPayload(
-            classification.SessionId, classification.Meta.Cwd, classification.Meta.FirstTimestamp);
+        var startPayload = SyntheticHookPayloads.SessionStart(
+            "SessionStart", classification.SessionId, classification.Meta.Cwd, classification.Meta.FirstTimestamp);
         if (ctx.VisibilityStampFor(classification.Status) is { } visibility) {
             startPayload["default_visibility"] = visibility;
         }
 
-        var startOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, ctx.BaseUrl, "session-start/gemini",
-            startPayload,
-            ct);
+        var startOk = await client.PostSyntheticHookAsync("session-start/gemini", startPayload, ct);
         if (!startOk) return ImportOutcome.Failed;
 
         var startLine = classification.Status switch {
@@ -279,57 +175,17 @@ internal sealed class GeminiImportSource : IImportSource {
         // re-run whether or not anything is actually new. Accepted — still strictly better
         // than defaulting false (which would risk hiding genuinely-new subagent content
         // behind the lifecycle-only-replay label).
-        var sentChildContent = await ImportSubagentsAsync(ctx.HttpClient, ctx.BaseUrl, classification.SessionId, transcriptPath, ctx.Progress, ctx.Stderr ?? Console.Error, ct);
+        var sentChildContent = await ImportSubagentsAsync(ctx.HttpClient, client, ctx.BaseUrl, classification.SessionId, transcriptPath, ctx.Progress, ctx.Stderr ?? Console.Error, ct);
 
-        var endOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, ctx.BaseUrl, "session-end/gemini",
-            BuildSessionEndPayload(classification.SessionId, classification.Meta.LastTimestamp),
+        var endOk = await client.PostSyntheticHookAsync(
+            "session-end/gemini",
+            SyntheticHookPayloads.SessionEnd("SessionEnd", classification.SessionId, "gemini-import", cwd: null, classification.Meta.LastTimestamp),
             ct);
         if (!endOk) return ImportOutcome.Failed;
 
         if (sent == 0) return new ImportSessionResult(startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped, sentChildContent);
 
         return new ImportSessionResult(startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded, sentChildContent);
-    }
-
-    static JsonObject BuildSessionStartPayload(string sessionId, string? cwd, DateTimeOffset? startedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "SessionStart",
-            ["session_id"]      = sessionId,
-            ["source"]          = "startup",
-        };
-        // Same two fields the live hook forwards, so an imported session attributes to a repo
-        // exactly as a captured one does. Git-root discovery is fail-open.
-        if (cwd is not null) {
-            payload["cwd"] = cwd;
-            if (GitRepository.FindRoot(cwd) is { } workspaceRoot) payload["workspace_root"] = workspaceRoot;
-        }
-        if (startedAt is { } ts) payload["started_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    static JsonObject BuildSessionEndPayload(string sessionId, DateTimeOffset? endedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "SessionEnd",
-            ["session_id"]      = sessionId,
-            ["reason"]          = "gemini-import",
-        };
-        if (endedAt is { } ts) payload["ended_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    async Task<bool> PostSyntheticHookAsync(
-        HttpClient client, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct
-    ) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, _time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
     }
 
     /// <summary>
@@ -356,7 +212,7 @@ internal sealed class GeminiImportSource : IImportSource {
     /// residual).
     /// </summary>
     async Task<bool> ImportSubagentsAsync(
-        HttpClient client, string baseUrl, string parentSessionIdDashless, string transcriptPath,
+        HttpClient http, RoutedImportClient client, string baseUrl, string parentSessionIdDashless, string transcriptPath,
         IProgress<ImportProgress>? progress, TextWriter stderr, CancellationToken ct
     ) {
         // Gemini has no completeness-fingerprint ledger (unlike OpenCode), so the omitted ids
@@ -395,8 +251,8 @@ internal sealed class GeminiImportSource : IImportSource {
             var agentType = types.GetValueOrDefault(d.DashedId) ?? "subagent";    // agent_name from the IMMEDIATE parent's invoke_agent call
 
             // Fail-closed: don't stream content unless the subagent registered first.
-            var startOk = await PostSyntheticHookAsync(
-                client, baseUrl, "subagent-start",
+            var startOk = await client.PostSyntheticHookAsync(
+                "subagent-start",
                 GeminiSubagentDiscovery.BuildStartPayload(parentSessionIdDashless, agentId, agentType, d.File), ct);
             if (!startOk) continue;
 
@@ -406,7 +262,7 @@ internal sealed class GeminiImportSource : IImportSource {
                 // batches; a non-2xx throws and is caught below, so a rejected batch
                 // never flips the signal.
                 subSent = await SessionImporter.SendTranscriptBatches(
-                    httpClient: client, baseUrl: baseUrl,
+                    httpClient: http, baseUrl: baseUrl,
                     sessionId:  parentSessionIdDashless, filePath: d.File,
                     agentId:    agentId, startLine: 0, time: _time, vendor: Vendor, failOnError: true,
                     progress:   progress);
@@ -416,35 +272,13 @@ internal sealed class GeminiImportSource : IImportSource {
 
             if (subSent > 0) anySubagentContentSent = true;
 
-            await PostSyntheticHookAsync(
-                client, baseUrl, "subagent-stop",
+            await client.PostSyntheticHookAsync(
+                "subagent-stop",
                 GeminiSubagentDiscovery.BuildStopPayload(parentSessionIdDashless, agentId, agentType, d.File), ct);
         }
 
         return anySubagentContentSent;
     }
-
-    static DateTimeOffset? TryGetLastWriteUtc(string path) {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return null; }
-    }
-
-    static ImportCommand.SessionClassification MakeClassification(
-        DiscoveredSession                  s,
-        SessionMetadata                    meta,
-        ImportCommand.ClassificationStatus status,
-        int                                totalLines,
-        string?                            probeErrorReason = null
-    ) => new() {
-        SessionId        = s.SessionId,
-        FilePath         = "",
-        EncodedCwd       = "",
-        Meta             = meta,
-        Status           = status,
-        Vendor           = HarnessId.Gemini,
-        ProbeErrorReason = probeErrorReason,
-        TotalLines       = totalLines,
-        SourceMeta       = s.SourceMeta,
-    };
 
     /// <summary>
     /// How far into a recording the workspace scan runs. The bootstrap is the seed op that
@@ -498,44 +332,5 @@ internal sealed class GeminiImportSource : IImportSource {
         }
 
         return (sid, start);
-    }
-
-    static async Task<(int? LastNonBlankIndex, int? LastRelevantIndex, int NonBlankCount)> ReadTranscriptStatsAsync(
-        string transcriptPath, CancellationToken ct
-    ) {
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var       reader = new StreamReader(stream);
-
-        int? lastIdx         = null;
-        int? lastRelevantIdx = null;
-        var  count           = 0;
-        var  lineIdx         = 0;
-
-        while (await reader.ReadLineAsync(ct) is { } line) {
-            if (!string.IsNullOrWhiteSpace(line)) {
-                lastIdx = lineIdx;
-                count++;
-
-                if (GeminiLines.IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
-            }
-            lineIdx++;
-        }
-
-        return (lastIdx, lastRelevantIdx, count);
-    }
-
-    async Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, CancellationToken ct) {
-        using var resp = await http.GetWithRetryAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", _time, ct: ct);
-
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-
-        var       body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc  = JsonDocument.Parse(body);
-
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32()
-            : null;
     }
 }

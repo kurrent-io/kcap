@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
@@ -90,11 +89,6 @@ internal sealed class CursorImportSource : IImportSource {
     /// preserve case, but two equally-valid folder paths can differ only in
     /// case on the case-insensitive platforms, so we compare cwd accordingly.
     /// </summary>
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
     // Normalize separators to '/' and drop any trailing slash WITHOUT calling
     // Path.GetFullPath: on Windows GetFullPath rebases a driveless rooted path
     // (e.g. "/Users/me/dev/foo") onto the current drive ("C:\Users\me\dev\foo"),
@@ -163,7 +157,7 @@ internal sealed class CursorImportSource : IImportSource {
 
                 if (normalizedCwd is not null
                  && (workspaceFolder is null
-                  || !workspaceFolder.Equals(normalizedCwd, PathComparison))) {
+                  || !workspaceFolder.Equals(normalizedCwd, ImportPaths.PathComparison))) {
                     continue;
                 }
 
@@ -343,7 +337,7 @@ internal sealed class CursorImportSource : IImportSource {
             var quarantineIdentity = ResolveQuarantineIdentity(_config, s.SessionId, subagentLinks);
 
             if (_markers.IsQuarantined(quarantineIdentity)) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
                                                probeErrorReason: "cursor session quarantined (transcript rewrite detected) — not imported"));
                 continue;
             }
@@ -353,36 +347,36 @@ internal sealed class CursorImportSource : IImportSource {
             try {
                 (lastNonBlankIndex, nonBlankCount) = await ReadTranscriptStatsAsync(transcriptPath, ct);
             } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
                                                probeErrorReason: "transcript read failed"));
                 continue;
             }
 
             if (lastNonBlankIndex is null) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
                                                probeErrorReason: "empty transcript"));
                 continue;
             }
 
             if (nonBlankCount < ctx.MinLines) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.TooShort, totalLines: nonBlankCount));
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.TooShort, totalLines: nonBlankCount));
                 continue;
             }
 
             if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(MakeClassification(s, meta, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
+             && await exclude(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
                 results.Add(excluded);
                 continue;
             }
 
             int? serverLastLine;
             try {
-                serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct);
+                serverLastLine = await Client(ctx.HttpClient, ctx.BaseUrl).FetchServerLastLineAsync(s.SessionId, ct);
             } catch (SessionDeletedException) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.Deleted, totalLines: nonBlankCount));
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.Deleted, totalLines: nonBlankCount));
                 continue;
             } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: nonBlankCount,
+                results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, totalLines: nonBlankCount,
                                                probeErrorReason: "watermark probe failed"));
                 continue;
             }
@@ -517,8 +511,8 @@ internal sealed class CursorImportSource : IImportSource {
             startPayload["default_visibility"] = visibility;
         }
 
-        var startOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, ctx.BaseUrl, "session-start/cursor",
+        var startOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync(
+            "session-start/cursor",
             startPayload,
             ct);
         if (!startOk) return ImportOutcome.Failed;
@@ -541,8 +535,8 @@ internal sealed class CursorImportSource : IImportSource {
             var abortDurationMs = createdUtc is { } ac && modifiedUtc is { } am && am >= ac
                 ? (long?)(am - ac).TotalMilliseconds
                 : null;
-            await PostSyntheticHookAsync(
-                ctx.HttpClient, ctx.BaseUrl, "session-end/cursor",
+            await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync(
+                "session-end/cursor",
                 BuildSessionEndPayload(classification.SessionId, transcriptPath, abortDurationMs, modifiedUtc),
                 ct);
             return ImportOutcome.Failed;
@@ -559,8 +553,8 @@ internal sealed class CursorImportSource : IImportSource {
             var abortDurationMs = createdUtc is { } midAc && modifiedUtc is { } midAm && midAm >= midAc
                 ? (long?)(midAm - midAc).TotalMilliseconds
                 : null;
-            await PostSyntheticHookAsync(
-                ctx.HttpClient, ctx.BaseUrl, "session-end/cursor",
+            await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync(
+                "session-end/cursor",
                 BuildSessionEndPayload(classification.SessionId, transcriptPath, abortDurationMs, modifiedUtc),
                 ct);
             return ImportOutcome.Failed;
@@ -644,8 +638,8 @@ internal sealed class CursorImportSource : IImportSource {
         var durationMs = createdUtc is { } c && modifiedUtc is { } m && m >= c
             ? (long?)(m - c).TotalMilliseconds
             : null;
-        var endOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, ctx.BaseUrl, "session-end/cursor",
+        var endOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync(
+            "session-end/cursor",
             BuildSessionEndPayload(classification.SessionId, transcriptPath, durationMs, modifiedUtc),
             ct);
         if (!endOk) return ImportOutcome.Failed;
@@ -816,7 +810,7 @@ internal sealed class CursorImportSource : IImportSource {
         var subagentType = string.IsNullOrEmpty(child.SubagentType) ? "task" : child.SubagentType!;
 
         // subagent-start on the parent stream (creates AgentSubsession-{parent}-{child}).
-        var startOk = await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "subagent-start", new JsonObject {
+        var startOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-start", new JsonObject {
             ["hook_event_name"] = "subagent_start",
             ["session_id"]      = parentSessionId,
             ["agent_id"]        = agentId,
@@ -849,7 +843,7 @@ internal sealed class CursorImportSource : IImportSource {
         var startLine = 0;
         try {
             if (await FetchServerLastLineWithCappedRetryAsync(
-                    probeCt => FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, parentSessionId, probeCt, agentId), ct
+                    probeCt => Client(ctx.HttpClient, ctx.BaseUrl).FetchServerLastLineAsync(parentSessionId, probeCt, string.IsNullOrEmpty(agentId) ? null : agentId), ct
                 ) is { } last)
                 startLine = last + 1;
         } catch (OperationCanceledException) {
@@ -894,7 +888,7 @@ internal sealed class CursorImportSource : IImportSource {
 
         // Full SubagentStopHook shape (mirrors the Gemini/OpenCode builders) — the server
         // binds all fields, so an incomplete body can be rejected before HandleSubagentStop.
-        var stopOk = await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "subagent-stop", new JsonObject {
+        var stopOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-stop", new JsonObject {
             ["hook_event_name"]        = "subagent_stop",
             ["session_id"]             = parentSessionId,
             ["agent_id"]               = agentId,
@@ -972,37 +966,7 @@ internal sealed class CursorImportSource : IImportSource {
         }
     }
 
-    async Task<bool> PostSyntheticHookAsync(
-        HttpClient client, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct
-    ) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, _time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
-
-    static ImportCommand.SessionClassification MakeClassification(
-        DiscoveredSession                  s,
-        SessionMetadata                    meta,
-        ImportCommand.ClassificationStatus status,
-        int                                totalLines,
-        string?                            probeErrorReason = null
-    ) => new() {
-        SessionId        = s.SessionId,
-        // See FilePath note in ClassifyAsync — empty keeps Cursor on the
-        // routed phase.
-        FilePath         = "",
-        EncodedCwd       = "",
-        Meta             = meta,
-        Status           = status,
-        Vendor           = HarnessId.Cursor,
-        ProbeErrorReason = probeErrorReason,
-        TotalLines       = totalLines,
-        SourceMeta       = s.SourceMeta,
-    };
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl);
 
     /// <summary>
     /// Single-pass read returning the largest line index of a non-blank line
@@ -1028,28 +992,6 @@ internal sealed class CursorImportSource : IImportSource {
             lineIdx++;
         }
         return (lastIdx, count);
-    }
-
-    async Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, CancellationToken ct, string? agentId = null) {
-        // agentId set → probe the AgentSubsession-{sessionId}-{agentId} watermark.
-        var url = string.IsNullOrEmpty(agentId)
-            ? $"{baseUrl}/api/sessions/{sessionId}/last-line"
-            : $"{baseUrl}/api/sessions/{sessionId}/last-line?agentId={Uri.EscapeDataString(agentId)}";
-        using var resp = await http.GetWithRetryAsync(url, _time, ct: ct);
-
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        // Construct via the (string?, Exception?, HttpStatusCode?) overload so .StatusCode is
-        // inspectable by FetchServerLastLineWithCappedRetryAsync's status check, rather than
-        // message-string parsing.
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}", null, resp.StatusCode);
-
-        var       body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc  = JsonDocument.Parse(body);
-
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32()
-            : null;
     }
 
     /// <summary>
@@ -1127,7 +1069,7 @@ internal sealed class CursorImportSource : IImportSource {
                 // folder matches the existing one (case-insensitive on
                 // macOS/Windows), keep the existing entry; if it differs,
                 // collapse to ambiguous.
-                if (existing is not null && !existing.Equals(normalized, PathComparison)) {
+                if (existing is not null && !existing.Equals(normalized, ImportPaths.PathComparison)) {
                     map[sanitized] = null;
                 }
             } else {
@@ -1151,3 +1093,4 @@ internal sealed class CursorImportSource : IImportSource {
         return Uri.UnescapeDataString(path);
     }
 }
+

@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -167,83 +166,18 @@ internal sealed class AntigravityImportSource : IImportSource {
         }
     }
 
-    public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
-            IReadOnlyList<DiscoveredSession> sessions, ClassifyContext ctx, CancellationToken ct) {
-        var results = new List<ImportCommand.SessionClassification>(sessions.Count);
-
-        foreach (var s in sessions) {
-            var transcriptPath = (string)s.SourceMeta!["TranscriptPath"]!;
-            var meta = new SessionMetadata { SessionId = s.SessionId, Cwd = s.Cwd, FirstTimestamp = s.FirstTimestamp };
-
-            int? lastNonBlank, lastRelevant; int nonBlank;
-            try {
-                (lastNonBlank, lastRelevant, nonBlank) = await ReadTranscriptStatsAsync(transcriptPath, ct);
-            } catch {
-                results.Add(Make(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed"));
-                continue;
-            }
-
-            if (lastNonBlank is null) {
-                results.Add(Make(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript"));
-                continue;
-            }
-            if (nonBlank < ctx.MinLines) {
-                results.Add(Make(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank));
-                continue;
-            }
-
-            if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(Make(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
-                results.Add(excluded);
-                continue;
-            }
-
-            int? serverLastLine;
-            try {
-                serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, agentId: null, ct);
-            } catch (OperationCanceledException) {
-                throw;
-            } catch (SessionDeletedException) {
-                results.Add(Make(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank));
-                continue;
-            } catch {
-                results.Add(Make(s, meta, ImportCommand.ClassificationStatus.ProbeError, nonBlank, "watermark probe failed"));
-                continue;
-            }
-
-            meta.LastTimestamp = TryGetLastWriteUtc(transcriptPath);
-
-            var status = ImportCommand.ClassificationStatus.New;
-            var resume = 0;
-            // Compare against the last IMPORT-RELEVANT line: Antigravity transcripts end with
-            // normalizer-skipped steps (CHECKPOINT / GENERIC / SYSTEM_*), so a raw-tail compare
-            // would re-classify a complete session Partial forever (mirrors Gemini).
-            var lastImportable = lastRelevant ?? lastNonBlank.Value;
-            if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                else { status = ImportCommand.ClassificationStatus.Partial; resume = srv + 1; }
-            }
-
-            results.Add(new ImportCommand.SessionClassification {
-                SessionId      = s.SessionId,
-                FilePath       = "", // routed phase
-                EncodedCwd     = "",
-                Meta           = meta,
-                Status         = status,
-                Vendor         = Vendor,
-                ResumeFromLine = resume,
-                TotalLines     = nonBlank,
-                SourceMeta     = s.SourceMeta,
-            });
-        }
-
-        return results;
-    }
+    public Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
+            IReadOnlyList<DiscoveredSession> sessions, ClassifyContext ctx, CancellationToken ct) =>
+        RoutedImportClassifier.ClassifyAsync(sessions, ctx, new RoutedClassifyOptions(Vendor, _time, IsImportRelevantLine, ImportPaths.TryGetLastWriteUtc) {
+            RethrowProbeCancellation = true,
+        }, ct);
 
     public async Task<ImportSessionResult> ImportSessionAsync(
             ImportCommand.SessionClassification c, ImportContext ctx, CancellationToken ct) {
         var transcriptPath = (string)c.SourceMeta!["TranscriptPath"]!;
         if (!File.Exists(transcriptPath)) return ImportOutcome.Failed;
+
+        var client = Client(ctx.HttpClient, ctx.BaseUrl);
 
         // An AlreadyLoaded root's parent transcript is fully imported, but a prior run may have
         // advanced the transcript watermark and then FAILED a lifecycle POST — most damagingly
@@ -255,14 +189,13 @@ internal sealed class AntigravityImportSource : IImportSource {
         // succeeded). If either lifecycle POST fails, return Failed so a re-run retries the repair
         // instead of reporting a falsely-complete Skipped (mirrors Cursor).
         if (c.Status == ImportCommand.ClassificationStatus.AlreadyLoaded) {
-            var repairPayload = BuildSessionStartPayload(c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp);
+            var repairPayload = SyntheticHookPayloads.SessionStart("sessionStart", c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp, source: null);
 
             if (ctx.VisibilityStampFor(c.Status) is { } repairVisibility) {
                 repairPayload["default_visibility"] = repairVisibility;
             }
 
-            if (!await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/antigravity",
-                    repairPayload, ct))
+            if (!await client.PostSyntheticHookAsync("session-start/antigravity", repairPayload, ct))
                 return ImportOutcome.Failed;
 
             // Capture whether the repair actually attached new nested-child content — true
@@ -280,8 +213,8 @@ internal sealed class AntigravityImportSource : IImportSource {
             await PostUsageLinesAsync(ctx, c.SessionId, transcriptPath, c.Meta.FirstTimestamp, ct);
             await PostHarnessTitleAsync(ctx, c.SessionId, transcriptPath, ct);
 
-            if (!await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/antigravity",
-                    BuildSessionEndPayload(c.SessionId, c.Meta.Cwd, c.Meta.LastTimestamp), ct))
+            if (!await client.PostSyntheticHookAsync("session-end/antigravity",
+                    SyntheticHookPayloads.SessionEnd("sessionEnd", c.SessionId, "antigravity-import", c.Meta.Cwd, c.Meta.LastTimestamp), ct))
                 return ImportOutcome.Failed;
 
             return new ImportSessionResult(ImportOutcome.Skipped, sentChildContent);
@@ -290,12 +223,12 @@ internal sealed class AntigravityImportSource : IImportSource {
         // Lifecycle-before-transcript (mirrors Gemini): a transcript that advances the
         // watermark past a failed lifecycle POST would leave the session lifecycle-less.
         // Re-runs are idempotent server-side (deterministic lifecycle ids).
-        var startPayload = BuildSessionStartPayload(c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp);
+        var startPayload = SyntheticHookPayloads.SessionStart("sessionStart", c.SessionId, c.Meta.Cwd, c.Meta.FirstTimestamp, source: null);
         if (ctx.VisibilityStampFor(c.Status) is { } visibility) {
             startPayload["default_visibility"] = visibility;
         }
 
-        if (!await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/antigravity", startPayload, ct))
+        if (!await client.PostSyntheticHookAsync("session-start/antigravity", startPayload, ct))
             return ImportOutcome.Failed;
 
         var startLine = c.Status == ImportCommand.ClassificationStatus.Partial ? c.ResumeFromLine : 0;
@@ -322,8 +255,8 @@ internal sealed class AntigravityImportSource : IImportSource {
         await ImportChildrenAsync(ctx.HttpClient, ctx.BaseUrl, c.SessionId, c.SourceMeta!, ctx.Progress, ct);
         await PostHarnessTitleAsync(ctx, c.SessionId, transcriptPath, ct);
 
-        if (!await PostHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/antigravity",
-                BuildSessionEndPayload(c.SessionId, c.Meta.Cwd, c.Meta.LastTimestamp), ct))
+        if (!await client.PostSyntheticHookAsync("session-end/antigravity",
+                SyntheticHookPayloads.SessionEnd("sessionEnd", c.SessionId, "antigravity-import", c.Meta.Cwd, c.Meta.LastTimestamp), ct))
             return ImportOutcome.Failed;
 
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
@@ -338,8 +271,10 @@ internal sealed class AntigravityImportSource : IImportSource {
     /// contributes <c>false</c> — it's a repair, not new content.
     /// </summary>
     async Task<bool> ImportChildrenAsync(
-            HttpClient client, string baseUrl, string rootId,
+            HttpClient http, string baseUrl, string rootId,
             IReadOnlyDictionary<string, object?> sourceMeta, IProgress<ImportProgress>? progress, CancellationToken ct) {
+        var client = Client(http, baseUrl);
+
         if (!sourceMeta.TryGetValue("Children", out var kidsObj) || kidsObj is not List<string> { Count: > 0 } children)
             return false;
 
@@ -368,7 +303,7 @@ internal sealed class AntigravityImportSource : IImportSource {
             // Where the child's own (rootId, childAgentId) stream is already ingested up to.
             int? chwm;
             try {
-                chwm = await FetchServerLastLineAsync(client, baseUrl, rootId, childAgentId, ct);
+                chwm = await client.FetchServerLastLineAsync(rootId, ct, childAgentId);
             } catch (OperationCanceledException) {
                 throw;
             } catch {
@@ -380,7 +315,7 @@ internal sealed class AntigravityImportSource : IImportSource {
             // endless re-send, and a fully-ingested child is a no-op we skip before touching hooks.
             int? childLastImportable;
             try {
-                var (lastNonBlank, lastRelevant, _) = await ReadTranscriptStatsAsync(childTranscript, ct);
+                var (lastNonBlank, lastRelevant, _) = await TranscriptStats.ReadAsync(childTranscript, IsImportRelevantLine, ct);
                 childLastImportable = lastRelevant ?? lastNonBlank;
             } catch {
                 continue; // unreadable child transcript — retry on re-import
@@ -404,9 +339,9 @@ internal sealed class AntigravityImportSource : IImportSource {
                 // (no active agent → no SubagentCompleted). strict surfaces the failure as non-2xx,
                 // so we only post stop when start truly re-marked the agent, and a re-import retries
                 // otherwise.
-                if (await PostHookAsync(client, baseUrl, "subagent-start",
+                if (await client.PostSyntheticHookAsync("subagent-start",
                         BuildSubagentStartPayload(rootId, childAgentId, childTranscript, strict: true), ct))
-                    await PostHookAsync(client, baseUrl, "subagent-stop",
+                    await client.PostSyntheticHookAsync("subagent-stop",
                         BuildSubagentStopPayload(rootId, childAgentId, childTranscript, strict: true), ct);
 
                 continue;
@@ -419,7 +354,7 @@ internal sealed class AntigravityImportSource : IImportSource {
             var childStartLine = chwm is { } v ? checked(v + 1) : 0;
 
             // Fail-closed: no content unless the subagent registered first.
-            if (!await PostHookAsync(client, baseUrl, "subagent-start",
+            if (!await client.PostSyntheticHookAsync("subagent-start",
                     BuildSubagentStartPayload(rootId, childAgentId, childTranscript), ct))
                 continue;
 
@@ -429,7 +364,7 @@ internal sealed class AntigravityImportSource : IImportSource {
                 // batches; a non-2xx throws and is caught below, so a rejected batch
                 // never flips the signal.
                 childSent = await SessionImporter.SendTranscriptBatches(
-                    httpClient: client, baseUrl: baseUrl, sessionId: rootId,
+                    httpClient: http, baseUrl: baseUrl, sessionId: rootId,
                     filePath: childTranscript, agentId: childAgentId, startLine: childStartLine, time: _time, vendor: Vendor,
                     failOnError: true, progress: progress);
             } catch (OperationCanceledException) {
@@ -440,7 +375,7 @@ internal sealed class AntigravityImportSource : IImportSource {
 
             if (childSent > 0) anyChildContentSent = true;
 
-            await PostHookAsync(client, baseUrl, "subagent-stop",
+            await client.PostSyntheticHookAsync("subagent-stop",
                 BuildSubagentStopPayload(rootId, childAgentId, childTranscript), ct);
         }
 
@@ -448,25 +383,6 @@ internal sealed class AntigravityImportSource : IImportSource {
     }
 
     // ── payload builders ────────────────────────────────────────────────────────
-
-    static JsonObject BuildSessionStartPayload(string sid, string? cwd, DateTimeOffset? startedAt) {
-        var p = new JsonObject { ["hook_event_name"] = "sessionStart", ["session_id"] = sid };
-        if (cwd is not null) p["cwd"] = cwd;
-        // fail-open git-root discovery, mirroring ImportChainsAsync
-        // so routed imports carry the same workspace_root the file-based path does.
-        if (cwd is not null && GitRepository.FindRoot(cwd) is { } workspaceRoot) p["workspace_root"] = workspaceRoot;
-        if (startedAt is { } ts) p["started_at"] = ts.ToString("O");
-        p["origin"] = ImportOrigins.Historical;
-        return p;
-    }
-
-    static JsonObject BuildSessionEndPayload(string sid, string? cwd, DateTimeOffset? endedAt) {
-        var p = new JsonObject { ["hook_event_name"] = "sessionEnd", ["session_id"] = sid, ["reason"] = "antigravity-import" };
-        if (cwd is not null) p["cwd"] = cwd;
-        if (endedAt is { } ts) p["ended_at"] = ts.ToString("O");
-        p["origin"] = ImportOrigins.Historical;
-        return p;
-    }
 
     // strict=true makes the server return non-2xx when the lifecycle write itself fails, rather
     // than a fail-open 200 — so a caller that gates on the POST result learns the server actually
@@ -570,17 +486,7 @@ internal sealed class AntigravityImportSource : IImportSource {
         ImportHarnessTitle.PostFromStoreAsync(
             AntigravitySummaryTitle.ForTranscript(transcriptPath), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
 
-    async Task<bool> PostHookAsync(HttpClient client, string baseUrl, string route, JsonObject payload, CancellationToken ct) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp = await client.PostWithRetryAsync($"{baseUrl}/hooks/{route}", content, _time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch (OperationCanceledException) {
-            throw;
-        } catch {
-            return false;
-        }
-    }
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
 
     // ── transcript reading ──────────────────────────────────────────────────────
 
@@ -600,25 +506,6 @@ internal sealed class AntigravityImportSource : IImportSource {
         return null;
     }
 
-    static async Task<(int? LastNonBlank, int? LastRelevant, int NonBlank)> ReadTranscriptStatsAsync(
-            string transcriptPath, CancellationToken ct) {
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var       reader = new StreamReader(stream);
-
-        int? lastIdx = null, lastRelevantIdx = null;
-        var count = 0; var lineIdx = 0;
-
-        while (await reader.ReadLineAsync(ct) is { } line) {
-            if (!string.IsNullOrWhiteSpace(line)) {
-                lastIdx = lineIdx;
-                count++;
-                if (IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
-            }
-            lineIdx++;
-        }
-        return (lastIdx, lastRelevantIdx, count);
-    }
-
     /// <summary>
     /// True when a line maps to a canonical event under AntigravityTranscriptNormalizer —
     /// a conversational or tool-result step. Noise steps (SYSTEM_*, CHECKPOINT,
@@ -636,35 +523,4 @@ internal sealed class AntigravityImportSource : IImportSource {
             return false;
         }
     }
-
-    static DateTimeOffset? TryGetLastWriteUtc(string path) {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return null; }
-    }
-
-    async Task<int?> FetchServerLastLineAsync(
-            HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) {
-        var url = $"{baseUrl}/api/sessions/{sessionId}/last-line" + (agentId is not null ? $"?agentId={Uri.EscapeDataString(agentId)}" : "");
-        using var resp = await http.GetWithRetryAsync(url, _time, ct: ct);
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32() : null;
-    }
-
-    static ImportCommand.SessionClassification Make(
-            DiscoveredSession s, SessionMetadata meta, ImportCommand.ClassificationStatus status,
-            int totalLines, string? probeError = null) => new() {
-        SessionId        = s.SessionId,
-        FilePath         = "",
-        EncodedCwd       = "",
-        Meta             = meta,
-        Status           = status,
-        Vendor           = HarnessId.Antigravity,
-        ProbeErrorReason = probeError,
-        TotalLines       = totalLines,
-        SourceMeta       = s.SourceMeta,
-    };
 }

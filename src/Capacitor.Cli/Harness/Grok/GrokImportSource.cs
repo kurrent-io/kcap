@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
@@ -29,17 +28,9 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
     // The live watcher records only the parent, so an already-loaded parent still imports its subagents.
     public bool AttachesChildContentOnReplay => true;
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try { return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
-        catch { return path.TrimEnd('/', '\\'); }
-    }
-
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } fc ? NormalizeForComparison(fc) : null;
+        var normalizedCwd = filters.FilterCwd is { } fc ? ImportPaths.NormalizeForComparison(fc) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -62,7 +53,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
 
                     var cwd = summary.Cwd ?? CwdOf(cwdDir);
                     if (normalizedCwd is not null
-                     && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+                     && (cwd is null || !ImportPaths.NormalizeForComparison(cwd).Equals(normalizedCwd, ImportPaths.PathComparison))) continue;
 
                     if (sinceUtc is { } cutoff && summary.CreatedAt is { } ts && ts < cutoff) continue;
 
@@ -87,22 +78,22 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
 
             IReadOnlyList<string> lines;
             try { lines = Lines(dir); }
-            catch { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed")); continue; }
+            catch { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed")); continue; }
 
             var nonBlank = lines.Count(l => !string.IsNullOrWhiteSpace(l));
-            if (nonBlank == 0) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript")); continue; }
-            if (nonBlank < ctx.MinLines) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank)); continue; }
+            if (nonBlank == 0) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript")); continue; }
+            if (nonBlank < ctx.MinLines) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.TooShort, nonBlank)); continue; }
 
             if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(Classify(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
+             && await exclude(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
                 results.Add(excluded);
                 continue;
             }
 
             int? serverLastLine;
             try { serverLastLine = await LastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, agentId: null, ct); }
-            catch (SessionDeletedException) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank)); continue; }
-            catch { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, nonBlank, "watermark probe failed")); continue; }
+            catch (SessionDeletedException) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.Deleted, nonBlank)); continue; }
+            catch { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, nonBlank, "watermark probe failed")); continue; }
 
             var status       = ImportCommand.ClassificationStatus.New;
             var resumeFromLn = 0;
@@ -138,12 +129,12 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
         if (classification.Meta.Cwd is { } cwd && GitRepository.FindRoot(cwd) is { } root) start["workspace_root"] = root;
         if (classification.Meta.FirstTimestamp is { } started) start["started_at"] = started.ToString("O");
         if (ctx.VisibilityStampFor(classification.Status) is { } visibility) start["default_visibility"] = visibility;
-        if (!await PostAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/grok", start, ct)) return ImportOutcome.Failed;
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-start/grok", start, ct)) return ImportOutcome.Failed;
 
         // Grok's session-start carries no repository, so it rides a transcript batch of its own. Best
         // effort: a session the server cannot attribute is still worth importing.
         if (classification.Meta.Cwd is { Length: > 0 } repoCwd && await detectRepository(repoCwd) is { } repo)
-            await PostAsync(ctx.HttpClient, ctx.BaseUrl, "transcript", RepositoryBatch(sid, repo), ct);
+            await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("transcript", RepositoryBatch(sid, repo), ct);
 
         var alreadyLoaded = classification.Status == ImportCommand.ClassificationStatus.AlreadyLoaded;
         var startLine     = classification.Status == ImportCommand.ClassificationStatus.Partial ? classification.ResumeFromLine : 0;
@@ -172,7 +163,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
             ["origin"]          = ImportOrigins.Historical,
         };
         if (classification.Meta.LastTimestamp is { } ended) end["ended_at"] = ended.ToString("O");
-        if (!await PostAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/grok", end, ct)) return ImportOutcome.Failed;
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-end/grok", end, ct)) return ImportOutcome.Failed;
 
         var outcome = alreadyLoaded ? ImportOutcome.Skipped : startLine > 0 ? ImportOutcome.Resumed : sent == 0 ? ImportOutcome.Skipped : ImportOutcome.Loaded;
 
@@ -197,7 +188,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
             var agentId   = GrokSubagents.AgentId(child.ChildSessionId);
             var agentType = child.SubagentType ?? "subagent";
 
-            if (!await PostAsync(client, baseUrl, "subagent-start", GeminiSubagentDiscovery.BuildStartPayload(sid, agentId, agentType, transcript), ct))
+            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-start", GeminiSubagentDiscovery.BuildStartPayload(sid, agentId, agentType, transcript), ct))
                 throw new HttpRequestException($"subagent-start failed for {child.ChildSessionId}");
 
             var watermark = await LastLineAsync(client, baseUrl, sid, agentId, ct);
@@ -206,7 +197,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
                 filePath: transcript, agentId: agentId, startLine: watermark is { } w ? w + 1 : 0,
                 time: time, vendor: Vendor, failOnError: true, progress: progress) > 0;
 
-            if (!await PostAsync(client, baseUrl, "subagent-stop", GeminiSubagentDiscovery.BuildStopPayload(sid, agentId, agentType, transcript), ct))
+            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop", GeminiSubagentDiscovery.BuildStopPayload(sid, agentId, agentType, transcript), ct))
                 throw new HttpRequestException($"subagent-stop failed for {child.ChildSessionId}");
         }
 
@@ -298,15 +289,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
         };
     }
 
-    async Task<bool> PostAsync(HttpClient client, string baseUrl, string route, JsonObject payload, CancellationToken ct) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{route}", content, time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, time, baseUrl);
 
     async Task<int?> LastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) {
         var url = $"{baseUrl}/api/sessions/{sessionId}/last-line" + (agentId is not null ? $"?agentId={agentId}" : "");
@@ -318,10 +301,4 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number ? ln.GetInt32() : null;
     }
-
-    ImportCommand.SessionClassification Classify(
-            DiscoveredSession s, SessionMetadata meta, ImportCommand.ClassificationStatus status, int totalLines, string? probeErrorReason = null) => new() {
-        SessionId = s.SessionId, FilePath = "", EncodedCwd = "", Meta = meta, Status = status,
-        Vendor = Vendor, ProbeErrorReason = probeErrorReason, TotalLines = totalLines, SourceMeta = s.SourceMeta,
-    };
 }
