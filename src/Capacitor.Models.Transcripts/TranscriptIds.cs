@@ -18,8 +18,7 @@ public static class TranscriptIds {
         return Hash(input);
     }
 
-    public static Guid ClaudeFallback(int lineNumber, string line) =>
-        Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber} {line}")));
+    public static Guid ClaudeFallback(int lineNumber, string line) => NumberedLine(lineNumber, line);
 
     public static Guid ClaudeBlock(Guid recordId, int blockIndex) =>
         Sibling(recordId, string.Create(CultureInfo.InvariantCulture, $"block:{blockIndex}"));
@@ -43,12 +42,13 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
-    /// A Vibe record's id is the hash of its exact source line — a legacy <c>messages.jsonl</c> line,
-    /// or one flattened entry of the unified store. Identical lines dedup to one event, as with Codex;
-    /// the unified reader keeps distinct entries distinct by carrying each entry's own bytes
-    /// (<c>createdAt</c>, content) into the line it emits. Derived events off one line take a
-    /// <see cref="Sibling"/> suffix.
-    public static Guid VibeRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
+    /// A legacy <c>messages.jsonl</c> line, or a unified entry without an <c>id</c>: neither carries an id
+    /// or a time, so the line number joins the bytes and a repeated message ("yes") is not deduped into
+    /// the first.
+    public static Guid VibeRecord(int lineNumber, string line) => NumberedLine(lineNumber, line);
+
+    /// One call of a legacy assistant line, keyed by the call's own id under its line's record id.
+    public static Guid VibeToolCall(Guid recordId, string callId) => Sibling(recordId, "tool:" + callId);
 
     /// A unified-store entry carries its own stable <c>id</c> that survives the entry moving from a
     /// journal delta into a published chunk and survives re-import, so its canonical id hashes that id
@@ -60,4 +60,7 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    static Guid NumberedLine(int lineNumber, string line) =>
+        Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber} {line}")));
 }
