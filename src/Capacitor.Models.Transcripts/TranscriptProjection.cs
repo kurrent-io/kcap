@@ -1,5 +1,6 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
+using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
 
 namespace Capacitor.Models.Transcripts;
@@ -18,6 +19,7 @@ public static class TranscriptProjection {
         "claude" => ClaudeTranscriptEvents.Instance,
         "codex" => CodexRolloutEvents.Instance,
         "mistral-vibe" => MistralVibeTranscriptEvents.Instance,
+        "kiro" => KiroTranscriptEvents.Instance,
         _ => null,
     };
 }

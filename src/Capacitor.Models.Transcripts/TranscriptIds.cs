@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Hashing;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Capacitor.Models.Transcripts;
@@ -60,4 +61,35 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    /// Kiro's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this
+    /// namespace. Changing it orphans every stored Kiro event.
+    static readonly Guid KiroNamespace = new("a7e1d4c8-3b95-4f2a-9d6e-2c8b1a0f5e34");
+
+    /// The v5 UUID of <c>{sessionId}:{key}:{kind}</c>, where the key is a message or tool-use id.
+    public static Guid KiroRecord(string sessionId, string key, string kind) =>
+        Uuid5(KiroNamespace, $"{sessionId}:{key}:{kind}");
+
+    /// A Kiro event with no session or key to name it: the line, then <c>:{kind}</c>.
+    public static Guid KiroFallback(string line, string kind) => Hash(Encoding.UTF8.GetBytes($"{line}:{kind}"));
+
+    /// One per turn anchor in a stream, whatever line restates it, so a re-sent backfill dedups.
+    public static Guid KiroUsage(string idScope, string messageId) => Hash(Encoding.UTF8.GetBytes($"kiro-usage:{idScope}:{messageId}"));
+
+    /// RFC 4122 name-based UUID: SHA-1 over the namespace's big-endian bytes, then the name's UTF-8.
+    static Guid Uuid5(Guid ns, string name) {
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        var input     = new byte[16 + nameBytes.Length];
+        ns.TryWriteBytes(input, bigEndian: true, out _);
+        nameBytes.CopyTo(input, 16);
+
+        // The RFC fixes SHA-1 for v5; another digest would change every stored id.
+#pragma warning disable CA5350
+        var hash = SHA1.HashData(input);
+#pragma warning restore CA5350
+
+        hash[6] = (byte)((hash[6] & 0x0F) | 0x50);
+        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
+        return new Guid(hash.AsSpan(0, 16), bigEndian: true);
+    }
 }
