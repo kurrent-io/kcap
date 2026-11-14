@@ -1,5 +1,5 @@
 using System.Net.Http.Json;
-using System.Text.Json;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.WorkItems;
 
 namespace Capacitor.Cli.Core.MessageSenders;
@@ -25,13 +25,8 @@ public sealed class MessageSendersClient(HttpClient http, string serverUrl) {
                     => new(MessageSendersReadKind.Ready, senders),
                 _ => MessageSendersRead.Of(MessageSendersReadKind.Unreachable),
             };
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return MessageSendersRead.Of(MessageSendersReadKind.Unreachable);
         }
     }
-
-    static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException or IOException;
 }
