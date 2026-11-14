@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-
 namespace Capacitor.Cli.Core.Harness.Kiro;
 
 /// <summary>
@@ -17,35 +15,10 @@ public static class KiroHooksInstaller {
     /// <c>kcap hook --kiro</c> entry in the agent JSON — the hooks-json fallback
     /// covers pre-marker installs.
     /// </summary>
-    public static bool IsInstalled(string agentJsonPath) {
-        var dir = Path.GetDirectoryName(agentJsonPath);
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+    public static bool IsInstalled(string agentJsonPath) =>
+        HooksJson.IsInstalled(agentJsonPath, MarkerFileName, KiroHooksParser.EntryReferencesCapacitorKiroHook);
 
-        if (File.Exists(Path.Combine(dir, MarkerFileName))) return true;
-        if (!File.Exists(agentJsonPath)) return false;
-
-        try {
-            if (JsonNode.Parse(File.ReadAllText(agentJsonPath)) is not JsonObject root) return false;
-            if (root["hooks"] is not JsonObject hooks) return false;
-
-            foreach (var (_, entries) in hooks) {
-                if (entries is not JsonArray arr) continue;
-
-                if (arr.Any(KiroHooksParser.EntryReferencesCapacitorKiroHook)) {
-                    return true;
-                }
-            }
-        } catch { /* Malformed → treat as not installed. */ }
-        return false;
-    }
-
-    public static string? ReadMarker(string agentJsonPath) {
-        var dir = Path.GetDirectoryName(agentJsonPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
+    public static string? ReadMarker(string agentJsonPath) => InstallMarker.Read(agentJsonPath, MarkerFileName);
 
     /// <summary>
     /// Stamps the marker with the current version and, optionally, the default
@@ -84,10 +57,5 @@ public static class KiroHooksInstaller {
         }
     }
 
-    public static void DeleteMarker(string agentJsonPath) {
-        var dir = Path.GetDirectoryName(agentJsonPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { }
-    }
+    public static void DeleteMarker(string agentJsonPath) => InstallMarker.Delete(agentJsonPath, MarkerFileName);
 }

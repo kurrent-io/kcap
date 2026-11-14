@@ -588,39 +588,13 @@ public static class OpenCodeExtensionInstaller {
         }
         """;
 
-    /// <summary>
-    /// True when kcap.ts (or its marker) is present. Marker covers the case where
-    /// a user deleted kcap.ts but kept the dir.
-    /// </summary>
-    public static bool IsInstalled(string pluginPath) {
-        if (File.Exists(pluginPath)) return true;
-        var dir = Path.GetDirectoryName(pluginPath);
-        return dir is not null && File.Exists(Path.Combine(dir, MarkerFileName));
-    }
+    public static bool IsInstalled(string pluginPath) => OwnedFile.IsInstalled(pluginPath, MarkerFileName);
 
-    public static string? ReadMarker(string pluginPath) {
-        var dir = Path.GetDirectoryName(pluginPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
+    public static string? ReadMarker(string pluginPath) => InstallMarker.Read(pluginPath, MarkerFileName);
 
-    public static void WriteMarker(string pluginPath) {
-        var dir = Path.GetDirectoryName(pluginPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch { /* best effort */ }
-    }
+    public static void WriteMarker(string pluginPath) => InstallMarker.Write(pluginPath, MarkerFileName);
 
-    public static void DeleteMarker(string pluginPath) {
-        var dir = Path.GetDirectoryName(pluginPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { }
-    }
+    public static void DeleteMarker(string pluginPath) => InstallMarker.Delete(pluginPath, MarkerFileName);
 
     /// <summary>Leaves a current file and marker untouched and says so.</summary>
     public static SettingsEdit Apply(string pluginPath) =>
