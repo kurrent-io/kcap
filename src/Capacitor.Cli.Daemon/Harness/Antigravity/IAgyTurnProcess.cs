@@ -66,7 +66,7 @@ internal interface IAgyTurnProcess : IAsyncDisposable {
     /// <summary>Wait up to <paramref name="timeout"/> for this turn's process to exit (returns silently on timeout).</summary>
     Task WaitForExitAsync(TimeSpan? timeout = null);
 
-    /// <summary>Terminate this turn's process (SIGTERM then SIGKILL) within <paramref name="timeout"/>.
+    /// <summary>Kill this turn's process tree, then wait up to <paramref name="timeout"/> for it to exit.
     /// Must be safe to call even after <see cref="IAsyncDisposable.DisposeAsync"/> has already run —
     /// see this interface's class doc.</summary>
     Task TerminateAsync(TimeSpan? timeout = null);
