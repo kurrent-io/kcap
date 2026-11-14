@@ -105,13 +105,11 @@ public class LineSelectionTests {
         return host.TranslatePoint(local, window) ?? throw new InvalidOperationException("line is not under the window");
     }
 
-    /// The first press on a control pays a one-off JIT cost that can exceed the double-click window,
-    /// so the counted clicks land on a line the warm-up did not touch, where the count restarts at one.
-    static void WarmUp(Window window, Point point) {
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
-    }
+    /// Clicks are counted against a real clock, and the first single, double and triple click on a
+    /// control each pay a one-off JIT cost that can outlast the double-click window on a loaded machine,
+    /// counting the next press as a single click. The warm-up pays all three on another line, where the
+    /// counted clicks start again at one.
+    static void WarmUp(Window window, Point point) => TripleClick(window, point);
 
     static void TripleClick(Window window, Point point) {
         for (var i = 0; i < 3; i++) {
