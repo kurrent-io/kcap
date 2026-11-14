@@ -26,6 +26,7 @@ def tracked_files():
 
 
 def record(manifest):
+    os.makedirs(os.path.dirname(manifest), exist_ok=True)
     with open(manifest, "w") as f:
         for path, blob in tracked_files():
             f.write(f"{blob}\t{os.stat(path).st_mtime_ns}\t{path}\n")
