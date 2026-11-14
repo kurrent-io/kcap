@@ -82,6 +82,13 @@ public class TranscriptIdsTests {
         await Assert.That(TranscriptIds.MuseRecord(stream, record)).IsNotEqualTo(TranscriptIds.MuseRecord("other", record));
     }
 
+    [Test]
+    public async Task OpenCode_hashes_the_utf8_key_and_suffixes_a_tool_part_for_its_call_and_result() {
+        await Assert.That(TranscriptIds.OpenCode("prt_tool1")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("prt_tool1"))));
+        await Assert.That(TranscriptIds.OpenCodeToolCall("prt_tool1")).IsEqualTo(TranscriptIds.OpenCode("prt_tool1:call"));
+        await Assert.That(TranscriptIds.OpenCodeToolResult("prt_tool1")).IsEqualTo(TranscriptIds.OpenCode("prt_tool1:result"));
+    }
+
     /// Fixed vectors: a later change to any derivation fails here even if the framing tests are edited too.
     [Test]
     [Arguments("sibling", "580a4b24-18bc-bc19-9676-ed805dff4bdd")]
@@ -96,6 +103,12 @@ public class TranscriptIdsTests {
     [Arguments("vibe-record", "ca3c057b-649d-864f-339b-160c1c7fd711")]
     [Arguments("vibe-entry", "d219bcea-d51a-d28e-6f8a-c4d4635844d0")]
     [Arguments("muse-record", "d8a1a66a-0ef6-88fa-a0ea-41440eb74617")]
+    // The four OpenCode ids from a message, a part and a tool part are the ones kcap-server stored for its corpus.
+    [Arguments("opencode-message", "62a73d5f-a531-3bc5-f777-dcfa427bd75f")]
+    [Arguments("opencode-part", "f4fadcc6-a417-b1da-6f1b-27d3b0f64760")]
+    [Arguments("opencode-tool-call", "22531010-9c94-6693-c170-3ac13e3186b8")]
+    [Arguments("opencode-tool-result", "62150ae9-7860-c64a-0f74-fc2feecd1481")]
+    [Arguments("opencode-text-key", "adc1e9b5-1b07-7f3e-c779-cfaa5e523818")]
     public async Task Vectors_are_fixed(string name, string expected) {
         await Assert.That(Vector(name).ToString("D")).IsEqualTo(expected);
     }
@@ -114,6 +127,11 @@ public class TranscriptIdsTests {
         "vibe-record"       => TranscriptIds.VibeRecord("{\"role\":\"user\",\"content\":\"hi\"}"),
         "vibe-entry"        => TranscriptIds.VibeEntry("user-turn-abc-1"),
         "muse-record"       => TranscriptIds.MuseRecord("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "e6b35c82-47c0-48f2-868a-0e369eccecc8"),
+        "opencode-message"     => TranscriptIds.OpenCode("msg_ef5f2a28200171s67y5GODESjO"),
+        "opencode-part"        => TranscriptIds.OpenCode("prt_ef5f2a5070014eRszLgUFChcFr"),
+        "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
+        "opencode-tool-result" => TranscriptIds.OpenCodeToolResult("prt_tool1"),
+        "opencode-text-key"    => TranscriptIds.OpenCode("hello"),
         _                   => throw new ArgumentOutOfRangeException(nameof(name)),
     };
 }

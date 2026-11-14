@@ -60,4 +60,12 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
+    /// when it has none), or an assistant part's id.
+    public static Guid OpenCode(string key) => Hash(Encoding.UTF8.GetBytes(key));
+
+    public static Guid OpenCodeToolCall(string partId) => OpenCode(partId + ":call");
+
+    public static Guid OpenCodeToolResult(string partId) => OpenCode(partId + ":result");
 }
