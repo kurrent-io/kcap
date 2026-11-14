@@ -65,7 +65,7 @@ public class CopilotImportSourceTests {
         await Assert.That(sessions.Count).IsEqualTo(1);
         await Assert.That(sessions[0].Cwd).IsEqualTo("/work/a");
         await Assert.That(sessions[0].FirstTimestamp).IsEqualTo(DateTimeOffset.Parse("2026-06-10T20:23:25.556Z", CultureInfo.InvariantCulture));
-        await Assert.That(sessions[0].SourceMeta["Name"]).IsEqualTo("Create a file hello.txt containing 'hello world'");
+        await Assert.That(sessions[0].SourceMeta["WorkspaceYaml"]).IsEqualTo(paths.WorkspaceYaml(paths.SessionStateDir, Sid1));
     }
 
     [Test]
