@@ -27,9 +27,9 @@ static class StatusGlyphs {
     internal static bool Encodable(Encoding encoding) =>
         encoding.CodePage is 65001 or 1200 or 1201 or 12000 or 12001;
 
-    /// <summary>Whether standard output carries every mark. A redirected Windows stream does not: it
-    /// keeps the console's OEM code page.</summary>
-    internal static bool ConsoleEncodable => Encodable(Console.OutputEncoding);
+    /// <summary>Whether standard output carries every mark. A Windows console stream does not when the
+    /// other stream is redirected: it keeps the console's OEM code page.</summary>
+    internal static bool ConsoleEncodable => Encodable(Console.Out.Encoding);
 
     internal static string Plain(string text) => Substitute(Substitute(text, Marks), Punctuation);
 

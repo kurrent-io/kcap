@@ -2108,6 +2108,311 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// Sending a recall over a typed draft hands the draft back to the box and the stored draft,
+    /// the only places the user can reach it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_a_recall_restores_the_draft_it_replaced() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput();
+            var drafts = new ComposerDrafts();
+            var h = new Harness(TranscriptChat.For("claude"), input: input, drafts: drafts);
+            await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+
+            h.Chat.ComposerText = "typing";
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("first");
+            var send = h.Chat.SendCommand.Execute().ToTask();
+            input.Pending!.SetResult(ChatSendOutcome.Accepted);
+            await send;
+
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            await Assert.That(drafts.Get(AgentOrigin.Local, "a1")).IsEqualTo("typing");
+            await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// Sending the stash itself, typed back over a recall, clears the box like any send.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Sending_text_equal_to_the_stash_clears_the_box() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput();
+            var drafts = new ComposerDrafts();
+            var h = new Harness(TranscriptChat.For("claude"), input: input, drafts: drafts);
+            await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+
+            h.Chat.ComposerText = "typing";
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            h.Chat.ComposerText = "typing";
+            var send = h.Chat.SendCommand.Execute().ToTask();
+            input.Pending!.SetResult(ChatSendOutcome.Accepted);
+            await send;
+
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("");
+            await Assert.That(drafts.Get(AgentOrigin.Local, "a1")).IsEqualTo("");
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The history dies with the tab: a recall on screen hands the stored draft back to the typed
+    /// draft, and an edited recall leaves the typed draft stashed for the next tab.
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Tearing_down_the_tab_keeps_the_stashed_draft(bool edited) {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var first = new Harness(TranscriptChat.For("claude"), input: new ScriptedInput(), drafts: drafts);
+            await first.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            first.Chat.ComposerText = "typing";
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            if (edited) first.Chat.ComposerText = "first!";
+            await first.TeardownAsync();
+
+            var second = new Harness(TranscriptChat.Journal, input: new ScriptedInput(), drafts: drafts);
+            if (edited) {
+                await Assert.That(second.Chat.ComposerText).IsEqualTo("first!");
+                second.Chat.ComposerText = "";
+                await Assert.That(second.Chat.RecallNewer()).IsTrue();
+            }
+            await Assert.That(second.Chat.ComposerText).IsEqualTo("typing");
+            await second.TeardownAsync();
+        });
+    }
+
+    /// Recall waits for the box's own send to settle: an accepted send leaves an empty box to
+    /// recall from, a refused one leaves its text as a draft that recall stashes.
+    [Test]
+    [Arguments(ChatSendOutcome.Accepted)]
+    [Arguments(ChatSendOutcome.Rejected)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_in_flight_blocks_recall_until_it_settles(ChatSendOutcome outcome) {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput();
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            h.Chat.ComposerText = "typing";
+            var send = h.Chat.SendCommand.Execute().ToTask();
+            await Assert.That(h.Chat.RecallOlder()).IsFalse();
+            await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+
+            input.Pending!.SetResult(outcome);
+            await send;
+            if (outcome == ChatSendOutcome.Accepted) {
+                await Assert.That(h.Chat.ComposerText).IsEqualTo("");
+                await Assert.That(h.Chat.RecallOlder()).IsTrue();
+                await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            } else {
+                await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+                await Assert.That(h.Chat.RecallOlder()).IsTrue();
+                await Assert.That(h.Chat.ComposerText).IsEqualTo("first");
+                await Assert.That(h.Chat.RecallNewer()).IsTrue();
+                await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            }
+            await h.TeardownAsync();
+        });
+    }
+
+    /// Closing the tab with the send still out leaves the stored copy to that send's outcome:
+    /// delivery clears it, a refusal keeps it.
+    [Test]
+    [Arguments(ChatSendOutcome.Accepted, "")]
+    [Arguments(ChatSendOutcome.Rejected, "typing")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_settling_after_teardown_decides_its_own_text(ChatSendOutcome outcome, string expected) {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var first = new Harness(TranscriptChat.Journal, input: input, drafts: drafts);
+            first.Chat.ComposerText = "typing";
+            var send = first.Chat.SendCommand.Execute().ToTask();
+            var pending = input.Pending!;
+            await Assert.That(first.Chat.RecallOlder()).IsFalse();
+            await Assert.That(first.Chat.RecallOlder()).IsFalse();
+            await first.TeardownAsync();
+
+            pending.SetResult(outcome);
+            await send;
+            var second = new Harness(TranscriptChat.Journal, input: new ScriptedInput(), drafts: drafts);
+            await Assert.That(second.Chat.ComposerText).IsEqualTo(expected);
+            await Assert.That(second.Chat.RecallNewer()).IsFalse();
+            await second.TeardownAsync();
+        });
+    }
+
+    /// Typing while the send is out makes the box a draft of the user's own, even when it ends
+    /// up as the same words: recall stashes it, and the send's delivery cannot take it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_retyped_copy_of_the_prompt_in_flight_is_a_draft_recall_keeps() {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var first = new Harness(TranscriptChat.Journal, input: input, drafts: drafts);
+            first.Chat.ComposerText = "typing";
+            var send = first.Chat.SendCommand.Execute().ToTask();
+            var pending = input.Pending!;
+            first.Chat.ComposerText = "typing!";
+            first.Chat.ComposerText = "typing";
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            await first.TeardownAsync();
+
+            pending.SetResult(ChatSendOutcome.Accepted);
+            await send;
+            var second = new Harness(TranscriptChat.Journal, input: new ScriptedInput(), drafts: drafts);
+            await Assert.That(second.Chat.ComposerText).IsEqualTo("typing");
+            await second.TeardownAsync();
+        });
+    }
+
+    /// An edit made while the send is out is stashed by recall and comes back on ↓ whatever the
+    /// send's outcome, and nothing of the send is left stashed behind it.
+    [Test]
+    [Arguments(ChatSendOutcome.Accepted)]
+    [Arguments(ChatSendOutcome.Rejected)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_edit_made_while_sending_survives_the_send_settling(ChatSendOutcome outcome) {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var input = new ScriptedInput();
+            var first = new Harness(TranscriptChat.For("claude"), input: input, drafts: drafts);
+            await first.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            first.Chat.ComposerText = "typing";
+            var send = first.Chat.SendCommand.Execute().ToTask();
+            first.Chat.ComposerText = "typing!";
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            input.Pending!.SetResult(outcome);
+            await send;
+
+            var presses = 0;
+            while (first.Chat.ComposerText != "typing!" && presses++ < 5) first.Chat.RecallNewer();
+            await Assert.That(first.Chat.ComposerText).IsEqualTo("typing!");
+            await first.TeardownAsync();
+
+            var second = new Harness(TranscriptChat.Journal, input: new ScriptedInput(), drafts: drafts);
+            await Assert.That(second.Chat.ComposerText).IsEqualTo("typing!");
+            second.Chat.ComposerText = "";
+            await Assert.That(second.Chat.RecallNewer()).IsFalse();
+            await second.TeardownAsync();
+        });
+    }
+
+    /// Another transcript under an edited recall leaves the edit in the box and the typed draft
+    /// stashed behind it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_transcript_switch_over_an_edited_recall_keeps_the_stash() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"), input: new ScriptedInput());
+            await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            h.Chat.ComposerText = "typing";
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            h.Chat.ComposerText = "first!";
+
+            await h.PushAsync(Dto(Tmp.CreateFile("o.jsonl", [User("other")])));
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("first!");
+            h.Chat.ComposerText = "";
+            await Assert.That(h.Chat.RecallNewer()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A stash a reopened tab took from the store survives that tab's first transcript.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_reopened_tab_keeps_its_stored_stash_through_a_feed_update() {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var first = new Harness(TranscriptChat.For("claude"), input: new ScriptedInput(), drafts: drafts);
+            await first.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            first.Chat.ComposerText = "typing";
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            first.Chat.ComposerText = "first!";
+            await first.TeardownAsync();
+
+            var second = new Harness(TranscriptChat.For("claude"), input: new ScriptedInput(), drafts: drafts);
+            await second.PushAsync(Dto(Tmp.CreateFile("o.jsonl", [User("other")])));
+            await Assert.That(second.Chat.ComposerText).IsEqualTo("first!");
+            second.Chat.ComposerText = "";
+            await Assert.That(second.Chat.RecallNewer()).IsTrue();
+            await Assert.That(second.Chat.ComposerText).IsEqualTo("typing");
+            await second.TeardownAsync();
+        });
+    }
+
+    /// The typed draft written back at teardown is newer than the recall a still-pending send
+    /// carried, so that send's delivery cannot clear it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_recall_send_settling_after_teardown_leaves_the_restored_draft() {
+        await RunOnUiAsync(async () => {
+            var drafts = new ComposerDrafts();
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var first = new Harness(TranscriptChat.For("claude"), input: input, drafts: drafts);
+            await first.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("first")])));
+            first.Chat.ComposerText = "typing";
+            await Assert.That(first.Chat.RecallOlder()).IsTrue();
+            var send = first.Chat.SendCommand.Execute().ToTask();
+            var pending = input.Pending!;
+            await first.TeardownAsync();
+
+            pending.SetResult(ChatSendOutcome.Accepted);
+            await send;
+            await Assert.That(drafts.Get(AgentOrigin.Local, "a1")).IsEqualTo("typing");
+        });
+    }
+
+    /// Re-sending a recall still waiting for its echo sends nothing, and the box still gets the
+    /// typed draft back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Resending_a_queued_recall_restores_the_draft_it_replaced() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput();
+            var h = new Harness(TranscriptChat.Journal, input: input);
+            await h.PushAsync(Agent("a1", "pi", hasTerminal: false) with { Status = "Running" });
+            await SendAsync(h, input, "first");
+
+            h.Chat.ComposerText = "typing";
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            await h.Chat.SendCommand.Execute().ToTask();
+
+            await Assert.That(input.Pending).IsNull();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            await h.TeardownAsync();
+        });
+    }
+
+    /// An edited recall over a typed draft is a second draft: neither recall direction overwrites
+    /// it or the stash, and clearing the box lets ↓ bring the typed draft back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_edited_recall_never_costs_the_typed_draft() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput();
+            var h = new Harness(TranscriptChat.Journal, input: input);
+            await h.PushAsync(Agent("a1", "pi", hasTerminal: false) with { Status = "Running" });
+            await SendAsync(h, input, "second");
+
+            h.Chat.ComposerText = "typing";
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            h.Chat.ComposerText = "second!";
+            await Assert.That(h.Chat.RecallOlder()).IsFalse();
+            await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("second!");
+
+            h.Chat.ComposerText = "";
+            await Assert.That(h.Chat.RecallNewer()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
+            await h.TeardownAsync();
+        });
+    }
+
     static async Task TickForAsync(Harness h, TimeSpan span) {
         for (var waited = TimeSpan.Zero; waited <= span; waited += ChatTabViewModel.PollInterval) await h.TickAsync();
     }
@@ -2810,7 +3115,8 @@ public class ChatTabViewModelTests {
     }
 
     /// Text equality cannot prove a recall was left alone: an edit undone by hand lands on the
-    /// same string, and that string is the user's own draft now.
+    /// same string, and that string is the user's own draft now, so ↑ starts over from the newest
+    /// rather than stepping on to the older prompt.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Recall_ends_when_a_recalled_prompt_is_edited_and_restored() {
@@ -2831,9 +3137,11 @@ public class ChatTabViewModelTests {
 
             h.Chat.ComposerText = "second!";
             h.Chat.ComposerText = "second";
-            await Assert.That(h.Chat.RecallOlder()).IsFalse();
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
             await Assert.That(h.Chat.ComposerText).IsEqualTo("second");
+            await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("first");
             await h.TeardownAsync();
         });
     }
@@ -2947,7 +3255,8 @@ public class ChatTabViewModelTests {
         });
     }
 
-    /// Another transcript recalls nothing from the last, and a recall on screen becomes a draft.
+    /// Another transcript recalls nothing from the last, and a recall on screen gives way to the
+    /// draft it replaced.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Another_transcript_recalls_nothing_sent_while_reading_the_last() {
@@ -2956,11 +3265,13 @@ public class ChatTabViewModelTests {
             var h = new Harness(TranscriptChat.For("claude"), input: input);
             await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [User("before")])));
             await SendAsync(h, input, "unechoed");
+            h.Chat.ComposerText = "typing";
             await Assert.That(h.Chat.RecallOlder()).IsTrue();
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("unechoed");
 
             await h.PushAsync(Dto(Tmp.CreateFile("o.jsonl", [User("other")])));
+            await Assert.That(h.Chat.ComposerText).IsEqualTo("typing");
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
-            await Assert.That(h.Chat.ComposerText).IsEqualTo("unechoed");
             await AssertRecallOrder(h.Chat, "other");
             await h.TeardownAsync();
         });

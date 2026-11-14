@@ -1,9 +1,13 @@
 namespace Capacitor.App.ViewModels;
 
 /// Prompts recalled with ↑/↓ the way a shell recalls commands: the input the transcript records
-/// as submitted, followed by the sends it has not echoed yet. Recall starts only from a blank
-/// composer and continues only while the box still shows the recalled text unchanged: an edit
-/// turns it back into the user's own draft.
+/// as submitted, followed by the sends it has not echoed yet. Recall continues only while the box
+/// still shows the recalled text unchanged: an edit turns it back into the user's own draft.
+///
+/// The draft a recall replaced stays stashed until it is handed back, so it is never lost. There is
+/// one stash, so while it holds text a second non-blank draft (an edited recall) refuses recall
+/// in both directions; clearing the box lets ↑ walk again and ↓ bring the stash back. A
+/// whitespace-only box counts as blank: recall discards it rather than stash it.
 public sealed class ComposerHistory {
     public const int Capacity = 100;
 
@@ -34,25 +38,21 @@ public sealed class ComposerHistory {
     /// turn is replayed.
     public void ClearForReplay() => _entries.Clear();
 
-    /// The next older prompt, or null when there is none or `current` is a draft of the user's own.
+    /// The next older prompt, or null when there is none or `current` is a second draft.
     public string? Older(string current, IReadOnlyList<string> unechoed) {
         var all = All(unechoed);
-        int target;
-        if (IsShowing(current)) {
-            target = Locate(all).Index - 1;
-        } else {
-            if (!string.IsNullOrWhiteSpace(current)) return null;
-            _draft = current;
-            target = all.Count - 1;
-        }
+        var showing = IsShowing(current);
+        if (!showing && IsSecondDraft(current)) return null;
+        var target = showing ? Locate(all).Index - 1 : all.Count - 1;
         if (target < 0) return null;
+        if (!showing && !HoldsDraft) _draft = Blank(current) ? "" : current;
         _cursor = target;
         return _shown = all[target];
     }
 
-    /// The next newer prompt, the stashed draft once past the newest, or null outside navigation.
+    /// The next newer prompt, the stashed draft once past the newest or over a blank box, or null.
     public string? Newer(string current, IReadOnlyList<string> unechoed) {
-        if (!IsShowing(current)) return null;
+        if (!IsShowing(current)) return HoldsDraft && Blank(current) ? TakeDraft() : null;
         var all = All(unechoed);
         var (index, found) = Locate(all);
         var target = found ? index + 1 : index;
@@ -60,14 +60,34 @@ public sealed class ComposerHistory {
             _cursor = target;
             return _shown = all[target];
         }
+        return TakeDraft();
+    }
+
+    /// Whether `current` is a recall still on screen.
+    public bool IsShowing(string current) => _shown is not null && string.Equals(_shown, current, StringComparison.Ordinal);
+
+    /// Ends navigation and hands back the stashed draft, which the caller puts in the box.
+    public string TakeDraft() {
+        var draft = _draft;
+        _draft = "";
         EndNavigation();
-        return _draft;
+        return draft;
+    }
+
+    /// A stash a previous holder of this composer left behind, held as if a recall had replaced it.
+    public void Stash(string draft) {
+        if (!HoldsDraft && !Blank(draft)) _draft = draft;
     }
 
     /// Leaves whatever the composer shows as the user's own draft.
     public void EndNavigation() => _shown = null;
 
-    bool IsShowing(string current) => _shown is not null && string.Equals(_shown, current, StringComparison.Ordinal);
+    bool HoldsDraft => _draft.Length > 0;
+
+    static bool Blank(string text) => string.IsNullOrWhiteSpace(text);
+
+    bool IsSecondDraft(string current) =>
+        HoldsDraft && !Blank(current) && !string.Equals(current, _draft, StringComparison.Ordinal);
 
     List<string> All(IReadOnlyList<string> unechoed) {
         var all = new List<string>(_entries.Count + unechoed.Count);

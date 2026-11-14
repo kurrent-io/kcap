@@ -152,4 +152,23 @@ public class CopilotImportSourceImportTests : IDisposable {
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/harness-title").UsingPost()).Count).IsEqualTo(0);
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/set-title").UsingPost()).Count).IsEqualTo(0);
     }
+
+    /// <summary>A re-import of a session the server already holds whole claims no repository backfill: the CLI cannot
+    /// tell whether the replayed start changed anything.</summary>
+    [Test]
+    public async Task A_reimport_of_a_loaded_session_claims_no_repository_backfill() {
+        WriteSession();
+        StubServerHoldingEveryLine();
+
+        var source = new CopilotImportSource(Config.Root, CopilotLayout, [], new GitProviderRouter(), TimeProvider.System);
+        var stdout = new StringWriter();
+
+        var exitCode = await new ImportCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), Home, TestHarnesses.Under(Home),
+                new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: TestImportConsole.Over(stdout))
+            .HandleImport(filterCwd: null, minLines: 0, sources: [source], scope: new ImportScope.All(), skipConfirmation: true);
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(stdout.ToString()).Contains($"Refreshed {SessionIds.Display(DashedSid.Replace("-", ""))} (already loaded)");
+        await Assert.That(stdout.ToString()).DoesNotContain("repository backfill");
+    }
 }

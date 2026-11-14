@@ -62,7 +62,9 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
                 new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta), window.CanResize),
         };
         if (RefreshItem(window) is { } refresh) menu.Add(refresh);
-        if (SearchItem(window) is { } search) menu.Add(search);
+        if (MainWindowItem(window, "Search Sessions", new KeyGesture(Key.K, KeyModifiers.Meta), vm => vm.OpenSearchCommand) is { } search) menu.Add(search);
+        if (MainWindowItem(window, "Back", HistoryShortcuts.Back, vm => vm.GoBackCommand) is { } back) menu.Add(back);
+        if (MainWindowItem(window, "Forward", HistoryShortcuts.Forward, vm => vm.GoForwardCommand) is { } forward) menu.Add(forward);
         menu.Add(new NativeMenuItemSeparator());
 
         if (showMainWindow() is { } show) {
@@ -118,11 +120,11 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
         return item;
     }
 
-    static NativeMenuItem? SearchItem(Window window) {
+    static NativeMenuItem? MainWindowItem(Window window, string header, KeyGesture gesture, Func<MainWindowViewModel, System.Windows.Input.ICommand> pick) {
         if (window is not MainWindow main) return null;
-        var item = new NativeMenuItem("Search Sessions") { Gesture = new KeyGesture(Key.K, KeyModifiers.Meta), IsEnabled = false };
+        var item = new NativeMenuItem(header) { Gesture = gesture, IsEnabled = false };
         void Apply() {
-            item.Command = (main.DataContext as MainWindowViewModel)?.OpenSearchCommand;
+            item.Command = main.DataContext is MainWindowViewModel vm ? pick(vm) : null;
             if (item.Command is null) item.IsEnabled = false;
         }
         Apply();
