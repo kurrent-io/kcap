@@ -112,4 +112,16 @@ public class CopilotWorkspaceYamlTests {
 
         await Assert.That(CopilotWorkspaceYaml.TryRead(path)!.Name).IsEqualTo(expected);
     }
+
+    /// <summary>An indentation indicator fixes the block's indent, so a first line indented further keeps its spaces
+    /// and no later line loses text to the dedent.</summary>
+    [Test]
+    public async Task workspace_yaml_parser_applies_a_block_scalars_indentation_indicator() {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, "name: |2-\n    hello\n  world\nuser_named: true\n");
+
+        await Assert.That(CopilotWorkspaceYaml.TryRead(path)!.Name).IsEqualTo("hello\nworld");
+    }
 }

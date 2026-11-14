@@ -33,7 +33,7 @@ public sealed record CopilotWorkspaceYaml(
 
                 var key   = line[..idx].Trim();
                 var raw   = line[(idx + 2)..].Trim();
-                var value = raw is ['|' or '>', ..] ? BlockScalar(lines, ref i, folded: raw[0] == '>') : Unquote(raw);
+                var value = raw is ['|' or '>', ..] ? BlockScalar(lines, ref i, raw) : Unquote(raw);
 
                 if (value.Length == 0) continue;
 
@@ -75,21 +75,25 @@ public sealed record CopilotWorkspaceYaml(
     }
 
     /// <summary>The indented lines after a <c>|</c> or <c>&gt;</c> indicator, which Copilot writes for a multi-line
-    /// name. Leaves <paramref name="i"/> on the block's last line.</summary>
-    static string BlockScalar(List<string> lines, ref int i, bool folded) {
+    /// name. A digit in <paramref name="header"/> fixes the indent; otherwise the first non-blank line sets it. Leaves
+    /// <paramref name="i"/> on the block's last line.</summary>
+    static string BlockScalar(List<string> lines, ref int i, string header) {
         var block  = new List<string>();
-        int? indent = null;
+        var digit  = header.FirstOrDefault(char.IsAsciiDigit);
+        int? indent = digit is >= '1' and <= '9' ? digit - '0' : null;
 
         while (i + 1 < lines.Count && (lines[i + 1].Length == 0 || lines[i + 1][0] == ' ')) {
             var next = lines[++i];
-            if (next.Trim().Length > 0) indent ??= next.Length - next.TrimStart(' ').Length;
+            if (next.Trim().Length > 0) indent ??= Leading(next);
 
             block.Add(next);
         }
 
-        var text = block.Select(l => l.Trim().Length == 0 ? "" : l[Math.Min(indent ?? 0, l.Length)..]).ToList();
+        var text = block.Select(l => l.Trim().Length == 0 ? "" : l[Math.Min(indent ?? 0, Leading(l))..]).ToList();
 
-        return (folded ? Folded(text) : string.Join("\n", text)).Trim('\n', ' ');
+        return (header[0] == '>' ? Folded(text) : string.Join("\n", text)).Trim('\n', ' ');
+
+        static int Leading(string line) => line.Length - line.TrimStart(' ').Length;
     }
 
     // A paragraph's lines join with a space and each blank line is one break; a more-indented line keeps its breaks, the one
