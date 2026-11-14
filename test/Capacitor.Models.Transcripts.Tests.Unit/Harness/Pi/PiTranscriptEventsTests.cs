@@ -304,6 +304,7 @@ public class PiTranscriptEventsTests {
 
         await Assert.That(E(noEntry).Single().EventId).IsEqualTo(TranscriptIds.PiLine(noEntry, "user"));
         await Assert.That(E(entry, Ctx("")).Single().EventId).IsEqualTo(TranscriptIds.PiLine(entry, "user"));
+        await Assert.That(E(entry, Ctx(null!)).Single().EventId).IsEqualTo(TranscriptIds.PiLine(entry, "user"));
         await Assert.That(E(noEntry).Single().VendorMetadata).IsNull();
     }
 
@@ -403,6 +404,17 @@ public class PiTranscriptEventsTests {
         seeded.Seed("l1", "m1", emitted: false);
 
         await Assert.That(Meta(E(Reply, seeded)[0], PiTreeKeys.RenderParent)).IsEqualTo("u1");
+    }
+
+    /// <summary>Stored events hold no control entry's link, so seeding only them leaves an entry whose parent is a
+    /// control entry without a render parent, while one whose parent emitted still resolves.</summary>
+    [Test]
+    public async Task Seeding_only_emitting_entries_resolves_through_them_and_not_through_control_entries() {
+        var seeded = Ctx();
+        seeded.Seed("u1", null, emitted: true);
+
+        await Assert.That(Meta(E(Reply, seeded)[0], PiTreeKeys.RenderParent)).IsNull();
+        await Assert.That(Meta(E("""{"type":"message","id":"a2","parentId":"u1","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}""", seeded)[0], PiTreeKeys.RenderParent)).IsEqualTo("u1");
     }
 
     [Test]

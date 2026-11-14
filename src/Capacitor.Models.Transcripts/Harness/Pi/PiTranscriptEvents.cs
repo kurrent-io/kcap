@@ -11,21 +11,10 @@ using static Capacitor.Models.Transcripts.TranscriptText;
 namespace Capacitor.Models.Transcripts.Harness.Pi;
 
 /// <summary>
-/// Projects a Pi session file (<c>~/.pi/agent/sessions/</c>) into canonical events. Every line is an entry with a
-/// top-level <c>type</c>, an <c>id</c> unique within the file (the <c>session</c> header carries the session's own
-/// id), a <c>parentId</c> and an ISO <c>timestamp</c>. Pi branches in place, so the file interleaves branches; every
-/// event carries its entry's tree node in <see cref="CanonicalEvent.VendorMetadata"/> under <see cref="PiTreeKeys"/>.
-/// <list type="bullet">
-///   <item><c>session</c> → <c>SessionStarted</c>, with <c>cwd</c>, <c>version</c> and <c>parentSession</c>.</item>
-///   <item><c>message</c>: <c>user</c> → <c>UserMessageReceived</c>; <c>assistant</c> → one event per thinking,
-///   text and toolCall block, usage and the turn's <c>pi</c> block on the first; <c>toolResult</c> →
-///   <c>ToolResultReceived</c>; <c>bashExecution</c> (the user's <c>!</c> shell) → a <c>bash</c> call and its
-///   result.</item>
-///   <item><c>compaction</c> → <c>ContextCompacted</c>, the entry itself as the replacement history.</item>
-///   <item><c>branch_summary</c> → <c>AssistantTextGenerated</c>, since Pi feeds the summary back into context.</item>
-/// </list>
-/// Every other type, control entries such as <c>model_change</c> and <c>label</c> included, emits nothing. Pi ships
-/// often and documents its format lightly, so an unknown type or role is ignored rather than rejected.
+/// Projects a Pi session file into canonical events. An entry's <c>id</c> is unique only within its file, and Pi
+/// branches in place, so the file interleaves branches: every event carries its entry's tree node under
+/// <see cref="PiTreeKeys"/>. Pi's format is lightly documented and changes often, so an unknown type or role is
+/// ignored rather than rejected.
 /// </summary>
 public sealed class PiTranscriptEvents : ITranscriptProjection {
     public static readonly PiTranscriptEvents Instance = new();
@@ -52,8 +41,8 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
             if (entryId is not null) tree.Record(entryId, parentId);
 
             var (at, recordTimestamp) = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt);
-            var entry = new Entry(line, tree.SessionId, entryId, parentId, at, recordTimestamp,
-                TreeNode(entryId, parentId, tree.NearestEmittedAncestor(parentId)));
+            var entry = new PiLineEntry(line, tree.SessionId, entryId, parentId, at, recordTimestamp,
+                NodeOf(entryId, parentId, tree.NearestEmittedAncestor(parentId)));
 
             IReadOnlyList<CanonicalEvent> events = type switch {
                 "session"        => [Session(root, entry)],
@@ -69,30 +58,7 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
         }
     }
 
-    /// What every event from one entry shares.
-    sealed record Entry(
-            string                              Line,
-            string                              SessionId,
-            string?                             EntryId,
-            string?                             ParentId,
-            DateTimeOffset                      At,
-            string?                             RecordTimestamp,
-            IReadOnlyDictionary<string, string>? TreeNode
-        ) {
-        public Guid Id(string kind) =>
-            SessionId.Length > 0 && EntryId is { Length: > 0 } entryId ? TranscriptIds.PiEntry(SessionId, entryId, kind) : TranscriptIds.PiLine(Line, kind);
-
-        /// The event's instant, <paramref name="ticks"/> past the entry's own so the events of one entry keep their
-        /// order wherever a reader sorts by time.
-        public DateTimeOffset AtTicks(int ticks) => At.AddTicks(ticks);
-
-        public CanonicalEvent Event(object payload, Guid id, int ticks = 0, TokenUsage? usage = null, long? cacheCreation = null) =>
-            new(CanonicalEventTypes.Of(payload), payload, id, AtTicks(ticks), RecordTimestamp, Usage: usage, CacheCreationTokens: cacheCreation) {
-                VendorMetadata = TreeNode,
-            };
-    }
-
-    static Dictionary<string, string>? TreeNode(string? entryId, string? parentId, string? renderParent) {
+    static Dictionary<string, string>? NodeOf(string? entryId, string? parentId, string? renderParent) {
         if (entryId is null && parentId is null && renderParent is null) return null;
 
         var node = new Dictionary<string, string>(3, StringComparer.Ordinal);
@@ -106,7 +72,7 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
     /// The header is keyed by the session id written in it, not the stream's: the stream's is the canonical form,
     /// so the two can differ.
-    static CanonicalEvent Session(JsonElement root, Entry entry) {
+    static CanonicalEvent Session(JsonElement root, PiLineEntry entry) {
         var started = new SessionStarted { Timestamp = Timestamp.FromDateTimeOffset(entry.At) };
         started.Extensions[PiExtension.Slug] = PiExtension.Session(root.Str("cwd"), (int?)root.Num("version"), root.Str("parentSession"));
 
@@ -119,11 +85,11 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
     // ── compaction and branch summaries ─────────────────────────────────────────────────────────
 
-    /// Pi's summary is plaintext, so the whole entry is the replacement history; there is nothing encrypted.
-    static CanonicalEvent Compaction(JsonElement root, Entry entry) =>
+    /// Pi's summary is plaintext, so the whole entry is the replacement history.
+    static CanonicalEvent Compaction(JsonElement root, PiLineEntry entry) =>
         entry.Event(CompactionHistoryBound.Build(root, encryptedContent: null), entry.Id("compaction"));
 
-    static IReadOnlyList<CanonicalEvent> BranchSummary(JsonElement root, Entry entry) {
+    static IReadOnlyList<CanonicalEvent> BranchSummary(JsonElement root, PiLineEntry entry) {
         if (root.Str("summary") is not { } summary || string.IsNullOrWhiteSpace(summary)) return [];
 
         var text = new AssistantTextGenerated { Content = summary, Timestamp = Timestamp.FromDateTimeOffset(entry.At) };
@@ -135,7 +101,7 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
     // ── messages ────────────────────────────────────────────────────────────────────────────────
 
-    static IReadOnlyList<CanonicalEvent> Message(JsonElement root, Entry entry) {
+    static IReadOnlyList<CanonicalEvent> Message(JsonElement root, PiLineEntry entry) {
         if (root.Obj("message") is not { } message) return [];
 
         return message.Str("role") switch {
@@ -147,15 +113,14 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
         };
     }
 
-    static IReadOnlyList<CanonicalEvent> User(JsonElement message, Entry entry) {
+    static IReadOnlyList<CanonicalEvent> User(JsonElement message, PiLineEntry entry) {
         if (ContentText(message.Prop("content")) is not { Length: > 0 } text) return [];
 
         return [entry.Event(new UserMessageReceived { Content = text, Timestamp = Timestamp.FromDateTimeOffset(entry.At) }, entry.Id("user"))];
     }
 
-    /// One event per block in order. A block's id names its index in the content array, so two text blocks of
-    /// one message keep distinct ids.
-    static IReadOnlyList<CanonicalEvent> Assistant(JsonElement message, Entry entry) {
+    /// A block's id names its index in the content array, so two text blocks of one message keep distinct ids.
+    static IReadOnlyList<CanonicalEvent> Assistant(JsonElement message, PiLineEntry entry) {
         if (message.Arr("content") is not { } content) return [];
 
         var parts = new List<(IMessage Payload, Guid Id)>();
@@ -235,7 +200,7 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
         return (tokens, cacheWrite);
     }
 
-    static IReadOnlyList<CanonicalEvent> ToolResult(JsonElement message, Entry entry) {
+    static IReadOnlyList<CanonicalEvent> ToolResult(JsonElement message, PiLineEntry entry) {
         if (message.Str("toolCallId") is not { Length: > 0 } callId) return [];
 
         var result = new ToolResultReceived { CallId = callId, Timestamp = Timestamp.FromDateTimeOffset(entry.At) };
@@ -254,9 +219,8 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
         return [entry.Event(result, entry.Id("toolResult"))];
     }
 
-    /// The user's own <c>!</c> shell, recorded as a <c>bash</c> call and its result. The call id is made from the
-    /// entry's, since Pi gives the command none.
-    static IReadOnlyList<CanonicalEvent> BashExecution(JsonElement message, Entry entry) {
+    /// The user's own <c>!</c> shell. Pi gives the command no call id, so one is made from the entry's.
+    static IReadOnlyList<CanonicalEvent> BashExecution(JsonElement message, PiLineEntry entry) {
         if (message.Str("command") is not { Length: > 0 } command) return [];
 
         var callId = "pi-bash-" + (entry.EntryId ?? "x");
@@ -276,7 +240,6 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
     // ── tool-result details ─────────────────────────────────────────────────────────────────────
 
-    /// A primitive <c>details</c> as text; structured details go to <see cref="DetailsJson"/>.
     static string? DetailsText(JsonElement? details) => details?.ValueKind switch {
         JsonValueKind.String                                              => details.Value.GetString(),
         JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => details.Value.GetRawText(),
@@ -300,7 +263,6 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
         details.IsObject
      && (string.Equals(toolName, "subagent", StringComparison.OrdinalIgnoreCase) || details.Str("mode") is not null || details.Arr("results") is not null);
 
-    /// The subagent tool's results summed, so a reader need not parse the details.
     static Struct? Subagent(string? toolName, JsonElement? details) {
         if (details is not { } d || !IsSubagent(toolName, d)) return null;
 
@@ -357,7 +319,6 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
     // ── shared helpers ──────────────────────────────────────────────────────────────────────────
 
-    /// A string content as is, else the non-empty text blocks of an array joined by newlines; images are dropped.
     static string? ContentText(JsonElement? content) {
         if (content is not { } c) return null;
         if (c.IsString) return c.GetString();

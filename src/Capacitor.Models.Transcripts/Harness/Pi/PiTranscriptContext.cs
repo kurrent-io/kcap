@@ -11,9 +11,10 @@ public sealed class PiTranscriptContext : TranscriptContext {
 
     internal string SessionId { get; }
 
-    /// An entry the stream held before this context existed. Without it an entry whose parent was read by an
-    /// earlier context resolves no render parent; a caller that kept the stored events, and not the lines,
-    /// passes each stored event's entry and parent with <paramref name="emitted"/> set.
+    /// An entry the stream held before this context existed; without it an entry whose parent was read by an
+    /// earlier context resolves no render parent. Stored events give each emitting entry and its parent, with
+    /// <paramref name="emitted"/> set, but no control entry's link: an entry whose parent is a control entry
+    /// resolves none unless the caller seeds that link too.
     public void Seed(string entryId, string? parentId, bool emitted) {
         _parents[entryId] = parentId;
         if (emitted) _emitted.Add(entryId);
