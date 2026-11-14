@@ -99,6 +99,17 @@ public class CursorLiveSubagentIntegrationTests {
         await Assert.That(body["session_id"]!.GetValue<string>()).IsEqualTo(parentId);
     }
 
+    [Test]
+    public async Task live_lifecycle_payloads_serialize_to_the_import_paths_strict_bytes() {
+        var start = CursorLiveSubagentLinker.BuildSubagentStartPayload("parent", "child", "task", "/t/child.jsonl");
+        var stop  = CursorLiveSubagentLinker.BuildSubagentStopPayload("parent", "child", "task", "/t/child.jsonl");
+
+        await Assert.That(start.ToJsonString()).IsEqualTo(
+            """{"hook_event_name":"subagent_start","session_id":"parent","agent_id":"child","agent_type":"task","transcript_path":"/t/child.jsonl","cwd":"","strict":true}""");
+        await Assert.That(stop.ToJsonString()).IsEqualTo(
+            """{"hook_event_name":"subagent_stop","session_id":"parent","agent_id":"child","agent_type":"task","transcript_path":"/t/child.jsonl","cwd":"","stop_hook_active":false,"agent_transcript_path":"/t/child.jsonl","last_assistant_message":"","strict":true}""");
+    }
+
     sealed class Fixture : IDisposable {
         readonly TempHome _home = new();
 
