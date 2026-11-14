@@ -523,83 +523,28 @@ public static partial class DaemonRunner {
                 refreshCapabilities: reason => sp.GetRequiredService<AgentOrchestrator>().RefreshAdvertisedCapabilities(reason),
                 readings: sp.GetRequiredService<AccountReadingSink>());
         });
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Cursor,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Copilot,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Kiro,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Gemini,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.OpenCode,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Grok,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.MistralVibe,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
+        AcpVendorDescriptor[] acpVendors = [
+                     AcpVendorDescriptors.Cursor,
+                     AcpVendorDescriptors.Copilot,
+                     AcpVendorDescriptors.Kiro,
+                     AcpVendorDescriptors.Gemini,
+                     AcpVendorDescriptors.OpenCode,
+                     AcpVendorDescriptors.Grok,
+                     AcpVendorDescriptors.MistralVibe
+        ];
+
+        foreach (var descriptor in acpVendors)
+            builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
+                new AcpHostedAgentRuntimeFactory(
+                    descriptor,
+                    sp.GetRequiredService<DaemonConfig>(),
+                    sp.GetRequiredService<ILoggerFactory>(),
+                    sp.GetRequiredService<ServerConnection>(), time,
+                    permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
+                    permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
+                    policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
+                )
+            );
 
         // Not an ACP factory: agy speaks NDJSON over one child process PER TURN, so it carries its own
         // runtime rather than AcpHostedAgentRuntimeFactory's persistent-child shape. Takes the logger
