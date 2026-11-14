@@ -43,6 +43,12 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
+    /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
+    /// <see cref="Sibling"/> of it.
+    public static Guid GeminiRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
     /// A Vibe record's id is the hash of its exact source line — a legacy <c>messages.jsonl</c> line,
     /// or one flattened entry of the unified store. Identical lines dedup to one event, as with Codex;
     /// the unified reader keeps distinct entries distinct by carrying each entry's own bytes

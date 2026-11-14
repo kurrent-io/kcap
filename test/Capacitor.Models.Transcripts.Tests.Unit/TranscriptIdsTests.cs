@@ -58,6 +58,15 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Gemini_record_is_its_guid_id_else_the_hash_of_the_utf8_line() {
+        const string line = "{\"id\":\"n1\",\"type\":\"user\"}";
+        await Assert.That(TranscriptIds.GeminiRecord("a3b19e5f-275a-407f-891f-9b3661d7e79b", line)).IsEqualTo(Guid.Parse("a3b19e5f-275a-407f-891f-9b3661d7e79b"));
+        await Assert.That(TranscriptIds.GeminiRecord("d04923d38bb0f6017037e74183378ef4", line)).IsEqualTo(Guid.Parse("d04923d3-8bb0-f601-7037-e74183378ef4"));
+        await Assert.That(TranscriptIds.GeminiRecord("n1", line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes(line))));
+        await Assert.That(TranscriptIds.GeminiRecord(null, line)).IsEqualTo(TranscriptIds.GeminiRecord("n1", line));
+    }
+
+    [Test]
     public async Task Vibe_record_hashes_the_utf8_line() {
         const string line = "{\"role\":\"user\",\"content\":\"hi\"}";
         await Assert.That(TranscriptIds.VibeRecord(line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes(line))));
@@ -93,6 +102,9 @@ public class TranscriptIdsTests {
     // kcap-server's CodexNormalizerTests pins the id it stores for this redacted line to the same value.
     [Arguments("codex-redacted-user", "9f1a5a84-cd92-5e9f-72ff-6db814f55976")]
     [Arguments("codex-usage-backfill", "5bccf7a4-6eee-83b2-b58c-f10627871a82")]
+    [Arguments("gemini-record-fallback", "fd3d945b-502d-9061-e197-a8bed75d598b")]
+    // kcap-server's v1 Gemini baseline stores this record's thinking part under the same id.
+    [Arguments("gemini-thinking", "df992b2b-ffcf-9188-4aa2-863991f852a8")]
     [Arguments("vibe-record", "ca3c057b-649d-864f-339b-160c1c7fd711")]
     [Arguments("vibe-entry", "d219bcea-d51a-d28e-6f8a-c4d4635844d0")]
     [Arguments("muse-record", "d8a1a66a-0ef6-88fa-a0ea-41440eb74617")]
@@ -111,6 +123,8 @@ public class TranscriptIdsTests {
             {"timestamp":"2026-10-21T02:10:01.207Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"use token [REDACTED:github-token]"}],"internal_chat_message_metadata_passthrough":{"turn_id":"01a15c38-f9fc-7eb3-a679-cc676926d28f","create_time":1792548601.2,"content_item_kinds":["user.text"]}}}
             """),
         "codex-usage-backfill" => TranscriptIds.Sibling(Primary, "usage-backfill"),
+        "gemini-record-fallback" => TranscriptIds.GeminiRecord("n1", "{\"id\":\"n1\",\"type\":\"user\"}"),
+        "gemini-thinking"   => TranscriptIds.Sibling(TranscriptIds.GeminiRecord("a3b19e5f-275a-407f-891f-9b3661d7e79b", "{}"), "thinking"),
         "vibe-record"       => TranscriptIds.VibeRecord("{\"role\":\"user\",\"content\":\"hi\"}"),
         "vibe-entry"        => TranscriptIds.VibeEntry("user-turn-abc-1"),
         "muse-record"       => TranscriptIds.MuseRecord("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "e6b35c82-47c0-48f2-868a-0e369eccecc8"),
