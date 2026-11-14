@@ -22,8 +22,6 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class AgentOrchestratorLocalAttachTests {
     [TempHome] public required TempHome Home { get; init; }
 
-    sealed class NoopRestartStrategy : IRestartStrategy { public RestartOutcome Restart() => RestartOutcome.NoOp; }
-
     static RestartCoordinator TestCoordinator(DaemonStore store) =>
         RestartCoordinator.ForTest(store, "test", "test", new NoopRestartStrategy(), TimeProvider.System);
 

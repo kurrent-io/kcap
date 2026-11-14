@@ -19,10 +19,6 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class SteeringSwitchTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
-    sealed class NoopRestartStrategy : IRestartStrategy {
-        public RestartOutcome Restart() => RestartOutcome.NoOp;
-    }
-
     sealed record Incarnation(LocalControlServer Server, SteeringSwitch Steering);
 
     CaptureServerConnection Connection { get; } = new();

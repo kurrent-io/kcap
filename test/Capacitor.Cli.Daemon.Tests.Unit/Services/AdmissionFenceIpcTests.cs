@@ -15,10 +15,6 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 [ExcludeOn(OS.Windows)] // Unix-domain socket path
 public class AdmissionFenceIpcTests {
-    sealed class NoopRestartStrategy : IRestartStrategy {
-        public RestartOutcome Restart() => RestartOutcome.NoOp;
-    }
-
     sealed record Harness(LocalControlServer Server, AgentOrchestrator Orchestrator, DaemonConfig Config, string SockPath);
 
     static async Task<Harness> StartAsync(ServerConnection server, CancellationToken ct) {
