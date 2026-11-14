@@ -652,8 +652,9 @@ public partial class ChatTabView : UserControl {
 
     /// A bare Enter is always consumed — it sends when the composer can send, and otherwise does
     /// nothing, leaving the text and the hint that says why. Shift+Enter falls through to the
-    /// TextBox's own newline. ↑/↓ recall sent prompts only from the first/last line, so inside a
-    /// multi-line recall they stay the TextBox's own caret moves until the caret reaches an edge.
+    /// TextBox's own newline. ↑/↓ follow <see cref="ComposerArrowKey.Decide"/>. An older recall
+    /// leaves the caret at the start and a newer one at the end, so a repeated key walks history
+    /// one entry per press.
     void OnComposerKeyDown(object? sender, KeyEventArgs e) {
         if (e.Key is Key.PageUp or Key.PageDown && e.KeyModifiers == KeyModifiers.None) {
             if (PageTranscript(e.Key == Key.PageUp)) e.Handled = true;
@@ -662,10 +663,26 @@ public partial class ChatTabView : UserControl {
         if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None) {
             if (DataContext is not ChatTabViewModel tab || ComposerInput.SelectionStart != ComposerInput.SelectionEnd) return;
             var (line, lines) = ComposerCaretLine();
-            var recalled = e.Key == Key.Up ? line == 0 && tab.RecallOlder() : line == lines - 1 && tab.RecallNewer();
-            if (!recalled) return;
+            var length = ComposerInput.Text?.Length ?? 0;
+            var caret = Math.Clamp(ComposerInput.CaretIndex, 0, length);
+            var composing = !string.IsNullOrEmpty(_composerPresenter?.PreeditText);
+            switch (ComposerArrowKey.Decide(e.Key == Key.Up, caret, length, line, lines, composing)) {
+                case ComposerArrowAction.MoveToStart:
+                    ComposerInput.CaretIndex = 0;
+                    break;
+                case ComposerArrowAction.MoveToEnd:
+                    ComposerInput.CaretIndex = length;
+                    break;
+                case ComposerArrowAction.RecallOlder when tab.RecallOlder():
+                    ComposerInput.CaretIndex = 0;
+                    break;
+                case ComposerArrowAction.RecallNewer when tab.RecallNewer():
+                    ComposerInput.CaretIndex = ComposerInput.Text?.Length ?? 0;
+                    break;
+                default:
+                    return;
+            }
             e.Handled = true;
-            ComposerInput.CaretIndex = ComposerInput.Text?.Length ?? 0;
             return;
         }
         if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;

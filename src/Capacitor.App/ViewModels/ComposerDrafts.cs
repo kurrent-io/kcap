@@ -7,6 +7,9 @@ namespace Capacitor.App.ViewModels;
 /// every navigation away, so the draft has to outlive its chat tab.
 public sealed class ComposerDrafts {
     readonly Dictionary<string, (string Text, long Revision)> _drafts = new(StringComparer.Ordinal);
+    // A draft a recall replaced while the stored draft is another text the user typed; the next
+    // composer for the session takes it back.
+    readonly Dictionary<string, string> _stashes = new(StringComparer.Ordinal);
     readonly List<(string Key, Action<string> OnChanged)> _watchers = [];
     long _revision;
 
@@ -26,12 +29,21 @@ public sealed class ComposerDrafts {
         else _drafts[Key(origin, agentId)] = (text, ++_revision);
     }
 
+    public void SetStash(AgentOrigin origin, string agentId, string text) {
+        if (text.Length > 0) _stashes[Key(origin, agentId)] = text;
+    }
+
+    public string TakeStash(AgentOrigin origin, string agentId) =>
+        _stashes.Remove(Key(origin, agentId), out var text) ? text : "";
+
     /// Hands one session's draft to its other lane, keeping its revision.
     public void Move(AgentOrigin from, AgentOrigin to, string agentId) {
         var source = Key(from, agentId);
         var target = Key(to, agentId);
         if (_drafts.Remove(source, out var draft)) _drafts[target] = draft;
         else _drafts.Remove(target);
+        if (_stashes.Remove(source, out var stash)) _stashes[target] = stash;
+        else _stashes.Remove(target);
         Notify(source);
         Notify(target);
     }
