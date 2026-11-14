@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Harness.Pi;
+using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -60,26 +61,8 @@ internal static class PiReviewerLaunchDir {
 
     internal static void SweepStale(string stateDir, string currentEpoch, ILogger? log = null) {
         log ??= NullLogger.Instance;
-        var root = RootFor(stateDir);
-        if (!Directory.Exists(root)) return;
-
-        var live = $"{Prefix}{Sanitize(currentEpoch)}-";
-
-        IReadOnlyList<string> candidates;
-        try {
-            candidates = [.. Directory.EnumerateDirectories(root)];
-        } catch (Exception ex) {
-            log.LogWarning(ex, "Could not enumerate the Pi reviewer launch root {Root}; skipping the sweep", root);
-            return;
-        }
-
-        foreach (var dir in candidates) {
-            var name = Path.GetFileName(dir);
-            if (!name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-            if (name.StartsWith(live, StringComparison.Ordinal)) continue;
-
-            Delete(dir, stateDir, log);
-        }
+        ReviewerScratch.SweepStale(RootFor(stateDir), Prefix, $"{Prefix}{Sanitize(currentEpoch)}-",
+            "Pi reviewer launch", log, dir => Delete(dir, stateDir, log));
     }
 
     /// <summary>Never throws: a directory that cannot be removed is logged, because it holds a review
