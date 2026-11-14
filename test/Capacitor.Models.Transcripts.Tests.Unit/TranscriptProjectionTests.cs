@@ -1,5 +1,6 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
+using Capacitor.Models.Transcripts.Harness.OpenCode;
 
 namespace Capacitor.Models.Transcripts.Tests.Unit;
 
@@ -9,6 +10,7 @@ public class TranscriptProjectionTests {
         await Assert.That(TranscriptProjection.For("claude")).IsSameReferenceAs(ClaudeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("Claude")).IsSameReferenceAs(ClaudeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("CODEX")).IsSameReferenceAs(CodexRolloutEvents.Instance);
+        await Assert.That(TranscriptProjection.For("OpenCode")).IsSameReferenceAs(OpenCodeTranscriptEvents.Instance);
     }
 
     [Test]

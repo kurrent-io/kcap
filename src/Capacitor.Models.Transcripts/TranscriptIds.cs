@@ -42,6 +42,12 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
+    /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
+    /// <see cref="Sibling"/> of it.
+    public static Guid GeminiRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
     /// A legacy <c>messages.jsonl</c> line, or a unified entry without an <c>id</c>: neither carries an id
     /// or a time, so the line number joins the bytes and a repeated message ("yes") is not deduped into
     /// the first.
@@ -60,6 +66,14 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
+    /// when it has none), or an assistant part's id.
+    public static Guid OpenCode(string key) => Hash(Encoding.UTF8.GetBytes(key));
+
+    public static Guid OpenCodeToolCall(string partId) => OpenCode(partId + ":call");
+
+    public static Guid OpenCodeToolResult(string partId) => OpenCode(partId + ":result");
 
     static Guid NumberedLine(int lineNumber, string line) =>
         Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber} {line}")));
