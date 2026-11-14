@@ -1,0 +1,941 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "3bea9aee-1e90-d888-a490-bc5bebc99dad",
+        "timestamp": "2026-06-23T19:05:13.7760000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:13.7760000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:text:prt_ef5df5131001Mf9boAvU0BVVu3]",
+          "timestamp": "2026-06-23T19:05:13.776Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "2c7b5861-03c6-38a5-bc0e-c491814ab8bb",
+        "timestamp": "2026-06-23T19:05:13.7900000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:13.7900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df54b2001bx42ICfEgCQy6b]",
+          "timestamp": "2026-06-23T19:05:13.790Z"
+        },
+        "usage": {
+          "inputTokens": "8330",
+          "outputTokens": "118",
+          "totalTokens": "8448",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "e551869b-d945-36cb-76f1-f7ff5f08855b",
+        "timestamp": "2026-06-23T19:05:13.7900001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:13.7900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "glob_pw88ey7nc60j",
+              "toolName": "glob",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df568d001XaV3DYZgI0NcL2"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:13.790000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "4df33e8d-be53-643a-6a05-1a3cde56677f",
+        "timestamp": "2026-06-23T19:05:13.7900002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:13.7900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "glob_pw88ey7nc60j",
+          "result": "[redacted:tool-output:prt_ef5df568d001XaV3DYZgI0NcL2]",
+          "timestamp": "2026-06-23T19:05:13.790000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": ""
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "ce64073f-49dc-47b5-7e4a-60c6a42d9039",
+        "timestamp": "2026-06-23T19:05:16.5720000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:16.5720000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df5dfe001zzXdykhiLjeQzo]",
+          "timestamp": "2026-06-23T19:05:16.572Z"
+        },
+        "usage": {
+          "inputTokens": "10323",
+          "outputTokens": "210",
+          "totalTokens": "10533",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "56f59bcd-bb2a-a882-57cc-7a5ec6de4945",
+        "timestamp": "2026-06-23T19:05:16.5720001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:16.5720000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_npk77afgahnh",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df6171001TG0yPubHnx6eNg"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:16.572000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "6e309df9-712e-473c-33d7-63f4fb5169ad",
+        "timestamp": "2026-06-23T19:05:16.5720002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:16.5720000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_npk77afgahnh",
+          "result": "[redacted:tool-output:prt_ef5df6171001TG0yPubHnx6eNg]",
+          "timestamp": "2026-06-23T19:05:16.572000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df6171001TG0yPubHnx6eNg]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "db7703db-cc9c-2af3-95ae-02bfffce83f6",
+        "timestamp": "2026-06-23T19:05:18.1230000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:18.1230000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df642f001wiOlwobMtBX014]",
+          "timestamp": "2026-06-23T19:05:18.123Z"
+        },
+        "usage": {
+          "inputTokens": "11345",
+          "outputTokens": "83",
+          "totalTokens": "11428",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4e4db361-c109-e7f3-9d95-1fa7578ac55f",
+        "timestamp": "2026-06-23T19:05:18.1230001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:18.1230000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_f9ghk2hme6nq",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df6505001Q2kvntdRfWa4n1"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:18.123000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "df7d18b0-9b58-bbd3-88a3-f19959b0ca69",
+        "timestamp": "2026-06-23T19:05:18.1230002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:18.1230000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_f9ghk2hme6nq",
+          "result": "File not found: /work/StockTradesDemo/README.md",
+          "timestamp": "2026-06-23T19:05:18.123000200Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "482387fc-1ac0-aba6-f6bb-34937f6b6bb9",
+        "timestamp": "2026-06-23T19:05:19.1640000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:19.1640000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df683a001Ma7XlFZQQXJ93m]",
+          "timestamp": "2026-06-23T19:05:19.164Z"
+        },
+        "usage": {
+          "inputTokens": "11451",
+          "outputTokens": "189",
+          "totalTokens": "11640",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "f70d7cad-77ba-bfd5-2fba-bc054af5d208",
+        "timestamp": "2026-06-23T19:05:19.1640001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:19.1640000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_g08artq7hg39",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df6ae6001E8nLpyZqeAo1GL"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:19.164000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "67a06673-92bf-ed41-e6f3-5861a19ad2c8",
+        "timestamp": "2026-06-23T19:05:19.1640002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:19.1640000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_g08artq7hg39",
+          "result": "File not found: /work/LoanApplicationDemo/README.md",
+          "timestamp": "2026-06-23T19:05:19.164000200Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "583241c6-017b-605e-cdd9-1f0f4851a78c",
+        "timestamp": "2026-06-23T19:05:20.6470000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:20.6470000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df6e28001y81gfslgzB6p4o]",
+          "timestamp": "2026-06-23T19:05:20.647Z"
+        },
+        "usage": {
+          "inputTokens": "11557",
+          "outputTokens": "53",
+          "totalTokens": "11610",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "d00247a7-3faf-09a2-1705-e207c7e6e337",
+        "timestamp": "2026-06-23T19:05:20.6470001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:20.6470000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "glob_p4qqxyzxncvw",
+              "toolName": "glob",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df6ec100182hq2EtaHuTwNm"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:20.647000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "25861ad8-8edf-5155-dad6-60a0df01c7a5",
+        "timestamp": "2026-06-23T19:05:20.6470002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:20.6470000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "glob_p4qqxyzxncvw",
+          "result": "[redacted:tool-output:prt_ef5df6ec100182hq2EtaHuTwNm]",
+          "timestamp": "2026-06-23T19:05:20.647000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": ""
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "abd9c575-a4ef-ed67-a007-097545db67a7",
+        "timestamp": "2026-06-23T19:05:21.5910000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:21.5910000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df70b30013TK21U5xf69roS]",
+          "timestamp": "2026-06-23T19:05:21.591Z"
+        },
+        "usage": {
+          "inputTokens": "11724",
+          "outputTokens": "78",
+          "totalTokens": "11802",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4d1ff2c4-42fd-1bfd-666b-285b8621cddd",
+        "timestamp": "2026-06-23T19:05:21.5910001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:21.5910000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_rhb9y65v2j9k",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df71d4001lBqqXY208xT8kX"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:21.591000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "1219176c-dc9f-84a5-02d7-5dcd3116c23b",
+        "timestamp": "2026-06-23T19:05:21.5910002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:21.5910000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_rhb9y65v2j9k",
+          "result": "[redacted:tool-output:prt_ef5df71d4001lBqqXY208xT8kX]",
+          "timestamp": "2026-06-23T19:05:21.591000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df71d4001lBqqXY208xT8kX]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "6389df77-eb35-8799-2df4-73b533457581",
+        "timestamp": "2026-06-23T19:05:22.3390000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:22.3390000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df74a4001hzGZky07J5CFo0]",
+          "timestamp": "2026-06-23T19:05:22.339Z"
+        },
+        "usage": {
+          "inputTokens": "12200",
+          "outputTokens": "85",
+          "totalTokens": "12285",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "083ae05f-7e88-63ce-9b97-9122a4f2da77",
+        "timestamp": "2026-06-23T19:05:22.3390001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:22.3390000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_dqxb4kzmph0y",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df75ee001HCN2ZvFALSq3sp"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:22.339000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "6afb17b0-3f91-920b-b98a-9eaf1e1ed6e2",
+        "timestamp": "2026-06-23T19:05:22.3390002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:22.3390000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_dqxb4kzmph0y",
+          "result": "[redacted:tool-output:prt_ef5df75ee001HCN2ZvFALSq3sp]",
+          "timestamp": "2026-06-23T19:05:22.339000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df75ee001HCN2ZvFALSq3sp]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "8bc23eef-b0cb-b7cf-e9b2-b6810fb2357d",
+        "timestamp": "2026-06-23T19:05:23.3610000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:23.3610000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df78060019054y2DY18aS5D]",
+          "timestamp": "2026-06-23T19:05:23.361Z"
+        },
+        "usage": {
+          "inputTokens": "12636",
+          "outputTokens": "70",
+          "totalTokens": "12706",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "67fdd5e7-f53d-0d3e-f638-27e7e57e8bee",
+        "timestamp": "2026-06-23T19:05:23.3610001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:23.3610000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_7r5bxtn62vtq",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df78d9001Pc6DkjwA7sQTHN"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:23.361000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "bac24706-5b31-71e3-7f3a-62d78a44b1b4",
+        "timestamp": "2026-06-23T19:05:23.3610002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:23.3610000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_7r5bxtn62vtq",
+          "result": "[redacted:tool-output:prt_ef5df78d9001Pc6DkjwA7sQTHN]",
+          "timestamp": "2026-06-23T19:05:23.361000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df78d9001Pc6DkjwA7sQTHN]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "8ac9eef1-2e0b-fd8b-3103-0f8efed4ac68",
+        "timestamp": "2026-06-23T19:05:24.2250000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:24.2250000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df7c220012hVnf704fRiSyL]",
+          "timestamp": "2026-06-23T19:05:24.225Z"
+        },
+        "usage": {
+          "inputTokens": "12872",
+          "outputTokens": "67",
+          "totalTokens": "12939",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "9b073fc9-c5b5-6761-dba4-2456196d3690",
+        "timestamp": "2026-06-23T19:05:24.2250001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:24.2250000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_f14q37q7mnm2",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df7cbc001YNq1s2Er6YzPK3"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:24.225000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "35a675ad-b9f7-31b1-bdb1-2c8289537a79",
+        "timestamp": "2026-06-23T19:05:24.2250002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:24.2250000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_f14q37q7mnm2",
+          "result": "[redacted:tool-output:prt_ef5df7cbc001YNq1s2Er6YzPK3]",
+          "timestamp": "2026-06-23T19:05:24.225000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df7cbc001YNq1s2Er6YzPK3]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "12be9d1f-440f-5ea1-b9c3-706bb86f9034",
+        "timestamp": "2026-06-23T19:05:25.2270000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:25.2270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df7f50001kC5736citG6paQ]",
+          "timestamp": "2026-06-23T19:05:25.227Z"
+        },
+        "usage": {
+          "inputTokens": "14595",
+          "outputTokens": "81",
+          "totalTokens": "14676",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "102a710f-7356-f5c2-9602-cc05770ded2b",
+        "timestamp": "2026-06-23T19:05:25.2270001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:25.2270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_nkm7h5n2vynx",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df808c001MzZ506dPDaJeDa"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:25.227000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "dbd3425c-cb17-ca13-ef33-520bc0ebdba9",
+        "timestamp": "2026-06-23T19:05:25.2270002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:25.2270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_nkm7h5n2vynx",
+          "result": "File not found: /work/AutomationHost/README.md",
+          "timestamp": "2026-06-23T19:05:25.227000200Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "a79ba1bd-452e-229e-7dc7-e1e613e6bb88",
+        "timestamp": "2026-06-23T19:05:26.1900000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:26.1900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df8329001GB4gKUods1pUuQ]",
+          "timestamp": "2026-06-23T19:05:26.190Z"
+        },
+        "usage": {
+          "inputTokens": "14699",
+          "outputTokens": "75",
+          "totalTokens": "14774",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "21cb8235-25f9-6b43-2eae-c7172e0713a6",
+        "timestamp": "2026-06-23T19:05:26.1900001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:26.1900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_7phbfgxhc8px",
+              "toolName": "read",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df8441001AXgFKLEbQ4dzBt"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:26.190000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "770a1f27-cc78-88ff-d28b-c821f0e472d8",
+        "timestamp": "2026-06-23T19:05:26.1900002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:26.1900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "read_7phbfgxhc8px",
+          "result": "[redacted:tool-output:prt_ef5df8441001AXgFKLEbQ4dzBt]",
+          "timestamp": "2026-06-23T19:05:26.190000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "[redacted:tool-title:prt_ef5df8441001AXgFKLEbQ4dzBt]"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "09b8c19a-9970-a183-6466-94ee254d12c6",
+        "timestamp": "2026-06-23T19:05:27.0780000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:27.0780000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df8698001u3eWKjfrctloNx]",
+          "timestamp": "2026-06-23T19:05:27.078Z"
+        },
+        "usage": {
+          "inputTokens": "15588",
+          "outputTokens": "88",
+          "totalTokens": "15676",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "a76c9923-869e-41cb-6f1b-cd2ee99ca6dd",
+        "timestamp": "2026-06-23T19:05:27.0780001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:27.0780000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "glob_d55c23qx2kpn",
+              "toolName": "glob",
+              "arguments": {
+                "redacted": "tool-input:prt_ef5df87e9001pypIdFD4COEJip"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "timestamp": "2026-06-23T19:05:27.078000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "959515dd-7089-5d08-6c5f-b91464999503",
+        "timestamp": "2026-06-23T19:05:27.0780002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:27.0780000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "glob_d55c23qx2kpn",
+          "result": "[redacted:tool-output:prt_ef5df87e9001pypIdFD4COEJip]",
+          "timestamp": "2026-06-23T19:05:27.078000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": ""
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "ab85e3aa-c090-35c6-3d23-9284389c99a1",
+        "timestamp": "2026-06-23T19:05:28.0900000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:28.0900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:reasoning:prt_ef5df8b9e001dkjYqx5yPwab2k]",
+          "timestamp": "2026-06-23T19:05:28.090Z"
+        },
+        "usage": {
+          "inputTokens": "16172",
+          "outputTokens": "1462",
+          "totalTokens": "17634",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "e3dc7b9f-d4d2-abb1-4f7d-1b13bf2c2b4d",
+        "timestamp": "2026-06-23T19:05:28.0900001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:05:28.0900000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "[redacted:text:prt_ef5df8f4a001pI6qPWL1de8Jr5]",
+          "timestamp": "2026-06-23T19:05:28.090000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  }
+]

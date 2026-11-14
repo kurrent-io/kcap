@@ -1,6 +1,8 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
+using Capacitor.Models.Transcripts.Harness.Gemini;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
+using Capacitor.Models.Transcripts.Harness.OpenCode;
 using Capacitor.Models.Transcripts.Harness.Pi;
 
 namespace Capacitor.Models.Transcripts;
@@ -18,7 +20,9 @@ public static class TranscriptProjection {
     public static ITranscriptProjection? For(string vendor) => vendor.ToLowerInvariant() switch {
         "claude" => ClaudeTranscriptEvents.Instance,
         "codex" => CodexRolloutEvents.Instance,
+        "gemini" => GeminiTranscriptEvents.Instance,
         "mistral-vibe" => MistralVibeTranscriptEvents.Instance,
+        "opencode" => OpenCodeTranscriptEvents.Instance,
         "pi" => PiTranscriptEvents.Instance,
         _ => null,
     };

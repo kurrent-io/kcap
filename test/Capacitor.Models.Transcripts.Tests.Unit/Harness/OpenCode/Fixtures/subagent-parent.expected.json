@@ -1,0 +1,88 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "c259f41b-4175-2a75-6b34-13dfb4ae92ed",
+        "timestamp": "2026-06-23T19:26:19.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:19.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "@general list the top-level files and summarize",
+          "timestamp": "2026-06-23T19:26:19Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "0a35c47e-e70d-0068-faa1-67828575103d",
+        "timestamp": "2026-06-23T19:26:20.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:20.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_task_1",
+              "toolName": "task",
+              "arguments": {
+                "description": "Summarize files",
+                "prompt": "list the top-level files and summarize"
+              },
+              "toolKind": "other"
+            }
+          ],
+          "timestamp": "2026-06-23T19:26:20Z",
+          "extensions": {
+            "opencode": {
+              "agent_id": "ses_oc_child"
+            }
+          }
+        },
+        "usage": {
+          "inputTokens": "50",
+          "outputTokens": "10",
+          "totalTokens": "60",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "0",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "1ff6efea-8b95-7454-c983-1b02088ce0e6",
+        "timestamp": "2026-06-23T19:26:20.0000001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:20.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "call_task_1",
+          "result": "There are 3 top-level files.",
+          "timestamp": "2026-06-23T19:26:20.000000100Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "Summarize files"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  }
+]

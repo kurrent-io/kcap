@@ -44,6 +44,12 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
+    /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
+    /// <see cref="Sibling"/> of it.
+    public static Guid GeminiRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
     /// A Vibe record's id is the hash of its exact source line — a legacy <c>messages.jsonl</c> line,
     /// or one flattened entry of the unified store. Identical lines dedup to one event, as with Codex;
     /// the unified reader keeps distinct entries distinct by carrying each entry's own bytes
@@ -61,6 +67,14 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
+    /// when it has none), or an assistant part's id.
+    public static Guid OpenCode(string key) => Hash(Encoding.UTF8.GetBytes(key));
+
+    public static Guid OpenCodeToolCall(string partId) => OpenCode(partId + ":call");
+
+    public static Guid OpenCodeToolResult(string partId) => OpenCode(partId + ":result");
 
     /// RFC 4122 name-based (v5) UUID: SHA-1 over the namespace's big-endian bytes, then the name's UTF-8.
     public static Guid Uuid5(Guid ns, string name) {
