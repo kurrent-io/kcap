@@ -1,4 +1,5 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
 
@@ -315,19 +316,45 @@ public class ClaudeTranscriptEventsTests {
     }
 
     [Test]
-    public async Task A_line_without_toolUseResult_or_with_a_non_object_one_adds_no_key() {
+    public async Task A_line_without_toolUseResult_or_with_a_null_one_adds_no_key() {
         var none = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}""");
         await Assert.That(SchemaExtensions.Slug(none[0].Payload, "claude_code")).IsNull();
 
-        foreach (var value in new[] { "\"text\"", "42", "[1]", "null", "true" }) {
-            var e = E($$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{{value}}}}""");
-            await Assert.That(SchemaExtensions.Slug(e[0].Payload, "claude_code")).IsNull().Because(value);
-        }
+        var nil = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":null}""");
+        await Assert.That(SchemaExtensions.Slug(nil[0].Payload, "claude_code")).IsNull();
+    }
 
+    /// The error a failed tool writes as its toolUseResult is kept as the string the server stores.
+    [Test]
+    public async Task A_string_toolUseResult_rides_the_extension_as_a_string() {
         var error = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x","is_error":true}]},"toolUseResult":"Error: x"}""");
-        var slug = SchemaExtensions.Slug(error[0].Payload, "claude_code");
+        var slug  = SchemaExtensions.Slug(error[0].Payload, "claude_code");
+
         await Assert.That(SchemaExtensions.Flag(slug, "is_error")).IsTrue();
-        await Assert.That(slug!.Fields.ContainsKey("tool_use_result")).IsFalse();
+        await Assert.That(slug!.Fields["tool_use_result"].KindCase).IsEqualTo(Value.KindOneofCase.StringValue);
+        await Assert.That(slug.Fields["tool_use_result"].StringValue).IsEqualTo("Error: x");
+    }
+
+    [Test]
+    [Arguments("42")]
+    [Arguments("[1,\"a\"]")]
+    [Arguments("true")]
+    public async Task A_toolUseResult_of_any_other_kind_rides_the_extension_verbatim(string value) {
+        var e    = E($$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{{value}}}}""");
+        var slug = SchemaExtensions.Slug(e[0].Payload, "claude_code");
+
+        await Assert.That(slug).IsNotNull();
+        await Assert.That(JsonFormatter.Default.Format(slug!.Fields["tool_use_result"])).IsEqualTo(JsonFormatter.Default.Format(Value.Parser.ParseJson(value)));
+    }
+
+    /// JSON the protobuf parser refuses still yields the result, without the copy.
+    [Test]
+    public async Task A_toolUseResult_protobuf_cannot_hold_is_left_out() {
+        var e = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"n":1e400}}""");
+
+        await Assert.That(e).Count().IsEqualTo(1);
+        await Assert.That(((ToolResultReceived)e[0].Payload).Result).IsEqualTo("ok");
+        await Assert.That(SchemaExtensions.Slug(e[0].Payload, "claude_code")).IsNull();
     }
 
     [Test]
