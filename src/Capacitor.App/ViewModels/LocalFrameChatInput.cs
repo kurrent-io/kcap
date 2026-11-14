@@ -60,6 +60,11 @@ internal sealed class LocalFrameChatInput : ChatInput {
 
     public override bool CanAcceptText => Availability == SendAvailability.Ready;
 
+    public override string? WorkingControlNote =>
+        !_disposed && _notice is null && Availability is SendAvailability.Ready or SendAvailability.Sending
+            ? "Interrupt isn’t available for this session. Stop ends the session."
+            : null;
+
     public override string Hint => _notice ?? Availability switch {
         SendAvailability.Ready       => "Enter sends · Shift+Enter for a new line",
         SendAvailability.Sending     => "Sending…",
@@ -147,6 +152,7 @@ internal sealed class LocalFrameChatInput : ChatInput {
         this.RaisePropertyChanged(nameof(Availability));
         this.RaisePropertyChanged(nameof(CanAcceptText));
         this.RaisePropertyChanged(nameof(Hint));
+        this.RaisePropertyChanged(nameof(WorkingControlNote));
         this.RaisePropertyChanged(nameof(CanAttach));
         this.RaisePropertyChanged(nameof(AttachHint));
     }
