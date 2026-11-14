@@ -16,9 +16,9 @@ new_repo() {
   git -C "$repo" init -q
 }
 method() {
-  local path="$1" text="$2"
+  local path="$1" text="$2" params="${3:-string[] items, int limit}"
   mkdir -p "$(dirname "$repo/$path")"
-  printf 'class C\n{\n    // %s\n    static int Sum(string[] items, int limit)\n    {\n        %s\n    }\n}\n' "$path" "$text" > "$repo/$path"
+  printf 'class C\n{\n    // %s\n    static int Sum(%s)\n    {\n        %s\n    }\n}\n' "$path" "$params" "$text" > "$repo/$path"
   git -C "$repo" add -A
 }
 baseline() { printf '%s\n' "$1" > "$repo/scripts/check-duplication.baseline"; }
@@ -65,6 +65,24 @@ new_repo
 for f in A B C; do method "src/$f/Short.cs" 'return items.Length + limit;'; done
 baseline 0
 check 'one-line bodies are not a family' 0 'at the baseline'
+
+new_repo
+variadic='int limit, params string[] items'
+method src/A/One.cs "$body" "$variadic"; method src/B/Two.cs "$body" "$variadic"; method src/C/Three.cs "$body" 'int limit, string[] items'
+baseline 0
+check 'a params array is part of the signature' 0 'at the baseline'
+method src/D/Four.cs "$body" "$variadic"
+check 'three params copies are a family' 1 'Sum(int, params string[]) x3'
+
+new_repo
+mkdir "$repo/src"
+for f in A B; do
+  { printf 'namespace N;\nusing System;\nclass C\n{\n    void M()\n    {\n'
+    for i in 1 2 3 4 5 6 7 8 9 10; do printf '        using var s%s = Open("%s");\n' "$i" "$i"; done
+    printf '    }\n}\n'; } > "$repo/src/$f.cs"
+done
+git -C "$repo" add -A
+check 'using statements are code, using directives are not' 0 'src                                                  32          24' --clones
 
 new_repo
 method src/A/One.cs "$body"

@@ -30,7 +30,8 @@ LITERALS = frozenset({
     "integer_literal", "real_literal", "boolean_literal", "null_literal", "interpolated_string_expression",
 })
 METHODS = frozenset({"method_declaration", "local_function_statement"})
-DIRECTIVE = re.compile(r"(?:global )?using |namespace ")
+DIRECTIVES = frozenset({"using_directive", "extern_alias_directive"})
+NAMESPACES = frozenset({"namespace_declaration", "file_scoped_namespace_declaration"})
 CODE = re.compile(r"[A-Za-z0-9]")
 
 
@@ -74,10 +75,13 @@ def signature(node):
     if name is None or params is None:
         return None
     types = []
-    for param in params.named_children:
-        if param.type == "parameter":
-            kind = param.child_by_field_name("type")
+    for i, child in enumerate(params.children):
+        if child.type == "parameter":
+            kind = child.child_by_field_name("type")
             types.append("".join(t for _, t, _ in tokens(kind)) if kind is not None else "?")
+        elif params.field_name_for_child(i) == "type":
+            # The grammar hangs a `params` array's type on the list itself, not on a parameter node.
+            types.append("params " + "".join(t for _, t, _ in tokens(child)))
     return name.text.decode(), tuple(types)
 
 
@@ -128,11 +132,28 @@ def families(roots):
     return sorted(found)
 
 
+def directive_rows(root):
+    rows = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in DIRECTIVES:
+            rows.update(range(node.start_point[0], node.end_point[0] + 1))
+        elif node.type in NAMESPACES:
+            name = node.child_by_field_name("name")
+            if name is not None:
+                rows.update(range(node.start_point[0], name.end_point[0] + 1))
+            stack.extend(node.children)
+        elif node.type in ("compilation_unit", "declaration_list"):
+            stack.extend(node.children)
+    return rows
+
+
 def code_lines(root, renamed):
     rows = defaultdict(list)
     for row, text, kind in tokens(root):
         rows[row].append(kind if renamed and kind else text)
-    return [" ".join(rows[row]) for row in sorted(rows)]
+    return [(row, " ".join(rows[row])) for row in sorted(rows)]
 
 
 def clone_lines(roots, window, renamed):
@@ -140,10 +161,11 @@ def clone_lines(roots, window, renamed):
     Using and namespace directives are not code; punctuation-only lines are counted but never start or fill a window."""
     files = {}
     for path, root in roots.items():
+        skip = directive_rows(root)
         exact = code_lines(root, False)
-        keep = [i for i, line in enumerate(exact) if not DIRECTIVE.match(line)]
+        keep = [i for i, (row, _) in enumerate(exact) if row not in skip]
         lines = code_lines(root, True) if renamed else exact
-        files[path] = (len(keep), [lines[i] for i in keep if CODE.search(exact[i])])
+        files[path] = (len(keep), [lines[i][1] for i in keep if CODE.search(exact[i][1])])
     seen = defaultdict(int)
     for _, lines in files.values():
         for i in range(len(lines) - window + 1):
