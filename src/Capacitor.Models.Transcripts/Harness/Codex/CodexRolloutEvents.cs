@@ -381,7 +381,7 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
         if (ctx.EmittedResults.Remove(callId, out var target))
             return Amend(target, CodexExtension.Nest(CodexExtension.Patch, patch, CodexJsonContext.Default.CodexPatchResultExtension));
 
-        ctx.PendingPatch[callId] = patch;
+        ctx.StashPatch(callId, patch);
         return ProjectionResult.Empty;
     }
 
