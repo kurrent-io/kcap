@@ -67,11 +67,15 @@ public class TranscriptIdsTests {
     }
 
     [Test]
-    public async Task Vibe_record_hashes_the_utf8_line() {
-        const string line = "{\"role\":\"user\",\"content\":\"hi\"}";
-        await Assert.That(TranscriptIds.VibeRecord(line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes(line))));
-        // Two genuinely distinct lines take distinct ids; the unified reader keeps entries distinct.
-        await Assert.That(TranscriptIds.VibeRecord(line)).IsNotEqualTo(TranscriptIds.VibeRecord(line + " "));
+    public async Task Vibe_record_hashes_line_number_space_line() {
+        const string line = "{\"role\":\"user\",\"content\":\"yes\"}";
+        await Assert.That(TranscriptIds.VibeRecord(7, line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("7 " + line))));
+        await Assert.That(TranscriptIds.VibeRecord(7, line)).IsNotEqualTo(TranscriptIds.VibeRecord(9, line));
+    }
+
+    [Test]
+    public async Task Vibe_tool_call_is_the_sibling_with_a_tool_suffix() {
+        await Assert.That(TranscriptIds.VibeToolCall(Primary, "call_1")).IsEqualTo(TranscriptIds.Sibling(Primary, "tool:call_1"));
     }
 
     [Test]
@@ -112,7 +116,8 @@ public class TranscriptIdsTests {
     [Arguments("gemini-record-fallback", "fd3d945b-502d-9061-e197-a8bed75d598b")]
     // kcap-server's v1 Gemini baseline stores this record's thinking part under the same id.
     [Arguments("gemini-thinking", "df992b2b-ffcf-9188-4aa2-863991f852a8")]
-    [Arguments("vibe-record", "ca3c057b-649d-864f-339b-160c1c7fd711")]
+    [Arguments("vibe-record", "a14e98cf-4aa1-a507-7ec2-d0e71ed0cdbd")]
+    [Arguments("vibe-tool-call", "6509a28d-49aa-5bf6-7f69-110d330e62f4")]
     [Arguments("vibe-entry", "d219bcea-d51a-d28e-6f8a-c4d4635844d0")]
     [Arguments("muse-record", "d8a1a66a-0ef6-88fa-a0ea-41440eb74617")]
     // The four OpenCode ids from a message, a part and a tool part are the ones kcap-server stored for its corpus.
@@ -138,7 +143,8 @@ public class TranscriptIdsTests {
         "codex-usage-backfill" => TranscriptIds.Sibling(Primary, "usage-backfill"),
         "gemini-record-fallback" => TranscriptIds.GeminiRecord("n1", "{\"id\":\"n1\",\"type\":\"user\"}"),
         "gemini-thinking"   => TranscriptIds.Sibling(TranscriptIds.GeminiRecord("a3b19e5f-275a-407f-891f-9b3661d7e79b", "{}"), "thinking"),
-        "vibe-record"       => TranscriptIds.VibeRecord("{\"role\":\"user\",\"content\":\"hi\"}"),
+        "vibe-record"       => TranscriptIds.VibeRecord(7, "{\"role\":\"user\",\"content\":\"hi\"}"),
+        "vibe-tool-call"    => TranscriptIds.VibeToolCall(Primary, "call_1"),
         "vibe-entry"        => TranscriptIds.VibeEntry("user-turn-abc-1"),
         "muse-record"       => TranscriptIds.MuseRecord("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "e6b35c82-47c0-48f2-868a-0e369eccecc8"),
         "opencode-message"     => TranscriptIds.OpenCode("msg_ef5f2a28200171s67y5GODESjO"),

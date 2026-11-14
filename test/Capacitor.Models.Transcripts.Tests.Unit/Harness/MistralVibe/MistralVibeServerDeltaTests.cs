@@ -5,18 +5,18 @@ using TUnit.Assertions.Enums;
 
 namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.MistralVibe;
 
-/// <summary>The inputs on which the server's Mistral Vibe normalizer and this projection gave different events,
-/// each pinned to the behaviour kept: a call carries its tool kind and the child it spawned, and an effect's
-/// result follows its call in source order at the call's own time, on the ids the server's baseline holds.</summary>
+/// <summary>Inputs pinned to the ids kcap-server's Mistral Vibe normalizer stores for them, and to the payload
+/// differences kept on purpose: a call carries both its tool kind and the child it spawned, and an effect's result
+/// and a legacy line's calls keep their line's time, in source order.</summary>
 public class MistralVibeServerDeltaTests {
     static readonly DateTimeOffset Received = new(2026, 10, 7, 0, 0, 0, TimeSpan.Zero);
 
-    static IReadOnlyList<CanonicalEvent> E(string line) =>
-        MistralVibeTranscriptEvents.Instance.Project(line, 7, Received, MistralVibeTranscriptEvents.Instance.CreateContext("sess", null)).Events;
+    static IReadOnlyList<CanonicalEvent> E(string line, int lineNumber = 7) =>
+        MistralVibeTranscriptEvents.Instance.Project(line, lineNumber, Received, MistralVibeTranscriptEvents.Instance.CreateContext("sess", null)).Events;
 
     const string Spawn = """{"type":"effect","id":"effect-s","createdAt":1,"generationStatus":"completed","detail":{"kind":"subagent","toolName":"subagent.spawn","childSessionId":"child-1D89390ca0ec23cdd4c58954","input":{"task":"read hello.py","agent":"explore"}},"state":{"status":"completed","outputText":""}}""";
 
-    /// <summary>The server names the child and no kind; the projection named the kind and no child.</summary>
+    /// <summary>The server stores the child and no tool kind; the projection carries both.</summary>
     [Test]
     public async Task A_spawn_call_carries_its_tool_kind_and_the_child_it_started() {
         var calls = (AssistantToolCallsGenerated)E(Spawn)[0].Payload;
@@ -69,5 +69,33 @@ public class MistralVibeServerDeltaTests {
         await Assert.That(e[1].Timestamp).IsEqualTo(e[0].Timestamp);
         await Assert.That(((ToolResultReceived)e[1].Payload).Timestamp).IsEqualTo(((AssistantToolCallsGenerated)e[0].Payload).Timestamp);
         await Assert.That(((ToolResultReceived)e[1].Payload).Result).IsEqualTo("hello from vibe e2e\n");
+    }
+
+    /// <summary>A legacy <c>messages.jsonl</c> assistant line, and the ids kcap-server's normalizer stores for it at
+    /// line 2, which is what a session it already ingested holds.</summary>
+    const string LegacyAssistant = """{"role":"assistant","content":"I'll read the file and run it.","tool_calls":[{"id":"call_read_1","index":0,"function":{"name":"read_file","arguments":"{\"path\":\"hello.py\"}"},"type":"function"},{"id":"call_bash_1","index":1,"function":{"name":"bash","arguments":"{\"command\":\"python3 hello.py\"}"},"type":"function"}]}""";
+
+    /// <summary>The server stamps each call a tick later than the one before; here they keep the line's own time
+    /// and source order carries the sequence.</summary>
+    [Test]
+    public async Task A_legacy_lines_text_and_each_call_take_the_ids_the_server_stores() {
+        var e = E(LegacyAssistant, lineNumber: 2);
+
+        await Assert.That(e.Select(x => x.EventType)).IsEquivalentTo(
+            [CanonicalEventTypes.AssistantTextGenerated, CanonicalEventTypes.AssistantToolCallsGenerated, CanonicalEventTypes.AssistantToolCallsGenerated],
+            CollectionOrdering.Matching);
+        await Assert.That(e[0].EventId).IsEqualTo(Guid.Parse("68eba261-380e-1be3-3af1-c4f9279bc176"));
+        await Assert.That(e[1].EventId).IsEqualTo(Guid.Parse("cbdce42a-69dc-9774-1e71-9507f6f511f6"));
+        await Assert.That(((AssistantToolCallsGenerated)e[1].Payload).ToolCalls.Single().CallId).IsEqualTo("call_read_1");
+        await Assert.That(e[2].EventId).IsEqualTo(Guid.Parse("9431b498-16b3-2b33-f2fd-c3435af24ad7"));
+        await Assert.That(((AssistantToolCallsGenerated)e[2].Payload).ToolCalls.Single().CallId).IsEqualTo("call_bash_1");
+        await Assert.That(e.Select(x => x.Timestamp).Distinct().Count()).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(6, "c2a16a43-241f-2352-b5fa-6fe54783188d")]
+    [Arguments(10, "97344d36-a271-7e07-1c2b-058010f71586")]
+    public async Task A_repeated_legacy_message_takes_the_id_the_server_stores_for_its_line(int lineNumber, string id) {
+        await Assert.That(E("""{"role":"user","content":"yes"}""", lineNumber).Single().EventId).IsEqualTo(Guid.Parse(id));
     }
 }
