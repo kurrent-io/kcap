@@ -52,7 +52,7 @@ class RecapCommand(
             await Console.Out.WriteLineAsync($"## {title}");
             await Console.Out.WriteLineAsync($"*Session {entry.SessionId} | {date}*");
             await Console.Out.WriteLineAsync();
-            await Console.Out.WriteLineAsync(entry.Summary);
+            await Console.Out.WriteLineAsync(RecapTranscript.Printable(entry.Summary));
             await Console.Out.WriteLineAsync();
             await Console.Out.WriteLineAsync($"Full transcript: `kcap recap --full {entry.SessionId}`");
             await Console.Out.WriteLineAsync();
@@ -80,7 +80,7 @@ class RecapCommand(
             return 1;
         }
 
-        var entries = ((RecapResult.Found)result).Entries;
+        var entries = RecapTranscript.Printable(((RecapResult.Found)result).Entries);
 
         if (entries.Count == 0) {
             await Console.Out.WriteLineAsync("No recap entries found.");
@@ -259,7 +259,7 @@ class RecapCommand(
 
         foreach (var turn in doc.RootElement.EnumerateArray()) {
             var turnIndex  = turn.TryGetProperty("turn_index", out var ti) ? ti.GetInt32() : -1;
-            var userPrompt = turn.TryGetProperty("user_prompt", out var up) ? up.GetString() ?? "" : "";
+            var userPrompt = RecapTranscript.Printable(turn.TryGetProperty("user_prompt", out var up) ? up.GetString() ?? "" : "");
             var prompt     = userPrompt.Length == 0
                 ? $"(turn {turnIndex})"
                 : userPrompt.Length > 80 ? userPrompt[..80] + "…" : userPrompt;
@@ -362,7 +362,7 @@ class RecapCommand(
                 sb.AppendLine(FormatOutlineLine(turn));
             }
 
-            return sb.ToString();
+            return RecapTranscript.Printable(sb.ToString());
         } catch (JsonException) {
             // Empty/truncated body, or a non-JSON page (e.g. a proxy 200 with an HTML error).
             // The outline is best-effort enrichment, so treat unparseable input as "nothing to show"
@@ -377,13 +377,13 @@ class RecapCommand(
 
     static string FormatOutlineLine(JsonElement turn) {
         var index = turn.TryGetProperty("turn_index", out var ti) ? ti.GetInt32() : -1;
-        var prose = turn.TryGetProperty("prose", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+        var prose = turn.TryGetProperty("prose", out var p) && p.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(p.GetString() ?? "") : null;
 
         if (!string.IsNullOrWhiteSpace(prose)) {
             return $"{index,3}  {CollapseWhitespace(prose!)}";
         }
 
-        var raw     = turn.TryGetProperty("user_prompt", out var up) && up.ValueKind == JsonValueKind.String ? up.GetString() ?? "" : "";
+        var raw     = turn.TryGetProperty("user_prompt", out var up) && up.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(up.GetString() ?? "") : "";
         var prompt  = CollapseWhitespace(raw);
         var excerpt = prompt.Length == 0 ? "(no prompt)" : prompt.Length > 80 ? prompt[..80] + "…" : prompt;
 

@@ -32,8 +32,13 @@ public class ComposerHistoryTests {
     }
 
     [Test]
-    public async Task Older_leaves_a_typed_draft_alone() {
-        await Assert.That(Seen("first").Older("typing", None)).IsNull();
+    public async Task Older_over_a_typed_draft_stashes_it_until_newer_steps_past_the_newest() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("second");
+        await Assert.That(history.Older("second", None)).IsEqualTo("first");
+        await Assert.That(history.Newer("first", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("typing", None)).IsNull();
     }
 
     [Test]
@@ -44,11 +49,46 @@ public class ComposerHistoryTests {
     [Test]
     public async Task Newer_walks_forward_and_then_restores_the_draft() {
         var history = Seen("first", "second");
-        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        await Assert.That(history.Older("draft", None)).IsEqualTo("second");
         await Assert.That(history.Older("second", None)).IsEqualTo("first");
         await Assert.That(history.Newer("first", None)).IsEqualTo("second");
-        await Assert.That(history.Newer("second", None)).IsEqualTo("  ");
-        await Assert.That(history.Newer("  ", None)).IsNull();
+        await Assert.That(history.Newer("second", None)).IsEqualTo("draft");
+        await Assert.That(history.Newer("draft", None)).IsNull();
+    }
+
+    /// A whitespace-only box is blank: recall discards it, so a later edit of the recall is the
+    /// stash, not a second draft.
+    [Test]
+    public async Task A_whitespace_only_box_is_discarded_rather_than_stashed() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("");
+
+        await Assert.That(history.Older("  ", None)).IsEqualTo("second");
+        history.EndNavigation();
+        await Assert.That(history.Older("second!", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("second!");
+    }
+
+    /// Only handing the stash back empties it: clearing or replaying the history keeps it.
+    [Test]
+    public async Task Clearing_the_history_keeps_the_stash() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        history.EndNavigation();
+        history.Clear();
+        history.ClearForReplay();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
+    }
+
+    [Test]
+    public async Task Stash_holds_a_draft_left_behind_until_newer_hands_it_back() {
+        var history = Seen("first");
+        history.Stash("  ");
+        await Assert.That(history.Newer("", None)).IsNull();
+        history.Stash("typing");
+        await Assert.That(history.Older("first!", None)).IsNull();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
     }
 
     [Test]
@@ -58,13 +98,48 @@ public class ComposerHistoryTests {
         await Assert.That(history.Newer("typing", None)).IsNull();
     }
 
-    /// An edited recall is the user's own draft: neither key steps away from it.
+    /// An edited recall is the user's own draft: ↓ leaves it alone and ↑ starts over from the
+    /// newest, stashing the edit.
     [Test]
     public async Task An_edit_to_a_recalled_prompt_ends_navigation() {
         var history = Seen("first", "second");
         await Assert.That(history.Older("", None)).IsEqualTo("second");
-        await Assert.That(history.Older("second edited", None)).IsNull();
         await Assert.That(history.Newer("second edited", None)).IsNull();
+        await Assert.That(history.Older("second edited", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("second edited");
+    }
+
+    /// One stash holds the typed draft, so an edited recall over it is a second draft: recall
+    /// refuses rather than overwrite either, and a cleared box gets the stash back.
+    [Test]
+    public async Task An_edited_recall_over_a_stashed_draft_keeps_both() {
+        var history = Seen("first", "second");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("second");
+        history.EndNavigation();
+        await Assert.That(history.Older("second!", None)).IsNull();
+        await Assert.That(history.Newer("second!", None)).IsNull();
+
+        await Assert.That(history.Older("", None)).IsEqualTo("second");
+        await Assert.That(history.Newer("second", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("typing", None)).IsNull();
+    }
+
+    [Test]
+    public async Task Newer_over_a_cleared_box_restores_the_stashed_draft() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        history.EndNavigation();
+        await Assert.That(history.Newer("", None)).IsEqualTo("typing");
+        await Assert.That(history.Newer("", None)).IsNull();
+    }
+
+    [Test]
+    public async Task TakeDraft_hands_back_the_stash_once_and_ends_navigation() {
+        var history = Seen("first");
+        await Assert.That(history.Older("typing", None)).IsEqualTo("first");
+        await Assert.That(history.TakeDraft()).IsEqualTo("typing");
+        await Assert.That(history.IsShowing("first")).IsFalse();
+        await Assert.That(history.TakeDraft()).IsEqualTo("");
     }
 
     [Test]
@@ -137,13 +212,15 @@ public class ComposerHistoryTests {
         await Assert.That(history.Older("", None)).IsNull();
     }
 
+    /// After a clear the text on screen is a draft: ↑ starts from the newest instead of stepping on.
     [Test]
     public async Task Clear_ends_a_recall_on_screen() {
         var history = Seen("first", "second");
         await Assert.That(history.Older("", None)).IsEqualTo("second");
         history.Clear();
+        history.Observe("first");
         history.Observe("second");
         await Assert.That(history.Newer("second", None)).IsNull();
-        await Assert.That(history.Older("second", None)).IsNull();
+        await Assert.That(history.Older("second", None)).IsEqualTo("second");
     }
 }

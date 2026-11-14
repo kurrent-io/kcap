@@ -92,14 +92,36 @@ public class AppMenuBarTests {
             return (Layout(menu), refresh.Gesture, refresh.IsEnabled);
         });
 
-        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions|-|kcap|Launch approvals…|-|Bring All to Front");
+        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
         await Assert.That(gesture).IsEqualTo(RefreshShortcut.Primary);
         await Assert.That(enabled).IsFalse();
     }
 
+    /// Disabled while there is nowhere to go, and enabled by the history the view model records.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Window_menu_on_any_other_window_has_no_Refresh_or_Search() {
+    public Task Window_menu_Back_and_Forward_carry_the_history_shortcuts_and_follow_the_history() => AvaloniaSession.RunOnUiAsync(async () => {
+        var vm = new MainWindowViewModel(
+            new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+        var menu = Submenu(NewBar().Build(new MainWindow { DataContext = vm }), "Window");
+        var back = Item(menu, "Back");
+        var forward = Item(menu, "Forward");
+
+        await Assert.That(back.Gesture).IsEqualTo(HistoryShortcuts.Back);
+        await Assert.That(forward.Gesture).IsEqualTo(HistoryShortcuts.Forward);
+        await Assert.That(back.Command).IsSameReferenceAs(vm.GoBackCommand);
+        await Assert.That(forward.Command).IsSameReferenceAs(vm.GoForwardCommand);
+        await Assert.That(back.Command!.CanExecute(null)).IsFalse();
+
+        vm.History.Left(NavigationEntry.Launcher);
+
+        await Assert.That(back.Command!.CanExecute(null)).IsTrue();
+        await Assert.That(forward.Command!.CanExecute(null)).IsFalse();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Window_menu_on_any_other_window_has_no_Refresh_Search_or_history() {
         var layout = await AvaloniaSession.DispatchAsync(() =>
             Layout(Submenu(NewBar().Build(new SettingsWindow()), "Window")));
 

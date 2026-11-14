@@ -38,4 +38,16 @@ public class ComposerDraftsTests {
         await Assert.That(drafts.Get(AgentOrigin.Local, "a1")).IsEqualTo(expected);
         await Assert.That(shown).IsEquivalentTo(editedAfterMove ? new[] { "hello" } : new[] { "hello", "" }, CollectionOrdering.Matching);
     }
+
+    /// A stash is taken once, and follows its session to the other lane.
+    [Test]
+    public async Task A_stash_is_taken_once_wherever_its_session_moved() {
+        var drafts = new ComposerDrafts();
+        drafts.SetStash(AgentOrigin.Remote, "a1", "typing");
+        drafts.Move(AgentOrigin.Remote, AgentOrigin.Local, "a1");
+
+        await Assert.That(drafts.TakeStash(AgentOrigin.Remote, "a1")).IsEqualTo("");
+        await Assert.That(drafts.TakeStash(AgentOrigin.Local, "a1")).IsEqualTo("typing");
+        await Assert.That(drafts.TakeStash(AgentOrigin.Local, "a1")).IsEqualTo("");
+    }
 }

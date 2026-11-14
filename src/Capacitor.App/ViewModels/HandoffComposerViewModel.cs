@@ -34,8 +34,6 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     public const string ProbeFailed = "Your local kcap daemon didn't answer, so the starting point couldn't be checked";
     public const string CheckoutUnreadable = "Your local kcap daemon couldn't read this checkout, so the starting point couldn't be checked";
     public const string CheckingOrigin = "Checking origin…";
-    public const string OriginMoved =
-        "Origin has moved on since this was checked, so nothing was started. Check where the new session would start and start again.";
     public const string AccountMoved =
         "Origin points to another checkout, which uses a different account, so nothing was started. Check the account and start again.";
     public const string OriginSignInNeeded = "Couldn't sign in to origin, so nothing was started. Set up git's sign-in for it on this machine and start again.";
@@ -615,11 +613,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         return refused!;
     }
 
-    /// The hand-off's one read of origin, made when the user starts it. A start other than the one the strip
-    /// shows is shown rather than launched; with nothing shown, the user started from origin's answer.
+    /// The hand-off's one read of origin, made when the user starts it. Origin's answer is what launches, even
+    /// when it has moved on from the start the strip showed: the strip is updated to it first.
     async Task<bool> CheckOriginAsync(ProbePlan plan) {
-        var shown = ProbedStart;
-        var shownCheckout = _checkout;
         _checkingOrigin = true;
         Progress = CheckingOrigin;
         Evaluation result;
@@ -638,10 +634,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
             return false;
         }
         Show(result);
-        if (result.Reason is not null) return false;
-        if (shown is null || (shown == result.Start && shownCheckout == result.Checkout)) return true;
-        Error = OriginMoved;
-        return false;
+        return result.Reason is null;
     }
 
     static bool HasAvailableHarness(IReadOnlyList<HarnessOption> options) => options.Any(o => o.Available);

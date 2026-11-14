@@ -1,0 +1,141 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "c2caa764-eac3-3d21-4d63-fb16b9de043e",
+        "timestamp": "2026-06-23T19:26:39.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:39.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Read note.txt and missing.txt and report both outcomes",
+          "timestamp": "2026-06-23T19:26:39Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "1b2a68ad-725c-5285-9251-01fb01fec7c9",
+        "timestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "I\u0027ll read both files now.",
+          "timestamp": "2026-06-23T19:26:40Z"
+        },
+        "usage": {
+          "inputTokens": "1200",
+          "outputTokens": "34",
+          "totalTokens": "1354",
+          "cachedInputTokens": "100",
+          "reasoningTokens": "50",
+          "model": "command-a-03-2025"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 20
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "22531010-9c94-6693-c170-3ac13e3186b8",
+        "timestamp": "2026-06-23T19:26:40.0000001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_read1",
+              "toolName": "read",
+              "arguments": {
+                "filePath": "note.txt"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:26:40.000000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "62150ae9-7860-c64a-0f74-fc2feecd1481",
+        "timestamp": "2026-06-23T19:26:40.0000002\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "call_read1",
+          "result": "Kurrent Capacitor spike fixture.\nSecond line of the note.",
+          "timestamp": "2026-06-23T19:26:40.000000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": "note.txt"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "d056b39f-738d-0e7c-d371-98c009d27705",
+        "timestamp": "2026-06-23T19:26:40.0000003\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_read2",
+              "toolName": "read",
+              "arguments": {
+                "filePath": "missing.txt"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-23T19:26:40.000000300Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "d1681c9a-f74f-bf16-3542-ef514be68e73",
+        "timestamp": "2026-06-23T19:26:40.0000004\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:40.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "call_read2",
+          "result": "ENOENT: no such file or directory, open \u0027missing.txt\u0027",
+          "timestamp": "2026-06-23T19:26:40.000000400Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": "missing.txt"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  }
+]
