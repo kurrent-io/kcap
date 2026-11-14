@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Hashing;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Capacitor.Models.Transcripts;
@@ -60,4 +61,34 @@ public static class TranscriptIds {
     /// colliding with another derivation's.
     public static Guid MuseRecord(string streamId, string recordId) =>
         Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+
+    /// RFC 4122 name-based (v5) UUID: SHA-1 over the namespace's big-endian bytes, then the name's UTF-8.
+    public static Guid Uuid5(Guid ns, string name) {
+        var input = new byte[16 + Encoding.UTF8.GetByteCount(name)];
+        ns.TryWriteBytes(input, bigEndian: true, out _);
+        Encoding.UTF8.GetBytes(name, input.AsSpan(16));
+
+        // The RFC fixes SHA-1 for a v5 UUID.
+#pragma warning disable CA5350
+        var hash = SHA1.HashData(input);
+#pragma warning restore CA5350
+        hash[6] = (byte)((hash[6] & 0x0F) | 0x50);
+        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
+
+        return new Guid(hash.AsSpan(0, 16), bigEndian: true);
+    }
+
+    static readonly Guid PiNamespace = new("7a1c4e92-3b5d-4f86-9c2a-1e8d6b0f5a34");
+
+    /// A Pi event: v5 under Pi's namespace over <c>{sessionId}:{scope}:{kind}</c>. An entry id is unique only
+    /// within its session file, so the session id salts it; the scope is the entry id, or <c>session</c> for the
+    /// header, and the kind names the event the entry produced.
+    public static Guid PiEntry(string sessionId, string scope, string kind) =>
+        Uuid5(PiNamespace, string.Concat(sessionId, ":", scope, ":", kind));
+
+    /// A Pi event whose line names no entry id, or whose stream has no session id: the line's UTF-8, then <c>:{kind}</c>.
+    public static Guid PiLine(string line, string kind) => Hash(Encoding.UTF8.GetBytes(string.Concat(line, ":", kind)));
+
+    /// A Pi session header that names no session id: the line's UTF-8.
+    public static Guid PiHeaderLine(string line) => Hash(Encoding.UTF8.GetBytes(line));
 }
