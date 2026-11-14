@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: '30 1 * * *'
   workflow_dispatch:
+    inputs:
+      clean-cache:
+        description: Scan without the saved Qodana cache, so a scan of main replaces it with a fresh one
+        type: boolean
+        default: false
   pull_request:
 
 jobs:
@@ -40,6 +45,7 @@ jobs:
 
       # Only main's scans save, so a PR restores the entry main's last scan left
       - name: Restore the Qodana cache
+        if: ${{ !inputs.clean-cache }}
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/qodana/caches
