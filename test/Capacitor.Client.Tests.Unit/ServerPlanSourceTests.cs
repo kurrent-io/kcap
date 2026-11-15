@@ -1,12 +1,11 @@
 using System.Net;
 using System.Text;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Plans;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.Client.Tests.Unit;
 
 /// What the source itself decides: which outcomes stand in for a missing sign-in, and which read
 /// retires the client. No network: the factory is injected and the handler answers in-process.

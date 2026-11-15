@@ -1,6 +1,6 @@
 using Capacitor.Cli.Core.WorkItems;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// One read of a session's work context, however the app reaches the server.
 public interface IWorkContextSource {

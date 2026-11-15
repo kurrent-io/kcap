@@ -1,7 +1,6 @@
 using System.Reactive;
 using System.Reactive.Concurrency;
 using Avalonia.Collections;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Plans;
 using ReactiveUI.Reactive;
 

@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Plans;
 
 namespace Capacitor.App.Tests.Unit;

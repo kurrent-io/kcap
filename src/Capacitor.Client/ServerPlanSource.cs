@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Plans;
 using Capacitor.Cli.Core.LocalEdition;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public sealed class ServerPlanSource : IPlanSource, IAsyncDisposable {
     readonly AuthenticatedServerReads<SessionPlansClient> _reads;
@@ -14,6 +14,11 @@ public sealed class ServerPlanSource : IPlanSource, IAsyncDisposable {
             MachineAuth machine, AuthenticatedServerReads<SessionPlansClient>.ClientFactory? factory = null,
             LocalRoot? localRoot = null) {
         _reads = new(config, profiles, env, machine, (http, url) => new SessionPlansClient(http, url), factory, localRoot: localRoot);
+    }
+
+    public ServerPlanSource(ConfigRoot config, ProfileContext? profiles,
+            AuthenticatedServerReads<SessionPlansClient>.ClientFactory factory) {
+        _reads = new(config, profiles, (http, url) => new SessionPlansClient(http, url), factory);
     }
 
     public async Task<SessionPlansRead> ReadAsync(string sessionId, CancellationToken ct) {

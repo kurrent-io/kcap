@@ -2,7 +2,6 @@ using Capacitor.Cli.Core.Auth;
 using System.Net;
 using Microsoft.Extensions.Time.Testing;
 using System.Text;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.WorkItems;
@@ -67,6 +66,17 @@ public class ServerWorkContextSourceTests {
 
         await Assert.That(read.Kind).IsEqualTo(WorkContextReadKind.SignedOut);
         await Assert.That(handlers).IsEmpty();
+        await source.DisposeAsync();
+    }
+
+    [Test]
+    public async Task A_factory_only_source_reads_without_machine_auth() {
+        var source = new ServerWorkContextSource(Config.Root, Profiles(Config.Root),
+            (_, _, _, _) => Task.FromResult((new HttpClient(new ScriptedHandler()), AuthStatus.Ok)));
+
+        var read = await source.ReadAsync(Session, CancellationToken.None);
+
+        await Assert.That(read.Kind).IsEqualTo(WorkContextReadKind.Ready);
         await source.DisposeAsync();
     }
 

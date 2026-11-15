@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Capacitor.Cli.Core.LocalEdition;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public sealed class AuthenticatedServerReads<TChannel> : IAsyncDisposable where TChannel : class {
     public delegate Task<(HttpClient Client, AuthStatus Status)> ClientFactory(ConfigRoot config, ProfileContext profiles, string url, CancellationToken ct);
@@ -26,8 +26,8 @@ public sealed class AuthenticatedServerReads<TChannel> : IAsyncDisposable where 
     readonly CancellationTokenSource _dispose = new();
     readonly List<Task> _active = [];
     Lease? _lease;
-    readonly ProfileOverrides _env;
-    readonly MachineAuth      _machine;
+    readonly ProfileOverrides? _env;
+    readonly MachineAuth? _machine;
     ServiceProvider? _lane;
     readonly bool _allowAutoRedirect;
     readonly LocalRoot? _localRoot;
@@ -46,13 +46,20 @@ public sealed class AuthenticatedServerReads<TChannel> : IAsyncDisposable where 
         _localRoot = localRoot;
         _factory = factory ?? RegisteredLaneAsync;
     }
+    public AuthenticatedServerReads(ConfigRoot config, ProfileContext? profiles,
+        Func<HttpClient, string, TChannel> channelFactory, ClientFactory factory) {
+        _config = config;
+        _profiles = profiles;
+        _channelFactory = channelFactory;
+        _factory = factory;
+    }
     async Task<(HttpClient Client, AuthStatus Status)> RegisteredLaneAsync(
         ConfigRoot config, ProfileContext profiles, string url, CancellationToken ct) {
         _lane ??= new ServiceCollection()
             .AddSingleton(config)
             .AddSingleton(profiles)
             .AddSingleton(new CapacitorServer(url, config, profiles, _localRoot))
-            .AddCapacitorHttp(_env, _machine)
+            .AddCapacitorHttp(_env!, _machine!)
             .BuildValidated();
         var clients = _lane.GetRequiredService<ICapacitorHttpClient>();
         var attempt = _allowAutoRedirect

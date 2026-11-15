@@ -1,6 +1,6 @@
 using Capacitor.Cli.Core.Plans;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// One read of the plans a session works from, however the app reaches the server.
 public interface IPlanSource {
