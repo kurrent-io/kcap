@@ -880,7 +880,8 @@ public class ClaudeHookCommandTests {
         // already carries.
         using var absent = new TempDir();
         using var fx = new Fixture(Config.Root);
-        var left = TimeSpan.FromMilliseconds(400);
+        // Enough left for the session-start POST that carries the lessons on a loaded runner.
+        var left = TimeSpan.FromSeconds(1.5);
         // Past what is left of the budget, so only the budget can end the wait; teardown waits out this server delay.
         fx.MemoryIndexDelay = left + TimeSpan.FromSeconds(1);
         fx.RespondJson = """{"top_clusters":[{"text":"seal secrets","category":"safety"}]}""";
