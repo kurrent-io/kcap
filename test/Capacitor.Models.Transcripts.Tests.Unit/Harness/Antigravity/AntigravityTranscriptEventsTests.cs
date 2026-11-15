@@ -388,6 +388,24 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(next.RecordTimestamp).IsEqualTo("2026-07-02T19:05:00Z");
     }
 
+    /// <summary>The server gives a row sent again the latest step's time; the store keeps the row's first event by
+    /// id, so the projection keeps the time that event had.</summary>
+    [Test]
+    public async Task A_usage_row_sent_again_without_a_time_keeps_the_time_it_was_first_given() {
+        var ctx = Context();
+        Project("""{"step_index":4,"type":"CHECKPOINT","created_at":"2026-07-02T19:04:20Z"}""", ctx);
+        var first = Project("""{"type":"USAGE","gen_row":4,"input_tokens":1}""", ctx).Single();
+        Project("""{"step_index":5,"type":"CHECKPOINT","created_at":"2026-07-02T19:05:00Z"}""", ctx);
+
+        var again = Project("""{"type":"USAGE","gen_row":4,"input_tokens":2}""", ctx).Single();
+        var other = Project("""{"type":"USAGE","gen_row":5}""", ctx).Single();
+
+        await Assert.That(again.EventId).IsEqualTo(first.EventId);
+        await Assert.That(again.RecordTimestamp).IsEqualTo("2026-07-02T19:04:20Z");
+        await Assert.That(again.Timestamp).IsEqualTo(first.Timestamp);
+        await Assert.That(other.RecordTimestamp).IsEqualTo("2026-07-02T19:05:00Z");
+    }
+
     [Test]
     public async Task A_usage_line_before_any_step_has_no_time() {
         var e = Project("""{"type":"USAGE","gen_row":0}""", Context()).Single();

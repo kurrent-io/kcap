@@ -20,8 +20,9 @@ public sealed record CanonicalEvent(
     /// Metadata keys the vendor's stored events carry beside the common ones, each written verbatim.
     public IReadOnlyDictionary<string, string>? VendorMetadata { get; init; }
 
-    /// The transcript line the event is stored under when that is not the line being projected: a
-    /// vendor that holds a record until a later line completes it emits it with the later line.
+    /// The record's own transcript line, set when that is not the line being projected: a vendor that
+    /// holds a record until a later line completes it emits the record while projecting the later line,
+    /// and the record is stored under the line it came from.
     public int? LineNumber { get; init; }
 }
 

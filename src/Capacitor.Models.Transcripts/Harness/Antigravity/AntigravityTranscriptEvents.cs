@@ -56,7 +56,6 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
 
             var recordTs = root.Str("created_at");
             if (recordTs is not null) ctx.LastCreatedAt = recordTs;
-            else if (type == "USAGE") recordTs = ctx.LastCreatedAt;
 
             var step = new Step(TranscriptIds.AntigravityStep(line), lineNumber, root.Num("step_index") ?? long.MaxValue, Instant(recordTs), recordTs);
 
@@ -195,9 +194,14 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
     }
 
     /// Keyed by the row, never the line, so a re-sent row counts once; a row the id cannot name is dropped rather
-    /// than counted twice under a line hash.
+    /// than counted twice under a line hash. A row written without a time takes the last step's the first time it
+    /// is projected and keeps that time when it is sent again, after later steps.
     static ProjectionResult Usage(JsonElement root, Step step, AntigravityContext ctx) {
         if (root.Num("gen_row") is not { } row || ctx.IdScope.Length == 0) return ProjectionResult.Empty;
+
+        var id = TranscriptIds.AntigravityUsage(ctx.IdScope, row);
+        if (!ctx.UsageTimes.TryGetValue(id, out var first)) ctx.UsageTimes[id] = first = step.RecordTimestamp ?? ctx.LastCreatedAt;
+        var recordTs = step.RecordTimestamp ?? first;
 
         var backfill = new AntigravityUsageBackfill {
             Model            = root.Str("model"),
@@ -207,8 +211,7 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
             CacheWriteTokens = root.Num("cache_write_tokens") ?? 0,
         };
 
-        var id = TranscriptIds.AntigravityUsage(ctx.IdScope, row);
-        return ProjectionResult.Of([new CanonicalEvent(CanonicalEventTypes.AntigravityUsageBackfilled, backfill, id, step.At, step.RecordTimestamp)]);
+        return ProjectionResult.Of([new CanonicalEvent(CanonicalEventTypes.AntigravityUsageBackfilled, backfill, id, Instant(recordTs), recordTs)]);
     }
 
     static DateTimeOffset Instant(string? raw) =>
