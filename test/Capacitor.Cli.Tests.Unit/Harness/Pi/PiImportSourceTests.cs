@@ -194,7 +194,7 @@ public class PiImportSourceTests {
     [Test]
     [Arguments("""{"last_line_number":0}""", "Partial", 1)]
     [Arguments("""{"last_line_number":1}""", "AlreadyLoaded", 0)]
-    [Arguments("""{}""", "New", 0)]
+    [Arguments("{}", "New", 0)]
     public async Task classify_compares_the_watermark_with_the_last_relevant_line(string watermark, string status, int resume) {
         using var tmp = new TempDir();
         WriteSession(tmp.Path, Sid1, cwd: "/work/a");
