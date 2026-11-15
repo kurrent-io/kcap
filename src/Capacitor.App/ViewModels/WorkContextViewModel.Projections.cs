@@ -265,7 +265,7 @@ public sealed partial class WorkContextViewModel {
         return null;
     }
 
-    /// A session change keeps who the viewer is: only a read says otherwise.
+    /// A session change keeps who the viewer is: only a read, a reconnect or a sign-in replaces it.
     void ClearServerProjections(WorkContextPhase phase) {
         ShowCard(WorkContextCard.Empty(phase) with { Viewer = _card.Viewer });
         ClearLinks();

@@ -4,7 +4,8 @@ namespace Capacitor.Client;
 
 /// What the work-context pane shows of a session's work item. `PrimaryId` is the id the server
 /// served, which for an absorbed item is the survivor's rather than the assignment's
-/// `RequestedId`. `StateKind` and `Cycle` are the server's words.
+/// `RequestedId`; a read that served no item keeps the id shown for the same assignment, else
+/// `RequestedId` stands in. `StateKind` and `Cycle` are the server's words.
 public sealed record WorkContextCard(
         WorkContextPhase Phase, bool IsStale, string? PrimaryId, string? RequestedId,
         string? Key, string Title, string? Overview, string? StateKind,
