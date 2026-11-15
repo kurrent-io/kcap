@@ -134,8 +134,9 @@ public sealed class MuseTranscriptEvents : ITranscriptProjection {
         return [envelope.Event(calls, id, TakeUsage(envelope.RunId, ctx))];
     }
 
-    /// One event per result, keyed by the batch record and the call's index, so the results of one batch never
-    /// share an id; each is a tick after the one before it.
+    /// One event per result, keyed by the batch record and the call's index; each is a tick after the one before it.
+    /// The key is the server's, which its stored sessions dedup by: a position standing in for an omitted index can
+    /// repeat an explicit one there too, so changing it needs both sides and a migration. Muse writes every index.
     static IReadOnlyList<CanonicalEvent> ToolResults(JsonElement results, Envelope envelope, string streamId, string recordId) {
         var events   = new List<CanonicalEvent>();
         var position = 0;
