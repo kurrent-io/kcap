@@ -367,7 +367,33 @@ public sealed class ClaudeHookCommand(
 
         var exit = await HandleWithDepsCore(spool, body, clientFactory, stdout, passNoticesCapable);
         if (_endSettled) await EndWorkspaceSpansAsync(body);
+        if (_lateDrain is { } late) await FinishLateDrainAsync(late.SessionId, late.Drain);
         return exit;
+    }
+
+    /// <summary>A backlog the pre-drain cap cut off, still uploading.</summary>
+    (string SessionId, Task Drain)? _lateDrain;
+
+    /// <summary>How long a session end waits for a backlog after posting the end. The upload runs at about fifty
+    /// lines a second, so this covers a transcript of tens of thousands of lines.</summary>
+    internal static TimeSpan LateDrainCeiling { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>The end is posted on time and the backlog keeps uploading behind it: session end runs detached from
+    /// Claude, so nothing kills the drain the cap stopped waiting for, and leaving it would strand the session with a
+    /// partial transcript that nothing completes.</summary>
+    async Task FinishLateDrainAsync(string sessionId, Task drain) {
+        var started = clock.Time.GetTimestamp();
+        Task? still;
+        try {
+            still = await TimeBudget.RunCappedOrRemainAsync(() => drain, LateDrainCeiling, clock.Time);
+        } catch (Exception ex) {
+            await Console.Error.WriteLineAsync($"[kcap] session-end: the transcript backlog failed after the end was posted ({ex.Message}); recoverable via: kcap import --session {sessionId}");
+            return;
+        }
+
+        await Console.Error.WriteLineAsync(still is null
+            ? $"[kcap] session-end: finished the transcript backlog {clock.Time.GetElapsedTime(started).TotalSeconds:0}s after the end was posted"
+            : $"[kcap] session-end: the transcript backlog was still uploading after {LateDrainCeiling.TotalMinutes:0} minutes; recoverable via: kcap import --session {sessionId}");
     }
 
     /// <summary>Set once this invocation's session end was posted, spooled, or refused for good. Spans close only
@@ -905,7 +931,7 @@ public sealed class ClaudeHookCommand(
                         var effectiveCap  = TimeSpan.FromMilliseconds(
                             Math.Min(PreHookDrainCap.TotalMilliseconds, remaining.TotalMilliseconds));
 
-                        var drained = await TimeBudget.RunCappedAsync(
+                        var unfinished = await TimeBudget.RunCappedOrRemainAsync(
                             async () => {
                                 await watchers.KillWatcher(sessionId);
 
@@ -916,10 +942,10 @@ public sealed class ClaudeHookCommand(
                             effectiveCap
                         , clock.Time);
 
-                        if (!drained) {
+                        if (unfinished is not null) {
+                            _lateDrain = (sessionId, unfinished);
                             await Console.Error.WriteLineAsync(
-                                $"[kcap] session-end pre-drain cap ({effectiveCap.TotalSeconds:0.#}s) elapsed; proceeding to POST. "
-                              + $"Transcript tail may be incomplete — recoverable via: kcap import --session {sessionId}"
+                                $"[kcap] session-end pre-drain cap ({effectiveCap.TotalSeconds:0.#}s) elapsed; posting the end, then finishing the transcript"
                             );
                         }
                     }
