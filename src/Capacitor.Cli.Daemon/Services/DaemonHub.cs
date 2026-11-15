@@ -27,6 +27,9 @@ internal static class DaemonHub {
         var url     = $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions";
         var refusal = config.DestinationRefusal;
 
+        HubConnection? built = null;
+        var quiet = new ReconnectQuietLoggerFactory(loggerFactory, () => built is not { State: HubConnectionState.Connected });
+
         var hub = new HubConnectionBuilder()
             .WithUrl(
                 url,
@@ -43,16 +46,18 @@ internal static class DaemonHub {
                     };
                 }
             )
-            .WithAutomaticReconnect(new RetryPolicy())
+            .WithAutomaticReconnect(new LoggedRetryPolicy(new RetryPolicy(), loggerFactory.CreateLogger(typeof(DaemonHub).FullName!)))
             // Left to its default the builder drops the framework's own logs, a failed argument binding among them,
             // and a daemon that drops every invocation looks healthy.
-            .ConfigureLogging(b => b.Services.AddSingleton(loggerFactory))
+            .ConfigureLogging(b => b.Services.AddSingleton<ILoggerFactory>(quiet))
             .AddJsonProtocol(options => ServerConnection.ConfigureHubPayload(options.PayloadSerializerOptions))
             .Build();
 
         // Half the default, so the socket stays warm through cloudflared. ServerTimeout stays at its 30s: a server
         // mid-rollout may still send at 15s, and it needs twice that.
         hub.KeepAliveInterval = TimeSpan.FromSeconds(7);
+
+        built = hub;
 
         return hub;
     }
