@@ -82,6 +82,14 @@ public static class TranscriptIds {
     /// One per turn anchor in a stream, whatever line restates it, so a re-sent backfill dedups.
     public static Guid KiroUsage(string idScope, string messageId) => Hash(Encoding.UTF8.GetBytes($"kiro-usage:{idScope}:{messageId}"));
 
+    /// Muse Assistant's item ids, and its lifecycle hooks' on the server, are v5 UUIDs in this namespace.
+    /// Changing it orphans every stored Muse Assistant event.
+    static readonly Guid MuseAssistantNamespace = new("3f9c2b7e-5d41-4a0b-9e6c-8b2f1d7a4c53");
+
+    /// One chat item: the v5 UUID of <c>{idScope}:{turnId}:{seq}</c>.
+    public static Guid MuseAssistantItem(string idScope, string turnId, long seq) =>
+        Uuid5(MuseAssistantNamespace, string.Create(CultureInfo.InvariantCulture, $"{idScope}:{turnId}:{seq}"));
+
     /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
     /// when it has none), or an assistant part's id.
     public static Guid OpenCode(string key) => Hash(Encoding.UTF8.GetBytes(key));
