@@ -31,9 +31,10 @@ public class SingleFlightReaderTests {
         var h = new Harness();
 
         h.Reader.Switch("a");
+        var superseded = h.Reader.PendingReadForTesting!;
         h.Reader.Switch("b");
         h.Reads[0].Result.SetResult("a result");
-        await h.Reads[0].Result.Task;
+        await superseded;
         h.Reads[1].Result.SetResult("b result");
         await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
 
