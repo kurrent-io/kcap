@@ -2,6 +2,7 @@ using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Copilot;
 using Capacitor.Models.Transcripts.Harness.Kiro;
+using Capacitor.Models.Transcripts.Harness.MuseAssistant;
 using Capacitor.Models.Transcripts.Harness.OpenCode;
 using Capacitor.Models.Transcripts.Harness.Pi;
 
@@ -15,6 +16,7 @@ public class TranscriptProjectionTests {
         await Assert.That(TranscriptProjection.For("CODEX")).IsSameReferenceAs(CodexRolloutEvents.Instance);
         await Assert.That(TranscriptProjection.For("Copilot")).IsSameReferenceAs(CopilotTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("kiro")).IsSameReferenceAs(KiroTranscriptEvents.Instance);
+        await Assert.That(TranscriptProjection.For("Muse-Assistant")).IsSameReferenceAs(MuseAssistantTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("OpenCode")).IsSameReferenceAs(OpenCodeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("pi")).IsSameReferenceAs(PiTranscriptEvents.Instance);
     }
