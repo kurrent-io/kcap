@@ -65,7 +65,7 @@ public class MuseGoldenTests {
         ["vendorMetadataValues"] = e.VendorMetadataValues is { } values ? new JsonObject([.. values.Select(kv => KeyValuePair.Create(kv.Key, Value(kv.Value)))]) : null,
     };
 
-    static JsonNode? Value(object value) => value switch {
+    static JsonValue Value(object value) => value switch {
         long n => JsonValue.Create(n),
         bool b => JsonValue.Create(b),
         _      => throw new InvalidOperationException($"A vendor metadata value is a long or a bool, not {value.GetType().Name}"),
