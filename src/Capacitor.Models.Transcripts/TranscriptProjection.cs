@@ -2,6 +2,7 @@ using Capacitor.Models.Transcripts.Harness.Antigravity;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Copilot;
+using Capacitor.Models.Transcripts.Harness.Cursor;
 using Capacitor.Models.Transcripts.Harness.Gemini;
 using Capacitor.Models.Transcripts.Harness.Grok;
 using Capacitor.Models.Transcripts.Harness.Kiro;
@@ -27,6 +28,7 @@ public static class TranscriptProjection {
         "claude" => ClaudeTranscriptEvents.Instance,
         "codex" => CodexRolloutEvents.Instance,
         "copilot" => CopilotTranscriptEvents.Instance,
+        "cursor" => CursorTranscriptEvents.Instance,
         "gemini" => GeminiTranscriptEvents.Instance,
         "grok" => GrokTranscriptEvents.Instance,
         "kiro" => KiroTranscriptEvents.Instance,

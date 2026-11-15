@@ -2,6 +2,7 @@ using Capacitor.Models.Transcripts.Harness.Antigravity;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Copilot;
+using Capacitor.Models.Transcripts.Harness.Cursor;
 using Capacitor.Models.Transcripts.Harness.Grok;
 using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.MuseAssistant;
@@ -18,6 +19,7 @@ public class TranscriptProjectionTests {
         await Assert.That(TranscriptProjection.For("Claude")).IsSameReferenceAs(ClaudeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("CODEX")).IsSameReferenceAs(CodexRolloutEvents.Instance);
         await Assert.That(TranscriptProjection.For("Copilot")).IsSameReferenceAs(CopilotTranscriptEvents.Instance);
+        await Assert.That(TranscriptProjection.For("Cursor")).IsSameReferenceAs(CursorTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("Grok")).IsSameReferenceAs(GrokTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("kiro")).IsSameReferenceAs(KiroTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("Muse-Assistant")).IsSameReferenceAs(MuseAssistantTranscriptEvents.Instance);
@@ -27,7 +29,7 @@ public class TranscriptProjectionTests {
 
     [Test]
     public async Task An_unknown_vendor_has_no_projection() {
-        await Assert.That(TranscriptProjection.For("cursor")).IsNull();
+        await Assert.That(TranscriptProjection.For("no-such-vendor")).IsNull();
         await Assert.That(TranscriptProjection.For("")).IsNull();
     }
 }

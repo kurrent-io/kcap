@@ -106,6 +106,21 @@ public class TranscriptIdsTests {
         await Assert.That(TranscriptIds.MuseRecord(stream, record)).IsNotEqualTo(TranscriptIds.MuseRecord("other", record));
     }
 
+    /// kcap-server's v1 Cursor baseline stores these corpus events under the same ids: a prompt, an assistant text and
+    /// a tool call from one line, a tool result, and a subagent's prompt under its scope.
+    [Test]
+    [Arguments("c0cab74dcfb64bcbbeb8e86ad0ce5281", 0, "user", 0, "UserMessageReceived", "649ca20a-44e5-5303-bb52-67fd91756a17")]
+    [Arguments("c0cab74dcfb64bcbbeb8e86ad0ce5281", 1, "assistant_text", 0, "AssistantTextGenerated", "241434f8-47c1-534a-a40e-e36fa686b42c")]
+    [Arguments("c0cab74dcfb64bcbbeb8e86ad0ce5281", 1, "tool_use", 1, "AssistantToolCallsGenerated", "0dadedcd-a6cf-5b8b-bbd0-822999f7f80a")]
+    [Arguments("cc000000000040008000000000000001", 2, "tool_result", 1, "ToolResultReceived", "8640f40d-48fc-5b3b-b4e9-efa74c1ad1c0")]
+    [Arguments("cc000000000040008000000000000001:cc0000000000400080000000000000c1", 0, "user", 0, "UserMessageReceived", "4d4fc94b-78dd-5112-9318-3c82e48fcf08")]
+    public async Task Cursor_block_is_the_servers_v5_uuid(string idScope, int lineNumber, string kind, int blockIndex, string eventType, string expected) {
+        var id = TranscriptIds.CursorBlock(idScope, lineNumber, kind, blockIndex, eventType);
+
+        await Assert.That(id.ToString()).IsEqualTo(expected);
+        await Assert.That(id).IsEqualTo(TranscriptIds.Uuid5(new Guid("8b2e0c3a-b3d4-4f0a-9c0c-c43f59a5d5e1"), $"{idScope}:line:{lineNumber}:{kind}:{blockIndex}:{eventType}"));
+    }
+
     /// kcap-server's KiroDeterministicIdTests freezes these same four, so a Kiro event and a Kiro hook keep one derivation.
     [Test]
     [Arguments("sess-a", "user", "start", "c9c3f93a-ff06-5402-bd3e-0ad79cf30539")]
