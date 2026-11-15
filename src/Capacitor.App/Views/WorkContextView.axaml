@@ -172,18 +172,18 @@
             </Panel>
         </DataTemplate>
         <!-- One template for the rows and the folded counts alike, so the two cannot drift apart. -->
-        <DataTemplate x:Key="PlanMark" x:DataType="vm:PlanTaskState">
+        <DataTemplate x:Key="PlanMark" x:DataType="client:PlanTaskState">
             <Panel Width="12" Height="12">
                 <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Pending}}"
+                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Pending}}"
                                Foreground="{StaticResource KcapFaintBrush}" />
                 <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.InProgress}}"
+                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.InProgress}}"
                                Foreground="{StaticResource KcapPurpleBrush}" />
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Completed}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Completed}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Skipped}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Skipped}}">
                     <views:AppIcon Kind="CircleMinus" Size="12" Foreground="{StaticResource KcapBorderBrush}" />
                 </Panel>
             </Panel>
