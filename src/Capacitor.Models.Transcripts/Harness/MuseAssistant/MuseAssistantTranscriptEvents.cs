@@ -32,9 +32,11 @@ public sealed class MuseAssistantTranscriptEvents : ITranscriptProjection {
         using (doc) {
             var item = doc.RootElement;
             if (!item.IsObject) return ProjectionResult.Reject("not a JSON object");
-            if (ctx.IdScope.Length == 0) return ProjectionResult.Empty;
-            if (item.Str("turn_id") is not { Length: > 0 } turnId || item.Num("seq") is not { } seq) return ProjectionResult.Empty;
-            if (item.Str("content") is not { Length: > 0 } content) return ProjectionResult.Empty;
+            if (ctx.IdScope.Length == 0
+             || item.Str("turn_id") is not { Length: > 0 } turnId
+             || item.Num("seq") is not { } seq
+             || item.Str("content") is not { Length: > 0 } content)
+                return ProjectionResult.Empty;
 
             // An instant out of range costs the item its own time, never the item itself.
             var ms    = item.Num("occurred_at_ms") is { } n && n >= MinUnixMs && n <= MaxUnixMs ? n : (long?)null;
