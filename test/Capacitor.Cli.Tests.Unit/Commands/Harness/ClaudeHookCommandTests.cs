@@ -869,17 +869,22 @@ public class ClaudeHookCommandTests {
     [Test, NotInParallel]
     public async Task memory_lane_failing_after_the_hook_answered_writes_nothing_to_stderr() {
         using var absent = new TempDir();
-        // The index answer is held, so the lane is still waiting on it when the server stops under it.
-        var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError) { MemoryIndexDelay = TimeSpan.FromSeconds(30) };
+        // A malformed index fails the lane, and holding it lets the hook answer first.
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError) {
+            MemoryIndexBody = "[", MemoryIndexDelay = TimeSpan.FromMilliseconds(500)
+        };
         using var capture = ConsoleOutput.StartErrorCapture("\n");
 
         var sid = Guid.NewGuid().ToString("N");
         await fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}""");
         var answered = capture.GetCapturedError();
+        // A server logs a request once it has answered it.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!fx.MemoryIndexRequested && DateTime.UtcNow < deadline) await Task.Delay(20);
         await Task.Delay(TimeSpan.FromSeconds(1));
-        fx.Dispose();
-        await Task.Delay(TimeSpan.FromSeconds(2));
 
+        await Assert.That(fx.MemoryIndexRequested).IsTrue();
+        await Assert.That(answered).DoesNotContain("lane skipped");
         await Assert.That(capture.GetCapturedError()).IsEqualTo(answered);
     }
 

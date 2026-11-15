@@ -721,16 +721,23 @@ public sealed class ClaudeHookCommand(
         TextWriter? stdout = null, bool passNoticesCapable = false) {
         // Work the hook started but did not wait for says nothing once it answers: nobody reads the
         // hook's stderr then, and in a shared process the line lands in someone else's.
-        var answered = new CancellationTokenSource();
+        var gate     = new Lock();
+        var answered = false;
         try {
-            return await HandleEventAsync(client, authStatus, spool, stdin, stdout, passNoticesCapable, () => answered.IsCancellationRequested);
+            return await HandleEventAsync(client, authStatus, spool, stdin, stdout, passNoticesCapable, UntilAnswered);
         } finally {
-            answered.Cancel();
+            lock (gate) answered = true;
+        }
+
+        void UntilAnswered(string message) {
+            lock (gate) {
+                if (!answered) TryWriteDiagnostic(message);
+            }
         }
     }
 
     async Task<int> HandleEventAsync(HttpClient client, AuthStatus authStatus, HookSpool spool,
-        TextReader stdin, TextWriter? stdout, bool passNoticesCapable, Func<bool> answered) {
+        TextReader stdin, TextWriter? stdout, bool passNoticesCapable, Action<string> lateDiagnostic) {
         // Hook stdout (the SessionStart hookSpecificOutput envelope / systemMessage nudge) goes to the
         // injected writer when provided, else the process Console. Injecting a writer lets tests capture
         // it WITHOUT redirecting the process-global Console.Out — so a concurrently-running test writing
@@ -1131,7 +1138,7 @@ public sealed class ClaudeHookCommand(
                 _ => SessionLifecycleReason.New
             };
             var flowsDisabled = SessionStartMemoryHookSupport.FlowsLaneDisabled(HarnessId.Claude, harnesses, audience: audience);
-            var memoryIndexTask = StartMemoryIndexTask(nativeSessionId, sessionCwd, memoryDisabled, flowsDisabled, lifecycleReason, budget.Remaining, answered);
+            var memoryIndexTask = StartMemoryIndexTask(nativeSessionId, sessionCwd, memoryDisabled, flowsDisabled, lifecycleReason, budget.Remaining, lateDiagnostic);
 
             // 2. Single bounded POST — keep resp alive to read the response body for the
             //    context-envelope emission and plan-content POST on success.
@@ -1647,15 +1654,12 @@ public sealed class ClaudeHookCommand(
         bool flowsDisabled,
         SessionLifecycleReason reason,
         TimeSpan budget,
-        Func<bool> answered) {
+        Action<string> diagnostic) {
         if ((disabled && flowsDisabled) || string.IsNullOrEmpty(nativeSessionId) || budget <= TimeSpan.Zero)
             return null;
 
         // The memory subsystem is optional, and the whole fetch stays inside the fail-open boundary.
         try {
-            Action<string> diagnostic = message => {
-                if (!answered()) TryWriteDiagnostic(message);
-            };
             var store    = SessionStartMemoryLeaseStore.Create(config, clock.Time);
             var provider = SessionStartMemoryHookSupport.CompositeProvider(router, config, workdir, http.ForMemoryAsync, clock.Time, diagnostic: diagnostic);
 
