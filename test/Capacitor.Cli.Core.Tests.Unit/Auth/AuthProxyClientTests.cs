@@ -271,7 +271,7 @@ public class AuthProxyClientTests {
 
     [Test]
     public async Task CreateMachineApplicationAsync_reports_an_unreachable_proxy() {
-        using var http   = new HttpClient();
+        using var http   = new HttpClient(RefusingHandler.Create());
         var       client = new AuthProxyClient(http, TimeProvider.System);
 
         var result = await client.CreateMachineApplicationAsync("http://127.0.0.1:1", "t", "runner");
