@@ -24,6 +24,8 @@ sealed class FakePlanSource : IPlanSource {
 
     public SessionPlansRead? Cached(string sessionId) => null;
 
+    public void InvalidateAuthentication() { }
+
     public async Task<SessionPlansRead> ReadAsync(string sessionId, CancellationToken ct) {
         Requested.Add(sessionId);
         if (_gates.Count > 0) return await _gates.Dequeue().Task.WaitAsync(ct);

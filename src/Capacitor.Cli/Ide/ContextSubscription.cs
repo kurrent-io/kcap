@@ -22,9 +22,10 @@ internal sealed class ContextSubscription : IDisposable {
 
     /// <param name="post">Runs a settling read on the host's serial lane.</param>
     /// <param name="changed">Called on that lane whenever a section may have changed.</param>
+    /// <param name="signedOut">Called off that lane, before the read settles, when either read answers signed out.</param>
     public ContextSubscription(
             string id, string sessionId, IWorkContextSource work, IPlanSource plans, string? serverUrl, TimeProvider time,
-            Func<Action, Task> post, Action<ContextSubscription> changed) {
+            Func<Action, Task> post, Action<ContextSubscription> changed, Action signedOut) {
         Id = id;
         SessionId = sessionId;
         _serverUrl = serverUrl;
@@ -33,11 +34,19 @@ internal sealed class ContextSubscription : IDisposable {
         // Task.Run keeps a source's synchronous prefix off the request loop, and keeps a read that completes at once
         // from settling inside the reader's own start.
         _work = new(
-            (session, ct) => Task.Run(() => work.ReadAsync(session, ct)),
+            (session, ct) => Task.Run(async () => {
+                var read = await work.ReadAsync(session, ct);
+                if (read.Kind == WorkContextReadKind.SignedOut) signedOut();
+                return read;
+            }),
             error => WorkContextRead.Of(WorkContextReadKind.Unreachable, Logged("work context", error)),
             ApplyWork, "ide work context", post, cached: work.Cached);
         _plans = new(
-            (session, ct) => Task.Run(() => plans.ReadAsync(session, ct)),
+            (session, ct) => Task.Run(async () => {
+                var read = await plans.ReadAsync(session, ct);
+                if (read.Kind == SessionPlansReadKind.SignedOut) signedOut();
+                return read;
+            }),
             error => {
                 Logged("plan", error);
                 return SessionPlansRead.Of(SessionPlansReadKind.Unreachable);

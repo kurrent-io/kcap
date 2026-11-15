@@ -85,7 +85,7 @@ internal sealed class ContextHost : IDisposable {
             if (_disposed) return Task.CompletedTask;
 
             if (_subscriptions.Remove(id, out var replaced)) replaced.Dispose();
-            var subscription = new ContextSubscription(id, sessionId, _work, _plans, _serverUrl, _time, Post, Publish);
+            var subscription = new ContextSubscription(id, sessionId, _work, _plans, _serverUrl, _time, Post, Publish, ForgetCredential);
             subscription.Start();
             _subscriptions[id] = subscription;
             Send("context/snapshot", subscription.TakeSnapshot(), IdeJsonContext.Default.ContextSnapshot, subscription);
@@ -121,6 +121,12 @@ internal sealed class ContextHost : IDisposable {
 
             foreach (var subscription in _subscriptions.Values) subscription.Refresh();
         }
+    }
+
+    /// <summary>Both sources read under one credential, so neither may seed a subscription once it is gone.</summary>
+    void ForgetCredential() {
+        _work.InvalidateAuthentication();
+        _plans.InvalidateAuthentication();
     }
 
     /// <summary>The serial lane both readers of every subscription settle on.</summary>

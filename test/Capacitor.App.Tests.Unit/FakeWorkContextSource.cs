@@ -25,6 +25,8 @@ sealed class FakeWorkContextSource : IWorkContextSource {
 
     public WorkContextRead? Cached(string sessionId) => null;
 
+    public void InvalidateAuthentication() { }
+
     public async Task<WorkContextRead> ReadAsync(string sessionId, CancellationToken ct) {
         Requested.Add(sessionId);
         Interlocked.Increment(ref InFlight);

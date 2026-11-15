@@ -12,6 +12,9 @@ namespace Capacitor.Cli.Tests.Unit.Ide;
 public class ContextHostTests {
     const string Session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
     const string OtherSession = "99998888777766665555444433332222";
+    const string LoadingWork =
+        """{"phase":"loading","stale":false,"title":"","blocked_by":[],"cycle":"none","parts":[],"issues":[],"people":[],"session_count":0}""";
+    const string LoadingPlan = """{"state":"loading","tasks":[],"done":0,"total":0}""";
 
     /// <summary>Answers reads in the order they arrive, from what was queued, then with <see cref="Default"/>. A gated read
     /// ignores cancellation, as a request already on the wire does. Like the server sources, it keeps the last ready read
@@ -61,6 +64,8 @@ public class ContextHostTests {
         }
 
         public T? Cached(string sessionId) => _last.Get(sessionId);
+
+        public void InvalidateAuthentication() => _last.Clear();
 
         public async Task<T> ReadAsync(string sessionId, CancellationToken ct) {
             Func<Task<T>>? answer;
@@ -244,9 +249,8 @@ public class ContextHostTests {
 
         var snapshot = await host.SubscribeAsync("sub-1", Session);
 
-        await Assert.That(snapshot["params"]!["work"]!.ToJsonString()).IsEqualTo(
-            """{"phase":"loading","stale":false,"title":"","blocked_by":[],"cycle":"none","parts":[],"issues":[],"people":[],"session_count":0}""");
-        await Assert.That(snapshot["params"]!["plan"]!.ToJsonString()).IsEqualTo("""{"state":"loading","tasks":[],"done":0,"total":0}""");
+        await Assert.That(snapshot["params"]!["work"]!.ToJsonString()).IsEqualTo(LoadingWork);
+        await Assert.That(snapshot["params"]!["plan"]!.ToJsonString()).IsEqualTo(LoadingPlan);
     }
 
     [Test]
@@ -370,10 +374,13 @@ public class ContextHostTests {
         await Assert.That(Text(Latest(again, afterNew, "plan")["tasks"]![0], "title")).IsEqualTo("New task");
     }
 
-    /// <summary>A second subscription to the session shows the first one's content at once, from the source's cache; once a
-    /// read signs out, a later one starts from nothing.</summary>
+    /// <summary>A second subscription to the session shows the first one's content at once, from the sources' caches. Both
+    /// reads go out under one credential, so once either signs out a later subscription starts from nothing in both. The
+    /// other section's read cannot reach the server, which leaves its cache as it was: only the sign-out can clear it.</summary>
     [Test]
-    public async Task A_signed_out_work_read_is_not_followed_by_cached_content() {
+    [Arguments("work", "phase")]
+    [Arguments("plan", "state")]
+    public async Task A_signed_out_read_is_not_followed_by_cached_content(string signsOut, string member) {
         using var host = new Host();
         await host.InitializeAsync();
         await host.SubscribeAsync("sub-1", Session);
@@ -381,17 +388,20 @@ public class ContextHostTests {
         var cached = await host.SubscribeAsync("sub-2", Session);
         await host.IdleAsync("sub-2");
 
-        host.Work.Answer(WorkContextRead.Of(WorkContextReadKind.SignedOut));
+        host.Work.Answer(WorkContextRead.Of(signsOut == "work" ? WorkContextReadKind.SignedOut : WorkContextReadKind.Unreachable));
+        host.Plans.Answer(SessionPlansRead.Of(signsOut == "plan" ? SessionPlansReadKind.SignedOut : SessionPlansReadKind.Unreachable));
         await host.RefreshAsync("sub-1");
         await host.IdleAsync("sub-1");
         var signedOut = Changes(await host.SettleAsync(), "sub-1");
         host.Work.Gate();
+        host.Plans.Gate();
         var after = await host.SubscribeAsync("sub-3", Session);
 
         await Assert.That(Text(cached["params"]!["work"], "title")).IsEqualTo("Alpha");
-        await Assert.That(Text(signedOut.Last()["params"]!["work"], "phase")).IsEqualTo("signed_out");
-        await Assert.That(Text(after["params"]!["work"], "phase")).IsEqualTo("loading");
-        await Assert.That(Text(after["params"]!["work"], "title")).IsEqualTo("");
+        await Assert.That(Text(cached["params"]!["plan"], "state")).IsEqualTo("ready");
+        await Assert.That(Text(signedOut.Select(m => m["params"]![signsOut]).Last(s => s is not null), member)).IsEqualTo("signed_out");
+        await Assert.That(after["params"]!["work"]!.ToJsonString()).IsEqualTo(LoadingWork);
+        await Assert.That(after["params"]!["plan"]!.ToJsonString()).IsEqualTo(LoadingPlan);
     }
 
     [Test]
