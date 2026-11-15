@@ -369,12 +369,14 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             }, ct),
             _ => string.IsNullOrWhiteSpace(_reportedBranch) ? "—" : _reportedBranch,
             branch => Branch = branch,
-            "checkout branch");
+            "checkout branch",
+            UiReads.Post);
         _reader = new SingleFlightReader<string, WorkContextRead>(
             _source.ReadAsync,
             ex => WorkContextRead.Of(WorkContextReadKind.Unreachable, ex.Message),
             Apply,
             "work context",
+            UiReads.Post,
             reading => IsReading = reading,
             cached: _source.Cached);
         Plan = new PlanSectionViewModel(plans, planActivity ?? new PlanActivity(), time);

@@ -1,17 +1,16 @@
-using Avalonia.Threading;
+namespace Capacitor.Client;
 
-namespace Capacitor.App.ViewModels;
-
-/// Single-flight async reader keyed by a lease state. A result applies on the UI thread only when
-/// its lease is still current; superseded and torn-down leases are retained until their tasks
+/// Single-flight async reader keyed by a lease state. A result applies through `post`, which runs it on
+/// the caller's thread, only when its lease is still current; superseded and torn-down leases are retained until their tasks
 /// complete so teardown can cancel and, by default, await every read. Each lease disposes its
 /// CancellationTokenSource after it settles and is released. A new lease whose state has a cached
 /// result applies it at once, settled, and still reads.
-internal sealed class SingleFlightReader<TState, TResult>(
+public sealed class SingleFlightReader<TState, TResult>(
         Func<TState, CancellationToken, Task<TResult>> readAsync,
         Func<Exception, TResult> onReadError,
         Action<TResult> apply,
         string logTag,
+        Func<Action, Task> post,
         Action<bool>? onReadingChanged = null,
         Action? onSettled = null,
         Func<TState, TResult?>? cached = null)
@@ -90,7 +89,7 @@ internal sealed class SingleFlightReader<TState, TResult>(
             result = onReadError(ex);
         }
         try {
-            await Dispatcher.UIThread.InvokeAsync(() => Settle(lease, result));
+            await post(() => Settle(lease, result));
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: {logTag}: {ex.Message}");
         }

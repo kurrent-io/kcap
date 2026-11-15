@@ -74,6 +74,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
             },
             Apply,
             "plan section",
+            UiReads.Post,
             onSettled: RaiseLoading,
             cached: id => _source?.Cached(id));
         _activity = activity;
