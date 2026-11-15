@@ -80,7 +80,7 @@ jobs:
       matrix:
         include:
           - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4 }
-          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4 }
+          - { leg: macos-latest,  os: macos-latest,   shard: all, modules: 3, tests: 4 }
           # Narrower: at three-by-four this leg spent a 20s service-readiness budget and a 1s
           # memory-fetch budget inside the code under test with nothing actually slow.
           # Split in two because at two modules the Windows test step took the sum of every suite
