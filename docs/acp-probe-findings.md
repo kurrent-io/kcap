@@ -371,3 +371,4 @@ No file write, shell command, or permission grant was ever issued to the agent p
 1. Re-run this probe (or extend it) once a non-plan-gated model/account is available, to capture: a completed real answer, `tool_call`/`tool_call_update`/`plan`/`agent_thought_chunk` payload shapes, and whether/how `session/request_permission` is actually triggered for a tool call under minimal client capabilities.
 2. Confirm the correct `session/set_config_option` request shape (`configId` vs `id`) if programmatic model switching becomes relevant to the ACP runtime.
 3. Probe mid-turn `session/cancel` behavior against a long-running turn (what update/response, if any, follows cancellation of an active turn).
+
