@@ -9,10 +9,13 @@ namespace Capacitor.Cli.Daemon.Services;
 /// Answers the local control socket while the daemon is still probing its vendors. A hello that accepts a starting
 /// daemon is answered at once, marked starting and advertising nothing; every other frame, a plain hello included,
 /// waits on its connection and is handed to <see cref="LocalControlServer"/> once it is live. So each client gets the
-/// answer a ready daemon gives, only later, and no capability is advertised before its handler can run.
+/// answer a ready daemon gives, only later, and no capability is advertised before its handler can run. A launch is
+/// the exception: it is refused, for the client to retry.
 /// </summary>
 internal sealed partial class StartingLocalControl(DaemonConfig config, ILogger<StartingLocalControl> logger) : IDisposable {
     public delegate Task Dispatch(LocalFrame first, Stream stream, CancellationToken ct);
+
+    public const string StartingRefusal = "the daemon is starting; try again in a moment";
 
     readonly TaskCompletionSource<Dispatch> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly CancellationTokenSource        _accepting = new();
@@ -57,6 +60,14 @@ internal sealed partial class StartingLocalControl(DaemonConfig config, ILogger<
 
             if (!_ready.Task.IsCompleted && first.Type == FrameType.Hello && AcceptsStarting(first.Text)) {
                 await FrameCodec.WriteAsync(stream, LocalFrame.HelloJson(FrameType.HelloReply, StartingReply()), ct);
+
+                return;
+            }
+
+            // A launch is refused rather than held: one held through a long probe would still start after the client
+            // had given up on it, and its retry would start a second.
+            if (!_ready.Task.IsCompleted && first.Type is FrameType.Spawn or FrameType.AgentResume) {
+                await FrameCodec.WriteAsync(stream, LocalFrame.Error(StartingRefusal), ct);
 
                 return;
             }

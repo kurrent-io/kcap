@@ -208,6 +208,21 @@ public class LocalControlHelloTests {
         await Assert.That(reply.InstanceId).IsEqualTo("instance-under-test");
     }
 
+    /// <summary>A launch held through a long probe would still start after its client gave up, and the retry would start
+    /// a second one, so a starting daemon refuses it for the client to send again.</summary>
+    [Test]
+    public async Task A_starting_daemon_refuses_a_launch_for_the_client_to_retry() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("spawn-starting", Config.Root, cts.Token);
+        using var daemons = starting.Daemons;
+        using var socket  = starting.Socket;
+
+        var reply = await AskAsync(socket.Path, new LocalFrame(FrameType.Spawn), cts.Token);
+
+        await Assert.That(reply!.Type).IsEqualTo(FrameType.Error);
+        await Assert.That(reply.Text).IsEqualTo(StartingLocalControl.StartingRefusal);
+    }
+
     /// <summary>Every client that reads capabilities sends a plain hello and gates on what comes back, so a starting
     /// daemon holds it and the ready daemon answers it: the client never sees a starting daemon's empty list as final.
     /// Once ready, a hello that accepts a starting daemon gets the ordinary reply.</summary>

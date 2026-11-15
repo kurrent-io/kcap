@@ -8,7 +8,9 @@ namespace Capacitor.Cli.Core.LocalIpc;
 /// <para><see cref="AcceptsStarting"/> asks a daemon that is still probing its vendors for an immediate reply marked
 /// <see cref="HelloReplyDto.Starting"/>. Without it the hello waits until the daemon is ready, so a client that reads
 /// capabilities never mistakes a starting daemon's for a finished one's.</para>
-public sealed record ClientHelloDto(string? ClientName, string? ClientVersion, bool? AcceptsStarting = null);
+public sealed record ClientHelloDto(
+    string? ClientName, string? ClientVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? AcceptsStarting = null);
 
 /// <summary>
 /// <see cref="Capabilities"/> is <see langword="null"/> = field absent (older daemon); treat as
@@ -22,7 +24,8 @@ public sealed record ClientHelloDto(string? ClientName, string? ClientVersion, b
 /// </summary>
 public sealed record HelloReplyDto(
     int ProtocolVersion, string DaemonVersion, string DaemonName, List<string>? Capabilities,
-    int? Pid = null, string? InstanceId = null, bool? Starting = null);
+    int? Pid = null, string? InstanceId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Starting = null);
 
 /// <summary>Single source of truth for the local control socket hello protocol version this build
 /// speaks — both what <c>HandleHelloAsync</c> reports and what a per-verb hello probe (e.g.
