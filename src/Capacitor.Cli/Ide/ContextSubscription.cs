@@ -18,7 +18,7 @@ internal sealed class ContextSubscription : IDisposable {
     WorkContextCard _card = WorkContextCard.Empty(WorkContextPhase.Loading);
     WorkSection? _sentWork;
     PlanSection? _sentPlan;
-    bool _readyPlanShown;
+    bool _planAnswered;
 
     /// <param name="post">Runs a settling read on the host's serial lane.</param>
     /// <param name="changed">Called on that lane whenever a section may have changed.</param>
@@ -112,22 +112,24 @@ internal sealed class ContextSubscription : IDisposable {
         _changed(this);
     }
 
-    /// <summary>Once a ready plan has been shown, a read with no usable answer changes nothing; before that it marks the plan
+    /// <summary>Once any plan read has answered, a read with no answer changes nothing; before that it marks the plan
     /// unavailable.</summary>
     void ApplyPlan(SessionPlansRead read) {
         switch (read.Kind) {
             case SessionPlansReadKind.Ready when PlanBoard.From(read) is { } board:
                 Plan = ContextMapping.Plan(board);
-                _readyPlanShown = true;
+                _planAnswered = true;
                 break;
             case SessionPlansReadKind.Ready or SessionPlansReadKind.Unavailable:
                 Plan = ContextMapping.NoPlan;
+                _planAnswered = true;
                 break;
             case SessionPlansReadKind.SignedOut:
                 Plan = ContextMapping.SignedOutPlan;
+                _planAnswered = true;
                 break;
             default:
-                if (!_readyPlanShown) Plan = ContextMapping.UnavailablePlan;
+                if (!_planAnswered) Plan = ContextMapping.UnavailablePlan;
                 break;
         }
 

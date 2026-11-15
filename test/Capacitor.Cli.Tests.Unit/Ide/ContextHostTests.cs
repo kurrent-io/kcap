@@ -436,6 +436,47 @@ public class ContextHostTests {
         await Assert.That(thrown).IsEmpty();
     }
 
+    /// <summary>Any plan read that answered, with or without a plan, outranks a later one that could not reach the server.</summary>
+    [Test]
+    [Arguments(SessionPlansReadKind.Ready, "none")]
+    [Arguments(SessionPlansReadKind.Unavailable, "none")]
+    [Arguments(SessionPlansReadKind.SignedOut, "signed_out")]
+    public async Task A_failing_plan_read_after_any_answered_one_keeps_the_plan(SessionPlansReadKind answered, string state) {
+        using var host = new Host();
+        host.Plans.Answer(SessionPlansRead.Of(answered));
+        await host.InitializeAsync();
+        var snapshot = await host.SubscribeAsync("sub-1", Session);
+        await host.IdleAsync("sub-1");
+        var first = Changes(await host.SettleAsync(), "sub-1");
+
+        host.Plans.Answer(SessionPlansRead.Of(SessionPlansReadKind.Unreachable));
+        await host.RefreshAsync("sub-1");
+        await host.IdleAsync("sub-1");
+        var unreachable = Changes(await host.SettleAsync(), "sub-1");
+        host.Plans.Throw(new InvalidOperationException("plan read failed"));
+        await host.RefreshAsync("sub-1");
+        await host.IdleAsync("sub-1");
+        var thrown = Changes(await host.SettleAsync(), "sub-1");
+
+        await Assert.That(Text(Latest(snapshot, first, "plan"), "state")).IsEqualTo(state);
+        await Assert.That(host.Plans.Requested.Length).IsEqualTo(3);
+        await Assert.That(unreachable).IsEmpty();
+        await Assert.That(thrown).IsEmpty();
+    }
+
+    [Test]
+    public async Task An_unreachable_first_plan_read_marks_the_plan_unavailable() {
+        using var host = new Host();
+        host.Plans.Answer(SessionPlansRead.Of(SessionPlansReadKind.Unreachable));
+        await host.InitializeAsync();
+        var snapshot = await host.SubscribeAsync("sub-1", Session);
+        await host.IdleAsync("sub-1");
+        var changes = Changes(await host.SettleAsync(), "sub-1");
+
+        await Assert.That(Latest(snapshot, changes, "plan").ToJsonString()).IsEqualTo("""{"state":"unavailable","tasks":[],"done":0,"total":0}""");
+        await Assert.That(Text(Latest(snapshot, changes, "work"), "title")).IsEqualTo("Alpha");
+    }
+
     [Test]
     public async Task No_work_item_and_a_plan_sends_phase_no_work_item_and_a_ready_plan() {
         using var host = new Host();
