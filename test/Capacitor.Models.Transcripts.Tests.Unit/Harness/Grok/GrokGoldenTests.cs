@@ -62,7 +62,7 @@ public class GrokGoldenTests {
     }
 
     static JsonArray Render(List<(int Line, ProjectionResult Result)> results) =>
-        new([.. results.Select(r => (JsonNode)new JsonObject {
+        new([.. results.Select(JsonNode (r) => new JsonObject {
             ["line"]       = r.Line,
             ["rejected"]   = r.Result.Rejected is null ? null : JsonValue.Create(true),
             ["events"]     = new JsonArray([.. r.Result.Events.Select(Render)]),

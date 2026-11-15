@@ -8,9 +8,5 @@ public static class AcpExtension {
 
     /// On a tool result whose call failed. An ACP update's status is the only failure signal it gives: there
     /// is no exit code and no vendor flag to read instead.
-    public static Struct ToolResultError() {
-        var block = new Struct();
-        block.Fields["is_error"] = Value.ForBool(true);
-        return block;
-    }
+    public static Struct ToolResultError() => new() { Fields = { ["is_error"] = Value.ForBool(true) } };
 }

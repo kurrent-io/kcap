@@ -63,7 +63,7 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
 
     /// Runs before the method is read, so any line naming a turn moves the turn, whatever it emits.
     static void TrackTurn(JsonElement? meta, GrokContext ctx) {
-        if (meta?.Str("promptId") is not { } promptId) return;
+        if (meta is not { } m || m.Str("promptId") is not { } promptId) return;
 
         if (promptId != ctx.TurnPromptId) {
             ctx.TurnPromptId   = promptId;
@@ -71,7 +71,7 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
             ctx.TurnAnchor     = null;
         }
 
-        if (meta?.Num("totalTokens") is { } total && total > ctx.TurnPeakTokens) ctx.TurnPeakTokens = total;
+        if (m.Num("totalTokens") is { } total && total > ctx.TurnPeakTokens) ctx.TurnPeakTokens = total;
     }
 
     static ProjectionResult FromAcp(JsonElement update, Origin origin, GrokContext ctx) {
@@ -98,8 +98,8 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
     }
 
     static ProjectionResult FromXai(JsonElement update, Origin origin, GrokContext ctx) {
-        if (update.Str("sessionUpdate") != "turn_completed" || ctx.IsSubagent) return ProjectionResult.Empty;
-        if (update.Obj("usage")?.Obj("modelUsage") is not { } byModel) return ProjectionResult.Empty;
+        if (update.Str("sessionUpdate") != "turn_completed" || ctx.IsSubagent || update.Obj("usage")?.Obj("modelUsage") is not { } byModel)
+            return ProjectionResult.Empty;
 
         var sameTurn = update.Str("prompt_id") is { } turn && turn == ctx.TurnPromptId;
         var peak     = sameTurn ? ctx.TurnPeakTokens : 0;
@@ -116,11 +116,10 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
         foreach (var model in byModel.EnumerateObject()) {
             if (!model.Value.IsObject || Usage(model.Name, model.Value) is not { } usage) continue;
 
-            var backfill = usage with {
+            events.Add(Event(usage with {
                 OccupancyTokens = model.Name == peakModel ? peak : 0,
                 Targets         = anchor is { } a ? [new CodexUsageBackfillTarget { EventId = a.EventId.ToString(), EventType = a.EventType }] : [],
-            };
-            events.Add(Event(backfill, TranscriptIds.GrokUsage(origin.EventId, model.Name), origin));
+            }, TranscriptIds.GrokUsage(origin.EventId, model.Name), origin));
         }
 
         return ProjectionResult.Of(events);

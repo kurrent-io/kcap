@@ -130,7 +130,7 @@ public class GrokTranscriptEventsTests {
 
     [Test]
     public async Task A_line_naming_no_event_id_is_keyed_by_its_number_and_bytes() {
-        var line = """{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}""";
+        const string line = """{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}""";
 
         var first = P(line, lineNumber: 7).Events.Single().EventId;
 
@@ -344,7 +344,7 @@ public class GrokTranscriptEventsTests {
         var ctx = Context();
         P(Reply("x", "p1", 4000, "a"), ctx);
 
-        var unknownMethod = """{"method":"session/other","params":{"sessionId":"s","update":{"sessionUpdate":"plan"},"_meta":{"eventId":"b","promptId":"p2","totalTokens":30}}}""";
+        const string unknownMethod = """{"method":"session/other","params":{"sessionId":"s","update":{"sessionUpdate":"plan"},"_meta":{"eventId":"b","promptId":"p2","totalTokens":30}}}""";
         await Assert.That(E(unknownMethod, ctx)).IsEmpty();
 
         var usage = Usage(E(Turn("p2", OneModel), ctx).Single());
