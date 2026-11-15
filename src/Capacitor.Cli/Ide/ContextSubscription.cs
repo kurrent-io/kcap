@@ -80,6 +80,18 @@ internal sealed class ContextSubscription : IDisposable {
         _plans.Refresh();
     }
 
+    /// <summary>Shows both sections loading and reads them afresh; a read in flight settles into nothing. Call once the
+    /// sources hold nothing of the previous credential, or the restart seeds from it.</summary>
+    public void Restart() {
+        _card = WorkContextCard.Empty(WorkContextPhase.Loading);
+        Work = ContextMapping.Work(_card, _serverUrl);
+        Plan = ContextMapping.LoadingPlan;
+        _planAnswered = false;
+        _changed(this);
+        _work.Switch(SessionId);
+        _plans.Switch(SessionId);
+    }
+
     /// <summary>Both sections as they stand, from here on the baseline for <see cref="TakeChanges"/>.</summary>
     public ContextSnapshot TakeSnapshot() {
         _sentWork = Work;

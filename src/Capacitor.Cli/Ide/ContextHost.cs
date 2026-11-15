@@ -1,4 +1,3 @@
-using System.Reactive.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
@@ -22,6 +21,8 @@ internal sealed class ContextHost : IDisposable {
     readonly Func<bool> _isInitialized;
     readonly Lock _lock = new();
     readonly Dictionary<string, ContextSubscription> _subscriptions = new(StringComparer.Ordinal);
+    readonly LaneAccount _account = new();
+    ServerLaneState? _laneState;
     IDisposable? _laneFeed;
     bool _disposed;
 
@@ -45,11 +46,7 @@ internal sealed class ContextHost : IDisposable {
         loop.HandleThen("context/subscribe", Subscribe);
         loop.Handle("context/unsubscribe", UnsubscribeAsync);
         loop.Handle("context/refresh", Refresh);
-
-        // The first status is the one the connection already had; only a later connect is a reconnect.
-        _laneFeed = _lane.Select(status => status.State).DistinctUntilChanged().Skip(1)
-            .Where(state => state == ServerLaneState.Connected)
-            .Subscribe(_ => RefreshAll());
+        _laneFeed = _lane.Subscribe(FollowLane);
     }
 
     public void Dispose() {
@@ -115,11 +112,21 @@ internal sealed class ContextHost : IDisposable {
         return Task.FromResult<JsonNode?>(null);
     }
 
-    void RefreshAll() {
+    /// <summary>A sign-out or a connect as another account restarts every subscription from nothing; a reconnect as the same
+    /// account reads again over what is shown. The first status is the one the connection already had, not a reconnect.</summary>
+    void FollowLane(ServerLaneStatus status) {
         lock (_lock) {
             if (_disposed) return;
 
-            foreach (var subscription in _subscriptions.Values) subscription.Refresh();
+            var previous = _laneState;
+            _laneState = status.State;
+            var switched = _account.SwitchedBy(status);
+            if (switched || status.State == ServerLaneState.SignedOut && previous != ServerLaneState.SignedOut) {
+                ForgetCredential();
+                foreach (var subscription in _subscriptions.Values) subscription.Restart();
+            } else if (status.State == ServerLaneState.Connected && previous is not (null or ServerLaneState.Connected)) {
+                foreach (var subscription in _subscriptions.Values) subscription.Refresh();
+            }
         }
     }
 

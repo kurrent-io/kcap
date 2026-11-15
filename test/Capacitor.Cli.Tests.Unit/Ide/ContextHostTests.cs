@@ -567,4 +567,115 @@ public class ContextHostTests {
         await Assert.That(host.Work.Requested.Order()).IsEquivalentTo([OtherSession, OtherSession, Session, Session]);
         await Assert.That(host.Plans.Requested.Order()).IsEquivalentTo([OtherSession, OtherSession, Session, Session]);
     }
+
+    [Test]
+    public async Task The_same_account_reconnecting_keeps_the_content_and_only_refreshes() {
+        using var host = new Host();
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-a"));
+        await host.InitializeAsync();
+        await host.SubscribeAsync("sub-1", Session);
+        await host.IdleAsync("sub-1");
+        await host.SettleAsync();
+
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Retrying, "connection refused"));
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-a"));
+        await host.IdleAsync("sub-1");
+        var changes = Changes(await host.SettleAsync(), "sub-1");
+
+        await Assert.That(host.Work.Requested).IsEquivalentTo([Session, Session]);
+        await Assert.That(host.Plans.Requested).IsEquivalentTo([Session, Session]);
+        await Assert.That(changes).IsEmpty();
+        await Assert.That(host.Work.Cached(Session)).IsNotNull();
+        await Assert.That(host.Plans.Cached(Session)).IsNotNull();
+    }
+
+    /// <summary>The previous account's reads are still on the wire when the lane connects as another account: they settle
+    /// into nothing, and both sections go back to loading before the new account's content arrives.</summary>
+    [Test]
+    public async Task An_account_change_restarts_a_subscription_from_loading() {
+        using var host = new Host();
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-a"));
+        await host.InitializeAsync();
+        await host.SubscribeAsync("sub-1", Session);
+        await host.IdleAsync("sub-1");
+        await host.SettleAsync();
+        var oldWork = host.Work.Gate();
+        var oldPlan = host.Plans.Gate();
+        await host.RefreshAsync("sub-1");
+        await host.ReadsRequestedAsync(2);
+        var late = host.Context.PendingReadsForTesting("sub-1");
+
+        host.Work.Default  = Ready("Beta");
+        host.Plans.Default = Plan(("Review the change", "pending"));
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Retrying, "connection refused"));
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-b"));
+        await host.IdleAsync("sub-1");
+        oldWork.SetResult(Ready("Alpha"));
+        oldPlan.SetResult(Plan(("Write the test", "completed"), ("Make it pass", "in_progress")));
+        await late.WithinDeadlineAsync("the previous account's reads");
+        var changes = Changes(await host.SettleAsync(), "sub-1");
+
+        await Assert.That(WorkSteps(changes)).IsEqualTo("loading: | ready:Beta");
+        await Assert.That(PlanSteps(changes)).IsEqualTo("loading: | ready:Review the change");
+        await Assert.That(changes[0]["params"]!["work"]!.ToJsonString()).IsEqualTo(LoadingWork);
+        await Assert.That(changes[0]["params"]!["plan"]!.ToJsonString()).IsEqualTo(LoadingPlan);
+    }
+
+    /// <summary>Reads after the sign-out cannot reach the server, so nothing replaces what the previous account was shown
+    /// but the restart itself.</summary>
+    [Test]
+    public async Task A_lane_sign_out_clears_every_open_subscription() {
+        using var host = new Host();
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-a"));
+        await host.InitializeAsync();
+        await host.SubscribeAsync("sub-1", Session);
+        await host.SubscribeAsync("sub-2", OtherSession);
+        await host.IdleAsync("sub-1");
+        await host.IdleAsync("sub-2");
+        await host.SettleAsync();
+
+        host.Work.Default  = WorkContextRead.Of(WorkContextReadKind.Unreachable, "connection refused");
+        host.Plans.Default = SessionPlansRead.Of(SessionPlansReadKind.Unreachable);
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.SignedOut));
+        await host.IdleAsync("sub-1");
+        await host.IdleAsync("sub-2");
+        var seen = await host.SettleAsync();
+
+        foreach (var id in new[] { "sub-1", "sub-2" }) {
+            await Assert.That(WorkSteps(Changes(seen, id))).IsEqualTo("loading: | unreachable:");
+            await Assert.That(PlanSteps(Changes(seen, id))).IsEqualTo("loading: | unavailable:");
+        }
+        await Assert.That(host.Work.Cached(Session)).IsNull();
+        await Assert.That(host.Plans.Cached(Session)).IsNull();
+    }
+
+    [Test]
+    public async Task A_subscription_after_an_account_change_is_not_seeded_from_the_previous_account() {
+        using var host = new Host();
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-a"));
+        await host.InitializeAsync();
+        await host.SubscribeAsync("sub-1", Session);
+        await host.IdleAsync("sub-1");
+        await host.CallAsync("context/unsubscribe", new JsonObject { ["subscription_id"] = "sub-1" });
+        var held = (Work: host.Work.Cached(Session) is not null, Plan: host.Plans.Cached(Session) is not null);
+
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Retrying, "connection refused"));
+        host.Lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "user-b"));
+        host.Work.Gate();
+        host.Plans.Gate();
+        var after = await host.SubscribeAsync("sub-2", Session);
+
+        await Assert.That(held).IsEqualTo((true, true));
+        await Assert.That(after["params"]!["work"]!.ToJsonString()).IsEqualTo(LoadingWork);
+        await Assert.That(after["params"]!["plan"]!.ToJsonString()).IsEqualTo(LoadingPlan);
+    }
+
+    /// <summary>Each work section the changes carried, in order, as its phase and title.</summary>
+    static string WorkSteps(IEnumerable<JsonObject> changes) =>
+        string.Join(" | ", changes.Select(m => m["params"]!["work"]).OfType<JsonNode>().Select(w => $"{Text(w, "phase")}:{Text(w, "title")}"));
+
+    /// <summary>Each plan section the changes carried, in order, as its state and task titles.</summary>
+    static string PlanSteps(IEnumerable<JsonObject> changes) =>
+        string.Join(" | ", changes.Select(m => m["params"]!["plan"]).OfType<JsonNode>()
+            .Select(p => $"{Text(p, "state")}:{string.Join(",", p["tasks"]!.AsArray().Select(t => Text(t, "title")))}"));
 }
