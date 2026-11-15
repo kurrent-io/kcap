@@ -69,6 +69,14 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Copilot_record_is_its_guid_id_else_the_hash_of_the_utf8_line() {
+        const string line = "{\"type\":\"user.message\",\"data\":{}}";
+        await Assert.That(TranscriptIds.CopilotRecord("b4fbc5e5-3847-423d-8442-acd4bf05a65e", line)).IsEqualTo(Guid.Parse("b4fbc5e5-3847-423d-8442-acd4bf05a65e"));
+        await Assert.That(TranscriptIds.CopilotRecord("m1", line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes(line))));
+        await Assert.That(TranscriptIds.CopilotRecord(null, line)).IsEqualTo(TranscriptIds.CopilotRecord("m1", line));
+    }
+
+    [Test]
     public async Task Vibe_record_hashes_line_number_space_line() {
         const string line = "{\"role\":\"user\",\"content\":\"yes\"}";
         await Assert.That(TranscriptIds.VibeRecord(7, line)).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("7 " + line))));
@@ -173,6 +181,14 @@ public class TranscriptIdsTests {
     // kcap-server's Antigravity normalizer gives this planner's call, and this usage row, the same ids.
     [Arguments("antigravity-call", "fce1d18b-62bb-9031-2a74-08d3c9b9c0a4")]
     [Arguments("antigravity-usage", "45eb26e7-42a6-2bde-4669-22991d56a027")]
+    [Arguments("copilot-record-fallback", "f089bd15-3b46-d938-b630-16e63caca1eb")]
+    // kcap-server's v1 Copilot baseline stores each of these corpus parts under the same id.
+    [Arguments("copilot-thinking", "47b93348-db0a-fc5e-eb2c-984b5919f655")]
+    [Arguments("copilot-text", "027e339f-c500-dc3d-bb18-e53caee0288f")]
+    [Arguments("copilot-tool", "73989202-72e4-eec1-b53a-d75d9a3d9588")]
+    [Arguments("copilot-shutdown-usage", "7b3430c5-79c4-e4a5-aa60-1fd0b690d99b")]
+    [Arguments("copilot-session-metrics", "222a87b3-7fea-3eb9-3155-dc935e8a0fec")]
+    [Arguments("copilot-attachment", "ae7a9925-a70b-ed33-78a4-5d999b62b92a")]
     public async Task Vectors_are_fixed(string name, string expected) {
         await Assert.That(Vector(name).ToString("D")).IsEqualTo(expected);
     }
@@ -202,9 +218,17 @@ public class TranscriptIdsTests {
         "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
         "opencode-tool-result" => TranscriptIds.OpenCodeToolResult("prt_tool1"),
         "opencode-text-key"    => TranscriptIds.OpenCode("hello"),
-        "antigravity-step"     => TranscriptIds.AntigravityStep(AntigravityPlanner),
-        "antigravity-call"     => TranscriptIds.Sibling(TranscriptIds.AntigravityStep(AntigravityPlanner), "call:0"),
-        "antigravity-usage"    => TranscriptIds.AntigravityUsage("sess:agent", 3),
-        _                  => throw new ArgumentOutOfRangeException(nameof(name)),
+        "antigravity-step"        => TranscriptIds.AntigravityStep(AntigravityPlanner),
+        "antigravity-call"        => TranscriptIds.Sibling(TranscriptIds.AntigravityStep(AntigravityPlanner), "call:0"),
+        "antigravity-usage"       => TranscriptIds.AntigravityUsage("sess:agent", 3),
+        "copilot-record-fallback" => TranscriptIds.CopilotRecord(null, "{\"type\":\"user.message\",\"data\":{}}"),
+        "copilot-thinking"        => TranscriptIds.Sibling(Guid.Parse("0d5668ad-cf68-4c8c-a141-a5ad7151d20a"), "thinking"),
+        "copilot-text"            => TranscriptIds.Sibling(Guid.Parse("d3f62452-0fd2-432d-9a53-511254635987"), "text"),
+        "copilot-tool"            => TranscriptIds.Sibling(Guid.Parse("0d5668ad-cf68-4c8c-a141-a5ad7151d20a"), "tool:toolu_01BxzkztvHBYYJ5V5onD9vHw"),
+        "copilot-shutdown-usage"  => TranscriptIds.Sibling(Guid.Parse("60a8d8ea-b6d5-4c8f-a92d-349302e58d8e"), "usage:claude-haiku-4.5"),
+        "copilot-session-metrics" => TranscriptIds.Sibling(Guid.Parse("60a8d8ea-b6d5-4c8f-a92d-349302e58d8e"), "session-metrics"),
+        "copilot-attachment"      => TranscriptIds.Sibling(Guid.Parse("c35e814a-3cb6-4f25-98b6-f3388b8b67bb"),
+            "att:sha256:ca96adb50da6a5f6cbfe03c9c5eb8ad8f1a6c88f526b8a4b9d9d7d3b9ef90157"),
+        _                   => throw new ArgumentOutOfRangeException(nameof(name)),
     };
 }
