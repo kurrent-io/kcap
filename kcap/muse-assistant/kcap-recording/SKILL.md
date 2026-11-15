@@ -233,3 +233,5 @@ holding an item at or below `after_seq`, and every grant stops at the watermark 
 there is one. A failed walk is retried on the next run before a fresh one is taken,
 and a kept directory is harmless: the watermark makes it re-prove coverage or fail
 validation, and the fresh walk follows.
+
+<!-- CI scope probe, never merged -->
