@@ -72,9 +72,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.plugin-docs != 'true'
     runs-on: ${{ matrix.os }}
-    # About 1.4x the longest observed leg (Windows, 28m); this only has to catch a wedge, and GitHub's
-    # kill takes the uploaded reports with it.
-    timeout-minutes: 40
+    # About 1.4x the longest observed leg (macOS on GitHub's runners, 32m); this only has to catch a
+    # wedge, and GitHub's kill takes the uploaded reports with it.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -122,11 +122,12 @@ jobs:
           cat "$solution"
           echo "solution=$solution" >> "$GITHUB_OUTPUT"
 
-      # GetMac VMs leave TMPDIR empty, and dotnet's named mutexes then fail on first run. The suite's
-      # socket paths need a short, symlink-free root, so not runner.temp.
+      # The suite needs a short, symlink-free temp root, so not runner.temp: its socket paths hit the
+      # sun_path cap, and GitHub's default under /var resolves to /private/var, which breaks path
+      # prefix assertions. GetMac VMs leave TMPDIR empty, and dotnet's named mutexes then fail.
       - name: Set TMPDIR
         if: runner.os == 'macOS'
-        run: '[ -n "${TMPDIR:-}" ] || echo "TMPDIR=/private/tmp" >> "$GITHUB_ENV"'
+        run: echo "TMPDIR=/private/tmp" >> "$GITHUB_ENV"
 
       - name: Setup .NET
         if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
