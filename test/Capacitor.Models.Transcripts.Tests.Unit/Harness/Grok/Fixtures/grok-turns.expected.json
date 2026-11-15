@@ -1,0 +1,578 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "d2091eeb-57c0-0ae6-724e-5dadebccaff4",
+        "timestamp": "2026-10-13T14:15:42.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:42.0000000\u002B00:00",
+        "payload": {
+          "content": "Rename the helper",
+          "timestamp": "2026-10-13T14:15:42Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "1702e883-62c7-d83b-8d8e-2f51c76d2d89",
+        "timestamp": "2026-10-13T14:15:43.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:43.1000000\u002B00:00",
+        "payload": {
+          "content": "Find its callers first.",
+          "encrypted": false,
+          "timestamp": "2026-10-13T14:15:43.100Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "de73db93-3a95-a1f1-10a2-e4155b7eabb6",
+        "timestamp": "2026-10-13T14:15:44.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:44.0000000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "c1",
+              "tool_name": "grep"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:44Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "df52c67d-6170-6dbd-1a34-59505ff254a3",
+        "timestamp": "2026-10-13T14:15:44.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:44.1000000\u002B00:00",
+        "payload": {
+          "call_id": "c1",
+          "result": "src/a.cs\nsrc/b.cs",
+          "timestamp": "2026-10-13T14:15:44.100Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "7c2a1a6d-633a-93b4-b31e-4a23d35546ae",
+        "timestamp": "2026-10-13T14:15:45.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:45.0000000\u002B00:00",
+        "payload": {
+          "content": "Two callers; renaming now.",
+          "timestamp": "2026-10-13T14:15:45Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "16084dbe-9e68-04b0-5295-57aa0c68a6c3",
+        "timestamp": "2026-10-13T14:15:46.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:46.0000000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "c2",
+              "tool_name": "search_replace",
+              "arguments": {
+                "path": "src/a.cs",
+                "old": "helper",
+                "new": "Helper"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:46Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "76b3f462-d16c-7668-155f-ad5c91a536e6",
+        "timestamp": "2026-10-13T14:15:46.2000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:46.2000000\u002B00:00",
+        "payload": {
+          "call_id": "c2",
+          "result": "{\u0022replaced\u0022:1}",
+          "timestamp": "2026-10-13T14:15:46.200Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "0b4b0dd7-8e8d-f7be-0f2f-e005a30bbcd6",
+        "timestamp": "2026-10-13T14:15:47.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:47.0000000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "c3",
+              "tool_name": "use_tool",
+              "arguments": {
+                "server": "notes",
+                "tool": "save"
+              },
+              "tool_kind": "other"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:47Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "d60e65c6-e11f-9918-7cf4-53f705c21e69",
+        "timestamp": "2026-10-13T14:15:47.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:47.1000000\u002B00:00",
+        "payload": {
+          "call_id": "c3",
+          "result": "{\u0022code\u0022:-32000,\u0022message\u0022:\u0022not connected\u0022}",
+          "timestamp": "2026-10-13T14:15:47.100Z",
+          "extensions": {
+            "acp": {
+              "is_error": true
+            }
+          }
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "515ff38a-d66f-e062-5c99-d0df2fa74795",
+        "timestamp": "2026-10-13T14:15:49.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:49.0000000\u002B00:00",
+        "payload": {
+          "model": "grok-small",
+          "input_tokens": 500,
+          "output_tokens": 20,
+          "cache_read_tokens": 0,
+          "reasoning_tokens": null,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 0,
+          "targets": [
+            {
+              "event_id": "7c2a1a6d-633a-93b4-b31e-4a23d35546ae",
+              "event_type": "AssistantTextGenerated",
+              "tool_name": null,
+              "is_echo": false
+            }
+          ]
+        },
+        "usage": null
+      },
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "ddcbf30f-09e1-b71e-fe54-de6eeb8426ca",
+        "timestamp": "2026-10-13T14:15:49.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:49.0000000\u002B00:00",
+        "payload": {
+          "model": "grok-big",
+          "input_tokens": 3000,
+          "output_tokens": 300,
+          "cache_read_tokens": 6000,
+          "reasoning_tokens": 40,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 2500,
+          "targets": [
+            {
+              "event_id": "7c2a1a6d-633a-93b4-b31e-4a23d35546ae",
+              "event_type": "AssistantTextGenerated",
+              "tool_name": null,
+              "is_echo": false
+            }
+          ]
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "2eed0a22-6739-cded-8fd8-62233d39fc4d",
+        "timestamp": "2026-10-13T14:15:50.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:50.0000000\u002B00:00",
+        "payload": {
+          "content": "Also the tests",
+          "timestamp": "2026-10-13T14:15:50Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "97003813-94f5-7326-a7d7-37e0d39163dd",
+        "timestamp": "2026-10-13T14:15:51.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:51.0000000\u002B00:00",
+        "payload": {
+          "content": "On it.",
+          "timestamp": "2026-10-13T14:15:51Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "33d747e3-d888-65e7-cd5b-c1318dc906b9",
+        "timestamp": "2026-10-13T14:15:52.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:52.0000000\u002B00:00",
+        "payload": {
+          "model": "grok-big",
+          "input_tokens": 0,
+          "output_tokens": 5,
+          "cache_read_tokens": 150,
+          "reasoning_tokens": null,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 0,
+          "targets": []
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 16,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 17,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 18,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 19,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "5dd2e23a-c8d4-23c1-f7cb-19df120b28d8",
+        "timestamp": "2026-10-13T14:15:54.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:54.1000000\u002B00:00",
+        "payload": {
+          "model": "grok-big",
+          "input_tokens": 40,
+          "output_tokens": 2,
+          "cache_read_tokens": 0,
+          "reasoning_tokens": null,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 5,
+          "targets": []
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 20,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "4af46d05-b253-561b-ada2-3718d245c279",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "payload": {
+          "content": "Untimed thought",
+          "encrypted": false,
+          "timestamp": "2026-11-15T10:00:00Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 21,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 22,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "804aa873-9187-9b41-6ecf-d6ecd37b70d1",
+        "timestamp": "2026-10-13T14:15:55.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:55.0000000\u002B00:00",
+        "payload": {
+          "model": "grok-big",
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_read_tokens": 0,
+          "reasoning_tokens": null,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 5,
+          "targets": []
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 23,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 24,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 25,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 26,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "dccd1dd4-d512-87ef-6475-5da99dc94059",
+        "timestamp": "2026-10-13T14:15:56.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:56.0000000\u002B00:00",
+        "payload": {
+          "call_id": "c4",
+          "timestamp": "2026-10-13T14:15:56Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 27,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "ca9ae1f3-e342-5744-a393-dd9ba1e3cbe5",
+        "timestamp": "2026-10-13T14:15:56.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:56.1000000\u002B00:00",
+        "payload": {
+          "call_id": "c5",
+          "result": "line one\nline two",
+          "timestamp": "2026-10-13T14:15:56.100Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 28,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "fe931fd3-6ca4-5157-4b45-32f3c6edbde5",
+        "timestamp": "2026-10-13T14:15:56.2000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:56.2000000\u002B00:00",
+        "payload": {
+          "call_id": "c6",
+          "result": "plain",
+          "timestamp": "2026-10-13T14:15:56.200Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 29,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "27a64aa0-421a-9acb-c340-264b590063a9",
+        "timestamp": "2026-10-13T14:15:56.3000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:56.3000000\u002B00:00",
+        "payload": {
+          "call_id": "c7",
+          "result": "42",
+          "timestamp": "2026-10-13T14:15:56.300Z",
+          "extensions": {
+            "acp": {
+              "is_error": true
+            }
+          }
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 30,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 31,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "2a40ae2b-239d-3d1c-2a06-4c32b661caf0",
+        "timestamp": "2026-10-13T14:15:57.1000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:57.1000000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "c8",
+              "tool_name": "think"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:57.100Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 32,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "3a06c60b-98ef-b8b5-023f-3df30219458e",
+        "timestamp": "2026-10-13T14:15:57.2000000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:57.2000000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "c9",
+              "tool_name": ""
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:57.200Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  }
+]

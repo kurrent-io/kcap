@@ -4,8 +4,9 @@ namespace Capacitor.Models.Transcripts.Harness.Codex;
 
 /// A response cluster's usage restated for members already persisted before their `token_count`
 /// arrived; read models treat it as the `$usage` the cluster's canonical member would have carried.
-/// Persisted as `CodexUsageBackfilled`. The leaf never emits it: the caller builds it from a
-/// UsageApplied whose targets it no longer holds.
+/// Persisted as `CodexUsageBackfilled`. The Codex projection never emits it: the caller builds it
+/// from a UsageApplied whose targets it no longer holds. The Grok projection emits one per model
+/// when a turn completes.
 public sealed record CodexUsageBackfilledEvent {
     [JsonPropertyName("model")]
     public string? Model { get; init; }

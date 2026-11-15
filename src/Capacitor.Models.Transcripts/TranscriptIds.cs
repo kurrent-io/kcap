@@ -82,6 +82,17 @@ public static class TranscriptIds {
     /// One per turn anchor in a stream, whatever line restates it, so a re-sent backfill dedups.
     public static Guid KiroUsage(string idScope, string messageId) => Hash(Encoding.UTF8.GetBytes($"kiro-usage:{idScope}:{messageId}"));
 
+    /// A Grok event: <c>grok:</c>, then its update's event id.
+    public static Guid Grok(string eventId) => Hash(Encoding.UTF8.GetBytes("grok:" + eventId));
+
+    /// One model's usage from a Grok <c>turn_completed</c> update, under that update's event id.
+    public static Guid GrokUsage(string eventId, string model) => Hash(Encoding.UTF8.GetBytes($"grok:{eventId}:usage:{model}"));
+
+    /// The event id of a Grok update that carries no <c>_meta.eventId</c>: the upper-case hex of the hash of
+    /// <c>{lineNumber}\n{line}</c>, which the other Grok ids then hash again.
+    public static string GrokLineEventId(int lineNumber, string line) =>
+        Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber}\n{line}"))));
+
     /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
     /// when it has none), or an assistant part's id.
     public static Guid OpenCode(string key) => Hash(Encoding.UTF8.GetBytes(key));

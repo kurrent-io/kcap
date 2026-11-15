@@ -1,6 +1,7 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Gemini;
+using Capacitor.Models.Transcripts.Harness.Grok;
 using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
 using Capacitor.Models.Transcripts.Harness.OpenCode;
@@ -22,6 +23,7 @@ public static class TranscriptProjection {
         "claude" => ClaudeTranscriptEvents.Instance,
         "codex" => CodexRolloutEvents.Instance,
         "gemini" => GeminiTranscriptEvents.Instance,
+        "grok" => GrokTranscriptEvents.Instance,
         "kiro" => KiroTranscriptEvents.Instance,
         "mistral-vibe" => MistralVibeTranscriptEvents.Instance,
         "opencode" => OpenCodeTranscriptEvents.Instance,

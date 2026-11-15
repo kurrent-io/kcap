@@ -9,6 +9,8 @@ namespace Capacitor.Models.Transcripts.Tests.Unit;
 public class TranscriptIdsTests {
     static readonly Guid Primary = Guid.Parse("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0");
 
+    const string GrokLine = """{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}""";
+
     [Test]
     public async Task Sibling_hashes_the_primary_guid_bytes_then_the_utf8_suffix() {
         var expectedInput = new byte[16 + 6];
@@ -121,6 +123,13 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Grok_ids_hash_the_prefixed_event_id_and_a_line_without_one_goes_by_its_hex_hash() {
+        await Assert.That(TranscriptIds.Grok("e-1")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("grok:e-1"))));
+        await Assert.That(TranscriptIds.GrokUsage("e-1", "m")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("grok:e-1:usage:m"))));
+        await Assert.That(TranscriptIds.GrokLineEventId(3, "{}")).IsEqualTo(Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes("3\n{}"))));
+    }
+
+    [Test]
     public async Task OpenCode_hashes_the_utf8_key_and_suffixes_a_tool_part_for_its_call_and_result() {
         await Assert.That(TranscriptIds.OpenCode("prt_tool1")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("prt_tool1"))));
         await Assert.That(TranscriptIds.OpenCodeToolCall("prt_tool1")).IsEqualTo(TranscriptIds.OpenCode("prt_tool1:call"));
@@ -141,6 +150,11 @@ public class TranscriptIdsTests {
     [Arguments("gemini-record-fallback", "fd3d945b-502d-9061-e197-a8bed75d598b")]
     // kcap-server's v1 Gemini baseline stores this record's thinking part under the same id.
     [Arguments("gemini-thinking", "df992b2b-ffcf-9188-4aa2-863991f852a8")]
+    // kcap-server's v1 Grok baseline stores its corpus prompt and turn usage under these two ids.
+    [Arguments("grok-event", "e4716418-6ac0-af2d-7410-ba5d12a6f87b")]
+    [Arguments("grok-usage", "8244c93c-0493-0974-18e2-d60601031101")]
+    // kcap-server's Grok normalizer stores this line, which names no event id, under the same id.
+    [Arguments("grok-line", "7264b3e6-5c97-9534-ab9a-eef899742b9a")]
     [Arguments("vibe-record", "a14e98cf-4aa1-a507-7ec2-d0e71ed0cdbd")]
     [Arguments("vibe-tool-call", "6509a28d-49aa-5bf6-7f69-110d330e62f4")]
     [Arguments("vibe-entry", "d219bcea-d51a-d28e-6f8a-c4d4635844d0")]
@@ -172,6 +186,9 @@ public class TranscriptIdsTests {
         "codex-usage-backfill" => TranscriptIds.Sibling(Primary, "usage-backfill"),
         "gemini-record-fallback" => TranscriptIds.GeminiRecord("n1", "{\"id\":\"n1\",\"type\":\"user\"}"),
         "gemini-thinking"   => TranscriptIds.Sibling(TranscriptIds.GeminiRecord("a3b19e5f-275a-407f-891f-9b3661d7e79b", "{}"), "thinking"),
+        "grok-event"        => TranscriptIds.Grok("01b00000-0000-7000-8000-000000000001-7"),
+        "grok-usage"        => TranscriptIds.GrokUsage("01b00000-0000-7000-8000-000000000001-98", "grok-4.5-build"),
+        "grok-line"         => TranscriptIds.Grok(TranscriptIds.GrokLineEventId(4, GrokLine)),
         "vibe-record"       => TranscriptIds.VibeRecord(7, "{\"role\":\"user\",\"content\":\"hi\"}"),
         "vibe-tool-call"    => TranscriptIds.VibeToolCall(Primary, "call_1"),
         "vibe-entry"        => TranscriptIds.VibeEntry("user-turn-abc-1"),
