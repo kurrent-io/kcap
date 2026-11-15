@@ -43,11 +43,30 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// An Antigravity step carries only a per-conversation index, so its id is the hash of its line. Each part
+    /// a planner step emits is a <see cref="Sibling"/> of it, and so is the id it gives each tool call.
+    public static Guid AntigravityStep(string line) => Hash(Encoding.UTF8.GetBytes(line));
+
+    /// One per generation row in a stream, whatever line restates it: the recorder re-sends a row with its
+    /// tokens corrected or its model renamed, and the row's usage must count once.
+    public static Guid AntigravityUsage(string idScope, long genRow) =>
+        Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"antigravity-usage:{idScope}:{genRow}")));
+
     /// A Copilot envelope's own <c>id</c> when it parses as a Guid, else the hash of its line. Every other event the
     /// line emits is a <see cref="Sibling"/> of it, its suffix naming the part: <c>thinking</c>, <c>text</c>,
     /// <c>tool:{callId}</c>, <c>usage:{model}</c>, <c>session-metrics</c>, or <c>att:{assetId}</c> for an attachment.
     public static Guid CopilotRecord(string? id, string line) =>
         id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
+    /// Cursor's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this namespace.
+    /// Changing it orphans every stored Cursor event.
+    static readonly Guid CursorNamespace = new("8b2e0c3a-b3d4-4f0a-9c0c-c43f59a5d5e1");
+
+    /// A Cursor transcript line names nothing stable, so a block's id is its place: the v5 UUID of
+    /// <c>{idScope}:line:{lineNumber}:{kind}:{blockIndex}:{eventType}</c>, the block index counting every block of
+    /// the line's content.
+    public static Guid CursorBlock(string idScope, int lineNumber, string kind, int blockIndex, string eventType) =>
+        Uuid5(CursorNamespace, string.Create(CultureInfo.InvariantCulture, $"{idScope}:line:{lineNumber}:{kind}:{blockIndex}:{eventType}"));
 
     /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
     /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
