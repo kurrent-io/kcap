@@ -32,6 +32,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     readonly string? _serverUrl;
     readonly Func<Task<string?>> _token;
     readonly HubRetryPolicy _retry;
+    Exception? _refusedReconnect;
     readonly Action<ILoggingBuilder>? _hubLogging;
     readonly BehaviorSubject<ServerLaneStatus> _status = new(new(ServerLaneState.Dormant));
     readonly Subject<Unit> _agentsChanged = new();
@@ -94,7 +95,13 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         _time = time;
         _serverUrl = string.IsNullOrEmpty(serverUrl) ? null : serverUrl.TrimEnd('/');
         _token = accessTokenProvider;
-        _retry = new HubRetryPolicy(IsUnauthorized, reconnectDelays);
+        // SignalR closes a connection the policy gave up on with an exception of its own, so the 401 is kept here.
+        _retry = new HubRetryPolicy(ex => {
+            if (!IsUnauthorized(ex)) return false;
+
+            Volatile.Write(ref _refusedReconnect, ex);
+            return true;
+        }, reconnectDelays);
         _hubLogging = hubLogging;
     }
 
@@ -217,8 +224,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await using (ct.Register(() => closed.TrySetResult(null)))
                     closeReason = await closed.Task.ConfigureAwait(false);
 
-                if (closeReason is not null && IsUnauthorized(closeReason)) {
-                    ParkSignedOutCore(generation, closeReason.Message);
+                if (Interlocked.Exchange(ref _refusedReconnect, null) is { } refused) {
+                    ParkSignedOutCore(generation, refused.Message);
                     return;
                 }
 

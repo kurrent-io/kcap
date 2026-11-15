@@ -351,8 +351,9 @@ public class ServerConnectionServiceTests {
         using var watch = lane.Status.Where(s => s.State == ServerLaneState.Connecting).Subscribe(_ => Interlocked.Increment(ref redials));
 
         HubTestHost.RefuseNegotiation = true;
-        var reconnected = Next(lane.Status, s => s.State == ServerLaneState.Connected);
-        HubTestHost.DropConnections();
+        // Status replays its current value, so only a Connected after the drop's Retrying counts.
+        var reconnected = Next(lane.Status.SkipWhile(s => s.State != ServerLaneState.Retrying), s => s.State == ServerLaneState.Connected);
+        await HubTestHost.DropConnectionsAsync();
 
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (HubTestHost.RefusedNegotiations < 6 && DateTime.UtcNow < deadline) await Task.Delay(20);
@@ -364,20 +365,20 @@ public class ServerConnectionServiceTests {
         await Assert.That(Volatile.Read(ref redials)).IsEqualTo(0);
     }
 
-    /// A refused credential is what kcap login repairs, so a reconnect that meets one closes and
-    /// parks the lane rather than retrying it forever.
+    /// A refused credential is what kcap login repairs, so a reconnect that meets one parks the lane at once,
+    /// even when every later attempt would fail some other way: SignalR closes a connection the policy gave
+    /// up on with its own exception, not the 401.
     [Test]
     public async Task A_reconnect_refused_as_unauthorized_parks_the_lane() {
-        var token = "tok";
-        await using var host = await HubTestHost.StartAsync(requireAuth: true);
-        await using var lane = new ServerConnectionService(
-            TimeProvider.System, host.Url, () => Task.FromResult<string?>(token), [TimeSpan.FromMilliseconds(20)]);
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        token = null;
+        HubTestHost.UnauthorizedNegotiations = 1;
+        HubTestHost.RefuseNegotiation        = true;
         var parked = Next(lane.Status, s => s.State == ServerLaneState.SignedOut, seconds: 15);
-        HubTestHost.DropConnections();
+        await HubTestHost.DropConnectionsAsync();
 
         await parked;
     }
@@ -615,7 +616,7 @@ public class ServerConnectionServiceTests {
         });
         await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", (ulong?)null)), what: "the subscribe");
 
-        HubTestHost.CloseConnections();
+        await HubTestHost.CloseConnectionsAsync();
         await tail.WaitAsync(TimeSpan.FromSeconds(15));
     }
 

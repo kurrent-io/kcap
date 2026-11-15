@@ -53,6 +53,9 @@ public sealed class HubTestHost : IAsyncDisposable {
     public static bool RefuseNegotiation { get => Volatile.Read(ref _refuseNegotiation); set => Volatile.Write(ref _refuseNegotiation, value); }
     static bool _refuseNegotiation;
     static int _refusedNegotiations;
+    static int _unauthorizedNegotiations;
+    /// How many of the refused negotiations to come answer 401 rather than 503.
+    public static int UnauthorizedNegotiations { set => Volatile.Write(ref _unauthorizedNegotiations, value); }
     public static int RefusedNegotiations => Volatile.Read(ref _refusedNegotiations);
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HubCallerContext> Live = new();
 
@@ -88,6 +91,7 @@ public sealed class HubTestHost : IAsyncDisposable {
         SpecialKeys.Clear();
         RefuseNegotiation = false;
         _refusedNegotiations = 0;
+        _unauthorizedNegotiations = 0;
         Live.Clear();
 
         var builder = WebApplication.CreateBuilder();
@@ -118,7 +122,7 @@ public sealed class HubTestHost : IAsyncDisposable {
         app.Use(async (ctx, next) => {
             if (RefuseNegotiation && ctx.Request.Path.Value?.EndsWith("/negotiate", StringComparison.Ordinal) == true) {
                 Interlocked.Increment(ref _refusedNegotiations);
-                ctx.Response.StatusCode = 503;
+                ctx.Response.StatusCode = Interlocked.Decrement(ref _unauthorizedNegotiations) >= 0 ? 401 : 503;
                 return;
             }
             await next();
@@ -184,14 +188,23 @@ public sealed class HubTestHost : IAsyncDisposable {
     public Task StopAsync() => _app!.StopAsync();
 
     /// Severs every live hub connection's transport, leaving the host up: what the client sees when a
-    /// server process dies, so it reconnects.
-    public static void DropConnections() {
+    /// server process dies, so it reconnects. Waits for the server to admit a connection first: a client
+    /// can read itself connected before the server's OnConnectedAsync has run.
+    public static async Task DropConnectionsAsync() {
+        await AdmittedAsync();
         foreach (var context in Live.Values) context.GetHttpContext()?.Abort();
     }
 
     /// Closes every live hub connection the way a server ends one on purpose: no reconnect is allowed.
-    public static void CloseConnections() {
+    public static async Task CloseConnectionsAsync() {
+        await AdmittedAsync();
         foreach (var context in Live.Values) context.Abort();
+    }
+
+    static async Task AdmittedAsync() {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (Live.IsEmpty && DateTime.UtcNow < deadline) await Task.Delay(10);
+        if (Live.IsEmpty) throw new TimeoutException("the server admitted no hub connection");
     }
 
     public async ValueTask DisposeAsync() {
