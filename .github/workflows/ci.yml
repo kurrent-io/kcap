@@ -1,14 +1,9 @@
 name: CI
 
 on:
+  # No paths filter: merging requires `CI passed`, so every PR must report it. `changes` decides what
+  # a markdown-only PR runs.
   pull_request:
-    # Skip markdown-only PRs, except under kcap/: every file in the shipped plugin is a SKILL.md, so
-    # adding a skill is a markdown-only change, and the guard that catches an unlisted skill must
-    # run on the PR that adds it. Order matters: later patterns re-include.
-    paths:
-      - '**'
-      - '!**.md'
-      - 'kcap/**'
   # The merge queue tests each PR on top of the main it will land on, so two PRs that pass alone cannot
   # break main together. Paths filters do not apply to this event; the whole suite runs.
   merge_group:
@@ -28,12 +23,14 @@ concurrency:
 jobs:
   # On a PR, the test projects its change can reach through the project graph; `all` otherwise.
   # The checkout is the PR's merge commit, so its first parent is the base it will merge onto.
+  # `scope` is `code` unless a PR changes only markdown: then `plugin-docs` when any of it is under
+  # kcap/, else `none`, which builds and tests nothing.
   changes:
     name: Select test projects
     runs-on: ubuntu-latest
     outputs:
       projects: ${{ steps.select.outputs.projects }}
-      plugin-docs: ${{ steps.select.outputs.plugin-docs }}
+      scope: ${{ steps.select.outputs.scope }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,21 +42,23 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          plugin_docs=false
+          scope=code
           if [ "$EVENT" = pull_request ]; then
             # --no-renames lists both sides of a move, so the project a file left is selected too.
             changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
             selected="$(printf '%s\n' "$changed" | bash scripts/select-test-projects.sh)"
+            # Every file in the shipped plugin is a SKILL.md, so adding a skill is a markdown-only change,
+            # and the guard that catches an unlisted skill must run on the PR that adds it.
             # No grep -q: an early exit can SIGPIPE printf, which pipefail would read as a match.
-            if [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -vE '^kcap/.*\.md$' || true)" ]; then
-              plugin_docs=true
+            if [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -v '\.md$' || true)" ]; then
+              if [ -n "$(printf '%s\n' "$changed" | grep '^kcap/' || true)" ]; then scope=plugin-docs; else scope=none; fi
             fi
           else
             selected=all
           fi
           projects="$(printf '%s' "$selected" | tr '\n' ' ' | sed 's/ *$//')"
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
-          echo "plugin-docs=$plugin_docs" >> "$GITHUB_OUTPUT"
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
           {
             echo '### Test projects'
             if [ "$projects" = all ]; then echo 'All of them.'
@@ -70,7 +69,7 @@ jobs:
   build-and-test:
     name: Build and test (${{ matrix.leg }})
     needs: changes
-    if: needs.changes.outputs.plugin-docs != 'true'
+    if: needs.changes.outputs.scope == 'code'
     runs-on: ${{ matrix.os }}
     # About 1.4x the longest observed leg (Windows, 28m); this only has to catch a wedge, and GitHub's
     # kill takes the uploaded reports with it.
@@ -222,7 +221,7 @@ jobs:
   plugin-docs:
     name: Plugin markdown guards
     needs: changes
-    if: needs.changes.outputs.plugin-docs == 'true'
+    if: needs.changes.outputs.scope == 'plugin-docs'
     runs-on: ubuntu-latest
     # Measured at 7.5m; this only has to catch a wedge.
     timeout-minutes: 20
@@ -270,6 +269,8 @@ jobs:
   # and Velopack's SemVer check see the same value.
   version:
     name: Version
+    needs: changes
+    if: needs.changes.outputs.scope != 'none'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -321,31 +322,34 @@ jobs:
       rid: ${{ matrix.rid }}
       version: ${{ needs.version.outputs.version }}
 
-  # The one check the release waits on, so renaming or adding a job above never needs a matching
-  # change there.
+  # The one check the release and the merge queue wait on, so renaming or adding a job above never
+  # needs a matching change in either.
   ci-passed:
     name: CI passed
     if: always()
     needs: [changes, build-and-test, plugin-docs, lint-comments, cli, desktop]
     runs-on: ubuntu-latest
     steps:
-      # build-and-test and plugin-docs are alternatives, so exactly one job is skipped: whichever of
-      # those two did not run.
+      # A job the scope leaves out must be skipped and every other job must succeed, so a job skipped
+      # for any other reason fails the run.
       - name: Require every job to succeed
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-          TESTS: ${{ needs.build-and-test.result }} ${{ needs.plugin-docs.result }}
+          NEEDS: ${{ toJSON(needs) }}
+          SCOPE: ${{ needs.changes.outputs.scope }}
         run: |
-          skipped=0
-          for result in $RESULTS; do
-            case "$result" in
-              success) ;;
-              skipped) skipped=$((skipped + 1)) ;;
-              *) echo "::error::a CI job ended $result"; exit 1 ;;
-            esac
-          done
-          case "$TESTS" in
-            'success skipped' | 'skipped success') ;;
-            *) echo "::error::the test jobs ended $TESTS"; exit 1 ;;
+          set -euo pipefail
+          case "$SCOPE" in
+            code) skip='plugin-docs' ;;
+            plugin-docs) skip='build-and-test' ;;
+            none) skip='build-and-test plugin-docs cli desktop' ;;
+            *) echo "::error::changes ended $(jq -r '.changes.result' <<< "$NEEDS") with scope '$SCOPE'"; exit 1 ;;
           esac
-          [ "$skipped" -eq 1 ] || { echo "::error::$skipped CI jobs were skipped"; exit 1; }
+          failed=0
+          while read -r job result; do
+            case " $skip " in *" $job "*) want=skipped ;; *) want=success ;; esac
+            if [ "$result" != "$want" ]; then
+              echo "::error::$job ended $result, expected $want"
+              failed=1
+            fi
+          done < <(jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<< "$NEEDS")
+          exit "$failed"
