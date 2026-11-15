@@ -7,17 +7,17 @@ namespace Capacitor.Models.Transcripts.Harness.Cursor;
 public static class CursorExtension {
     public const string Slug = "cursor";
 
-    public static Struct Turn(CursorTurn turn) {
-        var block = new Struct();
-        block.Fields["generation_id"] = Value.ForString(turn.GenerationId);
-        block.Fields["attachments"]   = Value.ForList([.. turn.Attachments.Select(Attachment)]);
-        return block;
-    }
+    public static Struct Turn(CursorTurn turn) => new() {
+        Fields = {
+            ["generation_id"] = Value.ForString(turn.GenerationId),
+            ["attachments"]   = Value.ForList([.. turn.Attachments.Select(Attachment)]),
+        },
+    };
 
-    static Value Attachment(CursorTurnAttachment attachment) {
-        var item = new Struct();
-        item.Fields["type"]      = Value.ForString(attachment.Type);
-        item.Fields["file_path"] = attachment.FilePath is { } path ? Value.ForString(path) : Value.ForNull();
-        return Value.ForStruct(item);
-    }
+    static Value Attachment(CursorTurnAttachment attachment) => Value.ForStruct(new Struct {
+        Fields = {
+            ["type"]      = Value.ForString(attachment.Type),
+            ["file_path"] = attachment.FilePath is { } path ? Value.ForString(path) : Value.ForNull(),
+        },
+    });
 }
