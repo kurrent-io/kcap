@@ -6,7 +6,10 @@ namespace Capacitor.Client;
 /// last values for the same primary and marks the card stale, an authoritative empty answer clears
 /// it, and a terminal answer clears everything the server gave.
 public static class WorkContextCards {
-    const string ViewerName = "You";
+    /// The name a contributor the viewer owns is given.
+    public const string ViewerName = "You";
+    /// The name a contributor is given when nothing names them but an opaque id.
+    public const string UnknownName = "Someone";
 
     public static WorkContextCard Apply(WorkContextCard previous, WorkContextRead read, WorkContextRequester? requester) =>
         read.Kind switch {
@@ -128,7 +131,7 @@ public static class WorkContextCards {
         if (shown.FirstOrDefault(p => string.Equals(p.UserId, row.UserId, StringComparison.Ordinal)) is { } previous
             && previous.Name != ViewerName && HumanLabel(previous.Name) is { } kept)
             return kept;
-        return HumanLabel(row.UserId) ?? "Someone";
+        return HumanLabel(row.UserId) ?? UnknownName;
     }
 
     static string? HumanLabel(string? value) {

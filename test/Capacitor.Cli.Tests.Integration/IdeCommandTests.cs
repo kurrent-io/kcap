@@ -79,7 +79,11 @@ public class IdeCommandTests {
                 ["subscription_id"] = "s1",
                 ["git_roots"]       = new JsonArray(Repo.Path),
             }));
-            await SendAsync(proc, Request(3, "no/such_method", new JsonObject()));
+            await SendAsync(proc, Request(3, "context/subscribe", new JsonObject {
+                ["subscription_id"] = "c1",
+                ["session_id"]      = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+            }));
+            await SendAsync(proc, Request(4, "no/such_method", new JsonObject()));
             // Long enough for the daemon client and the server connection to fail and report it.
             await Task.Delay(TimeSpan.FromSeconds(2));
             proc.StandardInput.Close();
@@ -103,8 +107,9 @@ public class IdeCommandTests {
                 methods.Add(message["method"]?.GetValue<string>());
             }
 
-            // Guards the loop above: the snapshot proves the subscription ran, so the lines were not vacuous.
+            // Guards the loop above: the snapshots prove the subscriptions ran, so the lines were not vacuous.
             await Assert.That(methods).Contains("sessions/snapshot").Because($"stdout: {stdout}\nstderr: {await stderr}");
+            await Assert.That(methods).Contains("context/snapshot").Because($"stdout: {stdout}\nstderr: {await stderr}");
             await Assert.That(proc.ExitCode).IsEqualTo(0);
         } finally {
             Kill(proc);

@@ -15,7 +15,7 @@ namespace Capacitor.Cli.Ide;
 /// </summary>
 internal sealed class IdeHost : IDisposable {
     const int ProtocolVersion = 1;
-    const string Capability = "sessions/1";
+    static readonly string[] Capabilities = ["sessions/1", "context/1"];
     static readonly TimeSpan BatchWindow = TimeSpan.FromMilliseconds(100);
 
     readonly IDaemonClientService _daemon;
@@ -54,6 +54,12 @@ internal sealed class IdeHost : IDisposable {
         _batch = time.CreateTimer(_ => Flush(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _outbox = new IdeOutbox((method, parameters) => _loop!.NotifyAsync(method, parameters));
     }
+
+    /// <summary>The one queue every notification of the process leaves through; disposed with this host.</summary>
+    public IdeOutbox Outbox => _outbox;
+
+    /// <summary>Whether the client has completed <c>initialize</c>. Read on the request loop, where it is set.</summary>
+    public bool IsInitialized => _initialized;
 
     /// <summary>Registers the handlers and starts the feeds; call once, before the loop runs.</summary>
     public void Attach(IdeRpcLoop loop) {
@@ -95,7 +101,7 @@ internal sealed class IdeHost : IDisposable {
 
         _initialized = true;
         var result = JsonSerializer.SerializeToNode(
-            new InitializeResult(ProtocolVersion, _cliVersion, [Capability], ScopeName()), IdeJsonContext.Default.InitializeResult);
+            new InitializeResult(ProtocolVersion, _cliVersion, Capabilities, ScopeName()), IdeJsonContext.Default.InitializeResult);
 
         return Task.FromResult(new IdeReply(result, AnnounceConnectionAsync));
     }
@@ -259,7 +265,7 @@ internal sealed class IdeHost : IDisposable {
         if (!_initialized) throw new IdeRpcException(IdeErrorCodes.NotInitialized, "not_initialized");
     }
 
-    static T Read<T>(JsonObject? parameters, JsonTypeInfo<T> type) where T : class {
+    internal static T Read<T>(JsonObject? parameters, JsonTypeInfo<T> type) where T : class {
         if (parameters is null) throw InvalidParams("params are required");
 
         try {
@@ -269,5 +275,5 @@ internal sealed class IdeHost : IDisposable {
         }
     }
 
-    static IdeRpcException InvalidParams(string message) => new(IdeErrorCodes.InvalidParams, message);
+    internal static IdeRpcException InvalidParams(string message) => new(IdeErrorCodes.InvalidParams, message);
 }

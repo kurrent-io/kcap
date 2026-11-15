@@ -1,0 +1,35 @@
+{
+  "jsonrpc": "2.0",
+  "method": "context/changed",
+  "params": {
+    "subscription_id": "ctx-1",
+    "plan": {
+      "state": "ready",
+      "tasks": [
+        {
+          "id": "t1",
+          "title": "Write the failing retry test",
+          "status": "completed"
+        },
+        {
+          "id": "t2",
+          "title": "Add the retry policy",
+          "note": "Backoff starts at one second",
+          "status": "completed"
+        },
+        {
+          "id": "t3",
+          "title": "Drop the old retry flag",
+          "status": "skipped"
+        },
+        {
+          "id": "t4",
+          "title": "Document the retry limits",
+          "status": "in_progress"
+        }
+      ],
+      "done": 3,
+      "total": 4
+    }
+  }
+}
