@@ -19,6 +19,10 @@ public sealed record CanonicalEvent(
     ) {
     /// Metadata keys the vendor's stored events carry beside the common ones, each written verbatim.
     public IReadOnlyDictionary<string, string>? VendorMetadata { get; init; }
+
+    /// The transcript line the event is stored under when that is not the line being projected: a
+    /// vendor that holds a record until a later line completes it emits it with the later line.
+    public int? LineNumber { get; init; }
 }
 
 /// A whole extension block for one slug, to shallow-merge over what the target already holds.

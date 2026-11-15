@@ -43,6 +43,15 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// An Antigravity step carries only a per-conversation index, so its id is the hash of its line. Each part
+    /// a planner step emits is a <see cref="Sibling"/> of it, and so is the id it gives each tool call.
+    public static Guid AntigravityStep(string line) => Hash(Encoding.UTF8.GetBytes(line));
+
+    /// One per generation row in a stream, whatever line restates it: the recorder re-sends a row with its
+    /// tokens corrected or its model renamed, and the row's usage must count once.
+    public static Guid AntigravityUsage(string idScope, long genRow) =>
+        Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"antigravity-usage:{idScope}:{genRow}")));
+
     /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
     /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
     /// <see cref="Sibling"/> of it.

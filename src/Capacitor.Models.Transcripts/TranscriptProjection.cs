@@ -1,3 +1,4 @@
+using Capacitor.Models.Transcripts.Harness.Antigravity;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Gemini;
@@ -19,6 +20,7 @@ public interface ITranscriptProjection {
 /// here, nowhere else.
 public static class TranscriptProjection {
     public static ITranscriptProjection? For(string vendor) => vendor.ToLowerInvariant() switch {
+        "antigravity" => AntigravityTranscriptEvents.Instance,
         "claude" => ClaudeTranscriptEvents.Instance,
         "codex" => CodexRolloutEvents.Instance,
         "gemini" => GeminiTranscriptEvents.Instance,
