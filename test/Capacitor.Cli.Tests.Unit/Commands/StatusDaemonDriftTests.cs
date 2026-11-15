@@ -20,6 +20,14 @@ internal sealed class StatusDaemonDriftTests {
         await Assert.That(line).IsEqualTo("running (2) — tony (PID 42, 1.3.0-beta.7), old (PID 7)");
     }
 
+    /// <summary>A daemon still probing its vendors is running, and says so rather than looking ready.</summary>
+    [Test]
+    public async Task Daemon_line_says_a_daemon_is_starting() {
+        var line = StatusCommand.DaemonLine([Live("1.3.0-beta.7+abc") with { Starting = true }]);
+
+        await Assert.That(line).IsEqualTo("running — tony (PID 42, 1.3.0-beta.7, starting)");
+    }
+
     public static IEnumerable<Func<(string Case, IReadOnlyList<StatusCommand.DaemonEntry> Daemons, IReadOnlyList<(string, string?)> Units, bool VerifySupported, string? Expected)>> Cases() {
         yield return () => ("in step", [Live("1.3.0-beta.9+other")], [("tony", Ours)], true, null);
         yield return () => ("unit binary unreadable", [Live("1.3.0-beta.9")], [("tony", null)], true, null);

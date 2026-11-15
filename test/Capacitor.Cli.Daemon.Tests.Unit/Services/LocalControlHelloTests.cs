@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Pty;
@@ -52,21 +53,37 @@ public class LocalControlHelloTests {
 
     sealed record Harness(TempDaemonStore Daemons, LocalControlServer Server, AgentOrchestrator Orchestrator, ServerConnection Connection, DaemonConfig Config, string SockPath);
 
-    async Task<Harness> StartAsync(string daemonName, CancellationToken ct, bool recording = false) {
-        var daemons     = new TempDaemonStore();
+    /// <summary>A daemon as it stands between binding its socket and finishing its vendor probes.</summary>
+    sealed record Starting(TempDaemonStore Daemons, DaemonConfig Config, LocalControlSocket Socket, StartingLocalControl Listener);
+
+    static Starting BindStarting(string daemonName, ConfigRoot root, CancellationToken ct) {
+        var daemons = new TempDaemonStore();
+        var config  = NewConfig(daemons, daemonName, root);
+        var socket  = new LocalControlSocket(config);
+        var starting = new StartingLocalControl(config, NullLogger<StartingLocalControl>.Instance);
+        starting.Start(socket.Bind(), ct);
+
+        return new(daemons, config, socket, starting);
+    }
+
+    static DaemonConfig NewConfig(TempDaemonStore daemons, string daemonName, ConfigRoot root) => new() {
+        Name         = daemonName,
+        ServerUrl    = "http://127.0.0.1:1",
+        Store        = daemons.Store,
+        WorktreeRoot = daemons.PathTo("worktrees"),
+        ConfigRoot   = root,
+        InstanceId   = "instance-under-test",
+    };
+
+    async Task<Harness> StartAsync(string daemonName, CancellationToken ct, bool recording = false, Starting? from = null) {
+        var daemons     = from?.Daemons ?? new TempDaemonStore();
         var stateRoot   = daemons.Store.StateDirectory(daemonName);
         var store       = new LaunchConsentStore(stateRoot, NullLogger.Instance, TimeProvider.System);
         var broker      = new LaunchConsentBroker();
         var decisionLog = new LaunchConsentDecisionLog(stateRoot, NullLogger.Instance);
         var gate        = new LaunchConsentGate(store, decisionLog, broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
 
-        var config = new DaemonConfig {
-            Name         = daemonName,
-            ServerUrl    = "http://127.0.0.1:1",
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-            ConfigRoot   = Config.Root,
-        };
+        var config = from?.Config ?? NewConfig(daemons, daemonName, Config.Root);
         var consentIpc  = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
 
         var tokens           = AuthFixtures.NewTokenStore(Config.Root);
@@ -89,7 +106,7 @@ public class LocalControlHelloTests {
         var statusIpc = new DaemonStatusIpc(config, orchestrator, connection, notifier, TimeProvider.System);
         var settingsIpc = new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance);
         var restart = RestartCoordinator.ForTest(daemons.Store, daemonName, daemonName, new NoopRestartStrategy(), TimeProvider.System);
-        var server = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
+        var server = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance, from?.Socket, from?.Listener);
         await server.StartAsync(ct);
 
         var sockPath = daemons.Store.SocketPath(daemonName);
@@ -166,6 +183,56 @@ public class LocalControlHelloTests {
                 if (DateTime.UtcNow >= deadline) throw;
                 await Task.Delay(20, ct);
             }
+        }
+    }
+
+    static readonly string AcceptsStarting =
+        JsonSerializer.Serialize(new ClientHelloDto("kcap-app", "1.2.3", AcceptsStarting: true), HelloIpcJsonContext.Default.ClientHelloDto);
+
+    static HelloReplyDto Reply(LocalFrame? frame) => JsonSerializer.Deserialize(frame!.Text, HelloIpcJsonContext.Default.HelloReplyDto)!;
+
+    /// <summary>The socket is bound before the vendor probes, so a client that understands a starting daemon hears from
+    /// it at once; it is told nothing it could gate a feature on.</summary>
+    [Test]
+    public async Task A_starting_daemon_answers_a_hello_that_accepts_it_at_once_and_advertises_nothing() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("hello-starting", Config.Root, cts.Token);
+        using var daemons = starting.Daemons;
+        using var socket  = starting.Socket;
+
+        var reply = Reply(await AskAsync(socket.Path, LocalFrame.HelloJson(FrameType.Hello, AcceptsStarting), cts.Token));
+
+        await Assert.That(reply.Starting == true).IsTrue();
+        await Assert.That(reply.Capabilities).IsEmpty();
+        await Assert.That(reply.DaemonName).IsEqualTo("hello-starting");
+        await Assert.That(reply.InstanceId).IsEqualTo("instance-under-test");
+    }
+
+    /// <summary>Every client that reads capabilities sends a plain hello and gates on what comes back, so a starting
+    /// daemon holds it and the ready daemon answers it: the client never sees a starting daemon's empty list as final.
+    /// Once ready, a hello that accepts a starting daemon gets the ordinary reply.</summary>
+    [Test]
+    public async Task A_plain_hello_sent_while_starting_is_answered_by_the_ready_daemon() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("hello-held", Config.Root, cts.Token);
+
+        var held = AskAsync(starting.Socket.Path, new LocalFrame(FrameType.Hello), cts.Token);
+        await Task.Delay(200, cts.Token);
+        await Assert.That(held.IsCompleted).IsFalse();
+
+        Harness? h = null;
+        try {
+            h = await StartAsync("hello-held", cts.Token, from: starting);
+
+            var answered = Reply(await held.WaitAsync(TimeSpan.FromSeconds(5), cts.Token));
+            await Assert.That(answered.Starting).IsNull();
+            await Assert.That(answered.Capabilities).IsEquivalentTo(LocalControlCapabilities.Current);
+
+            var ready = Reply(await AskAsync(h.SockPath, LocalFrame.HelloJson(FrameType.Hello, AcceptsStarting), cts.Token));
+            await Assert.That(ready.Starting).IsNull();
+            await Assert.That(ready.Capabilities).IsEquivalentTo(LocalControlCapabilities.Current);
+        } finally {
+            if (h is not null) await StopAsync(h);
         }
     }
 

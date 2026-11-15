@@ -22,6 +22,26 @@ public sealed record ProbeResult(
 /// caller's own cancellation (ct, as opposed to the internal timeout) still propagates, per
 /// normal Task cancellation semantics.
 public static class LocalControlProbe {
+    /// <summary>Whether the daemon answers as one still probing its vendors: true while it is starting, false once it is
+    /// ready, null when nothing answers within <paramref name="timeout"/>.</summary>
+    public static async Task<bool?> StartingAsync(
+            DaemonStore store, string daemonName, TimeProvider time, TimeSpan timeout, CancellationToken ct = default) {
+        using var timeoutCts = new CancellationTokenSource(timeout, time);
+        using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+        try {
+            await using var conn = await DialAsync(store, daemonName, linkedCts.Token);
+            var hello = JsonSerializer.Serialize(new ClientHelloDto(null, null, AcceptsStarting: true), HelloIpcJsonContext.Default.ClientHelloDto);
+            await FrameCodec.WriteAsync(conn, new LocalFrame(FrameType.Hello) { Text = hello }, linkedCts.Token);
+            var frame = await FrameCodec.ReadAsync(conn, linkedCts.Token);
+            if (frame?.Type != FrameType.HelloReply) return null;
+
+            return JsonSerializer.Deserialize(frame.Text, HelloIpcJsonContext.Default.HelloReplyDto)?.Starting == true;
+        } catch (Exception ex) when (IsProbeFailure(ex, ct)) {
+            return null;
+        }
+    }
+
     /// <param name="timeout">A SINGLE shared budget for the whole call — not a per-dial
     /// timeout. It bounds the hello dial+read AND the StatusSubscribe dial+read together, so a
     /// slow hello leaves correspondingly less time for the snapshot half.</param>

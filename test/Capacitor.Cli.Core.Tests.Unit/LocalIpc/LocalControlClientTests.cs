@@ -204,6 +204,34 @@ public class LocalControlClientTests {
         await Assert.That(status.Snapshot.Agents.Count).IsEqualTo(2);
     }
 
+    static string StartingHello() => JsonSerializer.Serialize(
+        new HelloReplyDto(1, "1.0", "m", [], Starting: true), HelloIpcJsonContext.Default.HelloReplyDto);
+
+    /// <summary>A daemon still probing its vendors is up, so it is neither an outage nor an incompatible daemon: the
+    /// client stays connecting, asks again without stepping down its backoff, and connects once the daemon is ready.
+    /// It offers to hear a starting daemon, without which that daemon would hold its hello.</summary>
+    [Test]
+    public async Task A_starting_daemon_keeps_the_client_connecting_until_it_is_ready() {
+        string? sent = null;
+        ConnScript starting = async (s, ct) => {
+            var f = await FrameCodec.ReadAsync(s, ct);
+            sent ??= f?.Text;
+            await FrameCodec.WriteAsync(s, LocalFrame.HelloJson(FrameType.HelloReply, StartingHello()), ct);
+        };
+
+        var events = await RunClientAsync(
+            [starting, starting, starting, HelloThen(GoodHello("status/1")), SubscribePush(ValidStatusJson())],
+            evs => evs.OfType<LocalControlEvent.Connected>().Any() || evs.OfType<LocalControlEvent.Unreachable>().Any(),
+            client => {
+                client.RetryDelays        = [TimeSpan.FromMinutes(5)];
+                client.StartingRetryDelay = TimeSpan.FromMilliseconds(10);
+            });
+
+        await Assert.That(events.Select(e => e.GetType())).IsEquivalentTo(
+            [typeof(LocalControlEvent.Connecting), typeof(LocalControlEvent.Connected)], CollectionOrdering.Matching);
+        await Assert.That(JsonSerializer.Deserialize(sent!, HelloIpcJsonContext.Default.ClientHelloDto)!.AcceptsStarting == true).IsTrue();
+    }
+
     [Test]
     public async Task Capability_missing_and_hello_eof_classify_as_incompatible() {
         var noCap = await RunClientAsync(

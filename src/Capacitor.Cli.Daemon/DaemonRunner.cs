@@ -738,6 +738,8 @@ public static partial class DaemonRunner {
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
         // agents from the user's own terminal.
+        builder.Services.AddSingleton<LocalControlSocket>();
+        builder.Services.AddSingleton<StartingLocalControl>();
         builder.Services.AddSingleton<LocalControlServer>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalControlServer>());
 
@@ -754,6 +756,12 @@ public static partial class DaemonRunner {
         // Wired before the vendor probes below, which can run for tens of seconds: a stop that lands
         // during them must still leave a line saying why.
         var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+
+        // Bound before the probes, so a client meets a starting daemon rather than none: what it sends waits
+        // for the handlers, which go live with the host below.
+        host.Services.GetRequiredService<StartingLocalControl>()
+            .Start(host.Services.GetRequiredService<LocalControlSocket>().Bind(), lifetime.ApplicationStopping);
+        LogStartupPhase(logger, "socket bound");
         RegisterDeathRattle(logger, lifetime, AttachedToTerminal(), time, stopCause);
         lifetime.ApplicationStopping.Register(() => {
             DeathRattle(time, "Lifetime: ApplicationStopping fired");
@@ -913,7 +921,7 @@ public static partial class DaemonRunner {
                 // BaseUrl is still null and the spawned Claude falls back to the HTTPS path —
                 // exactly what this bridge is meant to avoid.
                 await host.StartAsync(lifetime.ApplicationStopping);
-                LogStartupPhase(logger, "socket bound");
+                LogStartupPhase(logger, "services started");
                 startupWatch.Entering("reaping agents a prior run left behind");
 
                 // Resolve the orchestrator (which wires OnLaunchAgent +

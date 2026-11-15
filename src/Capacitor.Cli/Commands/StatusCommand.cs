@@ -5,6 +5,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Codex;
@@ -85,7 +86,7 @@ public sealed class StatusCommand(
             await Line($"  Git:     {gitWarning}");
 
         // Daemon: the per-name PID files `kcap daemon status` reads, so the two agree.
-        var daemons = ReadDaemonEntries(store);
+        var daemons = await WithStartingAsync(store, ReadDaemonEntries(store), time);
         await Line($"  Daemon:  {DaemonLine(daemons)}");
 
         var (units, verifySupported) = await InstalledUnitsAsync();
@@ -407,7 +408,7 @@ public sealed class StatusCommand(
         };
 
         static string Describe(DaemonEntry e) =>
-            e.Version is { } v ? $"{e.Name} (PID {e.Pid}, {CapacitorVersion.Display(v)})" : $"{e.Name} (PID {e.Pid})";
+            $"{e.Name} (PID {e.Pid}{(e.Version is { } v ? $", {CapacitorVersion.Display(v)}" : "")}{(e.Starting ? ", starting" : "")})";
     }
 
     /// <summary>How long status gives the unit read. On Windows it is also the budget schtasks shares
@@ -514,6 +515,19 @@ public sealed class StatusCommand(
     /// Every daemon PID file with the name, pid, and whether that process is still there. Shared by
     /// the Daemon line and the JSON payload so they cannot disagree about what is running.
     /// </summary>
+    /// <summary>A ready daemon answers in well under a millisecond, and one that does not answer at all is reported as
+    /// running by its PID file alone.</summary>
+    static readonly TimeSpan StartingProbeBudget = TimeSpan.FromMilliseconds(250);
+
+    static async Task<List<DaemonEntry>> WithStartingAsync(DaemonStore store, List<DaemonEntry> entries, TimeProvider time) {
+        for (var i = 0; i < entries.Count; i++) {
+            if (entries[i].Alive && await LocalControlProbe.StartingAsync(store, entries[i].Name, time, StartingProbeBudget) == true)
+                entries[i] = entries[i] with { Starting = true };
+        }
+
+        return entries;
+    }
+
     static List<DaemonEntry> ReadDaemonEntries(DaemonStore store) {
         var entries = new List<DaemonEntry>();
 
@@ -560,7 +574,8 @@ public sealed class StatusCommand(
 
     /// <param name="Pid">Null when the marker is present but carries no usable PID.</param>
     /// <param name="Version">The version a live daemon recorded at startup, when it recorded one.</param>
-    internal sealed record DaemonEntry(string Name, int? Pid, bool Alive, string? Version = null);
+    /// <param name="Starting">Answering, but still probing its vendors.</param>
+    internal sealed record DaemonEntry(string Name, int? Pid, bool Alive, string? Version = null, bool Starting = false);
 
     /// <summary>
     /// Whether a wired agent has run a kcap hook on this machine: proof the hooks loaded (and, for

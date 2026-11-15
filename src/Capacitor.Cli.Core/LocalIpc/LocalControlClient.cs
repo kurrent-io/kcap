@@ -66,6 +66,11 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
     internal TimeSpan ConnectTimeout       { get; set; } = TimeSpan.FromSeconds(5); // each dial: hello AND subscribe
     internal TimeSpan HelloReplyTimeout    { get; set; } = TimeSpan.FromSeconds(5);
     internal TimeSpan FirstSnapshotTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    /// How soon a daemon that answered as starting is asked again. Its probes take about a second.
+    internal TimeSpan StartingRetryDelay   { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    static readonly string AcceptsStartingHello =
+        JsonSerializer.Serialize(new ClientHelloDto(null, null, AcceptsStarting: true), HelloIpcJsonContext.Default.ClientHelloDto);
 
     /// Test seam: runs after RunCycleAsync returns a SUCCESSFUL outcome but before the ct
     /// checkpoint below, so a test can cancel exactly at that boundary deterministically.
@@ -73,6 +78,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
 
     const string Unreach = "daemon_unreachable";
     const string Incompat = "daemon_incompatible";
+    const string Starting = "daemon_starting";
 
     /// One attach-cycle outcome: either a classified failure reason (with the hello reply's
     /// DaemonVersion, when one was read before the failure), or success carrying the negotiated
@@ -101,8 +107,25 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
             catch (OperationCanceledException) { return false; }
         }
 
+        // Whether Connecting is the last thing yielded, so a starting daemon re-yields it only after another state.
+        var connecting = true;
+
         while (!ct.IsCancellationRequested) {
             var cycle = await RunCycleAsync(ct);
+
+            // Up and still probing its vendors: not an outage, and not worth a step down the ladder.
+            if (cycle.Reason == Starting) {
+                if (ct.IsCancellationRequested) yield break;
+                if (!connecting) {
+                    connecting = true;
+                    last       = null;
+                    yield return new LocalControlEvent.Connecting();
+                }
+                try { await Task.Delay(StartingRetryDelay, _time, ct); } catch (OperationCanceledException) { yield break; }
+                continue;
+            }
+
+            connecting = false;
 
             if (cycle.Reason is { } reason) {
                 // Shared cancellation checkpoint (mirrors the connected-streak one below): a
@@ -175,7 +198,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
         try {
             IReadOnlyList<string> caps;
             await using (var helloConn = await DialAsync(ct)) {
-                await FrameCodec.WriteAsync(helloConn, new LocalFrame(FrameType.Hello), ct);
+                await FrameCodec.WriteAsync(helloConn, new LocalFrame(FrameType.Hello) { Text = AcceptsStartingHello }, ct);
                 using var helloTimeoutCts = new CancellationTokenSource(HelloReplyTimeout, _time);
                 using var helloLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, helloTimeoutCts.Token);
                 var reply = await FrameCodec.ReadAsync(helloConn, helloLinkedCts.Token);
@@ -183,6 +206,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
                 if (reply.Type != FrameType.HelloReply) return CycleOutcome.Failed(Incompat); // Error/unexpected type
                 hello = JsonSerializer.Deserialize(reply.Text, HelloIpcJsonContext.Default.HelloReplyDto);
                 daemonVersion = hello?.DaemonVersion;                              // captured BEFORE the caps gate
+                if (hello?.Starting == true) return CycleOutcome.Failed(Starting, daemonVersion);
                 caps = hello?.Capabilities ?? [];                                  // null ⇒ empty
                 if (!caps.Contains("status/1")) return CycleOutcome.Failed(Incompat, daemonVersion);
             }
