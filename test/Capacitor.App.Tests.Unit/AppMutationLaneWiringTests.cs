@@ -1,5 +1,6 @@
 using Capacitor.App.Services;
 using Capacitor.App.Services.Mutation;
+using Capacitor.App.Tests.Unit.Services;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core;
 using AppUnderTest = Capacitor.App.App;
@@ -10,7 +11,7 @@ namespace Capacitor.App.Tests.Unit;
 /// presentation routing, pinned-CLI resolution, and shutdown quiesce composition.
 /// Plain TUnit, no Avalonia session needed — pure/async functions over interfaces and fakes
 /// (FakeLifecycleSurface/FakeKcapCli/FakeLoginShellProbe are shared from
-/// DaemonLifecycleControllerTests.cs, same namespace).
+/// DaemonLifecycleControllerTests.cs).
 public class AppMutationLaneWiringTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 

@@ -16,7 +16,10 @@ public sealed record CanonicalEvent(
         bool            UsageIsEcho         = false,
         long?           CacheCreationTokens = null,
         IReadOnlyList<TranscriptAttachment>? Attachments = null
-    );
+    ) {
+    /// Metadata keys the vendor's stored events carry beside the common ones, each written verbatim.
+    public IReadOnlyDictionary<string, string>? VendorMetadata { get; init; }
+}
 
 /// A whole extension block for one slug, to shallow-merge over what the target already holds.
 public sealed record EventAmendment(Guid TargetEventId, string Slug, Struct Extension);

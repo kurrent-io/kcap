@@ -15,36 +15,78 @@ public class MistralVibeTranscriptEventsTests {
     // ── legacy messages.jsonl ──────────────────────────────────────────────────────────────────
 
     [Test]
-    public async Task Legacy_user_message_becomes_a_user_message_on_the_line_hash_id() {
+    public async Task Legacy_user_message_becomes_a_user_message_on_the_numbered_line_id() {
         const string line = """{"role":"user","content":"hello"}""";
         var events = E(line);
         await Assert.That(events.Count).IsEqualTo(1);
         await Assert.That(((UserMessageReceived)events[0].Payload).Content).IsEqualTo("hello");
-        await Assert.That(events[0].EventId).IsEqualTo(TranscriptIds.VibeRecord(line));
+        await Assert.That(events[0].EventId).IsEqualTo(TranscriptIds.VibeRecord(1, line));
+    }
+
+    /// <summary>A legacy line has no id and no time, so a message repeated later in the file is a new event.</summary>
+    [Test]
+    public async Task A_repeated_legacy_line_takes_a_new_id_on_each_line() {
+        const string line    = """{"role":"user","content":"yes"}""";
+        var          context = MistralVibeTranscriptEvents.Instance.CreateContext("sess", null);
+        var          first   = MistralVibeTranscriptEvents.Instance.Project(line, 3, Received, context).Events[0];
+        var          again   = MistralVibeTranscriptEvents.Instance.Project(line, 8, Received, context).Events[0];
+
+        await Assert.That(first.EventId).IsEqualTo(TranscriptIds.VibeRecord(3, line));
+        await Assert.That(again.EventId).IsEqualTo(TranscriptIds.VibeRecord(8, line));
     }
 
     [Test]
-    public async Task Legacy_assistant_text_and_tool_calls_emit_two_events() {
-        const string line = """{"role":"assistant","content":"on it","tool_calls":[{"id":"call_1","type":"function","function":{"name":"file_system.bash","arguments":"{\"cmd\":\"ls\"}"}}]}""";
-        var events = E(line);
-        await Assert.That(events.Count).IsEqualTo(2);
+    public async Task Legacy_assistant_text_and_tool_calls_emit_one_event_per_call() {
+        const string line = """{"role":"assistant","content":"on it","tool_calls":[{"id":"call_1","type":"function","function":{"name":"file_system.bash","arguments":"{\"cmd\":\"ls\"}"}},{"id":"call_2","type":"function","function":{"name":"file_system.read_file","arguments":"{\"path\":\"a.txt\"}"}}]}""";
+        var events   = E(line);
+        var recordId = TranscriptIds.VibeRecord(1, line);
+        await Assert.That(events.Count).IsEqualTo(3);
 
         await Assert.That(((AssistantTextGenerated)events[0].Payload).Content).IsEqualTo("on it");
-        await Assert.That(events[0].EventId).IsEqualTo(TranscriptIds.VibeRecord(line));
+        await Assert.That(events[0].EventId).IsEqualTo(recordId);
 
-        var calls = (AssistantToolCallsGenerated)events[1].Payload;
-        await Assert.That(calls.ToolCalls[0].ToolName).IsEqualTo("bash"); // group prefix stripped
-        await Assert.That(calls.ToolCalls[0].CallId).IsEqualTo("call_1");
-        await Assert.That(calls.ToolCalls[0].ToolKind).IsEqualTo(AcpToolKind.Execute);
-        await Assert.That(events[1].EventId).IsEqualTo(TranscriptIds.Sibling(TranscriptIds.VibeRecord(line), "tool_calls"));
+        var first = ((AssistantToolCallsGenerated)events[1].Payload).ToolCalls.Single();
+        await Assert.That(first.ToolName).IsEqualTo("bash"); // group prefix stripped
+        await Assert.That(first.CallId).IsEqualTo("call_1");
+        await Assert.That(first.ToolKind).IsEqualTo(AcpToolKind.Execute);
+        await Assert.That(first.Arguments.Fields["cmd"].StringValue).IsEqualTo("ls");
+        await Assert.That(events[1].EventId).IsEqualTo(TranscriptIds.VibeToolCall(recordId, "call_1"));
+
+        var second = ((AssistantToolCallsGenerated)events[2].Payload).ToolCalls.Single();
+        await Assert.That(second.CallId).IsEqualTo("call_2");
+        await Assert.That(second.ToolKind).IsEqualTo(AcpToolKind.Read);
+        await Assert.That(events[2].EventId).IsEqualTo(TranscriptIds.VibeToolCall(recordId, "call_2"));
+
+        // Source order carries the sequence; every event keeps the line's own time.
+        await Assert.That(events.Select(e => e.Timestamp).Distinct().Count()).IsEqualTo(1);
     }
 
     [Test]
-    public async Task Legacy_tool_role_becomes_a_tool_result_paired_by_call_id() {
-        const string line = """{"role":"tool","tool_call_id":"call_1","content":"file.txt"}""";
-        var result = (ToolResultReceived)E(line)[0].Payload;
+    public async Task A_legacy_call_without_an_id_or_a_name_emits_nothing() {
+        const string line = """{"role":"assistant","content":"","tool_calls":[{"type":"function","function":{"name":"file_system.bash","arguments":"{}"}},{"id":"call_n","type":"function","function":{"arguments":"{}"}},{"id":"call_e","type":"function","function":{"name":"","arguments":"{}"}},{"id":"call_k","type":"function","function":{"name":"grep"}}]}""";
+        var events = E(line);
+
+        await Assert.That(events.Count).IsEqualTo(1);
+        var call = ((AssistantToolCallsGenerated)events[0].Payload).ToolCalls.Single();
+        await Assert.That(call.CallId).IsEqualTo("call_k");
+        await Assert.That(call.Arguments.Fields.Count).IsEqualTo(0); // no arguments at all is an empty struct
+    }
+
+    [Test]
+    [Arguments("tool_call_id")]
+    [Arguments("call_id")]
+    public async Task Legacy_tool_role_becomes_a_tool_result_paired_by_call_id(string key) {
+        var line   = $$"""{"role":"tool","{{key}}":"call_1","content":"file.txt"}""";
+        var events = E(line);
+        var result = (ToolResultReceived)events[0].Payload;
         await Assert.That(result.CallId).IsEqualTo("call_1");
         await Assert.That(result.Result).IsEqualTo("file.txt");
+        await Assert.That(events[0].EventId).IsEqualTo(TranscriptIds.VibeRecord(1, line));
+    }
+
+    [Test]
+    public async Task A_legacy_tool_result_naming_no_call_emits_nothing() {
+        await Assert.That(E("""{"role":"tool","content":"file.txt"}""").Count).IsEqualTo(0);
     }
 
     [Test]

@@ -1,0 +1,65 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "bbb9a8c5-4771-9074-e822-6ead0974fda2",
+        "timestamp": "2026-06-23T19:26:21.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:21.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "list the top-level files and summarize",
+          "timestamp": "2026-06-23T19:26:21Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "8ed7b85f-0958-8fe3-814f-78e416bc7665",
+        "timestamp": "2026-06-23T19:26:22.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:22.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "I\u0027ll list and count the files.",
+          "timestamp": "2026-06-23T19:26:22Z"
+        },
+        "usage": {
+          "inputTokens": "120",
+          "outputTokens": "25",
+          "totalTokens": "145",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "3",
+          "model": "command-a-plus-05-2026"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "69116d28-cc93-fb7a-bf54-2b404b93a0b5",
+        "timestamp": "2026-06-23T19:26:22.0000001\u002B00:00",
+        "recordTimestamp": "2026-06-23T19:26:22.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "There are 3 top-level files: a.md, b.md, c.md.",
+          "timestamp": "2026-06-23T19:26:22.000000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  }
+]
