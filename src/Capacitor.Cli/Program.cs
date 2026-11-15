@@ -1000,6 +1000,11 @@ switch (command) {
 
             return results.Select(r => r.Exit).Prepend(claudeSideExit).Max();
         }
+        // Started ahead of the spool drain, which it never waited on as a hook of its own: a span closed late leaves the
+        // baseline open, and the next turn takes edits made between turns for its own.
+        var stopSpans = args.Contains("--claude") && args.Contains(ClaudeSideHooks.StopSpans)
+            ? Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!))
+            : Task.FromResult(0);
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 
         if (args.Contains("--claude") && baseUrl is not null) {
@@ -1034,11 +1039,8 @@ switch (command) {
 
         async Task<int> DispatchVendorHookAsync() {
             if (args.Contains("--claude")) {
-                var spans = args.Contains(ClaudeSideHooks.StopSpans)
-                    ? Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!))
-                    : Task.FromResult(0);
                 var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
-                await spans;
+                await stopSpans;
                 HookTiming.Mark("handled");
 
                 return handled;
