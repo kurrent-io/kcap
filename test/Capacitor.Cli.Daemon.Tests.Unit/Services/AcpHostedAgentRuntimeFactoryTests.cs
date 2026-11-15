@@ -2606,6 +2606,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     public async Task Gemini_AnEnabledDaemon_DoesReachTheConnectionSource() {
         var reached = 0;
         var fake    = new FakeAcpAgent();
+        // A bare fake never answers initialize, so the handshake is cut off as soon as the source is reached.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Gemini,
             config: GeminiEnabledConfig(),
@@ -2613,13 +2615,13 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             connection: new CaptureServerConnection(),
             connectionSource: _ => {
                 Interlocked.Increment(ref reached);
+                cts.CancelAfter(TimeSpan.Zero);
                 return (fake.ClientWriteStream, fake.ClientReadStream, new FakeAcpProcess());
             },
             resolveVendorVersion: _ => GeminiBuild, timeProvider: TimeProvider.System);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try { await factory.StartAsync(ReviewContext() with { Vendor = "gemini" }, cts.Token); }
-        catch { /* the handshake is not the subject — a bare fake never answers initialize */ }
+        catch { /* the handshake is not the subject */ }
 
         await Assert.That(Volatile.Read(ref reached)).IsEqualTo(1);
     }

@@ -125,6 +125,8 @@ public class ShutdownAgentReportTests {
         var orch   = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
         orch.ShutdownIntent = ShutdownIntent.EndAgents;
+        await Assert.That(orch.ShutdownReportBudget).IsEqualTo(TimeSpan.FromSeconds(5));
+        orch.ShutdownReportBudget = TimeSpan.FromMilliseconds(200);
 
         orch.SeedAgentForTest("hung-1", status: "Running");
 
@@ -132,6 +134,6 @@ public class ShutdownAgentReportTests {
         await orch.DisposeAsync();
         var elapsed = DateTime.UtcNow - started;
 
-        await Assert.That(elapsed).IsLessThan(AgentOrchestrator.ShutdownReportBudget + TimeSpan.FromSeconds(15));
+        await Assert.That(elapsed).IsLessThan(orch.ShutdownReportBudget + TimeSpan.FromSeconds(3));
     }
 }

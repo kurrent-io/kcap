@@ -135,6 +135,8 @@ public class AntigravityReviewerReapingTests {
             new CaptureServerConnection(), new SpyPtyProcessFactory(),
             new Dictionary<string, IHostedAgentLauncher>(),
             allowedRepoPath: repoPath, extraRuntimeFactories: [factory]);
+        // The turn never ends, so the teardown would otherwise wait out the whole stop grace.
+        orch.ShutdownStopGrace = TimeSpan.FromMilliseconds(100);
 
         await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
             AgentId: "agy-pid-1", Prompt: "review this", Model: "auto", Effort: null,

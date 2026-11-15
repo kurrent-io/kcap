@@ -6911,7 +6911,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// on the server is a shutdown that can be killed mid-teardown, so this bounds the pass rather
     /// than each call: agents past the ceiling go unreported, and the server is left to infer their
     /// ending from the transport drop.</summary>
-    internal static readonly TimeSpan ShutdownReportBudget = TimeSpan.FromSeconds(5);
+    internal TimeSpan ShutdownReportBudget { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>The reason stamped on a run this daemon ended by going away, distinct from the user
     /// asking it to stop — the two look identical downstream otherwise.</summary>

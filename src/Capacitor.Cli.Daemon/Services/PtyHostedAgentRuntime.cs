@@ -722,13 +722,25 @@ internal sealed partial class PtyHostedAgentRuntime(
     public async Task RequestGracefulStopAsync() {
         if (DialogGone is not null) _stopRequestedDuringDialog = true;
         _stopRequested = true;
-        var holdsLane  = await _lane.WaitAsync(GracefulStopLaneWait, CancellationToken.None);
+        var holdsLane  = await TakeLaneWithinAsync(GracefulStopLaneWait);
 
         try {
             await pty.WriteAsync("/exit");
             await SubmitAsync();
         } finally {
             if (holdsLane) _lane.Release();
+        }
+    }
+
+    async Task<bool> TakeLaneWithinAsync(TimeSpan wait) {
+        using var expiry = new CancellationTokenSource(wait, time);
+
+        try {
+            await _lane.WaitAsync(expiry.Token);
+
+            return true;
+        } catch (OperationCanceledException) {
+            return false;
         }
     }
 
