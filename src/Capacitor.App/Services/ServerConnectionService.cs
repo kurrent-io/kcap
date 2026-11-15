@@ -22,19 +22,16 @@ using Capacitor.Cli.Core.LocalEdition;
 namespace Capacitor.App.Services;
 
 /// The app's one long-lived server connection. Handlers are registered before StartAsync so no
-/// broadcast can slip past a fresh connection; a closed or cold-failed connection re-dials on a
-/// 1/2/5/10/30s ladder because SignalR's automatic reconnect covers neither cold-start failure
-/// nor a close it decides not to retry.
+/// broadcast can slip past a fresh connection. A dropped connection reconnects on the ladder every
+/// hub client shares and never gives up except on a 401, which parks the lane; the outer loop
+/// re-dials on the same ladder only for what automatic reconnect does not cover, a cold-start
+/// failure or a close the server asked for.
 public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsyncDisposable {
     readonly TimeProvider _time;
 
-    static readonly TimeSpan[] Backoff =
-        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)];
-
     readonly string? _serverUrl;
     readonly Func<Task<string?>> _token;
-    /// SignalR's own reconnect ladder, which a test shortens; null keeps the client's default.
-    readonly TimeSpan[]? _reconnectDelays;
+    readonly HubRetryPolicy _retry;
     readonly Action<ILoggingBuilder>? _hubLogging;
     readonly BehaviorSubject<ServerLaneStatus> _status = new(new(ServerLaneState.Dormant));
     readonly Subject<Unit> _agentsChanged = new();
@@ -97,7 +94,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         _time = time;
         _serverUrl = string.IsNullOrEmpty(serverUrl) ? null : serverUrl.TrimEnd('/');
         _token = accessTokenProvider;
-        _reconnectDelays = reconnectDelays;
+        _retry = new HubRetryPolicy(IsUnauthorized, reconnectDelays);
         _hubLogging = hubLogging;
     }
 
@@ -220,6 +217,11 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await using (ct.Register(() => closed.TrySetResult(null)))
                     closeReason = await closed.Task.ConfigureAwait(false);
 
+                if (closeReason is not null && IsUnauthorized(closeReason)) {
+                    ParkSignedOutCore(generation, closeReason.Message);
+                    return;
+                }
+
                 if (!ct.IsCancellationRequested)
                     Publish(generation, new(ServerLaneState.Retrying, closeReason?.Message, Failure: LaneFailures.Unanswered(closeReason)));
             } catch (OperationCanceledException) {
@@ -247,7 +249,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             }
 
             if (ct.IsCancellationRequested) break;
-            var delay = Backoff[Math.Min(attempt++, Backoff.Length - 1)];
+            var delay = _retry.Delay(attempt++);
             try { await Task.Delay(delay, _time, ct).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
         }
     }
@@ -311,9 +313,10 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 o.WebSocketFactory = ConnectWebSocketAsync;
             });
         if (_hubLogging is { } logging) builder.ConfigureLogging(logging);
-        var hub = (_reconnectDelays is { } delays ? builder.WithAutomaticReconnect(delays) : builder.WithAutomaticReconnect())
+        var hub = builder.WithAutomaticReconnect(_retry)
             .AddJsonProtocol(o => LaunchHubJson.Configure(o.PayloadSerializerOptions))
             .Build();
+        hub.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
         hub.On(HubBroadcasts.AgentInstancesChanged, () => _agentsChanged.OnNext(Unit.Default));
         hub.On(HubBroadcasts.DaemonsChanged, () => _daemonsChanged.OnNext(Unit.Default));
         hub.On(HubBroadcasts.DaemonAccountsChanged, () => _daemonAccountsChanged.OnNext(Unit.Default));

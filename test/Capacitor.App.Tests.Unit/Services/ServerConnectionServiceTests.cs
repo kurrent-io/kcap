@@ -19,8 +19,8 @@ public class ServerConnectionServiceTests {
     static ServerConnectionService Lane(HubTestHost host, string? token = null) =>
         new(TimeProvider.System, host.Url, () => Task.FromResult(token));
 
-    /// A lane whose SignalR reconnect ladder is the caller's, for the one test whose bound is
-    /// that ladder rather than the behaviour under it.
+    /// A lane whose reconnect ladder is the caller's, its last step repeating, for a test whose
+    /// bound is that ladder rather than the behaviour under it.
     static ServerConnectionService Lane(HubTestHost host, TimeSpan[] reconnectDelays) =>
         new(TimeProvider.System, host.Url, () => Task.FromResult<string?>(null), reconnectDelays);
 
@@ -337,6 +337,51 @@ public class ServerConnectionServiceTests {
         await Assert.That(latest.State).IsEqualTo(ServerLaneState.SignedOut);
     }
 
+    /// SignalR's default policy closes the connection after its fourth try, handing the lane to a
+    /// second loop on its own schedule; the shared ladder keeps reconnecting on its own, so the lane
+    /// never goes back through Connecting however long the server takes.
+    [Test]
+    public async Task A_dropped_connection_keeps_reconnecting_past_the_fourth_attempt() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        var redials = 0;
+        using var watch = lane.Status.Where(s => s.State == ServerLaneState.Connecting).Subscribe(_ => Interlocked.Increment(ref redials));
+
+        HubTestHost.RefuseNegotiation = true;
+        var reconnected = Next(lane.Status, s => s.State == ServerLaneState.Connected);
+        HubTestHost.DropConnections();
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (HubTestHost.RefusedNegotiations < 6 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await Assert.That(HubTestHost.RefusedNegotiations).IsGreaterThanOrEqualTo(6);
+
+        HubTestHost.RefuseNegotiation = false;
+        await reconnected;
+
+        await Assert.That(Volatile.Read(ref redials)).IsEqualTo(0);
+    }
+
+    /// A refused credential is what kcap login repairs, so a reconnect that meets one closes and
+    /// parks the lane rather than retrying it forever.
+    [Test]
+    public async Task A_reconnect_refused_as_unauthorized_parks_the_lane() {
+        var token = "tok";
+        await using var host = await HubTestHost.StartAsync(requireAuth: true);
+        await using var lane = new ServerConnectionService(
+            TimeProvider.System, host.Url, () => Task.FromResult<string?>(token), [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        token = null;
+        var parked = Next(lane.Status, s => s.State == ServerLaneState.SignedOut, seconds: 15);
+        HubTestHost.DropConnections();
+
+        await parked;
+    }
+
     [Test]
     public async Task ParkSignedOutDuringATransportLossRetryingSequenceStaysParked() {
         await using var host = await HubTestHost.StartAsync();
@@ -555,13 +600,12 @@ public class ServerConnectionServiceTests {
         await Assert.That(error!.Message).Contains(WireTokens.StreamNotAuthorized);
     }
 
-    // SignalR's automatic reconnect sits between the host stopping and the tail actually ending,
-    // and its default ladder is ~42s before it gives up and fires Closed. This lane retries once,
-    // immediately, so the bound below measures the tail ending rather than that wait.
+    // A dropped connection reconnects and resubscribes, so only a close ends a tail. The client
+    // completes the channel with its own cancellation token, which must read as an ended tail.
     [Test]
-    public async Task StreamTailEndsCleanlyWhenTheHostStops() {
+    public async Task StreamTailEndsCleanlyWhenTheServerClosesTheConnection() {
         await using var host = await HubTestHost.StartAsync();
-        await using var lane = Lane(host, [TimeSpan.Zero]);
+        await using var lane = Lane(host);
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
@@ -571,7 +615,7 @@ public class ServerConnectionServiceTests {
         });
         await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", (ulong?)null)), what: "the subscribe");
 
-        await host.StopAsync();
+        HubTestHost.CloseConnections();
         await tail.WaitAsync(TimeSpan.FromSeconds(15));
     }
 

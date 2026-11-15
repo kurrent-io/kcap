@@ -49,6 +49,12 @@ public sealed class HubTestHost : IAsyncDisposable {
     public static List<(string AgentId, string Text)> UserInputs { get; } = [];
     public static List<DiscardQueuedInputRequest> Discards { get; } = [];
     public static List<(string AgentId, string Key)> SpecialKeys { get; } = [];
+    /// While true, every negotiation is answered 503, the way a restarting server answers.
+    public static bool RefuseNegotiation { get => Volatile.Read(ref _refuseNegotiation); set => Volatile.Write(ref _refuseNegotiation, value); }
+    static bool _refuseNegotiation;
+    static int _refusedNegotiations;
+    public static int RefusedNegotiations => Volatile.Read(ref _refusedNegotiations);
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HubCallerContext> Live = new();
 
     /// <param name="admissionDelay">Holds back the server's registration of each connection, to widen
     /// the gap <see cref="BroadcastAsync"/> waits out into one a test can rely on.</param>
@@ -80,6 +86,9 @@ public sealed class HubTestHost : IAsyncDisposable {
         UserInputs.Clear();
         Discards.Clear();
         SpecialKeys.Clear();
+        RefuseNegotiation = false;
+        _refusedNegotiations = 0;
+        Live.Clear();
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -106,6 +115,14 @@ public sealed class HubTestHost : IAsyncDisposable {
                 inspect(ctx.Request);
                 await next();
             });
+        app.Use(async (ctx, next) => {
+            if (RefuseNegotiation && ctx.Request.Path.Value?.EndsWith("/negotiate", StringComparison.Ordinal) == true) {
+                Interlocked.Increment(ref _refusedNegotiations);
+                ctx.Response.StatusCode = 503;
+                return;
+            }
+            await next();
+        });
         if (requireAuth)
             app.Use(async (ctx, next) => {
                 if (!ctx.Request.Headers.ContainsKey("Authorization")) {
@@ -166,6 +183,17 @@ public sealed class HubTestHost : IAsyncDisposable {
 
     public Task StopAsync() => _app!.StopAsync();
 
+    /// Severs every live hub connection's transport, leaving the host up: what the client sees when a
+    /// server process dies, so it reconnects.
+    public static void DropConnections() {
+        foreach (var context in Live.Values) context.GetHttpContext()?.Abort();
+    }
+
+    /// Closes every live hub connection the way a server ends one on purpose: no reconnect is allowed.
+    public static void CloseConnections() {
+        foreach (var context in Live.Values) context.Abort();
+    }
+
     public async ValueTask DisposeAsync() {
         if (_app is null) return;
         await _app.StopAsync();
@@ -183,11 +211,13 @@ public sealed class HubTestHost : IAsyncDisposable {
 
     public sealed class SessionsHub(AdmittedConnections admitted) : Hub {
         public override Task OnConnectedAsync() {
+            Live[Context.ConnectionId] = Context;
             admitted.Add();
             return base.OnConnectedAsync();
         }
 
         public override Task OnDisconnectedAsync(Exception? exception) {
+            Live.TryRemove(Context.ConnectionId, out _);
             admitted.Remove();
             return base.OnDisconnectedAsync(exception);
         }
