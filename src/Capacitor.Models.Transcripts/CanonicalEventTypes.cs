@@ -15,6 +15,8 @@ public static class CanonicalEventTypes {
     public const string UserMessageRetracted        = "UserMessageRetracted";
     public const string CodexUsageBackfilled        = "CodexUsageBackfilled";
     public const string KiroUsageBackfilled         = "KiroUsageBackfilled";
+    public const string CopilotUsageBackfilled      = "CopilotUsageBackfilled";
+    public const string CopilotSessionMetrics       = "CopilotSessionMetrics";
 
     public static string Of(object payload) => payload switch {
         Kurrent.Agent.Schema.Events.UserMessageReceived         => UserMessageReceived,
@@ -30,6 +32,8 @@ public static class CanonicalEventTypes {
         UserMessageRetractedEvent                               => UserMessageRetracted,
         Harness.Codex.CodexUsageBackfilledEvent                 => CodexUsageBackfilled,
         Harness.Kiro.KiroUsageBackfill                          => KiroUsageBackfilled,
+        Harness.Copilot.CopilotUsageBackfill                    => CopilotUsageBackfilled,
+        Harness.Copilot.CopilotSessionMetrics                   => CopilotSessionMetrics,
         _ => throw new ArgumentException($"No canonical event type for {payload.GetType().Name}", nameof(payload)),
     };
 }
