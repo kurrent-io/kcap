@@ -19,6 +19,9 @@ public sealed record CanonicalEvent(
     ) {
     /// Metadata keys the vendor's stored events carry beside the common ones, each written verbatim.
     public IReadOnlyDictionary<string, string>? VendorMetadata { get; init; }
+
+    /// Vendor metadata stored as a JSON number or boolean: each value is a long or a bool, written as is.
+    public IReadOnlyDictionary<string, object>? VendorMetadataValues { get; init; }
 }
 
 /// A whole extension block for one slug, to shallow-merge over what the target already holds.

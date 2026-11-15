@@ -63,10 +63,17 @@ public static class TranscriptIds {
     /// by a prefix so an id can never collide with another derivation's input.
     public static Guid VibeEntry(string entryId) => Hash(Encoding.UTF8.GetBytes("vibe-entry:" + entryId));
 
-    /// A Muse record is identified by its stream and its own record id; the prefix keeps the input from
-    /// colliding with another derivation's.
+    /// Muse's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this
+    /// namespace. Changing it orphans every stored Muse event.
+    static readonly Guid MuseNamespace = new("86cf603c-3ec6-4cfb-b36b-9ac1d57cd367");
+
+    /// The v5 UUID of <c>{streamId}:{recordId}</c>: a Muse record's own <c>stream.id</c> and <c>id</c>.
     public static Guid MuseRecord(string streamId, string recordId) =>
-        Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+        Uuid5(MuseNamespace, string.Concat(streamId, ":", recordId));
+
+    /// One result of a Muse tool-result batch: the record id suffixed with the call's index in the batch.
+    public static Guid MuseToolResult(string streamId, string recordId, long index) =>
+        MuseRecord(streamId, string.Create(CultureInfo.InvariantCulture, $"{recordId}:{index}"));
 
     /// Kiro's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this
     /// namespace. Changing it orphans every stored Kiro event.

@@ -85,14 +85,22 @@ public class TranscriptIdsTests {
         await Assert.That(TranscriptIds.VibeEntry("a")).IsNotEqualTo(TranscriptIds.VibeEntry("b"));
     }
 
+    /// kcap-server's MuseDeterministicIdTests freezes the first; the second is the tool call its v1 Muse baseline stores.
     [Test]
-    public async Task Muse_record_hashes_stream_and_record_id() {
-        const string stream = "01a13694-b0ad-7ae2-8bf5-2af6357a0847";
-        const string record = "e6b35c82-47c0-48f2-868a-0e369eccecc8";
-        await Assert.That(TranscriptIds.MuseRecord(stream, record))
-            .IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes($"muse-record:{stream}:{record}"))));
-        await Assert.That(TranscriptIds.MuseRecord(stream, record)).IsNotEqualTo(TranscriptIds.MuseRecord(stream, "other"));
-        await Assert.That(TranscriptIds.MuseRecord(stream, record)).IsNotEqualTo(TranscriptIds.MuseRecord("other", record));
+    [Arguments("01a1368b-38a8-7a43-880e-e994ade1ca52", "de01b8ce-ac3c-4087-8219-bfa1203e45c3", "8de7afc5-ba3e-58b8-a93a-cc223aece949")]
+    [Arguments("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "c2606efb-7cad-49c1-ad70-554a9d30f4b1", "d001a605-274c-58d3-96f5-df778fa9ae8c")]
+    public async Task Muse_record_is_the_servers_v5_uuid(string streamId, string recordId, string expected) {
+        var id = TranscriptIds.MuseRecord(streamId, recordId);
+
+        await Assert.That(id.ToString()).IsEqualTo(expected);
+        await Assert.That(id.Version).IsEqualTo(5);
+        await Assert.That(TranscriptIds.MuseRecord(streamId, "other")).IsNotEqualTo(id);
+        await Assert.That(TranscriptIds.MuseRecord("other", recordId)).IsNotEqualTo(id);
+    }
+
+    [Test]
+    public async Task Muse_tool_result_is_the_record_id_suffixed_with_the_index() {
+        await Assert.That(TranscriptIds.MuseToolResult("stream-1", "rec-1", 2)).IsEqualTo(TranscriptIds.MuseRecord("stream-1", "rec-1:2"));
     }
 
     /// kcap-server's KiroDeterministicIdTests freezes these same four, so a Kiro event and a Kiro hook keep one derivation.
@@ -144,7 +152,9 @@ public class TranscriptIdsTests {
     [Arguments("vibe-record", "a14e98cf-4aa1-a507-7ec2-d0e71ed0cdbd")]
     [Arguments("vibe-tool-call", "6509a28d-49aa-5bf6-7f69-110d330e62f4")]
     [Arguments("vibe-entry", "d219bcea-d51a-d28e-6f8a-c4d4635844d0")]
-    [Arguments("muse-record", "d8a1a66a-0ef6-88fa-a0ea-41440eb74617")]
+    // kcap-server's v1 Muse baseline stores its corpus prompt and its bash result under these ids.
+    [Arguments("muse-record", "e1620d88-3087-57a9-bfd1-e861e88bcff4")]
+    [Arguments("muse-tool-result", "32e5e32f-faa6-55a6-9a6e-6ae2240be791")]
     // kcap-server's v1 Kiro baseline stores its corpus prompt under this id.
     [Arguments("kiro-record", "e64903f7-a47d-58e2-89f8-632e007b4463")]
     [Arguments("kiro-fallback", "f90b0ae9-4cfc-9416-d235-73a9332a649b")]
@@ -175,7 +185,8 @@ public class TranscriptIdsTests {
         "vibe-record"       => TranscriptIds.VibeRecord(7, "{\"role\":\"user\",\"content\":\"hi\"}"),
         "vibe-tool-call"    => TranscriptIds.VibeToolCall(Primary, "call_1"),
         "vibe-entry"        => TranscriptIds.VibeEntry("user-turn-abc-1"),
-        "muse-record"       => TranscriptIds.MuseRecord("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "e6b35c82-47c0-48f2-868a-0e369eccecc8"),
+        "muse-record"       => TranscriptIds.MuseRecord("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "38fdee41-9506-4307-bb01-929f5d2e8d0c"),
+        "muse-tool-result"  => TranscriptIds.MuseToolResult("01a13694-b0ad-7ae2-8bf5-2af6357a0847", "ccc213d1-33f1-474d-9b73-87b463e34d9e", 0),
         "kiro-record"       => TranscriptIds.KiroRecord("5f6c2b1a9e3d4a7cbb121c2d3e4f5a6b", "9415c9c4-ddb3-4438-9cf9-9df865547069", "user"),
         "kiro-fallback"     => TranscriptIds.KiroFallback("{\"kind\":\"Prompt\"}", "user"),
         "kiro-usage"        => TranscriptIds.KiroUsage("sess:agent", "msg-1"),
