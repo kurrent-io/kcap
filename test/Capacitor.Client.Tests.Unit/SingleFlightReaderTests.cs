@@ -15,7 +15,6 @@ public class SingleFlightReaderTests {
             Reader = new SingleFlightReader<string, string>(
                 (state, ct) => {
                     var result = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    ct.Register(() => result.TrySetCanceled(ct));
                     Reads.Add((state, result));
                     return result.Task;
                 },

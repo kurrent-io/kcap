@@ -1,10 +1,10 @@
 namespace Capacitor.Client;
 
-/// Single-flight async reader keyed by a lease state. A result applies through `post`, which runs it on
-/// the caller's thread, only when its lease is still current; superseded and torn-down leases are retained until their tasks
-/// complete so teardown can cancel and, by default, await every read. Each lease disposes its
-/// CancellationTokenSource after it settles and is released. A new lease whose state has a cached
-/// result applies it at once, settled, and still reads.
+/// Single-flight async reader keyed by a lease state. A result applies through `post`, which runs it
+/// on the caller's thread, only when its lease is still current; superseded and torn-down leases are
+/// retained until their tasks complete so teardown can cancel and, by default, await every read.
+/// Each lease disposes its CancellationTokenSource after it settles and is released. A new lease
+/// whose state has a cached result applies it at once, settled, and still reads.
 public sealed class SingleFlightReader<TState, TResult>(
         Func<TState, CancellationToken, Task<TResult>> readAsync,
         Func<Exception, TResult> onReadError,
