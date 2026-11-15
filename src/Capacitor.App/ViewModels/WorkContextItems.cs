@@ -6,8 +6,6 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-public enum WorkContextPartMark { Settled, ThisSession, Unknown }
-
 /// One declared part: settled by the server's milestone, else the one this session is attached
 /// to, else unknown.
 public sealed class WorkContextPartViewModel(string title, WorkContextPartMark mark) {
