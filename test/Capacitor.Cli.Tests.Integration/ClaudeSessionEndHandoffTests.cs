@@ -9,13 +9,13 @@ namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
 /// Real-binary proof that the Claude SessionEnd hook returns inside Claude Code's 1.5 s grace
-/// while the session-end still reaches the server. The server stalls <c>/hooks/session-end</c>
-/// for longer than the hook is allowed to live, so the only way the POST can arrive is from a
-/// process that outlived the hook.
+/// while the session-end still reaches the server. The server holds <c>/hooks/session-end</c>
+/// until the hook has exited, so the only way the POST can be answered is in a process that
+/// outlived the hook.
 /// </summary>
 public class ClaudeSessionEndHandoffTests : IDisposable {
-    /// <summary>Long enough that a hook which waited for the POST could not be mistaken for a slow
-    /// one: the bound below sits halfway between the two.</summary>
+    /// <summary>The longest the server holds the POST for a hook that has not exited: long enough that a
+    /// hook which waited for it could not be mistaken for a slow one, as the bound below sits halfway.</summary>
     static readonly TimeSpan ServerStall = TimeSpan.FromSeconds(6);
 
     /// <summary>What a hook that detached looks like, with room for a loaded runner's process start.
@@ -37,8 +37,16 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
         var sid        = Guid.NewGuid().ToString("N");
         var transcript = Tmp.CreateFile("t.jsonl", """{"type":"user","uuid":"u1","message":{"role":"user","content":"hi"}}""" + "\n");
 
+        using var hookExited = new ManualResetEventSlim();
         _server.Given(Request.Create().WithPath("/hooks/session-end").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(ServerStall));
+            .RespondWith(Response.Create().WithCallback(_ => {
+                hookExited.Wait(ServerStall);
+
+                return new WireMock.ResponseMessage {
+                    StatusCode = 200,
+                    BodyData   = new WireMock.Util.BodyData { DetectedBodyType = WireMock.Types.BodyType.String, BodyAsString = "{}" },
+                };
+            }));
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"processed":0}"""));
 
@@ -62,6 +70,7 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
         var stderr = hook.StandardError.ReadToEndAsync();
         await hook.WaitForExitAsync();
         clock.Stop();
+        hookExited.Set();
 
         await Assert.That(hook.ExitCode).IsEqualTo(0).Because(await stderr);
         await Assert.That(await stdout).IsEmpty();
@@ -69,7 +78,7 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
         // for it — which is the whole property, on a session with a transcript to drain.
         await Assert.That(clock.Elapsed).IsLessThan(ReturnsWithout).Because($"stderr: {await stderr}");
 
-        // The hook is gone; the continuation has today's 15 s budget and must wait out the stall.
+        // The hook is gone; the continuation's POST is answered from here on.
         var posted = await WaitForSessionEndAsync(TimeSpan.FromSeconds(20));
 
         await Assert.That(posted).IsNotNull().Because("no /hooks/session-end reached the server");

@@ -9,8 +9,11 @@ namespace Capacitor.Cli.Commands;
 /// <see cref="HttpClientExtensions.CliVersionHeader"/> immediately. Never prints, always returns 0.
 /// </summary>
 public sealed class ReportVersionCommand(CapacitorServer server, ICapacitorHttpClient http, TimeProvider time) {
+    /// <summary>What the probe may spend, discovery included; null is the probe's own budget.</summary>
+    internal TimeSpan? Budget { get; init; }
+
     public async Task<int> HandleAsync() {
-        await ServerProbe.SendAsync(server, http, time);
+        await ServerProbe.SendAsync(server, http, time, Budget);
 
         return 0;
     }

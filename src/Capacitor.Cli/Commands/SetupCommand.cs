@@ -584,6 +584,10 @@ sealed class SetupCommand(
 
     internal bool SteeringOffered { get; init; } = SteeringIpc.Offered;
 
+    /// <summary>How long an unattended run waits on the server to confirm its credential; null is
+    /// <see cref="UnattendedCredential.ProbeTimeout"/>.</summary>
+    internal TimeSpan? UnattendedProbeTimeout { get; init; }
+
     /// <summary>The whole run's JSON report, set only while a <c>--json --no-prompt</c> run is in progress.</summary>
     SetupJsonReport? _json;
 
@@ -903,7 +907,7 @@ sealed class SetupCommand(
         _json?.Started(SetupJsonReport.SignIn);
 
         var unattended = noPrompt && !loginComplete && provider != AuthProvider.None
-            ? await new UnattendedCredential(chosenHttp).ProbeAsync(serverUrl, await ContextForAsync(activeProfile, serverUrl), time)
+            ? await new UnattendedCredential(chosenHttp, UnattendedProbeTimeout).ProbeAsync(serverUrl, await ContextForAsync(activeProfile, serverUrl), time)
             : null;
 
         var loginStepResult = await ReportUnattendedSignInAsync(unattended, activeProfile)

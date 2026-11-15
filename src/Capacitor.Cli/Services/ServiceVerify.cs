@@ -111,7 +111,7 @@ sealed class ServiceVerify(
     Func<string, bool>? digestMatches = null,
     Func<string, CancellationToken, Task<AdmissionFenceAcquireResult>>? acquireFence = null,
     Func<string, TimeSpan, Task>? endDaemon = null) {
-    static readonly TimeSpan LockWait      = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan DefaultLockWait = TimeSpan.FromSeconds(10);
     static readonly TimeSpan PollInterval  = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan KillWait      = TimeSpan.FromSeconds(5);
     static readonly TimeSpan TargetProbeWait = TimeSpan.FromSeconds(5);
@@ -136,6 +136,9 @@ sealed class ServiceVerify(
     /// old daemon's fence (acquire and commit, each within <see cref="FenceWait"/>) on top of the sum
     /// above.</summary>
     public static readonly TimeSpan AdvertisedBound = EndWait + DefaultForwardBudget + DefaultRollbackReserve;
+
+    /// <summary>How long each operation waits out another holder of the service lock.</summary>
+    internal TimeSpan LockWait { get; init; } = DefaultLockWait;
 
     readonly TimeSpan _forwardBudget    = forwardBudget ?? DefaultForwardBudget;
     readonly Func<string, CancellationToken, Task<AdmissionFenceAcquireResult>> _acquireFence =
