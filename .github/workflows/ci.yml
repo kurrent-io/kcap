@@ -71,7 +71,13 @@ jobs:
     name: Build and test (${{ matrix.leg }})
     needs: changes
     if: needs.changes.outputs.plugin-docs != 'true'
-    runs-on: ${{ matrix.os }}
+    # A leg naming runner-var runs on the label in that repository variable while it is set, so moving
+    # it between GitHub, GetMac and self-hosted runners needs no commit. A fork's PR always gets
+    # matrix.os: its code must never reach a self-hosted runner.
+    runs-on: >-
+      ${{ matrix.runner-var && vars[matrix.runner-var]
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && vars[matrix.runner-var] || matrix.os }}
     # About 1.4x the longest observed leg (macOS on GitHub's runners, 32m); this only has to catch a
     # wedge, and GitHub's kill takes the uploaded reports with it.
     timeout-minutes: 45
@@ -80,7 +86,8 @@ jobs:
       matrix:
         include:
           - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4 }
-          - { leg: macos-latest,  os: macos-latest,   shard: all, modules: 3, tests: 4 }
+          - { leg: macos,         os: macos-latest,   runner-var: MACOS_RUNNER,       shard: all, modules: 3, tests: 4 }
+          - { leg: linux-arm64,   os: ubuntu-24.04-arm, runner-var: LINUX_ARM64_RUNNER, shard: all, modules: 3, tests: 4 }
           # Narrower: at three-by-four this leg spent a 20s service-readiness budget and a 1s
           # memory-fetch budget inside the code under test with nothing actually slow.
           # Split in two because at two modules the Windows test step took the sum of every suite
