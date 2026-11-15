@@ -1200,8 +1200,8 @@ public sealed class ClaudeHookCommand(
                     if (resolvedSlug is not null) {
                         var planContent = ReadPlanFile(resolvedSlug, ClaudeLayoutFor(transcriptPath));
 
-                        if (planContent is not null) {
-                            await PostPlanContentAsync(client, clock.Time, Url, sessionId, planContent);
+                        if (planContent is not null && budget.Remaining > TimeSpan.Zero) {
+                            await PostPlanContentAsync(client, clock.Time, Url, sessionId, planContent, budget.Remaining);
                         }
                     }
                 } catch {
@@ -1272,7 +1272,7 @@ public sealed class ClaudeHookCommand(
 
         // Dedicated bounded POST for session-end: single attempt clamped to the remaining
         // hook budget, spools on transient failure, and checks generate_whats_done on success.
-        // Other commands continue through the shared PostWithRetryAsync path below.
+        // Other commands continue through the shared bounded path below.
         if (command == "session-end") {
             // Parse once: stamp ended_at and extract sessionId in a single pass.
             string? sessionId = null;
@@ -1409,37 +1409,53 @@ public sealed class ClaudeHookCommand(
             } catch { }
         }
 
-        using var sharedContent = new StringContent(body, Encoding.UTF8, "application/json");
+        // One attempt inside what is left of the event's ceiling: the host kills the hook at its manifest
+        // timeout, so a retry that outlives it loses the event and holds the agent's turn for nothing.
+        var genericSessionId = SessionIdOf(body);
+        var spools           = command != "notification" && genericSessionId is not null;
 
-        HttpResponseMessage response;
+        if (spools && CurrentSessionHasBacklog(spool, genericSessionId)) {
+            spool.Append(genericSessionId!, command!, body);
+            await Console.Error.WriteLineAsync($"[kcap] {command} spooled (ordering guard); will retry on the next kcap hook ({genericSessionId})");
+            return 0;
+        }
 
+        HttpResponseMessage? response = null;
         try {
-            response = await client.PostWithRetryAsync($"{Url}/hooks/{command}", sharedContent, clock.Time);
-        } catch (HttpRequestException ex) {
-            HttpClientExtensions.WriteUnreachableError(Url, ex);
-
-            return 1;
+            if (budget.Remaining > TimeSpan.Zero) {
+                using var content = new StringContent(body, Encoding.UTF8, "application/json");
+                response = await client.PostOnceAsync($"{Url}/hooks/{command}", content, clock.Time, budget.Remaining, CancellationToken.None);
+            }
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
+            response = null;
         }
         HookTiming.Mark("post");
 
-        if (!response.IsSuccessStatusCode) {
-            var code = (int)response.StatusCode;
-            response.Dispose();
+        if (response is null || !response.IsSuccessStatusCode) {
+            var code      = response is null ? 0 : (int)response.StatusCode;
+            var retryable = response is null || HookSpool.IsRetryable(code);
+            response?.Dispose();
+
+            if (!retryable) {
+                Console.Error.WriteLine($"HTTP {code}");
+
+                return 1;
+            }
+
+            if (spools) {
+                await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, FailureReason(code), unusableUrl: false);
+            } else {
+                await Console.Error.WriteLineAsync($"[kcap] {command} dropped ({FailureReason(code)})");
+            }
 
             // Exit 0 is deliberate: any non-zero exit renders as Claude's opaque hook-error banner
             // instead of the notice. `stop` only — `notification` fires per permission prompt and
             // would stack duplicates within one turn.
-            if (code == 401) {
-                if (command == "stop") {
-                    writer.WriteLine(new JsonObject { ["systemMessage"] = AuthRejectionNotice.RecordingNotice(StoredCredentialState.LooksValid) }.ToJsonString());
-                }
-
-                return 0;
+            if (code == 401 && command == "stop") {
+                writer.WriteLine(new JsonObject { ["systemMessage"] = AuthRejectionNotice.RecordingNotice(StoredCredentialState.LooksValid) }.ToJsonString());
             }
 
-            Console.Error.WriteLine($"HTTP {code}");
-
-            return 1;
+            return 0;
         }
 
         if (command == "stop") {
@@ -1685,10 +1701,10 @@ public sealed class ClaudeHookCommand(
         }
     }
 
-    static async Task PostPlanContentAsync(HttpClient httpClient, TimeProvider time, string url, string sessionId, string planContent) {
+    static async Task PostPlanContentAsync(HttpClient httpClient, TimeProvider time, string url, string sessionId, string planContent, TimeSpan within) {
         var       obj         = new JsonObject { ["plan_content"] = planContent };
         using var planPayload = new StringContent(obj.ToJsonString(), Encoding.UTF8, "application/json");
-        await httpClient.PostWithRetryAsync($"{url}/api/sessions/{sessionId}/plan", planPayload, time);
+        using var _           = await httpClient.PostOnceAsync($"{url}/api/sessions/{sessionId}/plan", planPayload, time, within, CancellationToken.None);
     }
 
     /// <summary>
@@ -1730,6 +1746,10 @@ public sealed class ClaudeHookCommand(
     /// the exact cross-spool ordering violation Blockers 1/3 exist to prevent. <c>HasBacklog</c>
     /// covers all three namespaces; <see cref="CursorHookCommand"/> already routes through it.</para>
     /// </summary>
+    static string? SessionIdOf(string body) {
+        try { return JsonNode.Parse(body)?["session_id"]?.GetValue<string>(); } catch { return null; }
+    }
+
     static bool CurrentSessionHasBacklog(HookSpool spool, string? sid) =>
         sid is not null && spool.HasBacklog(sid);
 

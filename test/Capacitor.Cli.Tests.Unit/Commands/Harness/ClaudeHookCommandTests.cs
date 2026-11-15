@@ -2074,7 +2074,62 @@ public class ClaudeHookCommandTests {
             stdout: stdout);
 
         await Assert.That(accepting.RouteOrder).Contains("session-end");
-        await Assert.That(rejecting.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(string.Concat(rejecting.SpoolFiles.Select(File.ReadAllText))).DoesNotContain("\"route\":\"session-end\"");
+    }
+
+    /// <summary>The host kills a Stop hook at its manifest timeout, so a post that outlives the hook's own
+    /// ceiling loses the turn's end and holds the agent for nothing; one bounded attempt spools it instead.</summary>
+    [Test]
+    public async Task stop_against_a_server_that_never_answers_returns_inside_its_ceiling_and_spools() {
+        using var fx = new Fixture(Config.Root) { HoldOnPost = TimeSpan.FromSeconds(60) };
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    [Test]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    public async Task stop_refused_with_a_retryable_status_is_spooled(HttpStatusCode status) {
+        using var fx = new Fixture(Config.Root, status);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
+    }
+
+    /// <summary>A notification fires per permission prompt and means nothing once its moment has passed, so
+    /// a failed one is dropped rather than replayed into a later turn.</summary>
+    [Test, NotInParallel]
+    public async Task notification_refused_with_a_retryable_status_is_dropped_with_one_line() {
+        using var fx      = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Notification","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(capture.GetCapturedError()).Contains("notification dropped (HTTP 503)");
+    }
+
+    /// <summary>A stop posted live while the session still has an undelivered start would reach the server
+    /// first, for a session it does not know yet.</summary>
+    [Test]
+    public async Task stop_behind_an_undrained_backlog_is_spooled_after_it() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("stop");
+        var all = string.Concat(fx.SpoolFiles.Select(File.ReadAllText));
+        await Assert.That(all.IndexOf("\"route\":\"stop\"", StringComparison.Ordinal))
+            .IsGreaterThan(all.IndexOf("\"route\":\"session-start\"", StringComparison.Ordinal));
     }
 
     [Test]
@@ -2501,10 +2556,10 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
-    /// <summary>Regression guard on the arm this change must NOT touch: a real server fault keeps
-    /// its bare-status stderr line and its non-zero exit, so a 500 still reads as a failure.</summary>
+    /// <summary>A server fault is retryable: the stop waits in the spool for the server to recover, so the
+    /// hook exits cleanly rather than painting Claude's hook-error banner on every turn of an outage.</summary>
     [Test]
-    public async Task stop_on_500_still_exits_non_zero_without_a_notice() {
+    public async Task stop_on_500_spools_and_exits_zero_without_a_notice() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
         var stdout = new StringWriter { NewLine = "\n" };
 
@@ -2513,7 +2568,8 @@ public class ClaudeHookCommandTests {
                 $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","cwd":"/tmp"}"""),
             stdout: stdout);
 
-        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
