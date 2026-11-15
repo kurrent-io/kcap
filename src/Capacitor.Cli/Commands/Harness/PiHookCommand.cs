@@ -216,7 +216,7 @@ sealed class PiHookCommand(
             , clock.Time);
 
             if (!drained) {
-                var handed = DetachedBacklogImport.Spawn("--pi", sessionId, config, SystemProcessStarter.Instance);
+                var handed = DetachedBacklogImport.Spawn("--pi", sessionId, file, harnesses.Of<Capacitor.Cli.Core.Harness.Pi.PiHarness>().Paths.SessionsDir, config, SystemProcessStarter.Instance);
                 await Console.Error.WriteLineAsync(handed
                     ? $"[kcap] pi session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
                     : $"[kcap] pi session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "

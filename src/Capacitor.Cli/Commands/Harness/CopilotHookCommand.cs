@@ -421,7 +421,7 @@ sealed class CopilotHookCommand(
             , clock.Time);
 
             if (!drained) {
-                var handed = DetachedBacklogImport.Spawn("--copilot", sessionId, config, SystemProcessStarter.Instance);
+                var handed = DetachedBacklogImport.Spawn("--copilot", sessionId, transcriptPath, null, config, SystemProcessStarter.Instance);
                 await Console.Error.WriteLineAsync(handed
                     ? $"[kcap] copilot session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
                     : $"[kcap] copilot session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli;
@@ -9,15 +10,35 @@ namespace Capacitor.Cli;
 /// the import sends the whole transcript and the server keeps only what it has not taken.
 /// </summary>
 public static class DetachedBacklogImport {
-    public static bool Spawn(string vendorFlag, string sessionId, ConfigRoot config, IProcessStarter starter) {
+    /// <param name="transcriptPath">Where the hook read the session from: an import that would look elsewhere is not
+    /// started, since it would find nothing and the hook would claim a hand-off that never happens.</param>
+    /// <param name="importSearches">The directory the vendor's import discovers sessions in, when a session can live
+    /// outside it; null when the hook and the import read the same place.</param>
+    public static bool Spawn(
+            string vendorFlag, string sessionId, string transcriptPath, string? importSearches, ConfigRoot config, IProcessStarter starter) {
+        if (importSearches is not null && !Under(transcriptPath, importSearches)) return false;
+        if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId) ?? sessionId, config)) return false;
+
         try {
+            // Every standard stream redirected, and closed on this side by the starter: inherited, they would hold the
+            // host's hook pipes open past the hook's exit and put the import's output in the hook's answer.
             var psi = new ProcessStartInfo(Environment.ProcessPath ?? "kcap") {
-                UseShellExecute = false,
-                CreateNoWindow  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardInput  = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
             };
 
             foreach (var arg in Args(vendorFlag, sessionId)) psi.ArgumentList.Add(arg);
             psi.Environment[ConfigRoot.ConfigDirEnvVar] = config.Directory;
+            // A detached import: no parent watchdog, which would end it moments after the hook exits, and its output in a
+            // log, which the child only appends to.
+            var log = LogPath(config, sessionId);
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            File.AppendAllText(log, "");
+            psi.Environment[DetachedImportLog.EnvVar] = log;
+            psi.Environment.Remove(DetachedImportLog.VisibilityEnvVar);
 
             return starter.StartDetached(psi) is not null;
         } catch (Exception) {
@@ -27,4 +48,13 @@ public static class DetachedBacklogImport {
 
     public static string[] Args(string vendorFlag, string sessionId) =>
         ["import", vendorFlag, "--session", sessionId, "--skip-title", "--no-update-check"];
+
+    public static string LogPath(ConfigRoot config, string sessionId) =>
+        config.Path("logs", $"backlog-import-{SessionIds.Canonical(sessionId) ?? sessionId}.log");
+
+    static bool Under(string path, string directory) {
+        var dir = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+        return Path.GetFullPath(path).StartsWith(dir, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+    }
 }
