@@ -43,6 +43,12 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// A Copilot envelope's own <c>id</c> when it parses as a Guid, else the hash of its line. Every other event the
+    /// line emits is a <see cref="Sibling"/> of it, its suffix naming the part: <c>thinking</c>, <c>text</c>,
+    /// <c>tool:{callId}</c>, <c>usage:{model}</c>, <c>session-metrics</c>, or <c>att:{assetId}</c> for an attachment.
+    public static Guid CopilotRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
     /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
     /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
     /// <see cref="Sibling"/> of it.

@@ -1,0 +1,395 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "0c0c0c0c-0000-4000-8000-000000000001",
+        "timestamp": "2026-11-15T09:00:00.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:00.000Z",
+        "payload": {
+          "timestamp": "2026-11-15T09:00:00Z",
+          "extensions": {
+            "copilot": {
+              "cwd": "/work/app",
+              "git_root": "/work/app",
+              "branch": "main",
+              "repository": "acme/app",
+              "repository_host": "github.com",
+              "host_type": "github",
+              "copilot_version": "1.0.110",
+              "producer": "copilot-agent",
+              "source": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "batch": 1,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "batch": 1,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "batch": 1,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "0c0c0c0c-0000-4000-8000-000000000005",
+        "timestamp": "2026-11-15T09:00:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:03.000Z",
+        "payload": {
+          "content": "What is in this picture?",
+          "timestamp": "2026-11-15T09:00:03Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": [
+          {
+            "id": "bea1ddfb-f96c-d32d-102c-942dbf983265",
+            "fileName": "shot.png",
+            "contentType": "image/png",
+            "sha256": "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"
+          }
+        ]
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "6290197c-335d-5cd6-9c22-d5c4832df034",
+        "timestamp": "2026-11-15T09:00:04.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04.000Z",
+        "payload": {
+          "content": "Read the file first.",
+          "timestamp": "2026-11-15T09:00:04Z"
+        },
+        "usage": {
+          "output_tokens": "42",
+          "total_tokens": "42",
+          "model": "claude-sonnet-5.5"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "1b493565-098b-7430-da07-873d86988031",
+        "timestamp": "2026-11-15T09:00:04.0000001\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04.000Z",
+        "payload": {
+          "content": "Looking.",
+          "timestamp": "2026-11-15T09:00:04.000000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "ab0e26f6-3baa-2130-cf87-b63e06b087e1",
+        "timestamp": "2026-11-15T09:00:04.0000002\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04.000Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_view",
+              "tool_name": "view",
+              "arguments": {
+                "path": "/work/shot.png"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:04.000000200Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "cbb84c90-e81d-4d50-a009-9c41de024465",
+        "timestamp": "2026-11-15T09:00:04.0000003\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04.000Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_read",
+              "tool_name": "read_file",
+              "arguments": {
+                "filePath": "/work/README.md"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:04.000000300Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "0c0c0c0c-0000-4000-8000-000000000007",
+        "timestamp": "2026-11-15T09:00:05.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:05.000Z",
+        "payload": {
+          "call_id": "call_view",
+          "result": "[{\u0022type\u0022:\u0022text\u0022,\u0022text\u0022:\u0022denied\u0022}]",
+          "timestamp": "2026-11-15T09:00:05Z",
+          "extensions": {
+            "copilot": {
+              "success": false,
+              "detailed_content": "Permission denied",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "c86e4d52-3a91-ba34-d89a-145ba36b0187",
+        "timestamp": "2026-11-15T09:00:06.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:06.000Z",
+        "payload": {
+          "content": "Summarize README.md",
+          "timestamp": "2026-11-15T09:00:06Z",
+          "extensions": {
+            "copilot": {
+              "agent_id": "agent-1"
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "0c0c0c0c-0000-4000-8000-000000000008",
+        "timestamp": "2026-11-15T09:00:07.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:07.000Z",
+        "payload": {
+          "model": "gpt-6-luna",
+          "input_tokens": 300,
+          "output_tokens": 20,
+          "cache_read_tokens": 600,
+          "cache_write_tokens": 100,
+          "reasoning_tokens": 5,
+          "session_model": null,
+          "request_count": null,
+          "request_cost": null,
+          "nano_aiu": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 12,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "0c0c0c0c-0000-4000-8000-000000000009",
+        "timestamp": "0001-01-01T00:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "payload": {
+          "content": "no time on this line",
+          "timestamp": "0001-01-01T00:00:00Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 13,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "0c0c0c0c-0000-4000-8000-00000000000a",
+        "timestamp": "2026-11-15T09:00:08.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:08.000Z",
+        "payload": {
+          "total_nano_aiu": 400000000,
+          "total_premium_requests": null,
+          "request_id": "req-1",
+          "run_marker": null,
+          "lines_added": null,
+          "lines_removed": null,
+          "files_modified_count": null,
+          "files_modified": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 14,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "0c0c0c0c-0000-4000-8000-00000000000b",
+        "timestamp": "2026-11-15T09:00:09.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:09.000Z",
+        "payload": {
+          "total_nano_aiu": 900000000,
+          "total_premium_requests": 0.33,
+          "cumulative_across_runs": true,
+          "run_marker": "0c0c0c0c-0000-4000-8000-000000000001",
+          "lines_added": null,
+          "lines_removed": null,
+          "files_modified_count": null,
+          "files_modified": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 16,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "0c0c0c0c-0000-4000-8000-00000000000d",
+        "timestamp": "2026-11-15T09:00:11.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:11.000Z",
+        "payload": {
+          "model": "claude-sonnet-5.5",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": null,
+          "session_model": "claude-sonnet-5.5",
+          "request_count": 2,
+          "request_cost": 1,
+          "nano_aiu": 900000000
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "4daf494b-0633-bec1-7cc2-e6a88a051310",
+        "timestamp": "2026-11-15T09:00:11.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:11.000Z",
+        "payload": {
+          "model": "gpt-6-luna",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": null,
+          "session_model": null,
+          "request_count": 1,
+          "request_cost": 0.33,
+          "nano_aiu": 300000000
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "6d3fec0b-9d3c-e8bc-f1ec-1694ed0d626f",
+        "timestamp": "2026-11-15T09:00:11.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:11.000Z",
+        "payload": {
+          "total_nano_aiu": 1200000000,
+          "total_premium_requests": 1,
+          "run_marker": "0c0c0c0c-0000-4000-8000-000000000001",
+          "lines_added": 3,
+          "lines_removed": 1,
+          "files_modified_count": 1,
+          "files_modified": [
+            "/work/app/a.cs"
+          ]
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  }
+]
