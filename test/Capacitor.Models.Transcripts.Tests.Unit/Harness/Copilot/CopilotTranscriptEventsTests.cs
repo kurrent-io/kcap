@@ -430,7 +430,7 @@ public class CopilotTranscriptEventsTests {
     public async Task A_shutdown_reporting_zero_code_changes_still_reports_them() {
         var metrics = Single<CopilotSessionMetrics>(E(Envelope(1, "session.shutdown", """{"codeChanges":{"linesAdded":0,"linesRemoved":0,"filesModified":[]}}""")));
 
-        await Assert.That((metrics.LinesAdded, metrics.FilesModifiedCount, metrics.TotalNanoAiu)).IsEqualTo((0, 0, (long?)null));
+        await Assert.That((metrics.LinesAdded, metrics.FilesModifiedCount, metrics.TotalNanoAiu)).IsEqualTo((0, 0, null));
     }
 
     [Test]
@@ -447,7 +447,7 @@ public class CopilotTranscriptEventsTests {
         var metrics = (CopilotSessionMetrics)e.Payload;
 
         await Assert.That(e.EventId).IsEqualTo(Guid.Parse(Id(1)));
-        await Assert.That((metrics.TotalNanoAiu, metrics.TotalPremiumRequests, metrics.LinesAdded)).IsEqualTo((3109455000L, 1d, (int?)null));
+        await Assert.That((metrics.TotalNanoAiu, metrics.TotalPremiumRequests, metrics.LinesAdded)).IsEqualTo((3109455000L, 1d, null));
     }
 
     [Test]
@@ -609,7 +609,7 @@ public class CopilotTranscriptEventsTests {
 
         ctx.BeginBatch();
 
-        await Assert.That((ctx.RunMarker, ctx.RunHasUsageRecords, ctx.RunMessagesReportOutput)).IsEqualTo((Guid.Parse(Id(1)), true, (bool?)false));
+        await Assert.That((ctx.RunMarker, ctx.RunHasUsageRecords, ctx.RunMessagesReportOutput)).IsEqualTo((Guid.Parse(Id(1)), true, false));
     }
 
     [Test]

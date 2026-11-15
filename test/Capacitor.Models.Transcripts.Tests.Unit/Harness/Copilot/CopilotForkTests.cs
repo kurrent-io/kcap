@@ -175,7 +175,7 @@ public class CopilotForkTests {
         var events  = Project(lines);
         var metrics = Of<CopilotSessionMetrics>(events).Single();
 
-        await Assert.That((metrics.TotalNanoAiu, metrics.LinesAdded, metrics.LinesRemoved, metrics.FilesModified)).IsEqualTo((3L, (int?)null, (int?)null, (IReadOnlyList<string>?)null));
+        await Assert.That((metrics.TotalNanoAiu, metrics.LinesAdded, metrics.LinesRemoved, metrics.FilesModified)).IsEqualTo((3L, null, null, null));
         await Assert.That(Of<CopilotUsageBackfill>(events).Single()).IsEqualTo(new CopilotUsageBackfill { Model = "claude-haiku-4.5", SessionModel = "claude-haiku-4.5" });
     }
 
