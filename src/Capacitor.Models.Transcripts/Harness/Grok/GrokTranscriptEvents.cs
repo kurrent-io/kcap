@@ -42,6 +42,8 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
             if (root.Obj("params") is not { } prms || prms.Obj("update") is not { } update) return ProjectionResult.Empty;
 
             var meta   = prms.Obj("_meta");
+            // Unchecked, as the server's normalizer multiplies: a root time that overflows wraps, and the server
+            // stores the line at the wrapped instant, so rejecting it would drop an event the server keeps.
             var whenMs = meta?.Num("agentTimestampMs") ?? (root.Num("timestamp") is { } seconds ? seconds * 1000 : null);
             if (whenMs < MinMs || whenMs > MaxMs) return ProjectionResult.Reject("timestamp out of range");
 
@@ -105,7 +107,8 @@ public sealed class GrokTranscriptEvents : ITranscriptProjection {
         var peak     = sameTurn ? ctx.TurnPeakTokens : 0;
         var anchor   = sameTurn ? ctx.TurnAnchor : null;
 
-        // The peak is one request's context, so only the model that read the most may claim it.
+        // The peak is one request's context, so only the model that read the most may claim it. It is chosen before
+        // the models that record nothing are left out, as the server chooses it: such a model takes the peak with it.
         var peakModel = byModel.EnumerateObject()
             .Where(m => m.Value.IsObject)
             .OrderByDescending(m => m.Value.Num("inputTokens") ?? 0)

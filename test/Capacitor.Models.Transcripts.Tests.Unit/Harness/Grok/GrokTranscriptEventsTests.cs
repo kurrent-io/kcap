@@ -117,6 +117,18 @@ public class GrokTranscriptEventsTests {
         await Assert.That(e.RecordTimestamp).IsNull();
     }
 
+    /// <summary>The server stores this line at the wrapped instant, so the projection must not reject it.</summary>
+    [Test]
+    public async Task A_root_time_whose_milliseconds_overflow_wraps_as_the_server_stores_it() {
+        var line = Acp("""{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}""", """ "eventId":"e1" """)
+            .Replace("1791900942", "18446744073709552");
+
+        var e = E(line).Single();
+
+        await Assert.That(e.Timestamp).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(384));
+        await Assert.That(e.RecordTimestamp).IsEqualTo("1970-01-01T00:00:00.3840000+00:00");
+    }
+
     [Test]
     public async Task A_time_out_of_range_rejects_the_line_and_leaves_the_turn() {
         var ctx = Context();
@@ -301,6 +313,19 @@ public class GrokTranscriptEventsTests {
         await Assert.That(byModel["big"].OccupancyTokens).IsEqualTo(4000L);
         await Assert.That(byModel["small"].OccupancyTokens).IsEqualTo(0L);
         await Assert.That(byModel["small"].Targets.Single().EventId).IsEqualTo(byModel["big"].Targets.Single().EventId);
+    }
+
+    /// <summary>The server picks the peak before it drops the models that record nothing, so one of those that read the
+    /// most leaves the recorded models with no peak.</summary>
+    [Test]
+    public async Task A_model_that_records_nothing_still_takes_the_peak_when_it_read_the_most() {
+        var ctx = Context();
+        P(Reply("x", "p1", 4000, "a"), ctx);
+
+        var usage = Usage(E(Turn("p1", """{"":{"inputTokens":9000},"grok":{"inputTokens":100,"outputTokens":1}}"""), ctx).Single());
+
+        await Assert.That(usage.Model).IsEqualTo("grok");
+        await Assert.That(usage.OccupancyTokens).IsEqualTo(0L);
     }
 
     [Test]
