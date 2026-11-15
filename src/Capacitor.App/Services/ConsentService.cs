@@ -71,7 +71,7 @@ public sealed class ConsentService : IConsentService {
         _ops           = ops;
         _subscribe     = subscribe;
         _time          = time;
-        _loop          = new CancellableLoop(_lock, shutdownToken, () => _disposed, RunLoopAsync);
+        _loop          = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _tickSub       = ticker.Ticks.Subscribe(_ => Prune());
         _statusSub     = service.Status.Subscribe(OnStatus);
     }

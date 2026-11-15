@@ -52,7 +52,7 @@ public sealed class PermissionService : IPermissionService {
             PermissionResponder? respond = null,
             IObservable<IReadOnlyDictionary<string, string>>? sessionAgents = null) {
         _ops = ops; _subscribe = subscribe; _time = time;
-        _loop = new CancellableLoop(_lock, shutdownToken, () => _disposed, RunLoopAsync);
+        _loop = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _respond = respond ?? ((_, _, _, _) => Task.FromResult(new ServerRespondOutcome(ServerRespondKind.Unreachable, "not_signed_in")));
         _statusSub = service.Status.Subscribe(OnStatus);
         _agentsSub = sessionAgents?.Subscribe(OnSessionAgents);

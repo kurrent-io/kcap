@@ -33,7 +33,7 @@ public sealed class AccountsService : IAccountsService, IDisposable {
             IDaemonClientService service, Func<CancellationToken, IAsyncEnumerable<AccountsStreamEvent>> subscribe,
             TimeProvider time, CancellationToken shutdownToken) {
         _subscribe = subscribe; _time = time;
-        _loop = new CancellableLoop(_lock, shutdownToken, () => _disposed, RunLoopAsync);
+        _loop = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _statusSub = service.Status.Subscribe(OnStatus);
     }
 
@@ -93,7 +93,7 @@ public sealed class AccountsService : IAccountsService, IDisposable {
             try {
                 await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
                     ct.ThrowIfCancellationRequested();
-                    if (evt is AccountsStreamEvent.Snapshot snapshot) Publish(ct, snapshot.Value);
+                    if (evt is AccountsStreamEvent.Snapshot snapshot) Publish(snapshot.Value, ct);
                 }
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 break;
@@ -107,7 +107,7 @@ public sealed class AccountsService : IAccountsService, IDisposable {
 
     /// A loop that has been stopped can still deliver the event it was reading; it must not
     /// repopulate the snapshot StopLoop cleared.
-    void Publish(CancellationToken ct, AccountsSnapshotDto snapshot) {
+    void Publish(AccountsSnapshotDto snapshot, CancellationToken ct) {
         lock (_lock) {
             if (!_loop.IsCurrent(ct)) return;
             PublishLocked(snapshot);

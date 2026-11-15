@@ -6,7 +6,7 @@ namespace Capacitor.App.Services;
 /// a loop it stopped can tell, under that lock, that it is no longer the current one.
 /// </summary>
 internal sealed class CancellableLoop(
-        Lock gate, CancellationToken shutdownToken, Func<bool> closed, Func<CancellationToken, Task> body) {
+        Lock gate, Func<bool> closed, Func<CancellationToken, Task> body, CancellationToken shutdownToken) {
     CancellationTokenSource? _cts;
     CancellationToken _token; // read without touching _cts, which the loop disposes once it unwinds
 
