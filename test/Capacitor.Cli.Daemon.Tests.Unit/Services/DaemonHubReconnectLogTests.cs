@@ -47,6 +47,30 @@ public class DaemonHubReconnectLogTests {
         await Assert.That(client.Where(e => e.Level > LogLevel.Debug)).IsEmpty();
     }
 
+    /// <summary>SignalR logs a live connection's drop as an error with its stack trace while the hub still reads as
+    /// connected, so the hub's state alone cannot hold it back; the policy's own line is what says the connection
+    /// was lost.</summary>
+    [Test]
+    public async Task A_dropped_live_connection_logs_one_warning_and_no_client_error() {
+        await using var host = await RecordingHubHost.StartAsync();
+        var loggers = new Recording(LogLevel.Trace);
+        var config  = new DaemonConfig { Name = "test", ServerUrl = host.Url, ConfigRoot = Config.Root, Profiles = Resolutions.None(Config.Root) };
+
+        await using var hub = DaemonHub.Build(config, () => Task.FromResult<string?>(null), _ => { }, loggers, TimeProvider.System);
+        var reconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.Reconnected += _ => { reconnected.TrySetResult(); return Task.CompletedTask; };
+
+        await hub.StartAsync();
+        await host.WaitForAsync(h => h.OpenConnections > 0, "the server admitting the hub");
+        host.BreakTransports();
+        await reconnected.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        var entries = loggers.Entries;
+        var client = entries.Where(e => e.Category.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) && e.Level > LogLevel.Debug).ToList();
+        await Assert.That(client.Where(e => e.Level >= LogLevel.Warning || e.Exception is not null)).IsEmpty();
+        await Assert.That(entries.Count(e => e.Message.StartsWith("Hub connection lost", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
     [Test]
     public async Task Each_attempt_is_one_warning_naming_its_reason_and_no_stack_trace() {
         var loggers = new Recording(LogLevel.Information);

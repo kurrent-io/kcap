@@ -10,6 +10,10 @@ namespace Capacitor.Cli.Daemon.Services;
 sealed class ReconnectQuietLoggerFactory(ILoggerFactory inner, Func<bool> reconnecting) : ILoggerFactory {
     const string ClientPrefix = "Microsoft.AspNetCore.";
 
+    /// <summary>SignalR logs a dropped connection, with its stack trace, before it leaves the connected state; the
+    /// retry policy's first line reports the same drop.</summary>
+    const string DroppedWhileConnected = "ServerDisconnectedWithError";
+
     public ILogger CreateLogger(string categoryName) {
         var logger = inner.CreateLogger(categoryName);
 
@@ -26,7 +30,9 @@ sealed class ReconnectQuietLoggerFactory(ILoggerFactory inner, Func<bool> reconn
         public bool IsEnabled(LogLevel logLevel) => inner.IsEnabled(logLevel);
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) {
-            var level = logLevel is > LogLevel.Debug and < LogLevel.Critical && reconnecting() ? LogLevel.Debug : logLevel;
+            var level = logLevel is > LogLevel.Debug and < LogLevel.Critical && (reconnecting() || eventId.Name == DroppedWhileConnected)
+                ? LogLevel.Debug
+                : logLevel;
             if (inner.IsEnabled(level)) inner.Log(level, eventId, state, exception, formatter);
         }
     }
