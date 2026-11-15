@@ -67,3 +67,5 @@ git push origin vX.Y.Z
 Only `v*` tags trigger a release. The tag's SemVer shape alone decides the dist-tag —
 a hyphenated prerelease (`-beta.N`, `-rc.N`, …) → `beta`; a bare `vX.Y.Z` → `latest` —
 via `scripts/npm-dist-tag.sh`. No manual dist-tag step is needed.
+
+<!-- CI scope probe, never merged -->
