@@ -184,11 +184,13 @@ internal sealed class ManagedChildProcess : IAsyncDisposable {
         try {
             await _stderrDrainCts.CancelAsync().ConfigureAwait(false);
         } catch {
+            // A registration callback threw; dispose must not.
         }
 
         try {
             await _stderrDrainTask.WaitAsync(StderrDrainStopWait, _time).ConfigureAwait(false);
         } catch {
+            // A drain still blocked after the bound is abandoned rather than hanging dispose.
         }
 
         _stderrDrainCts.Dispose();
@@ -196,6 +198,7 @@ internal sealed class ManagedChildProcess : IAsyncDisposable {
         try {
             _process.Dispose();
         } catch {
+            // Handle release only; the child is already killed.
         }
     }
 

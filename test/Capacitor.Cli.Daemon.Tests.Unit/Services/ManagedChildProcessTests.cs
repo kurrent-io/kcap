@@ -59,7 +59,7 @@ public class ManagedChildProcessTests {
 
         await Assert.That(await FirstStdoutLine(child)).IsEqualTo("ready");
 
-        var descendants = File.ReadAllLines(pidFile)
+        var descendants = (await File.ReadAllLinesAsync(pidFile))
             .Select(int.Parse)
             .Select(pid => (Pid: pid, Identity: PidIdentity.Capture(pid)))
             .ToList();
