@@ -43,6 +43,12 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// A Copilot envelope's own <c>id</c> when it parses as a Guid, else the hash of its line. Every other event the
+    /// line emits is a <see cref="Sibling"/> of it, its suffix naming the part: <c>thinking</c>, <c>text</c>,
+    /// <c>tool:{callId}</c>, <c>usage:{model}</c>, <c>session-metrics</c>, or <c>att:{assetId}</c> for an attachment.
+    public static Guid CopilotRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
     /// Cursor's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this namespace.
     /// Changing it orphans every stored Cursor event.
     static readonly Guid CursorNamespace = new("8b2e0c3a-b3d4-4f0a-9c0c-c43f59a5d5e1");
