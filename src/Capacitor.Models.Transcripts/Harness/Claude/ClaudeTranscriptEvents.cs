@@ -160,15 +160,15 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
 
         var index = 0;
         var sawResult = false;
-        // The root object describes one result and names none: on a line with several it is attributed
-        // to none of them, where the server's single event would carry it on the first.
-        var toolUseResult = CountResults(blocks) == 1 ? root.Obj("toolUseResult") : null;
+        // The root value describes one result and names none: on a line with several it is attributed
+        // to none of them, where the server's single event would carry it on the first. A failed tool
+        // writes its error here as a string, which is kept like an object.
+        var toolUseResult = CountResults(blocks) == 1 && root.Prop("toolUseResult") is { IsNull: false } value ? RawValue(value) : null;
         foreach (var block in blocks.EnumerateArray()) {
             if (block.Str("type") == "tool_result") {
                 var (result, raw) = ToolResult(block, record);
                 emitter.Add(index, result, ClaudeCodeExtension.Flags(
-                    record.IsSidechain, isError: block.Bool("is_error") == true,
-                    toolUseResult: toolUseResult is { } obj ? StructOf(obj) : null, outputRaw: raw));
+                    record.IsSidechain, isError: block.Bool("is_error") == true, toolUseResult: toolUseResult, outputRaw: raw));
                 sawResult = true;
             }
             index++;
@@ -246,7 +246,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
     }
 
     // The protobuf parser refuses some JSON System.Text.Json accepts (an out-of-range number, a lone
-    // surrogate); the text still stands without its raw copy.
+    // surrogate); the event still stands without the copy.
     static Value? RawValue(JsonElement element) {
         try {
             return Value.Parser.ParseJson(element.GetRawText());

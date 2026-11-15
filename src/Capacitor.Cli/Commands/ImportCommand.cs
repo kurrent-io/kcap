@@ -2107,8 +2107,10 @@ class ImportCommand(
 
                                             break;
                                         case null:
+                                            // The replay re-sent the session's lifecycle; nothing says whether that
+                                            // changed what the server holds, so the line claims no backfill.
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (repository backfill, already loaded)"
+                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already loaded)"
                                             );
 
                                             break;
@@ -2146,7 +2148,7 @@ class ImportCommand(
 
                                 break;
                             case null:
-                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (repository backfill, already loaded)");
+                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (already loaded)");
 
                                 break;
                         }

@@ -1,0 +1,213 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "31ab2a51-0375-573c-9736-e18bbdb4a4d7",
+        "timestamp": "2026-06-23T16:45:12.4970000\u002B00:00",
+        "recordTimestamp": "2026-06-23T16:45:12.497Z",
+        "metadata": {
+          "$pi_entry_id": "019ed892-2234-7000-8000-000000000002"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "timestamp": "2026-06-23T16:45:12.497Z",
+          "extensions": {
+            "pi": {
+              "cwd": "/tmp/kcap-pi-live-schema",
+              "version": 3,
+              "parent_session": null,
+              "source": null,
+              "pi_version": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "be14e7a5-485b-5771-affe-8f50b3c092b9",
+        "timestamp": "2026-06-23T16:45:13.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T16:45:13.000Z",
+        "metadata": {
+          "$pi_entry_id": "live-user-1"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "Use the subagent tool once and summarize the result.",
+          "timestamp": "2026-06-23T16:45:13Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "b8efcc93-1b98-5757-92df-24f41a220908",
+        "timestamp": "2026-06-23T16:45:14.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T16:45:14.000Z",
+        "metadata": {
+          "$pi_entry_id": "live-assistant-tool",
+          "$pi_parent_id": "live-user-1",
+          "$pi_render_parent": "live-user-1"
+        },
+        "usage": {
+          "input_tokens": "7100",
+          "output_tokens": "84",
+          "total_tokens": "8184",
+          "cached_input_tokens": "0",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 1000,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_live_subagent_schema",
+              "tool_name": "subagent",
+              "arguments": {
+                "agent": "reporter",
+                "task": "Say exactly: subagent live schema ok",
+                "agentScope": "user"
+              },
+              "tool_kind": "other"
+            }
+          ],
+          "timestamp": "2026-06-23T16:45:14Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "live-user-1",
+              "cost": 0.05551
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "65037f1a-3937-5505-8610-fb97d30e918b",
+        "timestamp": "2026-06-23T16:45:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T16:45:15.000Z",
+        "metadata": {
+          "$pi_entry_id": "live-subagent-result",
+          "$pi_parent_id": "live-assistant-tool",
+          "$pi_render_parent": "live-assistant-tool"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_live_subagent_schema",
+          "result": "subagent live schema ok",
+          "timestamp": "2026-06-23T16:45:15Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "subagent",
+              "details": null,
+              "details_json": {
+                "mode": "single",
+                "agentScope": "user",
+                "projectAgentsDir": null,
+                "results": [
+                  {
+                    "agent": "reporter",
+                    "agentSource": "user",
+                    "task": "Say exactly: subagent live schema ok",
+                    "exitCode": 0,
+                    "stderr": "",
+                    "usage": {
+                      "input": 3241,
+                      "output": 54,
+                      "cacheRead": 0,
+                      "cacheWrite": 0,
+                      "cost": 0.003511,
+                      "contextTokens": 3295,
+                      "turns": 1
+                    },
+                    "model": "claude-haiku-4-5",
+                    "stopReason": "stop"
+                  }
+                ]
+              },
+              "subagent": {
+                "mode": "single",
+                "agent_scope": "user",
+                "project_agents_dir": null,
+                "result_count": 1,
+                "success_count": 1,
+                "failure_count": 0,
+                "input_tokens": 3241,
+                "output_tokens": 54,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "context_tokens": 3295,
+                "turns": 1,
+                "cost": 0.003511
+              },
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "9189effd-253e-5955-8fa0-43018aa49927",
+        "timestamp": "2026-06-23T16:45:16.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-23T16:45:16.000Z",
+        "metadata": {
+          "$pi_entry_id": "live-assistant-final",
+          "$pi_parent_id": "live-subagent-result",
+          "$pi_render_parent": "live-subagent-result"
+        },
+        "usage": {
+          "input_tokens": "8300",
+          "output_tokens": "26",
+          "total_tokens": "8326",
+          "cached_input_tokens": "0",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 0,
+        "payload": {
+          "content": "The reporter subagent returned the expected schema text.",
+          "timestamp": "2026-06-23T16:45:16Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "live-subagent-result",
+              "cost": 0.0427
+            }
+          }
+        }
+      }
+    ]
+  }
+]

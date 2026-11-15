@@ -206,15 +206,23 @@
         </Style>
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,*,Auto">
-        <!-- What the hand-off carried over from the previous session; absent for any other session. -->
+        <!-- What the hand-off carried over from the previous session, in its own row above the transcript; absent for any other session or once dismissed. -->
         <Border x:Name="HandoffOutcomeCard" Grid.Row="0" Margin="22,14,22,0" Padding="13,10"
                 DataContext="{Binding HandoffOutcome}" x:DataType="vm:HandoffOutcomeViewModel"
                 IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="1" CornerRadius="8">
             <StackPanel Spacing="6">
-                <TextBlock x:Name="HandoffOutcomeHeader" Text="{Binding Header}" FontSize="13.5" FontWeight="SemiBold"
-                           Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock x:Name="HandoffOutcomeHeader" Text="{Binding Header}" FontSize="13.5" FontWeight="SemiBold"
+                               Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button x:Name="HandoffOutcomeDismiss" Grid.Column="1" Classes="kcapGhost" Padding="5" Margin="0,-5,-8,-5"
+                            VerticalAlignment="Top" Foreground="{StaticResource KcapMutedBrush}"
+                            Command="{Binding DismissCommand}" IsVisible="{Binding CanDismiss}"
+                            AutomationProperties.Name="Dismiss" ToolTip.Tip="Dismiss">
+                        <views:AppIcon Kind="X" Size="14" />
+                    </Button>
+                </Grid>
                 <Grid x:Name="HandoffOutcomeNote" ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding HasNote}">
                     <views:AppIcon Kind="CircleAlert" Size="12" VerticalAlignment="Center" IsVisible="{Binding NoteNeedsAttention}"
                                    Foreground="{StaticResource KcapWarningBrush}" />

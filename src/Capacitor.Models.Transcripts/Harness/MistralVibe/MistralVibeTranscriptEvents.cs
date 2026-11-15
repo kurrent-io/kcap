@@ -45,8 +45,8 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
             var (at, recordTimestamp) = ResolveTimestamp(root, receivedAt);
             var ts       = Timestamp.FromDateTimeOffset(at);
             // A unified-store entry carries a stable id (dedups across journal→chunk and re-import); a
-            // legacy messages.jsonl line has none, so it falls back to the line hash.
-            var recordId = root.Str("id") is { } entryId ? TranscriptIds.VibeEntry(entryId) : TranscriptIds.VibeRecord(line);
+            // legacy messages.jsonl line has none, so its number and bytes stand in.
+            var recordId = root.Str("id") is { } entryId ? TranscriptIds.VibeEntry(entryId) : TranscriptIds.VibeRecord(lineNumber, line);
 
             return root.Str("type") switch {
                 "message"    => Legacy(root, recordId, at, recordTimestamp, ts),
@@ -72,15 +72,15 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
             case "assistant": {
                 var text = ContentText(msg);
                 if (text.Length > 0) Add(events, new AssistantTextGenerated { Content = text, Timestamp = ts }, recordId, at, recordTs);
-                if (msg.Arr("tool_calls") is { } calls && ToolCalls(calls, ts) is { } toolCall)
-                    Add(events, toolCall, TranscriptIds.Sibling(recordId, "tool_calls"), at, recordTs);
+                // Legacy only: a unified assistant message carries no calls, each is its own effect.
+                if (msg.Arr("tool_calls") is { } calls)
+                    foreach (var (callId, toolCall) in ToolCalls(calls, ts))
+                        Add(events, toolCall, TranscriptIds.VibeToolCall(recordId, callId), at, recordTs);
                 break;
             }
-            case "tool": {
-                var callId = msg.Str("tool_call_id") ?? msg.Str("call_id") ?? "";
+            case "tool" when (msg.Str("tool_call_id") ?? msg.Str("call_id")) is { } callId:
                 Add(events, new ToolResultReceived { CallId = callId, Result = ContentText(msg), Timestamp = ts }, recordId, at, recordTs);
                 break;
-            }
             // "system" and anything else is not conversation we record.
         }
 
@@ -163,17 +163,18 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
 
     // ── shared helpers ──────────────────────────────────────────────────────────────────────────
 
-    static AssistantToolCallsGenerated? ToolCalls(JsonElement toolCalls, Timestamp ts) {
-        var call = new AssistantToolCallsGenerated { Timestamp = ts };
+    /// One event per call, all at the line's time: the list's order is the source's. A call's event id
+    /// derives from its <c>id</c>, so a call without one, or without a name, is skipped.
+    static IEnumerable<(string CallId, AssistantToolCallsGenerated Event)> ToolCalls(JsonElement toolCalls, Timestamp ts) {
         foreach (var tc in toolCalls.EnumerateArray()) {
-            var fn      = tc.Obj("function");
-            var name    = ToolName(fn?.Str("name") ?? tc.Str("name") ?? "");
-            if (name.Length == 0) continue;
-            var rawArgs = fn?.Str("arguments") ?? tc.Str("arguments");
-            var callId  = tc.Str("id") ?? tc.Str("call_id") ?? "";
-            call.ToolCalls.Add(Info(callId, name, ArgumentsStruct(rawArgs)));
+            var fn   = tc.Obj("function");
+            var name = ToolName(fn?.Str("name") ?? tc.Str("name") ?? "");
+            if (name.Length == 0 || tc.Str("id") is not { } callId) continue;
+
+            var call = new AssistantToolCallsGenerated { Timestamp = ts };
+            call.ToolCalls.Add(Info(callId, name, ArgumentsStruct(fn?.Str("arguments") ?? tc.Str("arguments"))));
+            yield return (callId, call);
         }
-        return call.ToolCalls.Count == 0 ? null : call;
     }
 
     static ToolCallInfo Info(string callId, string toolName, Struct arguments) => new() {
@@ -204,13 +205,12 @@ public sealed class MistralVibeTranscriptEvents : ITranscriptProjection {
 
     // `arguments` is a JSON string; an object parses as the struct, anything else is wrapped.
     static Struct ArgumentsStruct(string? arguments) {
-        if (arguments is not null) {
-            try {
-                using var parsed = JsonDocument.Parse(arguments);
-                if (parsed.RootElement.IsObject) return StructOf(parsed.RootElement);
-            } catch (JsonException) { }
-        }
-        return Wrap("arguments", arguments ?? "");
+        if (arguments is null) return new Struct();
+        try {
+            using var parsed = JsonDocument.Parse(arguments);
+            if (parsed.RootElement.IsObject) return StructOf(parsed.RootElement);
+        } catch (JsonException) { }
+        return Wrap("arguments", arguments);
     }
 
     static readonly double MinUnixMs = DateTimeOffset.MinValue.ToUnixTimeMilliseconds();

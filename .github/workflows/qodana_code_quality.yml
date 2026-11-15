@@ -1,22 +1,21 @@
 name: Qodana
-# A full scan takes over two hours, so main is scanned nightly or on demand and a PR only once it
-# carries the qodana label; every other PR shows the job as skipped
+# A full scan takes over two hours, so main is scanned nightly or on demand. A PR is scanned in PR
+# mode, which analyses only what it changes
 on:
   schedule:
     - cron: '30 1 * * *'
   workflow_dispatch:
+    inputs:
+      clean-cache:
+        description: Scan without the saved Qodana cache, so a scan of main replaces it with a fresh one
+        type: boolean
+        default: false
   pull_request:
-    types: [opened, labeled, synchronize]
 
 jobs:
   qodana:
-    # A fork PR's run gets no QODANA_TOKEN, so it is skipped even when labelled
-    if: >-
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.head.repo.full_name == github.repository && (
-        (github.event.action == 'labeled' && github.event.label.name == 'qodana') ||
-        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'qodana'))))
-    # Job-level, so a skipped run (another label added) never cancels a scan in progress
+    # A fork PR's run gets no QODANA_TOKEN
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     concurrency:
       group: qodana-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,7 +28,7 @@ jobs:
       checks: write
       actions: write
     env:
-      QODANA_CACHE_KEY: qodana-dotnet-2026.2
+      QODANA_CACHE_KEY: qodana-dotnet-mtimes-2026.2
     steps:
       # PR mode analyses the merge-base and the head, so it needs the history and the head, not
       # GitHub's merge commit
@@ -44,13 +43,19 @@ jobs:
           cache: true
           cache-dependency-path: Directory.Packages.props
 
-      # Natively the CLI keeps NuGet packages and its engine out of cache-dir, leaving only its indexes.
-      # Only main's scans save, so every other run, PRs and branches included, restores main's entry
+      # Only main's scans save, so a PR restores the entry main's last scan left
       - name: Restore the Qodana cache
+        if: ${{ !inputs.clean-cache }}
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/qodana/caches
           key: ${{ env.QODANA_CACHE_KEY }}
+
+      # The cache judges a file changed by its timestamp, and a checkout stamps every file anew
+      - name: Give unchanged files the timestamps the cache saw
+        run: |
+          python3 -I .github/scripts/qodana_mtimes.py restore "$RUNNER_TEMP/qodana/caches/mtimes.tsv"
+          python3 -I .github/scripts/qodana_mtimes.py record "$RUNNER_TEMP/qodana/caches/mtimes.tsv"
 
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2026.2
@@ -62,6 +67,15 @@ jobs:
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN_413606919 }}
           QODANA_ENDPOINT: 'https://qodana.cloud'
+
+      - name: Count the files the C# engine analysed
+        if: always()
+        run: |
+          for log in "$RUNNER_TEMP"/qodana/results/log/[0-9]*.backend.log; do
+            [ -f "$log" ] || continue
+            echo "$log: $(grep -c 'Daemon process [0-9]* finished on file' "$log") files," \
+              "$(grep -E 'Daemon process [0-9]* (started|finished) on file' "$log" | sed -n '1p;$p' | cut -c1-8 | paste -sd '-' -)"
+          done
 
       # A cache entry is immutable, so main's scan deletes the last one before saving its own
       - name: Drop the previous Qodana cache
