@@ -2302,6 +2302,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         var seen = (LaunchIdentity?)null;
         var fake = new FakeAcpAgent();
+        // A bare fake never answers initialize, so the handshake is cut off as soon as the seam is reached.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Gemini,
             config: GeminiEnabledConfig(),
@@ -2309,20 +2311,15 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             connection: new CaptureServerConnection(),
             connectionSource: ctx => {
                 seen = ctx.LaunchIdentity;
+                cts.CancelAfter(TimeSpan.Zero);
                 return (fake.ClientWriteStream, fake.ClientReadStream, new FakeAcpProcess());
             },
-            // PINNED, and paired with an affirmed build in the config. Since the capability gate moved ahead
-            // of the connection source, StartAsync resolves a version before this seam is reached — so
-            // without both halves this test depends on which gemini happens to be installed: green on a dev
-            // machine, red on CI where the gate refuses as version-unresolved and `seen` stays null.
+            // Pinned and paired with an affirmed build in the config: the capability gate resolves a version
+            // before this seam, so an unpinned resolver makes the result depend on the installed gemini.
             resolveVendorVersion: _ => GeminiBuild, timeProvider: TimeProvider.System);
 
         var ctx = ReviewContext() with { Vendor = "gemini", LaunchIdentity = attacker };
 
-        // A bare FakeAcpAgent never answers `initialize`, so StartAsync would wait for a handshake that
-        // never arrives. The subject is what the SPAWN SEAM was handed, which is recorded before any frame is
-        // exchanged — so a short-lived token is enough and keeps the test from hanging the suite.
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         try { await factory.StartAsync(ctx, cts.Token); }
         catch { /* the handshake is not the subject; the seam recorded what it was handed either way */ }
 
