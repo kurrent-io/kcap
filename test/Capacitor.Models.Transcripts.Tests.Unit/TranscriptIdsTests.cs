@@ -10,6 +10,7 @@ public class TranscriptIdsTests {
     static readonly Guid Primary = Guid.Parse("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0");
 
     const string GrokLine = """{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}""";
+    const string AntigravityPlanner = """{"step_index":9,"type":"PLANNER_RESPONSE","tool_calls":[{"name":"run_command","args":{}}]}""";
 
     [Test]
     public async Task Sibling_hashes_the_primary_guid_bytes_then_the_utf8_suffix() {
@@ -138,6 +139,18 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Antigravity_step_hashes_the_utf8_line() {
+        await Assert.That(TranscriptIds.AntigravityStep("{\"type\":\"USER_INPUT\"}"))
+            .IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("{\"type\":\"USER_INPUT\"}"))));
+    }
+
+    [Test]
+    public async Task Antigravity_usage_hashes_the_prefixed_scope_and_row() {
+        await Assert.That(TranscriptIds.AntigravityUsage("sess:agent", 3))
+            .IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("antigravity-usage:sess:agent:3"))));
+    }
+
+    [Test]
     public async Task Muse_assistant_item_is_the_v5_uuid_of_scope_turn_and_invariant_seq() {
         var id = TranscriptIds.MuseAssistantItem("sess:agent", "turn-1", -7);
 
@@ -196,6 +209,10 @@ public class TranscriptIdsTests {
     [Arguments("opencode-tool-call", "22531010-9c94-6693-c170-3ac13e3186b8")]
     [Arguments("opencode-tool-result", "62150ae9-7860-c64a-0f74-fc2feecd1481")]
     [Arguments("opencode-text-key", "adc1e9b5-1b07-7f3e-c779-cfaa5e523818")]
+    [Arguments("antigravity-step", "a2cb583b-f936-f782-f8cb-76217f4cb360")]
+    // kcap-server's Antigravity normalizer gives this planner's call, and this usage row, the same ids.
+    [Arguments("antigravity-call", "fce1d18b-62bb-9031-2a74-08d3c9b9c0a4")]
+    [Arguments("antigravity-usage", "45eb26e7-42a6-2bde-4669-22991d56a027")]
     [Arguments("copilot-record-fallback", "f089bd15-3b46-d938-b630-16e63caca1eb")]
     // kcap-server's v1 Copilot baseline stores each of these corpus parts under the same id.
     [Arguments("copilot-thinking", "47b93348-db0a-fc5e-eb2c-984b5919f655")]
@@ -237,6 +254,9 @@ public class TranscriptIdsTests {
         "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
         "opencode-tool-result" => TranscriptIds.OpenCodeToolResult("prt_tool1"),
         "opencode-text-key"    => TranscriptIds.OpenCode("hello"),
+        "antigravity-step"        => TranscriptIds.AntigravityStep(AntigravityPlanner),
+        "antigravity-call"        => TranscriptIds.Sibling(TranscriptIds.AntigravityStep(AntigravityPlanner), "call:0"),
+        "antigravity-usage"       => TranscriptIds.AntigravityUsage("sess:agent", 3),
         "copilot-record-fallback" => TranscriptIds.CopilotRecord(null, "{\"type\":\"user.message\",\"data\":{}}"),
         "copilot-thinking"        => TranscriptIds.Sibling(Guid.Parse("0d5668ad-cf68-4c8c-a141-a5ad7151d20a"), "thinking"),
         "copilot-text"            => TranscriptIds.Sibling(Guid.Parse("d3f62452-0fd2-432d-9a53-511254635987"), "text"),

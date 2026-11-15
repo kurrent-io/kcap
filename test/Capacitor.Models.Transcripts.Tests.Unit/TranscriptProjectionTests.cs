@@ -1,3 +1,4 @@
+using Capacitor.Models.Transcripts.Harness.Antigravity;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.Harness.Copilot;
@@ -12,6 +13,7 @@ namespace Capacitor.Models.Transcripts.Tests.Unit;
 public class TranscriptProjectionTests {
     [Test]
     public async Task The_registry_resolves_each_vendor_ignoring_case_to_its_singleton() {
+        await Assert.That(TranscriptProjection.For("Antigravity")).IsSameReferenceAs(AntigravityTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("claude")).IsSameReferenceAs(ClaudeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("Claude")).IsSameReferenceAs(ClaudeTranscriptEvents.Instance);
         await Assert.That(TranscriptProjection.For("CODEX")).IsSameReferenceAs(CodexRolloutEvents.Instance);
