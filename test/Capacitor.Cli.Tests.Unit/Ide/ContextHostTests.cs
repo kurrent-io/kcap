@@ -13,13 +13,14 @@ public class ContextHostTests {
     const string Session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
     const string OtherSession = "99998888777766665555444433332222";
 
-    /// <summary>Answers reads in the order they were queued, then with <see cref="Default"/>. A gated read ignores
-    /// cancellation, as a request already on the wire does. Like the server sources, it keeps the last ready read per
-    /// session and forgets every one on a signed-out read.</summary>
+    /// <summary>Answers reads in the order they arrive, from what was queued, then with <see cref="Default"/>. A gated read
+    /// ignores cancellation, as a request already on the wire does. Like the server sources, it keeps the last ready read
+    /// per session and forgets every one on a signed-out read.</summary>
     class Script<T>(T initial, Func<T, bool?> remember, Func<T, bool> signsOut) where T : class {
         readonly Lock _lock = new();
         readonly Queue<Func<Task<T>>> _answers = new();
         readonly List<string> _requested = [];
+        readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
         readonly LastReads<T> _last = new();
         T _default = initial;
 
@@ -46,6 +47,19 @@ public class ContextHostTests {
             return gate;
         }
 
+        /// <summary>Completes once this many reads have been asked for: reads run on the thread pool, so a gate queued
+        /// before an earlier read has arrived can be taken by a later one.</summary>
+        public Task RequestedAsync(int count) {
+            lock (_lock) {
+                if (_requested.Count >= count) return Task.CompletedTask;
+
+                var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((count, reached));
+
+                return reached.Task;
+            }
+        }
+
         public T? Cached(string sessionId) => _last.Get(sessionId);
 
         public async Task<T> ReadAsync(string sessionId, CancellationToken ct) {
@@ -55,6 +69,8 @@ public class ContextHostTests {
                 _requested.Add(sessionId);
                 _answers.TryDequeue(out answer);
                 fallback = _default;
+                foreach (var waiter in _waiters.Where(w => w.Count <= _requested.Count)) waiter.Reached.TrySetResult();
+                _waiters.RemoveAll(w => w.Reached.Task.IsCompleted);
             }
 
             var read = await _last.RecordAsync(sessionId, () => answer?.Invoke() ?? Task.FromResult(fallback), remember);
@@ -143,6 +159,12 @@ public class ContextHostTests {
         public async Task IdleAsync(string subscriptionId) {
             while (Context.PendingReadsForTesting(subscriptionId) is { IsCompleted: false } pending)
                 await pending.WithinDeadlineAsync($"the reads of {subscriptionId}");
+        }
+
+        /// <summary>Both sources have been asked for this many reads, so a gate queued from here on goes to a later one.</summary>
+        public async Task ReadsRequestedAsync(int count) {
+            await Work.RequestedAsync(count).WithinDeadlineAsync($"work read {count}");
+            await Plans.RequestedAsync(count).WithinDeadlineAsync($"plan read {count}");
         }
 
         /// <summary>Everything queued before this call, written: an unsubscribe answers once the queue ahead of it drains.</summary>
@@ -327,6 +349,7 @@ public class ContextHostTests {
         await host.InitializeAsync();
         await host.SubscribeAsync("sub-1", Session);
         var late = host.Context.PendingReadsForTesting("sub-1");
+        await host.ReadsRequestedAsync(1);
         var newWork = host.Work.Gate();
         var newPlan = host.Plans.Gate();
 
