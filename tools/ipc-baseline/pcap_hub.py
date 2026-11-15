@@ -4,7 +4,7 @@
 Usage: pcap_hub.py CAPTURE.pcap [--port 9473]
 Prints JSON lines: {"t": epoch seconds, "src": port, "kind": "negotiate"|"upgrade"|"invoke", "target": ...}. Hub
 invocations are read from the SignalR JSON protocol's text frames as they cross the wire unmasked server-side; a
-masked client frame is skipped. Map a source port to its process with `lsof -iTCP -n -P` taken while the connection is
+masked client frame is skipped. A frame split across TCP segments is joined with its flow's previous segment. Map a source port to its process with `lsof -iTCP -n -P` taken while the connection is
 open."""
 import argparse
 import json
@@ -56,6 +56,8 @@ def main():
     ap.add_argument("capture")
     ap.add_argument("--port", type=int, default=9473)
     a = ap.parse_args()
+    # The tail of each flow's previous segment, so an invocation split across segments is still found once.
+    carry = {}
     for t, link, data in packets(a.capture):
         parsed = tcp_payload(link, data)
         if not parsed or not parsed[2]:
@@ -66,8 +68,12 @@ def main():
         elif dst == a.port and body.startswith(b"GET /hubs/sessions"):
             print(json.dumps({"t": t, "src": src, "kind": "upgrade"}))
         else:
-            for m in INVOKE.finditer(body):
-                print(json.dumps({"t": t, "src": src, "dst": dst, "kind": "invoke", "target": m.group(1).decode()}))
+            prev = carry.get((src, dst), b"")
+            joined = prev + body
+            for m in INVOKE.finditer(joined):
+                if m.end() > len(prev):
+                    print(json.dumps({"t": t, "src": src, "dst": dst, "kind": "invoke", "target": m.group(1).decode()}))
+            carry[(src, dst)] = joined[-256:]
 
 
 if __name__ == "__main__":

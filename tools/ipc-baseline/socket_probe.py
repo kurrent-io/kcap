@@ -26,7 +26,7 @@ def main():
     a = ap.parse_args()
     path = k.socket_path(a.name)
 
-    results, sizes = {}, {}
+    results, sizes, failures = {}, {}, {}
     for label, ftype, text in [
         ("hello", k.HELLO, ""),
         ("status_subscribe_first", k.STATUS_SUBSCRIBE, ""),
@@ -37,7 +37,9 @@ def main():
         samples = []
         for _ in range(a.n):
             took, rtype, size = one_shot(path, ftype, text)
-            if rtype == k.ERROR:
+            # An error frame or a connection closed unanswered is a failure, never a sample.
+            if rtype is None or rtype == k.ERROR:
+                failures[label] = failures.get(label, 0) + 1
                 break
             samples.append(took)
             sizes[label] = size
@@ -50,7 +52,7 @@ def main():
         connects.append(time.perf_counter() - start)
     results["connect"] = k.summary(connects)
 
-    print(json.dumps({"socket": path, "ops": results, "reply_bytes": sizes}, indent=2))
+    print(json.dumps({"socket": path, "ops": results, "reply_bytes": sizes, "failures": failures}, indent=2))
 
 
 if __name__ == "__main__":

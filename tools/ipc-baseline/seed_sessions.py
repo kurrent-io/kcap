@@ -32,10 +32,11 @@ def write_transcript(path, session, cwd, lines):
             parent = msg_id
 
 
-def hook(kcap, payload, cwd):
+def hook(kcap, payload, cwd, url):
     start = time.perf_counter()
+    # KCAP_URL sends the hooks to the server this script polls, whatever profile is active.
     subprocess.run([kcap, "hook", "--claude", "--no-update-check"], input=json.dumps(payload).encode(), cwd=cwd,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                   env={**os.environ, "KCAP_URL": url}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
     return time.perf_counter() - start
 
 
@@ -62,10 +63,10 @@ def main():
         transcript = os.path.join(cwd, f"{session}.jsonl")
         write_transcript(transcript, session, cwd, lines)
         base = {"session_id": session, "transcript_path": transcript, "cwd": cwd}
-        hook(a.kcap, {**base, "hook_event_name": "SessionStart", "source": "resume"}, cwd)
-        hook(a.kcap, {**base, "hook_event_name": "UserPromptSubmit", "prompt": "go"}, cwd)
-        hook(a.kcap, {**base, "hook_event_name": "Stop"}, cwd)
-        end_s = hook(a.kcap, {**base, "hook_event_name": "SessionEnd", "reason": "exit"}, cwd)
+        hook(a.kcap, {**base, "hook_event_name": "SessionStart", "source": "resume"}, cwd, a.url)
+        hook(a.kcap, {**base, "hook_event_name": "UserPromptSubmit", "prompt": "go"}, cwd, a.url)
+        hook(a.kcap, {**base, "hook_event_name": "Stop"}, cwd, a.url)
+        end_s = hook(a.kcap, {**base, "hook_event_name": "SessionEnd", "reason": "exit"}, cwd, a.url)
         runs.append({"session": session.replace("-", ""), "lines": lines, "session_end_hook_s": round(end_s, 2), "start": time.time()})
 
     deadline = time.time() + a.wait

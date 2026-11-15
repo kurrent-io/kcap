@@ -53,8 +53,8 @@ def run(hook, payload, cwd, kcap):
     if kcap and argv[0] == "kcap":
         argv[0] = kcap
     start = time.perf_counter()
-    subprocess.run(argv, input=json.dumps(payload).encode(), cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=hook.get("timeout", 10) + 5)
-    return time.perf_counter() - start
+    done = subprocess.run(argv, input=json.dumps(payload).encode(), cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=hook.get("timeout", 10) + 5)
+    return time.perf_counter() - start, done.returncode
 
 
 def main():
@@ -71,15 +71,20 @@ def main():
     for label, (event, tool, extra) in EVENTS.items():
         hooks = matching(manifest, event, tool)
         sync = [(e, h) for e, h in hooks if not h.get("async")]
-        totals = []
+        totals, failed = [], 0
         for _ in range(a.runs):
-            totals.append(sum(
-                run(h, {"hook_event_name": e, "session_id": session, "transcript_path": "/nonexistent.jsonl", "cwd": a.cwd, **extra}, a.cwd, a.kcap)
-                for e, h in sync))
+            took = 0.0
+            for e, h in sync:
+                seconds, code = run(h, {"hook_event_name": e, "session_id": session, "transcript_path": "/nonexistent.jsonl", "cwd": a.cwd, **extra}, a.cwd, a.kcap)
+                took += seconds
+                failed += code != 0
+            totals.append(took)
         report[label] = {
             "processes": len(hooks),
             "synchronous": len(sync),
             "sync_sum_p50_ms": round(statistics.median(totals) * 1000, 1) if totals else 0,
+            # A hook that fails fast looks fast: a non-zero count means the timing is not a baseline.
+            "failed_runs": failed,
             "commands": [h["command"] for _, h in sync],
         }
     print(json.dumps(report, indent=2))
