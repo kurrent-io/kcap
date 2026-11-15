@@ -62,7 +62,7 @@ public class MuseGoldenTests {
         ["usageIsEcho"]          = e.UsageIsEcho,
         ["cacheCreationTokens"]  = e.CacheCreationTokens,
         ["vendorMetadata"]       = e.VendorMetadata is { } strings ? new JsonObject([.. strings.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))]) : null,
-        ["vendorMetadataValues"] = e.VendorMetadataValues is { } values ? new JsonObject([.. values.Select(kv => KeyValuePair.Create(kv.Key, Value(kv.Value)))]) : null,
+        ["vendorMetadataValues"] = e.VendorMetadataValues is { } values ? new JsonObject([.. values.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)Value(kv.Value)))]) : null,
     };
 
     static JsonValue Value(object value) => value switch {
