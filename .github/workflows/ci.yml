@@ -1,14 +1,9 @@
 name: CI
 
 on:
+  # No paths filter: a required `CI passed` must report on every PR, so a markdown-only PR runs and
+  # `changes` skips its work instead.
   pull_request:
-    # Skip markdown-only PRs, except under kcap/: every file in the shipped plugin is a SKILL.md, so
-    # adding a skill is a markdown-only change, and the guard that catches an unlisted skill must
-    # run on the PR that adds it. Order matters: later patterns re-include.
-    paths:
-      - '**'
-      - '!**.md'
-      - 'kcap/**'
   # The merge queue tests each PR on top of the main it will land on, so two PRs that pass alone cannot
   # break main together. Paths filters do not apply to this event; the whole suite runs.
   merge_group:
@@ -34,6 +29,7 @@ jobs:
     outputs:
       projects: ${{ steps.select.outputs.projects }}
       plugin-docs: ${{ steps.select.outputs.plugin-docs }}
+      docs-only: ${{ steps.select.outputs.docs-only }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,13 +42,19 @@ jobs:
         run: |
           set -euo pipefail
           plugin_docs=false
+          docs_only=false
           if [ "$EVENT" = pull_request ]; then
             # --no-renames lists both sides of a move, so the project a file left is selected too.
             changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
             selected="$(printf '%s\n' "$changed" | bash scripts/select-test-projects.sh)"
             # No grep -q: an early exit can SIGPIPE printf, which pipefail would read as a match.
+            # Markdown under kcap/ is the shipped plugin, read by the text guards; markdown elsewhere
+            # cannot reach a build or a test.
             if [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -vE '^kcap/.*\.md$' || true)" ]; then
               plugin_docs=true
+            elif [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -vE '\.md$' || true)" ] \
+              && [ -z "$(printf '%s\n' "$changed" | grep -E '^kcap/' || true)" ]; then
+              docs_only=true
             fi
           else
             selected=all
@@ -60,6 +62,7 @@ jobs:
           projects="$(printf '%s' "$selected" | tr '\n' ' ' | sed 's/ *$//')"
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "plugin-docs=$plugin_docs" >> "$GITHUB_OUTPUT"
+          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
           {
             echo '### Test projects'
             if [ "$projects" = all ]; then echo 'All of them.'
@@ -70,7 +73,7 @@ jobs:
   build-and-test:
     name: Build and test (${{ matrix.leg }})
     needs: changes
-    if: needs.changes.outputs.plugin-docs != 'true'
+    if: needs.changes.outputs.plugin-docs != 'true' && needs.changes.outputs.docs-only != 'true'
     runs-on: ${{ matrix.os }}
     # About 1.4x the longest observed leg (Windows, 28m); this only has to catch a wedge, and GitHub's
     # kill takes the uploaded reports with it.
@@ -270,6 +273,8 @@ jobs:
   # and Velopack's SemVer check see the same value.
   version:
     name: Version
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -330,11 +335,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # build-and-test and plugin-docs are alternatives, so exactly one job is skipped: whichever of
-      # those two did not run.
+      # those two did not run. A markdown-only PR skips both, and the CLI and desktop builds behind
+      # the skipped version job.
       - name: Require every job to succeed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
           TESTS: ${{ needs.build-and-test.result }} ${{ needs.plugin-docs.result }}
+          DOCS_ONLY: ${{ needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true' }}
         run: |
           skipped=0
           for result in $RESULTS; do
@@ -344,8 +351,13 @@ jobs:
               *) echo "::error::a CI job ended $result"; exit 1 ;;
             esac
           done
-          case "$TESTS" in
-            'success skipped' | 'skipped success') ;;
+          if [ "$DOCS_ONLY" = true ]; then
+            want_tests='skipped skipped' want_skipped=4
+          else
+            want_tests='success skipped|skipped success' want_skipped=1
+          fi
+          case "|$want_tests|" in
+            *"|$TESTS|"*) ;;
             *) echo "::error::the test jobs ended $TESTS"; exit 1 ;;
           esac
-          [ "$skipped" -eq 1 ] || { echo "::error::$skipped CI jobs were skipped"; exit 1; }
+          [ "$skipped" -eq "$want_skipped" ] || { echo "::error::$skipped CI jobs were skipped"; exit 1; }
