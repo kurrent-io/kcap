@@ -563,6 +563,9 @@ public sealed class ClaudeHookCommand(
                 await ReportSpoolAsync(spool.Append(sessionId, "subagent-stop", NormalizeForSpool(body, command)),
                                        "subagent-stop", $"{sessionId}/{agentId}", reason, unusableUrl);
             }
+            else if (command == "stop" && sessionId is not null && agentId is null) {
+                await ReportSpoolAsync(spool.Append(sessionId, "stop", NormalizeForSpool(body, command)), "stop", sessionId, reason, unusableUrl);
+            }
             else if (unusableUrl) {
                 await Console.Error.WriteLineAsync(
                     UnusableUrlDiagnostic.Build(profiles.Resolution.Source, Url, $"{command ?? "hook"} dropped (not a spoolable event)"));
@@ -1414,15 +1417,19 @@ public sealed class ClaudeHookCommand(
         var genericSessionId = SessionIdOf(body);
         var spools           = command != "notification" && genericSessionId is not null;
 
+        // Not posted live: spooled behind a backlog or after a failure. The local work below still runs, a
+        // subagent's recorder above all, since a replay posts the event and nothing else.
+        var deferred = false;
+
         if (spools && CurrentSessionHasBacklog(spool, genericSessionId)) {
             spool.Append(genericSessionId!, command!, body);
             await Console.Error.WriteLineAsync($"[kcap] {command} spooled (ordering guard); will retry on the next kcap hook ({genericSessionId})");
-            return 0;
+            deferred = true;
         }
 
         HttpResponseMessage? response = null;
         try {
-            if (budget.Remaining > TimeSpan.Zero) {
+            if (!deferred && budget.Remaining > TimeSpan.Zero) {
                 using var content = new StringContent(body, Encoding.UTF8, "application/json");
                 response = await client.PostOnceAsync($"{Url}/hooks/{command}", content, clock.Time, budget.Remaining, CancellationToken.None);
             }
@@ -1431,10 +1438,11 @@ public sealed class ClaudeHookCommand(
         }
         HookTiming.Mark("post");
 
-        if (response is null || !response.IsSuccessStatusCode) {
+        if (!deferred && (response is null || !response.IsSuccessStatusCode)) {
             var code      = response is null ? 0 : (int)response.StatusCode;
             var retryable = response is null || HookSpool.IsRetryable(code);
             response?.Dispose();
+            response = null;
 
             if (!retryable) {
                 Console.Error.WriteLine($"HTTP {code}");
@@ -1455,10 +1463,10 @@ public sealed class ClaudeHookCommand(
                 writer.WriteLine(new JsonObject { ["systemMessage"] = AuthRejectionNotice.RecordingNotice(StoredCredentialState.LooksValid) }.ToJsonString());
             }
 
-            return 0;
+            deferred = true;
         }
 
-        if (command == "stop") {
+        if (command == "stop" && response is not null) {
             string? ack = null;
             try { ack = await response.Content.ReadAsStringAsync(); } catch { }
 
@@ -1473,7 +1481,7 @@ public sealed class ClaudeHookCommand(
                 writer.WriteLine(ClaudeCompletionNudge.BlockDecision);
         }
 
-        response.Dispose();
+        response?.Dispose();
 
         switch (command) {
             case "subagent-start": {

@@ -2132,6 +2132,31 @@ public class ClaudeHookCommandTests {
             .IsGreaterThan(all.IndexOf("\"route\":\"session-start\"", StringComparison.Ordinal));
     }
 
+    /// <summary>A restarting server can stall the hook before it has a client at all; the turn's end is spooled on that
+    /// arm too, so it reaches the server once it is back.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_is_spooled() {
+        using var fx = new Fixture(Config.Root);
+
+        var exit = await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a subagent start spooled behind a backlog still starts the
+    /// child's recorder here, or the child would have no live transcript.</summary>
+    [Test]
+    public async Task subagent_start_spooled_behind_a_backlog_still_starts_its_recorder() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable) { Spawner = new FakeWatcherSpawner() };
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SubagentStart","session_id":"{{Sid}}","agent_id":"a1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("subagent-start");
+        await Assert.That(fx.Spawner!.Keys).Contains($"{Sid}-a1");
+    }
+
     [Test]
     public async Task pending_backlog_is_drained_on_next_hook_when_server_up() {
         using var fx = new Fixture(Config.Root); // 200 OK
@@ -2621,6 +2646,9 @@ public class ClaudeHookCommandTests {
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
 
+        /// <summary>Watches watcher spawns instead of launching them, when a test sets it.</summary>
+        public FakeWatcherSpawner? Spawner { get; set; }
+
         /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
         public ProcessIncarnation? EndingProcess { get; set; }
 
@@ -2681,7 +2709,11 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
+            var watchers = Spawner is { } spawner
+                ? TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient(), spawner)
+                : TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient());
+
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 
