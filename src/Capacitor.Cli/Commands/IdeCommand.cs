@@ -76,7 +76,8 @@ public sealed class IdeCommand(
         return 0;
     }
 
-    /// <summary>Each read borrows a client from the command's own HTTP lane, so the sources build none of their own.</summary>
+    /// <summary>Clients come from the command's own HTTP lane. A source keeps the one it took until a signed-out read or an
+    /// invalidation retires it.</summary>
     static AuthenticatedServerReads<T>.ClientFactory ClientsFrom<T>(ICapacitorHttpClient http) where T : class =>
         async (_, _, _, ct) => {
             var (client, status, _, _) = await http.ForWaitAsync(ct);

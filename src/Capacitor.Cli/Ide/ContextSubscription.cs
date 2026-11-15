@@ -31,8 +31,8 @@ internal sealed class ContextSubscription : IDisposable {
         _serverUrl = serverUrl;
         _changed = changed;
         Work = ContextMapping.Work(_card, serverUrl);
-        // Task.Run keeps a source's synchronous prefix off the request loop, and keeps a read that completes at once
-        // from settling inside the reader's own start.
+        // Task.Run keeps a source's synchronous prefix off the request loop. A read that finishes before the reader awaits
+        // it still settles inside the reader's start, on the host lock its caller holds, so it only lands sooner.
         _work = new(
             (session, ct) => Task.Run(async () => {
                 var read = await work.ReadAsync(session, ct);
