@@ -5,6 +5,7 @@ using Capacitor.Models.Transcripts.Harness.Copilot;
 using Capacitor.Models.Transcripts.Harness.Gemini;
 using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
+using Capacitor.Models.Transcripts.Harness.MuseAssistant;
 using Capacitor.Models.Transcripts.Harness.OpenCode;
 using Capacitor.Models.Transcripts.Harness.Pi;
 
@@ -28,6 +29,7 @@ public static class TranscriptProjection {
         "gemini" => GeminiTranscriptEvents.Instance,
         "kiro" => KiroTranscriptEvents.Instance,
         "mistral-vibe" => MistralVibeTranscriptEvents.Instance,
+        "muse-assistant" => MuseAssistantTranscriptEvents.Instance,
         "opencode" => OpenCodeTranscriptEvents.Instance,
         "pi" => PiTranscriptEvents.Instance,
         _ => null,

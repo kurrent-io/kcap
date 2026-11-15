@@ -143,6 +143,23 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Muse_assistant_item_is_the_v5_uuid_of_scope_turn_and_invariant_seq() {
+        var id = TranscriptIds.MuseAssistantItem("sess:agent", "turn-1", -7);
+
+        await Assert.That(id).IsEqualTo(TranscriptIds.Uuid5(new Guid("3f9c2b7e-5d41-4a0b-9e6c-8b2f1d7a4c53"), "sess:agent:turn-1:-7"));
+        await Assert.That(id.Version).IsEqualTo(5);
+    }
+
+    /// kcap-server's MuseAssistantDeterministicIdTests freezes these same two.
+    [Test]
+    [Arguments(12L, "5cdf20b6-84fe-514a-94e8-1276ca83a504")]
+    [Arguments(13L, "65e68cb3-0ecf-5d64-b182-1294e08bc62c")]
+    public async Task Muse_assistant_item_is_the_servers_v5_uuid(long seq, string expected) {
+        await Assert.That(TranscriptIds.MuseAssistantItem("a1b2c3d4e5f60718293a4b5c6d7e8f90", "7c1e9d2a-0b3f-4e55-8a61-2f9d0c4b7e10", seq).ToString())
+            .IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task OpenCode_hashes_the_utf8_key_and_suffixes_a_tool_part_for_its_call_and_result() {
         await Assert.That(TranscriptIds.OpenCode("prt_tool1")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("prt_tool1"))));
         await Assert.That(TranscriptIds.OpenCodeToolCall("prt_tool1")).IsEqualTo(TranscriptIds.OpenCode("prt_tool1:call"));
@@ -171,6 +188,8 @@ public class TranscriptIdsTests {
     [Arguments("kiro-record", "e64903f7-a47d-58e2-89f8-632e007b4463")]
     [Arguments("kiro-fallback", "f90b0ae9-4cfc-9416-d235-73a9332a649b")]
     [Arguments("kiro-usage", "daa9f1c9-0ac4-0c62-afc0-c8890fdecf69")]
+    // kcap-server's v1 Muse Assistant baseline stores its corpus prompt under this id.
+    [Arguments("muse-assistant-item", "23b0d476-54ea-576b-9f36-a771325e04b7")]
     // The four OpenCode ids from a message, a part and a tool part are the ones kcap-server stored for its corpus.
     [Arguments("opencode-message", "62a73d5f-a531-3bc5-f777-dcfa427bd75f")]
     [Arguments("opencode-part", "f4fadcc6-a417-b1da-6f1b-27d3b0f64760")]
@@ -213,6 +232,7 @@ public class TranscriptIdsTests {
         "kiro-record"       => TranscriptIds.KiroRecord("5f6c2b1a9e3d4a7cbb121c2d3e4f5a6b", "9415c9c4-ddb3-4438-9cf9-9df865547069", "user"),
         "kiro-fallback"     => TranscriptIds.KiroFallback("{\"kind\":\"Prompt\"}", "user"),
         "kiro-usage"        => TranscriptIds.KiroUsage("sess:agent", "msg-1"),
+        "muse-assistant-item" => TranscriptIds.MuseAssistantItem("66c0235eaa090568f04da9bf3d2675f2", "7c1e9d2a-0b3f-4e55-8a61-2f9d0c4b7e10", 12),
         "opencode-message"     => TranscriptIds.OpenCode("msg_ef5f2a28200171s67y5GODESjO"),
         "opencode-part"        => TranscriptIds.OpenCode("prt_ef5f2a5070014eRszLgUFChcFr"),
         "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
