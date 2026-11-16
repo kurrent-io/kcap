@@ -564,8 +564,10 @@ public sealed class ClaudeHookCommand(
                                        "subagent-stop", $"{sessionId}/{agentId}", reason, unusableUrl);
             }
             else if (command == "stop" && sessionId is not null && agentId is null) {
-                ClearTurnJournal(body);
-                await ReportSpoolAsync(spool.Append(sessionId, "stop", NormalizeForSpool(body, command)), "stop", sessionId, reason, unusableUrl);
+                // Persisted before the journal clear, whose lock wait could otherwise spend what is left of the ceiling.
+                var stop = NormalizeForSpool(body, command);
+                await ReportSpoolAsync(spool.Append(sessionId, "stop", stop), "stop", sessionId, reason, unusableUrl);
+                ClearTurnJournal(stop);
             }
             else if (unusableUrl) {
                 await Console.Error.WriteLineAsync(

@@ -2154,11 +2154,13 @@ public class ClaudeHookCommandTests {
     [Test]
     public async Task stop_whose_client_cannot_be_built_still_clears_the_turns_asks() {
         using var fx = new Fixture(Config.Root);
-        new PolicyDecisionJournal(Config.Root).RecordAsk(Sid, "toolu_1", "hash");
+        var dashless = Guid.NewGuid().ToString("N");
+        new PolicyDecisionJournal(Config.Root).RecordAsk(dashless, "toolu_1", "hash");
 
-        await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+        // Claude sends the id dashed; the journal is keyed by the dashless form.
+        await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Guid.ParseExact(dashless, "N")}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
 
-        await Assert.That(new PolicyDecisionJournal(Config.Root).Consume(Sid, "toolu_1", "hash").PendingAsk).IsFalse();
+        await Assert.That(new PolicyDecisionJournal(Config.Root).Consume(dashless, "toolu_1", "hash").PendingAsk).IsFalse();
     }
 
     /// <summary>A replay posts the event and nothing else, so a subagent start spooled behind a backlog still starts the
