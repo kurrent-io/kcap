@@ -35,8 +35,21 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
     ];
 
     // VS Code's own copilot shim sits on the user's PATH with no Copilot CLI behind it.
-    static bool IsVsCodeShim(string path) =>
+    // A link to it is it too.
+    static bool IsVsCodeShim(string path) => InShimFolder(path) || LinkTarget(path) is { } target && InShimFolder(target);
+
+    static bool InShimFolder(string path) =>
         path.Split('/', '\\').Any(segment => segment.Equals("copilot-shim", StringComparison.OrdinalIgnoreCase));
+
+    static string? LinkTarget(string path) {
+        try {
+            return File.ResolveLinkTarget(path, returnFinalTarget: true)?.FullName;
+        } catch (IOException) {
+            return null;
+        } catch (UnauthorizedAccessException) {
+            return null;
+        }
+    }
 
     /// <summary>The Copilot CLI <paramref name="command"/> names on the search path, passing over VS Code's
     /// launcher: it only runs a CLI installed elsewhere, and with none it prints that Copilot CLI was not found.</summary>
