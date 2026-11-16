@@ -205,6 +205,7 @@ public class HarnessSignalTests {
         await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim), CopilotHarness.CliBinary)).IsNull();
         await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim + Path.PathSeparator + cli), CopilotHarness.CliBinary))
             .IsEqualTo(BinaryProbe.Searching(cli).Resolve(CopilotHarness.CliBinary));
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(cli), Path.Combine(shim, CopilotHarness.CliBinary))).IsNull();
     }
 
     /// <summary>VS Code signs Copilot in through ide/ and keeps the extension's data in its own storage.</summary>
