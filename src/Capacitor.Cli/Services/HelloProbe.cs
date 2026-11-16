@@ -10,9 +10,9 @@ namespace Capacitor.Cli.Services;
 public sealed record HelloProbeResult(bool WellFormed, int? ProtocolVersion, string? DaemonVersion, string? DaemonName) {
     /// <summary>The control socket accepted the connection, whether or not a HelloReply followed. This
     /// is the SERVING signal: a daemon built before the Hello frame accepts the connection and drops
-    /// the unknown frame without replying, so it is reachable and serving yet not well-formed. Only a
-    /// connection that never opened — refused, timed out, no socket — is unreachable, and only that is
-    /// still starting. Defaults false so a well-formed test fake that never dialed a socket does not
+    /// the unknown frame without replying, so it is reachable and serving yet not well-formed. A
+    /// connection that never opened — refused, timed out, no socket — is unreachable, and so is a daemon
+    /// that answers as still starting: it binds its socket before it is ready. Defaults false so a well-formed test fake that never dialed a socket does not
     /// falsely read as reachable; <see cref="HelloProbe.RunAsync"/> is the only place it is set true.</summary>
     public bool Reachable { get; init; }
 
@@ -34,6 +34,9 @@ static class HelloProbe {
     static readonly HelloProbeResult Unreachable            = new(false, null, null, null);
     static readonly HelloProbeResult ReachableNotWellFormed = new(false, null, null, null) { Reachable = true };
 
+    static readonly string AcceptsStartingHello =
+        JsonSerializer.Serialize(new ClientHelloDto(null, null, AcceptsStarting: true), HelloIpcJsonContext.Default.ClientHelloDto);
+
     public static async Task<HelloProbeResult> RunAsync(
             DaemonStore store, string daemonName, TimeProvider time, TimeSpan timeout) {
         using var cts = new CancellationTokenSource(timeout, time);
@@ -48,16 +51,19 @@ static class HelloProbe {
             return Unreachable;
         }
 
-        // The connection opened, so the daemon is reachable — serving — from here on, even if the
+        // The connection opened, so the daemon is serving unless it answers as starting, even if the
         // exchange below fails. An older daemon drops the unknown Hello frame without replying.
         await using (stream) {
             try {
-                await FrameCodec.WriteAsync(stream, new LocalFrame(FrameType.Hello), cts.Token);
+                // Without AcceptsStarting a starting daemon holds the hello until it is ready, and the
+                // timeout would then read it as serving.
+                await FrameCodec.WriteAsync(stream, LocalFrame.HelloJson(FrameType.Hello, AcceptsStartingHello), cts.Token);
                 var reply = await FrameCodec.ReadAsync(stream, cts.Token);
                 if (reply is null || reply.Type != FrameType.HelloReply) return ReachableNotWellFormed;
 
                 var dto = JsonSerializer.Deserialize(reply.Text, HelloIpcJsonContext.Default.HelloReplyDto);
                 if (dto is null) return ReachableNotWellFormed;
+                if (dto.Starting == true) return Unreachable;
                 return new HelloProbeResult(true, dto.ProtocolVersion, dto.DaemonVersion, dto.DaemonName) {
                     Reachable    = true,
                     Capabilities = dto.Capabilities ?? [],

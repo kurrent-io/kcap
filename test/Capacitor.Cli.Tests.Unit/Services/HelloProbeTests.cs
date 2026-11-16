@@ -113,4 +113,31 @@ public class HelloProbeTests {
             await Assert.That(result.WellFormed).IsFalse();
         });
     }
+
+    /// <summary>A daemon binds its socket before it is ready, so an accepted connection alone is not serving: the probe
+    /// must ask for the starting reply, or a starting daemon holding the hello would time out into "reachable".</summary>
+    [Test]
+    public async Task A_daemon_answering_as_starting_is_not_serving() {
+        Skip.When(OperatingSystem.IsWindows(), "Unix-domain socket path");
+
+        var startingJson = JsonSerializer.Serialize(
+            new HelloReplyDto(1, "9.9.9", "probed-daemon", [], Pid: 42, Starting: true), HelloIpcJsonContext.Default.HelloReplyDto);
+
+        ConnScript startingDaemon = async (s, ct) => {
+            var hello = await FrameCodec.ReadAsync(s, ct);
+            if (hello?.Type != FrameType.Hello) return;
+            if (JsonSerializer.Deserialize(hello.Text, HelloIpcJsonContext.Default.ClientHelloDto)?.AcceptsStarting == true)
+                await FrameCodec.WriteAsync(s, LocalFrame.HelloJson(FrameType.HelloReply, startingJson), ct);
+            else
+                await Task.Delay(Timeout.Infinite, ct);
+        };
+
+        await WithServerAsync(startingDaemon, async name => {
+            var result = await HelloProbe.RunAsync(Daemons.Store, name, TimeProvider.System, TimeSpan.FromSeconds(5));
+
+            await Assert.That(result.Reachable).IsFalse();
+            await Assert.That(result.WellFormed).IsFalse();
+            await Assert.That(result.Pid).IsNull();
+        });
+    }
 }
