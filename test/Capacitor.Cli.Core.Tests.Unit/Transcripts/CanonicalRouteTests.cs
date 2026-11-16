@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.IO.Hashing;
+using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core.Transcripts;
 
@@ -34,6 +37,35 @@ public class CanonicalRouteTests {
         await Assert.That(CanonicalRoute.For("claude", Session, null, false)).IsNull();
         await Assert.That(CanonicalRoute.For("claude", Session, null, true)).IsNotNull();
         await Assert.That(CanonicalRoute.For(null, Session, null, true)).IsNotNull();
+    }
+
+    /// <summary>The server files a stream under its canonical ids, and derives an image's id from the session's alone,
+    /// on a subagent's stream too: a batch carrying any other id is refused.</summary>
+    [Test]
+    [Arguments(null, null)]
+    [Arguments("a4f2c1e9b7d3", "a4f2c1e9b7d3")]
+    [Arguments("0b0c0d0e-1111-4222-8333-444455556666", "0b0c0d0e111142228333444455556666")]
+    public async Task A_route_sends_the_servers_ids_for_a_dashed_session(string? agentId, string? canonicalAgentId) {
+        const string image = """{"type":"user","uuid":"10000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:01Z","message":{"content":[{"type":"text","text":"look"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}}""";
+
+        var batch = CanonicalRoute.For("claude", Session, agentId, true)!.Encode(Raw(0, image) with { AgentId = agentId }, Received);
+
+        await Assert.That(batch.SessionId).IsEqualTo("5cdc4fccff9e4fdc8d93cf47ff5a140a");
+        await Assert.That(batch.AgentId).IsEqualTo(canonicalAgentId);
+        var message = batch.Events.Single();
+        await Assert.That(message.Attachments!.Single().Id)
+            .IsEqualTo(ServerAttachmentId("5cdc4fccff9e4fdc8d93cf47ff5a140a", message.EventId, 0));
+    }
+
+    /// The server's derivation: the session's UTF-8, the message id's bytes, the image's index little-endian.
+    static Guid ServerAttachmentId(string canonicalSession, Guid messageId, int index) {
+        var session = Encoding.UTF8.GetBytes(canonicalSession);
+        var input   = new byte[session.Length + 20];
+        session.CopyTo(input, 0);
+        messageId.TryWriteBytes(input.AsSpan(session.Length));
+        BinaryPrimitives.WriteInt32LittleEndian(input.AsSpan(session.Length + 16), index);
+
+        return new Guid(XxHash128.Hash(input));
     }
 
     [Test]

@@ -25,7 +25,8 @@ public sealed class CanonicalRoute {
         var name = vendor ?? "claude";
         if (TranscriptProjection.For(name) is not { } projection || TranscriptSignals.For(name) is not { } signals) return null;
 
-        return new(new(projection, signals, sessionId, agentId, name), decide);
+        // As the server files the stream: its batches carry these, and an attachment id hashes the session's.
+        return new(new(projection, signals, SessionIds.Canonical(sessionId) ?? sessionId, SessionIds.Canonical(agentId) ?? agentId, name), decide);
     }
 
     public bool Active { get; private set; } = true;

@@ -8,10 +8,9 @@ using static Capacitor.Models.Transcripts.TranscriptText;
 
 namespace Capacitor.Models.Transcripts.Harness.Claude;
 
-public sealed class ClaudeTranscriptContext(string idScope) : TranscriptContext {
-    /// "{session}:{agent}" for a subagent stream, the bare session id otherwise; attachment ids
-    /// hash it.
-    public string IdScope { get; } = idScope;
+public sealed class ClaudeTranscriptContext(string sessionId) : TranscriptContext {
+    /// The stream's session, a subagent's stream included; attachment ids hash it.
+    public string SessionId { get; } = sessionId;
 
     /// The whole usage object of the last assistant record that carried one: Claude Code writes each block of
     /// one response as its own record with the response's usage repeated, and only the first counts.
@@ -39,8 +38,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
 
     ClaudeTranscriptEvents() { }
 
-    public TranscriptContext CreateContext(string sessionId, string? agentId) =>
-        new ClaudeTranscriptContext(agentId is null ? sessionId : $"{sessionId}:{agentId}");
+    public TranscriptContext CreateContext(string sessionId, string? agentId) => new ClaudeTranscriptContext(sessionId);
 
     public ProjectionResult Project(string line, int lineNumber, DateTimeOffset receivedAt, TranscriptContext context) {
         if (string.IsNullOrWhiteSpace(line)) return ProjectionResult.Reject("empty line");
@@ -100,7 +98,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             }
 
             var (at, recordTimestamp) = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt);
-            var record = new Record(recordId, at, recordTimestamp, root.Str("parentUuid"), root.Bool("isSidechain") == true, ctx.IdScope);
+            var record = new Record(recordId, at, recordTimestamp, root.Str("parentUuid"), root.Bool("isSidechain") == true, ctx.SessionId);
 
             return ProjectionResult.Of(type switch {
                 "user"      => ProjectUser(root, record, ctx),
@@ -120,7 +118,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         && attachment.Str("hookName") == "SessionStart:resume"
         && attachment.Str("type") != "async_hook_response";
 
-    readonly record struct Record(Guid Id, DateTimeOffset At, string? RecordTimestamp, string? CausedBy, bool IsSidechain, string IdScope) {
+    readonly record struct Record(Guid Id, DateTimeOffset At, string? RecordTimestamp, string? CausedBy, bool IsSidechain, string SessionId) {
         public Timestamp ProtoTimestamp => Timestamp.FromDateTimeOffset(At);
     }
 
@@ -277,7 +275,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                      && Decode(data) is { } bytes) {
                         var mediaType = source.Str("media_type") ?? "application/octet-stream";
                         var index = attachments.Count;
-                        var id    = TranscriptIds.ClaudeAttachment(record.IdScope, record.Id, index);
+                        var id    = TranscriptIds.ClaudeAttachment(record.SessionId, record.Id, index);
                         attachments.Add(new TranscriptAttachment(id, $"attachment-{id.ToString()[..8]}{Extension(mediaType)}", mediaType, bytes, record.Id, index));
                     }
                     break;
