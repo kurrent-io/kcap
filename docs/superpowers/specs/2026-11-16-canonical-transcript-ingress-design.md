@@ -27,7 +27,7 @@ The Claude switch is done when all four hold:
 
 1. A Claude session recorded through the new ingress shows the same or more in the web app, the desktop app and mobile as one recorded through raw lines, and never less.
 2. Re-importing a session the server already holds, recorded through either path, appends nothing twice.
-3. The server never ran the Claude normalizer for a session sent through the new ingress.
+3. The server never ran the Claude normalizer for lines sent through the new ingress.
 4. An older CLI that still posts raw lines keeps working unchanged.
 
 Criterion 1 is the owner's wording: the new path produces the same or more than the server does from raw lines, but no less. Three consequences:
@@ -71,16 +71,14 @@ Batch fields:
 |---|---|
 | `format` | Integer, `1`, for the envelope only. A server that does not know the value refuses the batch as unsupported. New event types, payload fields or metadata keys do not change it |
 | `sessionId`, `agentId`, `vendor` | As in `TranscriptBatch` |
-| `lines` | The source line numbers this batch covers, in order, including lines that produced no event |
+| `lines` | One record per source line this batch covers, in order, including lines that produced no event: `number`, `uuid`, `parent_uuid`, `record_type`, `timestamp`. These are the four fields the server's pipeline reads from a raw line after normalisation |
 | `events` | The events, each naming its source line |
 | `titles` | Harness title sightings: kind (summary, auto, rename), text, source line, and for a rename the time it took effect |
 | `turnEndLine` | Highest covered line that ends a turn, or absent |
-| `lastLineTimestamp` | Timestamp of the last covered line that has one, events or not. The server keeps it as `context.LastLineTimestamp`, so a rename read on the raw path after a fallback is timed as before |
-| `questions` | What the question tracker needs per question call and answer: tool call id, record uuid, parent uuid |
 | `captureLoss` | kcap's own capture-loss lines, verbatim, with their line numbers |
 | `repository`, `observedCommits`, `strict`, `moreFollows` | As in `TranscriptBatch` |
 
-Event fields: `type`, `payload`, `eventId`, `line`, `timestamp`, `recordTimestamp`, `causedBy`, `usage`, `usageIsEcho`, `cacheCreationTokens`, `vendorMetadata`, `attachments` (block index, file name, content type, bytes), and a reserved optional `stamp`.
+Event fields: `type`, `payload`, `eventId`, `line`, `timestamp`, `recordTimestamp`, `causedBy`, `usage`, `usageIsEcho`, `cacheCreationTokens`, `vendorMetadata`, `attachments` (id, message id, block index, file name, content type, bytes), and a reserved optional `stamp`.
 
 Rules:
 
@@ -96,6 +94,7 @@ Rules:
 - The server has one configuration switch. Off means the capability answer is no and a canonical batch is refused as unsupported.
 - The client asks once per connection (recorder) or once per process (HTTP producers) and does not persist the answer.
 - The server refuses a whole batch as unsupported, and stores nothing from it, when it does not know the `format`, an event `type`, a payload field or a `vendorMetadata` key, or when a payload does not parse. It never drops a field or a line it does not understand. The payload parser therefore runs strict, unlike `CanonicalEventJson` today, which ignores unknown fields.
+- Any other refusal of a canonical batch that a retry would not change (a 400 or 413 from request binding, for example) also sends that batch raw once: the server rejected the encoding, not the lines. A retryable status (401, 408, 429, 5xx) is handled as it is for a raw batch.
 - An "unsupported" refusal of a batch makes that source fall back to raw lines, starting with the refused lines, until it next connects. Raw lines are always accepted, so there is no loop. This is how the brake reaches clients that are already connected, and how a client on a newer event schema than the server degrades.
 - Combinations: new CLI with old server, old CLI with new server, and new CLI with the switch off all end on raw lines.
 
@@ -121,11 +120,14 @@ Ids are computed from the redacted line and the line number that is sent, as the
 ### 4. Position, resume and projection state
 
 - Position stays line-based. The server's frontier, `WatcherConnect`, `last-line` and the high-water mark keep their meaning. `lines` advances the frontier even when a line produced nothing.
-- Projection state lives in memory only. When a producer starts at a line other than zero, it replays the lines from zero to its start through the projection and the signal readers, discarding the output. The replay reads raw lines, without redaction, as `TranscriptReplay` does for the recorder's other consumers; the inline drain and the spool replay gain the same step. Only lines that are sent are redacted. Replayed state can differ from the original run for a record with no `uuid`, whose fallback id hashes the redacted line; that is accepted. The inline drain runs inside Claude's SessionEnd and SubagentStop hooks, so the plan must measure the replay on a large transcript before it ships.
-- If the transcript file is gone or shorter than the start line, the producer projects without prior state. That is what the server does after a restart today.
+- Projection state lives in memory only. When a producer starts at a line other than zero, it replays the lines from zero to its start through the projection and the signal readers, discarding the output.
+- A source goes canonical only when that replay covered every earlier line. If the transcript is missing or shorter than the start line, a spooled tail carries no transcript path, the replay throws, or it runs out of its budget, the source sends raw lines until it next connects. Projecting a tail without its earlier lines could count a repeated usage as new, which criterion 1 forbids.
+- Replay budgets: two seconds for the inline drain and for the recorder's final drain (both run while a session is ending), half the pass for a spool drain, none for import and for the recorder's resume.
+- The replay reads raw lines, and makes for each the capture decision the live path made: a line the live path replaced by a capture-loss marker (over the redactor's size limit, or unreadable) is not projected. A large readable line, where only redaction can tell, is decided by running the producer's own redaction on that one line; a timeout there makes the replay incomplete. Replayed state can still differ from the original run for a record with no `uuid`, whose fallback id hashes the redacted line; that is accepted.
+- After a failed canonical send the recorder does not encode further lines on the same route. It rebuilds the route by replaying to its cursor, and after a second failure sends raw until it next connects.
 - The spool keeps storing `TranscriptBatch` with redacted raw lines. Projection happens when the spool is drained. A tail spooled by an older CLI therefore drains after an upgrade.
 - Moving between paths mid-session never duplicates or loses an event: both paths use the same line numbers and the same event ids, so the high-water mark and the seen-id set cover any overlap.
-- A move from canonical to raw starts the server's Claude normalizer with empty state (`PreviousUsage`, `ClaudeUnansweredPrompt`, `ClaudeRetractions`), exactly as a server restart does today. The first lines after the move can stamp a usage as new when it is an echo, or miss a retraction. That is accepted; no state is seeded.
+- A move from canonical to raw starts the server's Claude normalizer with empty state (`PreviousUsage`, `ClaudeUnansweredPrompt`, `ClaudeRetractions`), exactly as a server restart does today. The first lines after the move can stamp a usage as new when it is an echo, or miss a retraction. That is accepted; no state is seeded. The same holds for a raw tail that follows a canonical stretch for any reason, including the replay rule above: it is reachable at the end of very large sessions. The server clears that normalizer state whenever a canonical batch moves the stream forward, so a later raw stretch never resumes with state left by an earlier one.
 
 ### 5. Server ingress
 
@@ -138,15 +140,16 @@ What differs:
 - No normalizer is resolved or called.
 - Titles, turn end and question tracking take the batch's signals in place of reading raw lines. Their state and rules (`RecordHarnessTitlesAsync`, `ConfirmTurnEndedAsync`, the pending-question correlation) are unchanged.
 - `captureLoss` entries go through the existing `CaptureLossParser`.
-- Held lines: a line whose write failed is held in `unstored_transcript_lines` as today, storing in place of the raw line everything the batch carried for that line: its events, title sightings, question entries, turn end and timestamp. A title-only line whose title write failed is held too, as it is today. The row is marked so the retry feeds it back to the ingress. No new table. Limits and attempts are unchanged.
+- Held lines: a line whose write failed is held in `unstored_transcript_lines` as today, storing in place of the raw line everything the batch carried for that line: its events, title sightings, question entries, turn end and timestamp. A title-only line whose title write failed is held too, as it is today. The row is marked by a prefix so the retry feeds it back to the reader, where it passes the same checks as a fresh line. A raw line a client sends with that prefix is dropped with a warning, so it can never pass for a held canonical line. A canonical batch resolves a normalizer in one case only: to retry a raw line that an earlier raw batch left held. No new table. Limits and attempts are unchanged.
 
 Fields the server owns. The ingress sets or removes them whatever the client sent:
 
 - `$ingester_user_id` is always the authenticated caller. The raw path only fills it when missing; the ingress overwrites.
 - Stored metadata comes only from the named event fields and allow-listed `vendorMetadata` keys, so `$source`, `$acpSeq`, `$captureRepair`, `$origin`, `$commits_observed` and `$copilotForkMarker` cannot be set by a client.
-- On `SessionStarted`: `capacitor.owner_user_id`, `agent_host_id` and `session_origin` are removed, and `default_visibility` follows the existing rule, including `StampUnset` on a transcript-made start.
+- The `capacitor` and `capacitor_turn` extension blocks are server-only and are removed from every event. A `SessionStarted` is then stamped with `StampUnset`, and loses the legacy owner fields.
+- Accepted event types are the ones the client library can produce; a server-owned type such as a session end is refused.
 - On user messages: the turn block is written by `UserMessageStamper`; a client-sent delivery block (`CapacitorUndeliveredBlock`) is removed.
-- On attachments: the server derives the attachment id itself, from the session scope it established, the event id and the block index, as `ClaudeCodeNormalizer.DeriveAttachmentId` does. The wire carries no attachment id and no `StreamName`. Blob streams are named by id alone (`Attachment-{id}`) and an existing one is reused without a check, so a client-chosen id would let one session claim another's.
+- On attachments: the server recomputes the attachment id from the canonical session id it established and the message id and block index on the wire, as `ClaudeCodeNormalizer.DeriveAttachmentId` does, and refuses a batch whose id differs. Attachments are accepted on user messages only, and a client-sent attachment list or `StreamName` in a payload is removed. Blob streams are named by id alone (`Attachment-{id}`) and an existing one is reused without a check, so a client-chosen id would let one session claim another's.
 - `eventId` is taken from the client. It is the dedup contract, and it only ever addresses the caller's own stream, which the ownership check has already established.
 
 ### 6. Reserved: the stamp
