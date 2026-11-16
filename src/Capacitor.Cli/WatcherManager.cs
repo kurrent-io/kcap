@@ -593,11 +593,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("generate-whats-done");
             psi.ArgumentList.Add(sessionId);
 
@@ -637,11 +635,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add(GenerateTitleCommand.Name);
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(vendor);
@@ -678,11 +674,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
