@@ -257,6 +257,30 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(dropped[1].Message).IsEqualTo("subagent agent-1 lines 101-150 dropped: HTTP 413");
     }
 
+    /// <summary>A one-session Claude or Codex import stops at the first batch the server refuses, so no later batch moves
+    /// its watermark past the lost lines; an unfiltered one keeps going.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task ImportSessionAsync_stops_at_a_refused_batch_only_when_asked(bool stopAtLoss) {
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(413));
+
+        using var tmp = TempDir.WithPathTo("s1.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, Enumerable.Range(0, 150).Select(_ => LineOf(10)));
+
+        var events   = new List<ImportProgress>();
+        using var client = new HttpClient();
+        Task Import() => SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, new SyncProgress<ImportProgress>(events.Add), stopAtLoss: stopAtLoss);
+
+        if (stopAtLoss) await Assert.That(Import).Throws<SessionImporter.TranscriptDeliveryAbortedException>();
+        else await Import();
+
+        await Assert.That(events.OfType<BatchDropped>().Count()).IsEqualTo(stopAtLoss ? 1 : 2);
+    }
+
     /// <summary>A skipped line is named as an editor counts it, like the other import warnings, while the record keeps
     /// the wire index.</summary>
     [Test]

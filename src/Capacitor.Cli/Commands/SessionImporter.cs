@@ -39,8 +39,9 @@ static class SessionImporter {
             SessionMetadata            metadata,
             string?                    encodedCwd,
             TimeProvider               time,
-            IProgress<ImportProgress>? progress = null,
-            HarnessId                  vendor   = HarnessId.Claude
+            IProgress<ImportProgress>? progress   = null,
+            HarnessId                  vendor     = HarnessId.Claude,
+            bool                       stopAtLoss = false
         ) {
         if (!File.Exists(transcriptPath))
             return new(sessionId, [], 0);
@@ -187,7 +188,7 @@ static class SessionImporter {
 
         async Task FlushAsync() =>
             totalSent += await FlushBatchAsync(
-                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: false, stopAtLoss: false, progress, time);
+                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: false, stopAtLoss, progress, time);
     }
 
     /// <summary>POSTs one subagent lifecycle hook; false on any failure so the caller can
