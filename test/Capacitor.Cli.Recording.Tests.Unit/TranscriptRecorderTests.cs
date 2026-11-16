@@ -313,7 +313,8 @@ public class TranscriptRecorderTests {
         _transport.StopRequested += (_, _) => Task.FromResult(Interlocked.Increment(ref lastRan));
         _transport.Reconnected   += () => Task.FromResult(Interlocked.Increment(ref lastRan));
 
-        var run = recorder.RunAsync(CancellationToken.None).ContinueWith(_ => { }, TaskScheduler.Default);
+        // The broken log fails the run too, which is not what this test is about.
+        var run = recorder.RunAsync(CancellationToken.None).ContinueWith(task => _ = task.Exception, TaskScheduler.Default);
         await Eventually(() => _transport.Connects == 1);
         Volatile.Write(ref broken[0], true);
         _transport.ConnectFailures = 1;
