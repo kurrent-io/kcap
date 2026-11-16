@@ -76,6 +76,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
     int _generation;
     int _listingGeneration;
     string? _lastSubject;
+    const string UnreadSubject = "";
     // The lane's own Epoch off the latest Connected status seen — captured per fetch and handed
     // to onUnauthorized, so ServerConnectionService.ParkSignedOut(int) can re-validate a delayed
     // park decision against the lane's CURRENT epoch rather than trusting this generation check
@@ -159,6 +160,10 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
                     }
                     _generation++;
                     _lastSubject = s.Subject;
+                } else {
+                    // An unread subject is not evidence of the same account: what this connection lists
+                    // must still be cleared if the next one names somebody.
+                    _lastSubject ??= UnreadSubject;
                 }
                 _listingGeneration++;
                 _lastLaneEpoch = s.Epoch;

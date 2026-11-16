@@ -94,6 +94,31 @@ public class RemoteAgentsServiceTests {
         await Eventually(() => seen is { Count: 0 });
     }
 
+    /// A connection whose subject could not be read lists under an unknown account, so the first
+    /// connection that names one clears it even when that connection's own fetch fails.
+    [Test]
+    public async Task AFirstNamedSubjectClearsWhatAnUnreadSubjectListed() {
+        var returnNull = false;
+        var lane = new FakeServerLane {
+            DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>(
+                returnNull ? null : [new DaemonInfo { Name = "work-mac", Connected = true }]),
+        };
+        using var svc = new RemoteAgentsService(
+            lane, _ => Task.FromResult(new RemoteFetch(returnNull ? null : [Agent("a1")])), TimeSpan.Zero);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => svc.Agents.Count == 1);
+        IReadOnlyList<DaemonInfo>? seen = null;
+        using var sub = svc.Daemons.Subscribe(d => seen = d);
+        await Eventually(() => seen is { Count: 1 });
+
+        returnNull = true;
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2"));
+
+        await Eventually(() => svc.Agents.Count == 0);
+        await Eventually(() => seen is { Count: 0 });
+    }
+
     // A fetch started under u1 that is still gated when u2's identity-change clear lands must
     // never repopulate the cache the clear just emptied.
     [Test]
