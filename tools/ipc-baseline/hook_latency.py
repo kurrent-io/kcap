@@ -43,7 +43,7 @@ def matching(manifest, event, tool):
     found = [(event, h) for g in groups(manifest, event, tool) for h in g["hooks"] if "if" not in h]
     # PreToolUse fires ahead of the same tool too.
     if event == "PostToolUse":
-        found.extend(("PreToolUse", h) for g in groups(manifest, "PreToolUse", tool) for h in g["hooks"])
+        found.extend(("PreToolUse", h) for g in groups(manifest, "PreToolUse", tool) for h in g["hooks"] if "if" not in h)
     return found
 
 
