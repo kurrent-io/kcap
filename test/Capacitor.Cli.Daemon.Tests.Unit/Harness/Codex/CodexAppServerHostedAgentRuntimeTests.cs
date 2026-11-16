@@ -361,6 +361,54 @@ public class CodexAppServerHostedAgentRuntimeTests {
     }
 
     [Test]
+    public async Task Compaction_is_sent_for_the_thread_once_the_active_turn_ends() {
+        var fake = new FakeCodexAppServer { HoldTurnOpen = true };
+        var (runtime, _, _) = Build(_ => fake, Launch());
+        await runtime.StartAsync(CancellationToken.None).WaitAsync(HangGuard);
+
+        await runtime.SendUserInputAsync("first").WaitAsync(HangGuard);
+        var start = runtime.StartCompaction(Guid.NewGuid());
+
+        await Assert.That(start.Kind).IsEqualTo(CompactionStartKind.Started);
+        await Assert.That(fake.ReceivedMethods).DoesNotContain("thread/compact/start");
+
+        await fake.CompleteHeldTurnAsync();
+        await start.Written!.WaitAsync(HangGuard);
+        await start.Finished!.WaitAsync(HangGuard);
+
+        await Assert.That(fake.LastCompactThreadId).IsEqualTo(fake.ThreadId);
+        await Assert.That(fake.ReceivedMethods).DoesNotContain("turn/steer");
+
+        await runtime.DisposeAsync();
+    }
+
+    /// <summary>The app server records no message for a compaction, so the runtime records the accepted request,
+    /// stamped with its dispatch, for the server to retire that dispatch by.</summary>
+    [Test]
+    public async Task An_accepted_compaction_is_recorded_as_its_dispatchs_message() {
+        var fake = new FakeCodexAppServer();
+        var (runtime, _, _) = Build(_ => fake, Launch(), emitEnvelopes: true);
+        await runtime.StartAsync(CancellationToken.None).WaitAsync(HangGuard);
+        var dispatch = Guid.NewGuid();
+
+        var start = runtime.StartCompaction(dispatch);
+        await start.Written!.WaitAsync(HangGuard);
+        await start.Finished!.WaitAsync(HangGuard);
+
+        AcpEventEnvelope? recorded = null;
+        var deadline = DateTime.UtcNow + HangGuard;
+        while (recorded is null && DateTime.UtcNow < deadline) {
+            recorded = DrainAvailable(runtime).FirstOrDefault(e => e.Kind == AcpEventKind.UserMessage);
+            if (recorded is null) await Task.Delay(10);
+        }
+
+        await Assert.That(recorded?.Text).IsEqualTo("/compact");
+        await Assert.That(recorded?.DispatchId).IsEqualTo(dispatch);
+
+        await runtime.DisposeAsync();
+    }
+
+    [Test]
     public async Task Input_on_an_active_turn_is_steered_not_restarted() {
         var fake = new FakeCodexAppServer { HoldTurnOpen = true };
         var (runtime, _, _) = Build(_ => fake, Launch());

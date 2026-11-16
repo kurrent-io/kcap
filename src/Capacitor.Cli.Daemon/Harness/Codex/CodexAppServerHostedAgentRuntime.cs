@@ -190,7 +190,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             logger: logger, ct: _cts.Token, onTurnInFlight: flip => _clock?.SetTurnInFlight(flip),
             // Deferring the first turn seals the dispatcher — externally-reachable input arriving during
             // the source-claim window enqueues and waits; BeginFirstTurnAsync unseals it.
-            sealedAtStart: deferFirstTurn);
+            sealedAtStart: deferFirstTurn, compact: IssueCompactAsync);
         _mapper = new CodexNotificationMapper(() => _resolvedModel, logger);
         _submitted = new CodexSubmittedInputs(timeProvider);
         _forwardBuffer = new CodexForwardBuffer(
@@ -499,6 +499,27 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         await RequestAsync("turn/steer", steerParams, ct).ConfigureAwait(false);
     }
 
+    async Task IssueCompactAsync(CancellationToken ct) {
+        var threadId = _threadId ?? throw new InvalidOperationException("codex app-server: no thread to compact.");
+        await RequestAsync("thread/compact/start", new JsonObject { ["threadId"] = threadId }, ct).ConfigureAwait(false);
+    }
+
+    // An open approval refuses it as on every other transport, though the compaction would wait for its turn to end.
+    // The app server records no message for a compaction, so the request is recorded here once accepted: it is what
+    // retires the server's pending dispatch, and what the chat shows.
+    public CompactionStart StartCompaction(Guid dispatchId) {
+        if (_approvalBridge is { AwaitingPerson: > 0 }) return CompactionStart.PromptOpen;
+
+        var (written, finished) = _dispatcher.EnqueueCompaction();
+
+        if (_emitEnvelopeTranscript)
+            _ = written.ContinueWith(_ => _forwardBuffer.Emit(new AcpEventEnvelope(
+                    Kind: AcpEventKind.UserMessage, Text: "/compact", TimestampIso: _time.GetUtcNow().ToString("O"), DispatchId: dispatchId)),
+                CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+
+        return CompactionStart.Started(written, finished);
+    }
+
     public Task SendUserInputAsync(string text) => Submit(text, dispatchId: null);
 
     public Task SendUserInputAndWaitForWriteAsync(string text) => Submit(text, dispatchId: null);
@@ -542,6 +563,10 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     void HandleNotification(AcpNotification n) {
         switch (n.Method) {
+            case "turn/started":
+                _dispatcher.OnTurnStarted(n.Params is { } started ? started.Obj("turn")?.Str("id") : null);
+                _clock?.Advance();
+                break;
             case "turn/completed": {
                 var turn = n.Params is { } p ? p.Obj("turn") : null;
                 if (turn?.Str("status") is "failed")
