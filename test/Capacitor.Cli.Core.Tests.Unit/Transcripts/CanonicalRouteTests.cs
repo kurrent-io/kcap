@@ -100,7 +100,7 @@ public class CanonicalRouteTests {
         await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
     }
 
-    /// A readable line a rewrite could take past the record limit, with the same usage as the line after it.
+    /// A readable line a rewrite could take past the record limit, carrying a usage of 7 input tokens.
     static string Large(int n, int parent) =>
         AssistantUsing(n, parent, inputTokens: 7, new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
 
@@ -156,6 +156,21 @@ public class CanonicalRouteTests {
         await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
         await Assert.That(sent.Events.Single().Usage).IsNotNull();
         await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+    }
+
+    /// <summary>A replay the caller stops while a large line is being redacted is stopped, as between lines, not
+    /// incomplete.</summary>
+    [Test]
+    public async Task A_replay_stopped_while_a_large_line_is_redacted_is_cancelled() {
+        var       path  = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{Large(2, 1)}\n{User(3, 2)}\n");
+        using var stop  = new CancellationTokenSource();
+        var       route = CanonicalRoute.For("claude", Session, null, true, (_, _) => {
+            stop.Cancel();
+
+            return LineCapture.Undecided;
+        })!;
+
+        await Assert.That(() => route.ReplayAsync(path, 3, stop.Token)).Throws<OperationCanceledException>();
     }
 
     [Test]

@@ -519,14 +519,14 @@ public sealed class TranscriptRecorder(
             _stop.Cancel();
         }
 
-        var route = await _canonical.OpenAsync(State.LinesProcessed, stop, stop);
+        var route = await _canonical.OpenAsync(State.LinesProcessed, stop);
 
         // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
         // that opened before it, which idle-end would otherwise mistake for an idle agent, or a canonical route's
         // projection. At line 0 the drain delivers the whole file and feeds every consumer itself.
         if (State.LinesProcessed > 0) {
             var replay = new List<TranscriptReplayConsumer>();
-            if (route is { } routeReplay) replay.Add(routeReplay.Consumer);
+            if (route is { } routeReplay) replay.Add(routeReplay.Consumer(stop));
             if (State.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
             if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(State));
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
@@ -1350,14 +1350,12 @@ public sealed class TranscriptRecorder(
                 StampLines(drainRead.Lines, drainRead.LineNumbers);
 
                 // After a connect or a failed send, a canonical route projects the lines before the cursor first.
-                if (newLines.Count > 0) {
+                if (newLines.Count > 0 && await _canonical.OpenAsync(state.LinesProcessed, ct) is { } route) {
                     using var budget = new CancellationTokenSource(isFinalDrain ? FinalDrainReplayBudget : Timeout.InfiniteTimeSpan, time);
                     using var replay = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
-                    if (await _canonical.OpenAsync(state.LinesProcessed, ct, replay.Token) is { } route) {
-                        await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer], replay.Token, log, _progress.Tick);
-                        route.Replayed();
-                    }
+                    await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer(replay.Token)], replay.Token, log, _progress.Tick);
+                    route.Replayed();
                 }
 
                 // SignalR dispatch binds by arity; the record payload keeps additive fields compatible.

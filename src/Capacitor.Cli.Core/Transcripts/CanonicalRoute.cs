@@ -46,7 +46,12 @@ public sealed class CanonicalRoute {
                     if (number >= throughLineExclusive) break;
 
                     ct.ThrowIfCancellationRequested();
-                    if (!_assembler.Replay(line, number++, now, _decide, ct)) return false;
+                    if (_assembler.Replay(line, number++, now, _decide, ct)) continue;
+
+                    // A line left undecided because the caller stopped the replay is that stop, as it is between lines.
+                    ct.ThrowIfCancellationRequested();
+
+                    return false;
                 }
             } catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
                 // The source has not written anything yet.

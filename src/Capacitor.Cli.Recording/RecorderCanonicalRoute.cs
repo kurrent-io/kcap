@@ -30,9 +30,9 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
 
     /// <summary>Readies a route for the lines from <paramref name="cursor"/> on, when they are to go canonical and none is
     /// ready. One past line zero must first see every line before the cursor, so the result is then a consumer for
-    /// <see cref="TranscriptReplay"/> and what to call after it; null otherwise.</summary>
-    /// <param name="replay">What the replay runs under, a stop or its own time: a large line's redaction ends with it.</param>
-    public async Task<(TranscriptReplayConsumer Consumer, Action Replayed)?> OpenAsync(int cursor, CancellationToken ct, CancellationToken replay) {
+    /// <see cref="TranscriptReplay"/>, given what the replay runs under, a stop or its own time, which a large line's
+    /// redaction ends with; and what to call after the replay. Null otherwise.</summary>
+    public async Task<(Func<CancellationToken, TranscriptReplayConsumer> Consumer, Action Replayed)?> OpenAsync(int cursor, CancellationToken ct) {
         if (!CanonicalVendors.Contains(source.Vendor)) return null;
 
         bool? supported;
@@ -69,22 +69,27 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
 
         var     seen    = 0;
         string? missing = null;
+        var     replay  = CancellationToken.None;
 
-        return (new(WindowOnly: false, line => {
-            try {
-                if (route.Replay(line, seen, time.GetUtcNow(), replay)) {
-                    seen++;
+        return (token => {
+            replay = token;
 
-                    return false;
+            return new(WindowOnly: false, line => {
+                try {
+                    if (route.Replay(line, seen, time.GetUtcNow(), replay)) {
+                        seen++;
+
+                        return false;
+                    }
+
+                    missing = $"Redacting line {seen} to tell whether its capture kept it ran out of time";
+                } catch (CanonicalEncodingException ex) {
+                    missing = $"Line {seen} could not be projected: {ex.InnerException?.Message}";
                 }
 
-                missing = $"Redacting line {seen} to tell whether its capture kept it ran out of time";
-            } catch (CanonicalEncodingException ex) {
-                missing = $"Line {seen} could not be projected: {ex.InnerException?.Message}";
-            }
-
-            return true;
-        }), () => {
+                return true;
+            });
+        }, () => {
             // A stop says nothing of the lines, and the next send opens a route again.
             if (ct.IsCancellationRequested) return;
 

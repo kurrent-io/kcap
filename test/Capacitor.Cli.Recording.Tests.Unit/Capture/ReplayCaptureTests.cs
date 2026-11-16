@@ -4,8 +4,6 @@ using Capacitor.Cli.Recording.Capture;
 namespace Capacitor.Cli.Recording.Tests.Unit.Capture;
 
 public class ReplayCaptureTests {
-    [TempDir] public required TempDir Tmp { get; init; }
-
     static RedactionOutcome Outcome(RedactionLossReason? loss) => new("{}", loss, 2, 2);
 
     [Test]
@@ -24,27 +22,34 @@ public class ReplayCaptureTests {
     /// <summary>The replay's own time ends the wait for a long redaction, which is left to finish by itself.</summary>
     [Test]
     public async Task A_redaction_still_running_when_the_replay_runs_out_of_time_leaves_the_line_undecided() {
+        var       started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var       release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var replay  = new CancellationTokenSource();
         var decide = ReplayCapture.With(_ => {
+            started.TrySetResult();
             release.Task.Wait();
 
             return Outcome(null);
         });
 
-        var deciding = Task.Run(() => decide("{}", replay.Token));
-        await replay.CancelAsync();
+        try {
+            var deciding = Task.Run(() => decide("{}", replay.Token));
+            await started.Task.WithinDeadlineAsync("the redaction to start");
+            await replay.CancelAsync();
 
-        await Assert.That(await deciding.WithinDeadlineAsync("the decision")).IsEqualTo(LineCapture.Undecided);
-        release.SetResult();
+            await Assert.That(await deciding.WithinDeadlineAsync("the decision")).IsEqualTo(LineCapture.Undecided);
+        } finally {
+            release.TrySetResult();
+        }
     }
 
     /// <summary>The redaction ran out of its own budget during the replay: nothing is held or retried, and the source goes
     /// raw.</summary>
     [Test]
     public async Task A_replay_whose_redaction_runs_out_of_its_budget_is_incomplete() {
+        using var tmp = new TempDir();
         var large = $$$"""{"type":"user","uuid":"40000000-0000-4000-8000-000000000001","message":{"role":"user","content":"{{{new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth)}}}"}}""";
-        var path  = Tmp.CreateFile("t.jsonl", $"{large}\n{{\"type\":\"user\"}}\n");
+        var path  = tmp.CreateFile("t.jsonl", $"{large}\n{{\"type\":\"user\"}}\n");
         var route = CanonicalRoute.For("claude", "s", null, true, ReplayCapture.With(line =>
             SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.Zero), SecretRedactor.WatcherPatterns)))!;
 
