@@ -1426,6 +1426,7 @@ public partial class App : Application {
                 web: webWorkspace, openLaunchApprovals: launchApprovals.Show,
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
                 harnessesSettingsAction: _openHarnessesSettings,
+                newHarnesses: NewHarnessesFeed.Poll(HarnessRegistry.FromEnvironment(_userHome), new HarnessOfferStore(_config, _time), _time),
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
@@ -2325,7 +2326,7 @@ public partial class App : Application {
             RailPreferencesStore? railPreferences = null, AccountReadings? readings = null,
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
-            IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            IObservable<Action?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
@@ -2393,6 +2394,7 @@ public partial class App : Application {
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
         if (repairDaemon is not null && repairOffer is not null) home.AttachServiceRepair(repairDaemon, repairOffer, shutdownToken);
         if (harnessesSettingsAction is not null) home.AttachHarnessesSettings(harnessesSettingsAction);
+        if (newHarnesses is not null) home.AttachNewHarnesses(newHarnesses);
         // Same knot as home above, over the SAME `service` instance — its callbacks close over
         // `vm`, not a local, so no two-step forward-declaration is needed.
         // Both rail actions route through the one call, each naming the lane of the row that was
