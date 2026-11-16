@@ -9,9 +9,6 @@ namespace Capacitor.Cli.Core;
 /// the daemon). Enforces cross-spool ordering per session: spooled session-start → transcript tail
 /// (+ needs-import marker) → spooled session-end. Idempotent under repeated/partial passes via
 /// deterministic server ids. Stdout-contract hooks (Codex) run this in the BACKGROUND / AFTER stdout.
-///
-/// <para>Moved to <c>Capacitor.Cli.Core</c> so the daemon's periodic drain can share
-/// this exact ordering logic without referencing the CLI's exe project.</para>
 /// </summary>
 public static class LifecycleSpoolDrain {
     // Ordering is enforced by draining the lifecycle spool's START routes first, then the transcript
@@ -203,13 +200,8 @@ public static class LifecycleSpoolDrain {
 
         try {
             using var resp = await TranscriptPost.SendOnceAsync(client, baseUrl, batch, body, route, time, PostTimeout, ct);
-            if (resp.IsSuccessStatusCode) return DrainOutcome.Delivered;
 
-            var outcome = HookSpool.OutcomeOf((int)resp.StatusCode);
-            // The pass goes on past a dropped batch, which the route's projection has run past.
-            if (outcome == DrainOutcome.Drop) route?.FallBack();
-
-            return outcome;
+            return resp.IsSuccessStatusCode ? DrainOutcome.Delivered : HookSpool.OutcomeOf((int)resp.StatusCode);
         } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
             return DrainOutcome.TransientStop;
         }

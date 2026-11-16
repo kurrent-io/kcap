@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core.Transcripts;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Transcripts;
 
@@ -44,27 +45,47 @@ public class TranscriptPostTests {
         await Assert.That(route.Encode(batch, Received)).IsNotSameReferenceAs(encoded);
     }
 
+    /// <summary>A refusal a retry would not change is a verdict on the canonical encoding, not on the lines, which the
+    /// raw route may still store: one the server cannot take, a body it cannot bind or one over its size limit.</summary>
     [Test]
-    public async Task An_unsupported_refusal_falls_the_route_back_and_sends_the_same_batch_raw() {
-        using var server = new Server((path, _) => path == CanonicalRoute.HttpPath ? Reply(HttpStatusCode.UnprocessableEntity, Unsupported) : Reply(HttpStatusCode.OK));
+    [Arguments(HttpStatusCode.UnprocessableEntity, Unsupported)]
+    [Arguments(HttpStatusCode.UnprocessableEntity, """{"error":"invalid_batch"}""")]
+    [Arguments(HttpStatusCode.BadRequest, "")]
+    [Arguments(HttpStatusCode.RequestEntityTooLarge, "")]
+    public async Task A_refusal_a_retry_would_not_change_falls_the_route_back_and_sends_the_same_batch_raw(HttpStatusCode status, string body) {
+        using var server = new Server((path, _) => path == CanonicalRoute.HttpPath ? Reply(status, body) : Reply(HttpStatusCode.OK));
         var route = Route();
         var batch = Batch(0, 2);
 
         using var response = await Send(server, batch, route);
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
-        await Assert.That(server.Paths).IsEquivalentTo([CanonicalRoute.HttpPath, Raw]);
+        await Assert.That(server.Paths).IsEquivalentTo([CanonicalRoute.HttpPath, Raw], CollectionOrdering.Matching);
         await Assert.That(server.Bodies[1]).IsEqualTo(RawJson(batch));
         await Assert.That(route.Active).IsFalse();
     }
 
-    /// <summary>Only the unsupported refusal means the server cannot take the batch: any other answer is the
-    /// producer's to handle, and the batch stays encoded for its resend.</summary>
+    /// <summary>The raw route's answer is the verdict on the lines, refusal included.</summary>
     [Test]
-    [Arguments(HttpStatusCode.InternalServerError, "")]
-    [Arguments(HttpStatusCode.UnprocessableEntity, """{"error":"invalid_batch"}""")]
-    public async Task Any_other_refusal_is_returned_as_it_came(HttpStatusCode status, string body) {
-        using var server = new Server((_, _) => Reply(status, body));
+    public async Task The_raw_answer_to_a_batch_refused_canonical_is_returned() {
+        using var server = new Server((_, _) => Reply(HttpStatusCode.BadRequest));
+
+        using var response = await Send(server, Batch(0, 2), Route());
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(server.Paths).IsEquivalentTo([CanonicalRoute.HttpPath, Raw], CollectionOrdering.Matching);
+    }
+
+    /// <summary>A retry can still store a batch answered with a lapsed credential, a timeout, a throttle or a server
+    /// fault: the producer spools or retries it, and the batch stays encoded for its resend.</summary>
+    [Test]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    [Arguments(HttpStatusCode.RequestTimeout)]
+    [Arguments(HttpStatusCode.TooManyRequests)]
+    [Arguments(HttpStatusCode.InternalServerError)]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    public async Task A_retryable_refusal_is_returned_as_it_came(HttpStatusCode status) {
+        using var server = new Server((_, _) => Reply(status));
         var route   = Route();
         var batch   = Batch(0, 2);
         var encoded = route.Encode(batch, Received);
