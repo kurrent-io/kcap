@@ -1,13 +1,27 @@
 #!/usr/bin/env bash
-# Prints a Python 3.10+ that has the pinned parsers in comment-rules-requirements.txt. The python3 on PATH is used
-# when it already has them, as in CI; otherwise one venv per clone, shared by its worktrees, is built and reused
-# until the pins change.
+# Prints a Python 3.10+ with exactly the versions pinned in comment-rules-requirements.txt. The python3 on PATH is used
+# when it already has them, as in CI; otherwise each pin set gets its own venv under the clone's git directory, shared
+# by its worktrees. A venv is published by rename once complete and never deleted, so a caller still running from one
+# is never pulled out from under.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)" || exit 2
 requirements="$here/comment-rules-requirements.txt"
-probe='import sys, tree_sitter, tree_sitter_c_sharp, tree_sitter_yaml; sys.exit(sys.version_info < (3, 10))'
+pinned='
+import sys
+from importlib import metadata
+if sys.version_info < (3, 10):
+    sys.exit(1)
+for line in open(sys.argv[1]):
+    name, _, version = line.split("#")[0].strip().partition("==")
+    if name:
+        try:
+            if metadata.version(name) != version:
+                sys.exit(1)
+        except metadata.PackageNotFoundError:
+            sys.exit(1)
+'
 
-if command -v python3 >/dev/null && python3 -c "$probe" 2>/dev/null; then
+if command -v python3 >/dev/null && python3 -c "$pinned" "$requirements" 2>/dev/null; then
   command -v python3
   exit 0
 fi
@@ -16,9 +30,8 @@ common="$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/de
   echo 'tools: not inside a git checkout' >&2
   exit 2
 }
-venv="$common/kcap-tools-venv"
-pins="$(cksum <"$requirements")"
-if [ -x "$venv/bin/python3" ] && [ "$(cat "$venv/pins" 2>/dev/null)" = "$pins" ]; then
+venv="$common/kcap-tools-venv-$(cksum <"$requirements" | cut -d' ' -f1)"
+if [ -x "$venv/bin/python3" ]; then
   echo "$venv/bin/python3"
   exit 0
 fi
@@ -35,13 +48,18 @@ done
   exit 2
 }
 
-echo "tools: building $venv from $base (once per pin change)" >&2
-rm -rf "$venv"
-"$base" -m venv "$venv" >&2 &&
-  "$venv/bin/python3" -m pip install --quiet --only-binary=:all: -r "$requirements" >&2 &&
-  echo "$pins" >"$venv/pins" || {
+echo "tools: building $venv from $base (once per pin set)" >&2
+building="$(mktemp -d "$common/kcap-tools-build.XXXXXX")" || exit 2
+if "$base" -m venv "$building" >&2 &&
+  "$building/bin/python3" -m pip install --quiet --only-binary=:all: -r "$requirements" >&2; then
+  # rename(2) refuses a target that exists and is not empty, so a racing caller that published first wins and this
+  # build is dropped.
+  "$base" -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$building" "$venv" 2>/dev/null || rm -rf "$building"
+else
+  rm -rf "$building"
+fi
+[ -x "$venv/bin/python3" ] || {
   echo "tools: could not install $requirements into $venv" >&2
-  rm -rf "$venv"
   exit 2
 }
 echo "$venv/bin/python3"
