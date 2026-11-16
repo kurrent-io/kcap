@@ -115,7 +115,7 @@ public class ClaudeServerParityTests {
     }
 
     /// <summary>Claude Code writes each block of one response as its own record with the response's usage
-    /// repeated; only a change of usage, or any record that is not an assistant one, re-arms it.</summary>
+    /// repeated; only a change of usage, or a record that is neither an assistant one nor server noise, re-arms it.</summary>
     [Test]
     public async Task The_usage_memory_suppresses_a_repeat_and_resets_on_any_other_record() {
         var ctx = Ctx();
@@ -131,8 +131,10 @@ public class ClaudeServerParityTests {
         await Assert.That(ClaudeTranscriptEvents.Instance.Project(Assistant("not-a-guid", U2), 1, Received, ctx).Rejected).IsNotNull();
         await Assert.That(HasUsage(E(Assistant(Uuid2, U1), ctx))).IsFalse();
         await Assert.That(HasUsage(E(Assistant(Uuid, U2), ctx))).IsTrue();
-        // Any other valid record, noise included, clears it.
+        // The server's noise types leave it alone; any other record clears it.
         E("""{"type":"progress"}""", ctx);
+        await Assert.That(HasUsage(E(Assistant(Uuid2, U2), ctx))).IsFalse();
+        E("""{"type":"something-new"}""", ctx);
         await Assert.That(HasUsage(E(Assistant(Uuid2, U2), ctx))).IsTrue();
     }
 

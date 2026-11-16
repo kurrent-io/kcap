@@ -63,7 +63,9 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             (string Prompt, string Content)? command = type == "system" && root.Str("subtype") == "local_command" ? LocalCommand(root) : null;
             var compaction = type == "system" ? CompactionBoundary(root) : null;
             if (type is not ("user" or "assistant" or "attachment") && command is null && compaction is null) {
-                ctx.PreviousUsage = null;
+                // The server's noise types never reach its usage memory, so a response's blocks may straddle one.
+                if (type is not (null or "progress" or "system" or "file-history-snapshot" or "queue-operation" or "pr-link" or "last-prompt" or "ai-title" or "custom-title"))
+                    ctx.PreviousUsage = null;
                 return ProjectionResult.Empty;
             }
 
@@ -87,12 +89,11 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                     return ProjectionResult.Reject("uuid is not a GUID");
             }
 
-            // Every valid record but an assistant one re-arms the usage memory, and an assistant one closes the open
-            // prompt, as the server's does; only the prompt's own answer marks it answered. A rejected one, above,
-            // touches nothing.
-            if (type != "assistant") {
-                ctx.PreviousUsage = null;
-            } else if (ctx.UnansweredPrompt is { } open) {
+            // Every valid record but an assistant or system one re-arms the usage memory, and an assistant one closes
+            // the open prompt, as the server's does; only the prompt's own answer marks it answered. A rejected one,
+            // above, touches nothing.
+            if (type is not ("assistant" or "system")) ctx.PreviousUsage = null;
+            if (type == "assistant" && ctx.UnansweredPrompt is { } open) {
                 if (root.Str("parentUuid") is { } answering && ctx.OpenLine?.Contains(answering) == true) (ctx.Answered ??= []).Add(open.Id);
                 ctx.UnansweredPrompt = null;
                 ctx.OpenLine         = null;
