@@ -66,7 +66,7 @@ sealed class HubRecorderTransport : IRecorderTransport {
         using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
         try {
-            return await _hub.InvokeAsync<int>(IngestCapability.HubMethod, either.Token) == IngestCapability.CanonicalFormat;
+            return (await _hub.InvokeAsync<CanonicalCapabilities>(IngestCapability.HubMethod, either.Token)).CanonicalFormat == IngestCapability.CanonicalFormat;
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch (Exception ex) {

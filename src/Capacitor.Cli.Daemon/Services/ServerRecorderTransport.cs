@@ -170,7 +170,7 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
         using var either = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, budget.Token);
 
         try {
-            return await _hub.InvokeAsync<int>(IngestCapability.HubMethod, either.Token) == IngestCapability.CanonicalFormat;
+            return (await _hub.InvokeAsync<CanonicalCapabilities>(IngestCapability.HubMethod, either.Token)).CanonicalFormat == IngestCapability.CanonicalFormat;
         } catch (Exception ex) {
             // A server's refusal, an older one's unknown method included, is an answer; anything else is worth a line.
             if (ex is not HubException && !_closing.IsCancellationRequested) Log($"Could not ask the server whether it takes canonical batches; sending raw lines: {ex.Message}");

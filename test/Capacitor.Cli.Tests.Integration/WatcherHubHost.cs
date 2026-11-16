@@ -173,7 +173,8 @@ public sealed class WatcherHubHost : IAsyncDisposable {
             lock (host._gate) host._drains.Add((sessionId, agentId));
         }
 
-        public int IngestCapabilities() => host.CanonicalFormat ?? throw new HubException("Unknown hub method 'IngestCapabilities'");
+        public CanonicalCapabilities IngestCapabilities() =>
+            host.CanonicalFormat is { } format ? new(format) : throw new HubException("Unknown hub method 'IngestCapabilities'");
 
         public CanonicalAck SendCanonicalBatch(CanonicalTranscriptBatch batch) {
             if (host.RefusesCanonical) return new(0, Unsupported: true, "canonical ingress is switched off");

@@ -10,7 +10,7 @@ public sealed class IngestCapability(HttpClient client, string baseUrl, TimeProv
     /// <summary>The batch format this client sends, and the answer a server that takes it gives.</summary>
     public const int CanonicalFormat = 1;
 
-    /// <summary>The hub's capability call, answering with the format it takes or 0.</summary>
+    /// <summary>The hub's capability call, answering with <see cref="CanonicalCapabilities"/>.</summary>
     public const string HubMethod = "IngestCapabilities";
 
     /// <summary>How long a client waits for the answer before taking it as a no.</summary>
@@ -32,9 +32,9 @@ public sealed class IngestCapability(HttpClient client, string baseUrl, TimeProv
             if (resp.StatusCode == HttpStatusCode.NotFound) return Answer(false);
             if (!resp.IsSuccessStatusCode) return false;
 
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(linked.Token));
+            var answer = JsonSerializer.Deserialize(await resp.Content.ReadAsStringAsync(linked.Token), CapacitorJsonContext.Default.CanonicalCapabilities);
 
-            return Answer(doc.RootElement.Num("canonical_format") == CanonicalFormat);
+            return Answer(answer.CanonicalFormat == CanonicalFormat);
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch (Exception) {

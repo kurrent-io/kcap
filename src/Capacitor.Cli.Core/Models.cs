@@ -1288,6 +1288,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(ParkParticipantOutcome))]
 [JsonSerializable(typeof(TranscriptBatchAck))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalSendResult))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalCapabilities))]
 // The AcpSessionStarted hub method's optional metadata argument. Registered as its own root type
 // (not just nested inside another JsonSerializable graph) because SignalR's JsonHubProtocol
 // serializes each hub-invocation argument independently by its declared type.

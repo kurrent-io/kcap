@@ -218,10 +218,10 @@ public sealed class RecordingHubHost : IAsyncDisposable {
             if (host.BatchHold?.Invoke(batch.LineNumbers?.FirstOrDefault()) is { } hold) await hold;
         }
 
-        public int IngestCapabilities() {
+        public CanonicalCapabilities IngestCapabilities() {
             host.Record("capabilities");
 
-            return host.CanonicalFormat;
+            return new(host.CanonicalFormat);
         }
 
         public CanonicalSendResult SendCanonicalBatch(CanonicalTranscriptBatch batch) {
