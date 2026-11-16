@@ -217,13 +217,17 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await hub.StartAsync(ct).ConfigureAwait(false);
                 _hub = hub;
                 _streams = streams;
-                attempt = 0;
+                var connectedAt = _time.GetTimestamp();
                 var connectedSubject = await ReadSubjectAsync().ConfigureAwait(false);
                 PublishConnected(generation, capturedHub, connectedSubject);
 
                 Exception? closeReason;
                 await using (ct.Register(() => closed.TrySetResult(null)))
                     closeReason = await closed.Task.ConfigureAwait(false);
+
+                // Only a connection that outlasted the ladder's longest step starts it over: one the server takes and
+                // closes at once keeps climbing, rather than being redialled every second.
+                if (_time.GetElapsedTime(connectedAt) >= _retry.Delay(long.MaxValue)) attempt = 0;
 
                 if (Interlocked.Exchange(ref _refusedReconnect, null) is { } refused) {
                     ParkSignedOutCore(generation, refused.Message);

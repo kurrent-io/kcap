@@ -365,6 +365,26 @@ public class ServerConnectionServiceTests {
         await Assert.That(Volatile.Read(ref redials)).IsEqualTo(0);
     }
 
+    /// A server that takes each connection and closes it at once would otherwise be redialled on the ladder's first
+    /// step forever; a connection that does not outlast the longest step leaves the ladder where it was.
+    [Test]
+    public async Task A_connection_closed_at_once_after_failed_starts_keeps_the_ladders_place() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(3)]);
+        HubTestHost.RefuseNegotiation = true;
+        lane.Start();
+        await WaitUntilAsync(() => HubTestHost.RefusedNegotiations >= 1, what: "a refused start");
+        HubTestHost.RefuseNegotiation = false;
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected, seconds: 15);
+
+        var redial = Next(lane.Status.Skip(1), s => s.State == ServerLaneState.Connecting, seconds: 15);
+        var closed = System.Diagnostics.Stopwatch.StartNew();
+        await HubTestHost.CloseConnectionsAsync();
+        await redial;
+
+        await Assert.That(closed.Elapsed).IsGreaterThan(TimeSpan.FromSeconds(2));
+    }
+
     /// A refused credential is what kcap login repairs, so a reconnect that meets one parks the lane at once,
     /// even when every later attempt would fail some other way: SignalR closes a connection the policy gave
     /// up on with its own exception, not the 401.
