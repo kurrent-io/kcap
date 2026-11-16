@@ -138,7 +138,11 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
 
     public bool SupportsRestartResume(string? runtimeTransport) => descriptor.SupportsRestartResume;
 
-    public string CliPath => config.PathSlot(descriptor.Harness).Read();
+    /// <summary>The configured command, or for Copilot the CLI it resolves to past VS Code's launcher, so the version
+    /// probe and the update watcher read the program that runs.</summary>
+    public string CliPath => descriptor.Harness is HarnessId.Copilot && ResolveCli(descriptor, config) is { } cli
+        ? cli
+        : config.PathSlot(descriptor.Harness).Read();
 
     public bool IsAvailable() => ResolveCli(descriptor, config) is not null;
 

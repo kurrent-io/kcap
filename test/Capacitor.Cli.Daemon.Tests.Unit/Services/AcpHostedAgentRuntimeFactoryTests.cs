@@ -1445,23 +1445,27 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
     }
 
-    /// <summary>VS Code's Copilot launcher on the PATH is not a Copilot CLI to host, and one behind it is.</summary>
+    /// <summary>VS Code's Copilot launcher on the PATH is not a Copilot CLI to host, and one behind it is: that CLI is
+    /// the path the version probe and the update watcher read.</summary>
     [Test]
     public async Task Copilot_is_available_only_when_a_cli_resolves_past_vs_code_s_launcher() {
         using var tmp = new TempDir();
-        var shim = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", Launchable("copilot")), ""))!;
-        var cli  = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("bin", Launchable("copilot")), ""))!;
+        var shim    = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", Launchable("copilot")), ""))!;
+        var cliPath = tmp.CreateExecutable(Path.Combine("bin", Launchable("copilot")), "");
 
-        static bool Available(string searchPath) => new AcpHostedAgentRuntimeFactory(
+        static AcpHostedAgentRuntimeFactory Over(string searchPath) => new(
             descriptor: AcpVendorDescriptors.Copilot,
             config: new DaemonConfig { Binaries = BinaryProbe.Searching(searchPath) },
             loggerFactory: NullLoggerFactory.Instance,
             connection: new CaptureServerConnection(),
-            connectionSource: _ => throw new InvalidOperationException("IsAvailable must not spawn a process."),
-            timeProvider: TimeProvider.System).IsAvailable();
+            connectionSource: _ => throw new InvalidOperationException("Reading availability must not spawn a process."),
+            timeProvider: TimeProvider.System);
 
-        await Assert.That(Available(shim)).IsFalse();
-        await Assert.That(Available(shim + Path.PathSeparator + cli)).IsTrue();
+        var both = Over(shim + Path.PathSeparator + Path.GetDirectoryName(cliPath));
+
+        await Assert.That(Over(shim).IsAvailable()).IsFalse();
+        await Assert.That(both.IsAvailable()).IsTrue();
+        await Assert.That(both.CliPath).IsEqualTo(Path.GetFullPath(cliPath));
 
         static string Launchable(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
     }
