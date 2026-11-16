@@ -87,6 +87,28 @@ public class DaemonHubReconnectLogTests {
         await Assert.That(entries[1].Message).IsEqualTo("Reconnect attempt 1 failed (Response status code does not indicate success: 503 (Service Unavailable).); retrying in 2s");
     }
 
+    /// <summary>The transport logs a failed send before the hub leaves the connected state; the policy reports that drop.</summary>
+    [Test]
+    public async Task A_failed_send_while_still_connected_is_quiet() {
+        var loggers = new Recording(LogLevel.Trace);
+        var logger  = new ReconnectQuietLoggerFactory(loggers, () => false).CreateLogger("Microsoft.AspNetCore.Http.Connections.Client.Internal.WebSocketsTransport");
+
+        logger.Log(LogLevel.Error, new EventId(15, "ErrorSendingMessage"), "Error while sending a message.", new IOException("broken pipe"), (s, _) => s);
+
+        await Assert.That(loggers.Entries.Single().Level).IsEqualTo(LogLevel.Debug);
+    }
+
+    /// <summary>The receive loop runs before the hub reads as connected, so a binding fault in that gap must keep its level.</summary>
+    [Test]
+    public async Task A_binding_failure_keeps_its_level_before_the_hub_reads_as_connected() {
+        var loggers = new Recording(LogLevel.Trace);
+        var logger  = new ReconnectQuietLoggerFactory(loggers, () => true).CreateLogger("Microsoft.AspNetCore.SignalR.Client.HubConnection");
+
+        logger.Log(LogLevel.Error, new EventId(57, "ArgumentBindingFailure"), "Failed to bind arguments.", new FormatException(), (s, _) => s);
+
+        await Assert.That(loggers.Entries.Single().Level).IsEqualTo(LogLevel.Error);
+    }
+
     sealed class FixedRetry(TimeSpan delay) : IRetryPolicy {
         public TimeSpan? NextRetryDelay(RetryContext retryContext) => delay;
     }
