@@ -25,12 +25,16 @@ This design adds the path that uses it: the client projects the lines itself and
 
 The Claude switch is done when all four hold:
 
-1. A Claude session recorded through the new ingress looks the same in the web app, the desktop app and mobile as one recorded through raw lines.
+1. A Claude session recorded through the new ingress shows the same or more in the web app, the desktop app and mobile as one recorded through raw lines, and never less.
 2. Re-importing a session the server already holds, recorded through either path, appends nothing twice.
 3. The server never ran the Claude normalizer for a session sent through the new ingress.
 4. An older CLI that still posts raw lines keeps working unchanged.
 
-"The same" in criterion 1 has one known limit. The library deliberately records more than the server's Claude normalizer on a few inputs, pinned in `ClaudeServerDeltaTests`: every content block of an assistant record and every tool result of a line become events, where the server reads the first only, and an unanswered prompt that was resubmitted is retracted. On those inputs the new path shows the fuller session. They are intended and are not parity failures. Any other difference is a defect to close before the switch; the plan must check the one a review reported, that a noise record between two assistant records with identical usage clears `PreviousUsage` in the library but not on the server.
+Criterion 1 is the owner's wording: the new path produces the same or more than the server does from raw lines, but no less. Three consequences:
+
+- Everything the raw path stores for a session, the new path stores too, with the same ids.
+- The additions known today are pinned in `ClaudeServerDeltaTests`: every content block of an assistant record and every tool result of a line become events, where the server reads the first only, and a prompt that was resubmitted unanswered is retracted.
+- "More" means more of the session, not different numbers. A difference in usage or cost is a defect to close before the switch. The plan must check the one a review reported: a noise record between two assistant records with identical usage clears `PreviousUsage` in the library but not on the server, which would count that usage twice.
 
 ## Non-goals
 
@@ -196,7 +200,7 @@ The owner agreed to the overall behaviour in sections 3 and 4 as a summary. Thes
 - Capture-loss lines travel verbatim and the server keeps its parser, because they are kcap's own format.
 - Held canonical lines reuse the existing table.
 - The server derives attachment ids; the wire carries the block index only.
-- Criterion 1 allows the deliberate differences pinned in `ClaudeServerDeltaTests`. The owner has not confirmed this reading.
+- Reading "more" in criterion 1 as excluding differences in usage and cost.
 - The mid-session fallback on an "unsupported" refusal, and that anything the server does not understand refuses the whole batch.
 - A switch from canonical to raw inside a turn may mis-stamp a usage or miss a retraction, as a server restart does today.
 - State is rebuilt from raw lines, not redacted ones.
