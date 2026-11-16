@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Models.Transcripts.UserMessages;
@@ -75,7 +76,7 @@ internal sealed class RemoteSubagentFeed(
                     if (evt.EventNumber <= _lastEvent) continue;
                     _lastEvent = evt.EventNumber;
                     _position  = evt.EventNumber;
-                    if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.EventNumber, evt.Timestamp) is { } line)
+                    if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.Vendors, evt.EventNumber, evt.Timestamp) is { } line)
                         lines.Add(line);
                 }
                 if (dto.NextFrom is not { } nextFrom) {
@@ -104,9 +105,10 @@ internal sealed class RemoteSubagentFeed(
     static FeedRead Failed(List<ProjectedLine> lines, string failure) =>
         lines.Count > 0 ? new(FeedStatus.Ok, lines) : new(FeedStatus.Failed, lines, Failure: failure);
 
-    ProjectedLine? Project(string eventType, string json, long offset, DateTimeOffset? timestamp) {
+    ProjectedLine? Project(string eventType, string json, JsonElement? vendors, long offset, DateTimeOffset? timestamp) {
         var payload = CanonicalEventJson.TryParse(eventType, json);
         if (payload is null) return null;
+        _rules?.RestoreServerFacts(payload, vendors, null);
         var at = CanonicalEventTime.Of(payload) ?? timestamp ?? time.GetUtcNow();
         var projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, _scheduled);
         // A hidden record can still carry a run's end.

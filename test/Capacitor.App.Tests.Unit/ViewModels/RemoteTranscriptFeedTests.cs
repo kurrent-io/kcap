@@ -436,4 +436,41 @@ public class RemoteTranscriptFeedTests {
         var at = DateTimeOffset.Parse(envelope.TimestampIso!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         await Assert.That(at).IsEqualTo((DateTimeOffset)storedAt);
     }
+
+    const string TagLed = """{"content":"<environment_context> is what I mean by context"}""";
+
+    /// A reload reads the content item kinds off the detail read's vendor block; without them the text alone decides.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_codex_line_the_kinds_call_the_persons_shows_in_the_seed(bool kinds) {
+        var evt = Event(0, CanonicalEventTypes.UserMessageReceived, TagLed);
+        if (kinds) evt = evt with { Vendors = System.Text.Json.JsonDocument.Parse("""{"codex":{"turn_id":"t1","content_item_kinds":["user.text"]}}""").RootElement.Clone() };
+        using var h = new Harness(vendor: "codex") { NextDetail = new(Detail(evt)) };
+        h.Access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+
+        var rows = h.Feed.ReadAppended().Lines.SelectMany(l => l.Projection.Envelopes).Select(e => e.Text).ToList();
+        await Assert.That(rows).IsEquivalentTo(kinds ? new string?[] { "<environment_context> is what I mean by context" } : []);
+    }
+
+    /// A live event carries the same kinds in its metadata.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_codex_line_the_kinds_call_the_persons_shows_live(bool kinds) {
+        using var h = new Harness(vendor: "codex");
+        h.Access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+        h.Feed.ReadAppended();
+        h.Lane.PushStreamEvent(new StreamEventEnvelope {
+            EventId = Guid.NewGuid(), Stream = h.Stream, EventType = CanonicalEventTypes.UserMessageReceived,
+            StreamPosition = 2, GlobalPosition = 2, Timestamp = DateTime.UtcNow, JsonPayload = TagLed,
+            JsonMetadata = kinds ? """{"$vendor":"codex","$codexTurnId":"t1","$codexContentItemKinds":"user.text"}""" : """{"$vendor":"codex"}""",
+        });
+        await WaitUntilAsync(() => h.Feed.CurrentOffset == 3, what: "the live event");
+
+        var rows = h.Feed.ReadAppended().Lines.SelectMany(l => l.Projection.Envelopes).Select(e => e.Text).ToList();
+        await Assert.That(rows).IsEquivalentTo(kinds ? new string?[] { "<environment_context> is what I mean by context" } : []);
+    }
 }

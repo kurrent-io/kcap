@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.Models.Transcripts.Harness.Codex;
 using Capacitor.Models.Transcripts.UserMessages;
 using Kurrent.Agent.Schema.Events;
@@ -18,6 +19,10 @@ public sealed class CodexChatRules : IChatDisplayRules {
     readonly bool _ownTranscript;
 
     CodexChatRules(bool ownTranscript) => _ownTranscript = ownTranscript;
+
+    public void RestoreServerFacts(object payload, JsonElement? vendors, string? metadata) {
+        if (payload is UserMessageReceived message) CodexServerFacts.Restore(message, vendors, metadata);
+    }
 
     public IReadOnlyList<string> LiteralInputs(CanonicalEvent evt, AcpEventEnvelope raw) =>
         raw is { Kind: AcpEventKind.UserMessage, Text: { Length: > 0 } text } ? [text] : [];
@@ -42,7 +47,6 @@ public sealed class CodexChatRules : IChatDisplayRules {
 
     static AcpEventEnvelope? UserMessage(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled) {
         var raw = envelope.Text ?? "";
-        // A stored event the server wrote keeps the content item kinds in its metadata, so it reaches here with none.
         var origin = evt.Payload is UserMessageReceived message ? UserMessageOrigin.Of(message) : null;
         var cls = UserMessageClassifier.Classify(raw, origin, Vendor, scheduled);
         var clean = SystemInstructionParser.Parse(raw).CleanText;

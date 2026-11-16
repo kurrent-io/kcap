@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Models.Transcripts.UserMessages;
@@ -170,7 +171,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         var lines = new List<ProjectedLine>();
         var scheduled = new ScheduledPrompts();
         foreach (var evt in detail.Events ?? [])
-            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.EventNumber, evt.Timestamp, scheduled) is { } line) lines.Add(line);
+            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.Vendors, null, evt.EventNumber, evt.Timestamp, scheduled) is { } line) lines.Add(line);
         lock (_lock) {
             if (_attempt != attempt) return false;
             _verdict = null;
@@ -197,7 +198,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         }
         var received = false;
         await foreach (var envelope in _lane.TailStreamAsync(StreamNames.AgentSession(_sessionId), from, ct).ConfigureAwait(false)) {
-            var line = Project(envelope.EventType, envelope.JsonPayload, (long)envelope.StreamPosition, envelope.Timestamp, scheduled);
+            var line = Project(envelope.EventType, envelope.JsonPayload, null, envelope.JsonMetadata, (long)envelope.StreamPosition, envelope.Timestamp, scheduled);
             lock (_lock) {
                 if (_attempt != attempt) return received;
                 // Once per outage: the stream delivering again ends it, however this tail later ends.
@@ -211,9 +212,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         return received;
     }
 
-    ProjectedLine? Project(string eventType, string json, long offset, DateTimeOffset? timestamp, ScheduledPrompts scheduled) {
+    ProjectedLine? Project(
+            string eventType, string json, JsonElement? vendors, string? metadata, long offset, DateTimeOffset? timestamp, ScheduledPrompts scheduled) {
         var payload = CanonicalEventJson.TryParse(eventType, json);
         if (payload is null) return null;
+        _rules?.RestoreServerFacts(payload, vendors, metadata);
         var at = CanonicalEventTime.Of(payload) ?? timestamp ?? _time.GetUtcNow();
         ChatProjectionResult projected;
         lock (scheduled) projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, scheduled);
