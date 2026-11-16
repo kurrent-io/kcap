@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Transcripts;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -336,5 +338,65 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(flushes[0].LinesAdded).IsEqualTo(2);
         await Assert.That(flushes[1].LinesAdded).IsEqualTo(1);
         await Assert.That(flushes.All(f => f.AgentId == null)).IsTrue();
+    }
+
+    void ServeCanonical() {
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        foreach (var path in new[] { "/hooks/transcript", CanonicalRoute.HttpPath, "/hooks/subagent-start", "/hooks/subagent-stop" })
+            _server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+    }
+
+    List<string> TranscriptPosts() =>
+        [.. _server.LogEntries.Select(e => e.RequestMessage.Path).Where(p => p is "/hooks/transcript" or CanonicalRoute.HttpPath)];
+
+    static string ClaudeLine(int n) =>
+        $$$"""{"type":"user","uuid":"10000000-0000-4000-8000-{{{n:D12}}}","timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    [Test]
+    public async Task A_claude_import_sends_the_session_and_its_subagents_canonical() {
+        ServeCanonical();
+
+        using var tmp = new TempDir();
+        var sessionName = Guid.NewGuid().ToString("N");
+        var agentId     = Guid.NewGuid().ToString("N");
+        var sessionPath = tmp.PathTo($"{sessionName}.jsonl");
+        var agentPath   = tmp.CreateDir(sessionName, "subagents").PathTo($"agent-{agentId}.jsonl");
+
+        await File.WriteAllLinesAsync(sessionPath, [
+            ClaudeLine(0),
+            $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""",
+            ClaudeLine(2),
+        ]);
+        await File.WriteAllLinesAsync(agentPath, [ClaudeLine(10), ClaudeLine(11)]);
+
+        using var client = new HttpClient();
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, sessionPath, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(TranscriptPosts().Distinct()).IsEquivalentTo([CanonicalRoute.HttpPath]);
+
+        var agents = _server.LogEntries.Where(e => e.RequestMessage.Path == CanonicalRoute.HttpPath)
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("agent_id", out var a) ? a.GetString() : null);
+        await Assert.That(agents.Distinct()).IsEquivalentTo([null, agentId]);
+    }
+
+    [Test]
+    public async Task A_codex_import_sends_raw_lines_only() {
+        ServeCanonical();
+
+        using var tmp = TempDir.WithPathTo("rollout.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, [
+            """{"timestamp":"2026-05-07T15:50:21.989Z","type":"session_meta","payload":{}}""",
+            """{"timestamp":"2026-05-07T15:50:22.989Z","type":"response_item","payload":{"type":"message","role":"user","content":[]}}""",
+        ]);
+
+        using var client = new HttpClient();
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, vendor: HarnessId.Codex, canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(TranscriptPosts()).IsEquivalentTo(["/hooks/transcript"]);
     }
 }

@@ -1,7 +1,6 @@
 using Capacitor.Cli.Recording;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands;
@@ -11,6 +10,7 @@ using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli;
@@ -798,6 +798,10 @@ public sealed partial class WatcherManager(
             var commits        = DrainCommits ?? await GitHook.ObservationAsync(config, sessionId, agentId, cwd: null, time);
             var sentAny        = false;
 
+            // Opened for the first lines sent, not before: the replay reads the transcript up to them, and a drain
+            // with nothing to send has no use for it.
+            Task<CanonicalRoute?>? route = null;
+
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var       reader = new StreamReader(stream);
 
@@ -856,11 +860,15 @@ public sealed partial class WatcherManager(
                     ObservedCommits = commits.Pending,
                 };
 
+                if (newLines.Count > 0)
+                    route ??= TranscriptPost.RouteAsync(
+                        new IngestCapability(httpClient, Url!, time), vendor, sessionId, agentId, transcriptPath, startLine, CancellationToken.None);
+
+                var canonical = route is null ? null : await route;
+
                 try {
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                        var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
-                        using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
+                        using var resp = await TranscriptPost.SendAsync(httpClient, Url!, chunk, canonical, time, () => !Disabled(), CancellationToken.None);
                         // A refusal the guard kept from being sent again, after a bearer rotation, is the disable's.
                         if (!resp.IsSuccessStatusCode && Disabled()) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");

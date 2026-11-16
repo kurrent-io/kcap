@@ -1,5 +1,7 @@
 using System.Net;
+using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Transcripts;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -68,6 +70,93 @@ public class LifecycleSpoolDrainTests {
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
             return impl(request, body);
         }
+    }
+
+    const string Capabilities = "/api/ingest/capabilities";
+
+    static string ClaudeId(int n) => $"10000000-0000-4000-8000-{n:D12}";
+
+    static string ClaudeUser(int n) =>
+        $$$"""{"type":"user","uuid":"{{{ClaudeId(n)}}}","parentUuid":null,"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    static string ClaudeAssistant(int n) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// Drains the spool through the HTTP wrapper and returns every request, in order.
+    async Task<List<(string Path, string Body)>> DrainOverHttp(HookSpool life, TranscriptSpool tx, bool canonical) {
+        var requests = new List<(string, string)>();
+        using var handler = new StubHandler((req, body) => {
+            var path = req.RequestUri!.AbsolutePath;
+            requests.Add((path, body));
+
+            return path != Capabilities ? new HttpResponseMessage(HttpStatusCode.OK)
+                : canonical ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return requests;
+    }
+
+    /// <summary>An older CLI's spool names no transcript, so its tail projects without the lines before it.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_without_its_transcript_drains_canonical() {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null));
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
+        using var sent = JsonDocument.Parse(requests[1].Body);
+        await Assert.That(sent.RootElement.GetProperty("lines")[0].GetProperty("number").GetInt32()).IsEqualTo(5);
+        await Assert.That(sent.RootElement.GetProperty("events").GetArrayLength()).IsEqualTo(1);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task With_the_capability_off_a_spooled_claude_tail_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null, transcriptPath: tmp.PathTo("t.jsonl"));
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: false);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"]);
+        await Assert.That(requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// <summary>Line 3 repeats line 2's usage, so only a projection that has seen line 2 knows it is not new.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_projects_after_the_lines_before_it_in_its_transcript() {
+        using var tmp = new TempDir();
+        var sid   = Guid.NewGuid().ToString("N");
+        var life  = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx    = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var lines = new[] { ClaudeUser(0), ClaudeAssistant(1), ClaudeAssistant(2), ClaudeAssistant(3) };
+        // Apart from the spools: a lifecycle spool adopts a stray .jsonl in its directory as one of its own.
+        var path  = tmp.CreateFile("claude/t.jsonl", lines);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [lines[3]], [3], null, transcriptPath: path));
+
+        var uninterrupted = CanonicalRoute.For("claude", sid, null, true)!;
+        uninterrupted.Encode(new() { SessionId = sid, Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = sid, Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        using var sent = JsonDocument.Parse(requests.Single(r => r.Path == CanonicalRoute.HttpPath).Body);
+        await Assert.That(sent.RootElement.GetProperty("events").GetRawText())
+            .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
 
     /// <summary>A 401 is a lapsed credential, which <c>kcap login</c> repairs: the backlog must

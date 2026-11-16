@@ -10,6 +10,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Cursor;
 
 namespace Capacitor.Cli.Commands;
@@ -31,6 +32,8 @@ static class SessionImporter {
     /// subagents are discovered from the shared sessions tree by parent_thread_id and appended after
     /// the parent transcript.
     /// </param>
+    /// <param name="canonical">Asked whether the server takes canonical batches; null sends raw lines. Each stream, the
+    /// session's and every subagent's, gets a route of its own.</param>
     internal static async Task<ImportResult> ImportSessionAsync(
             HttpClient                 httpClient,
             string                     baseUrl,
@@ -39,8 +42,9 @@ static class SessionImporter {
             SessionMetadata            metadata,
             string?                    encodedCwd,
             TimeProvider               time,
-            IProgress<ImportProgress>? progress = null,
-            HarnessId                  vendor   = HarnessId.Claude
+            IProgress<ImportProgress>? progress  = null,
+            HarnessId                  vendor    = HarnessId.Claude,
+            IngestCapability?          canonical = null
         ) {
         if (!File.Exists(transcriptPath))
             return new(sessionId, [], 0);
@@ -84,6 +88,7 @@ static class SessionImporter {
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
         var totalSent  = 0;
+        var route      = await TranscriptPost.RouteAsync(canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, firstLine: 0, CancellationToken.None);
 
         // Read the main transcript line by line, batching and flushing as needed,
         // with agent lifecycle events inserted at the right positions.
@@ -105,7 +110,7 @@ static class SessionImporter {
                     // Send agent lifecycle: start → transcript → stop
                     agentTypes.TryGetValue(agentId, out var agentType);
                     await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                        agentPath, cwd, transcriptPath, progress, time);
+                        agentPath, cwd, transcriptPath, progress, time, canonical);
                     sentAgents.Add(agentId);
                     agentIds.Add(agentId);
                 }
@@ -133,7 +138,7 @@ static class SessionImporter {
             if (!sentAgents.Contains(agentId)) {
                 agentTypes.TryGetValue(agentId, out var agentType);
                 await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                    agentPath, cwd, transcriptPath, progress, time);
+                    agentPath, cwd, transcriptPath, progress, time, canonical);
                 sentAgents.Add(agentId);
                 agentIds.Add(agentId);
             }
@@ -187,7 +192,7 @@ static class SessionImporter {
 
         async Task FlushAsync() =>
             totalSent += await FlushBatchAsync(
-                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: false, progress, time);
+                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, route, failOnError: false, progress, time);
     }
 
     /// <summary>POSTs one subagent lifecycle hook; false on any failure so the caller can
@@ -505,7 +510,8 @@ static class SessionImporter {
             string                     cwd,
             string                     sessionTranscriptPath,
             IProgress<ImportProgress>? progress,
-            TimeProvider               time
+            TimeProvider               time,
+            IngestCapability?          canonical
         ) {
         var resolvedAgentType = agentType ?? "task";
 
@@ -529,7 +535,7 @@ static class SessionImporter {
 
         progress?.Report(new SubagentStarted(agentId));
         var agentLines = await SendTranscriptBatches(
-            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress);
+            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress, canonical: canonical);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
         var agentStopHook = new JsonObject {
@@ -574,6 +580,7 @@ static class SessionImporter {
     /// marker check over an already-resolved identity, not a correlator run per batch.
     /// </param>
     /// <param name="completeLines">Receives <see cref="CompleteLines"/> for the read.</param>
+    /// <param name="canonical">Asked whether the server takes canonical batches; null sends raw lines.</param>
     internal static async Task<int> SendTranscriptBatches(
             HttpClient                 httpClient,
             string                     baseUrl,
@@ -589,12 +596,14 @@ static class SessionImporter {
             bool                       failOnError       = false,
             Func<bool>?                abortDelivery     = null,
             StrongBox<int>?            completeLines     = null,
-            TranscriptImportFingerprint? fingerprint    = null
+            TranscriptImportFingerprint? fingerprint    = null,
+            IngestCapability?          canonical         = null
         ) {
         if (!File.Exists(filePath)) return 0;
 
         var totalSent = 0;
         var batch     = new TranscriptBatchBuffer();
+        var route     = await TranscriptPost.RouteAsync(canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, CancellationToken.None);
 
         await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var       reader = new StreamReader(stream);
@@ -635,7 +644,7 @@ static class SessionImporter {
         async Task FlushAsync() {
             if (abortDelivery?.Invoke() == true) throw new TranscriptDeliveryAbortedException();
 
-            totalSent += await FlushBatchAsync(httpClient, baseUrl, sessionId, agentId, batch, vendor, failOnError, progress, time);
+            totalSent += await FlushBatchAsync(httpClient, baseUrl, sessionId, agentId, batch, vendor, route, failOnError, progress, time);
 
             if (abortDelivery?.Invoke() == true) throw new TranscriptDeliveryAbortedException();
         }
@@ -661,6 +670,7 @@ static class SessionImporter {
             string?                    agentId,
             TranscriptBatchBuffer      batch,
             HarnessId                  vendor,
+            CanonicalRoute?            route,
             bool                       failOnError,
             IProgress<ImportProgress>? progress,
             TimeProvider               time
@@ -677,15 +687,13 @@ static class SessionImporter {
             Strict = failOnError
         };
 
-        var       json    = JsonSerializer.Serialize(payload, CapacitorJsonContext.Default.TranscriptBatch);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var       first   = batch.FirstLineNumber;
-        var       last    = batch.LastLineNumber;
-        string?   loss;
-        Exception? cause  = null;
+        var        first = batch.FirstLineNumber;
+        var        last  = batch.LastLineNumber;
+        string?    loss;
+        Exception? cause = null;
 
         try {
-            using var resp = await httpClient.PostWithRetryAsync($"{baseUrl}/hooks/transcript", content, time);
+            using var resp = await TranscriptPost.SendAsync(httpClient, baseUrl, payload, route, time, mayAttempt: null, CancellationToken.None);
 
             // A blocked Cursor batch leaves the server's watermark at the gap; any later batch would
             // move it past the blocked lines, and the next import resumes from the watermark.

@@ -15,6 +15,7 @@ using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
@@ -3492,10 +3493,11 @@ class ImportCommand(
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
             string?                              defaultVisibility = null
         ) {
-        var loaded  = 0;
-        var resumed = 0;
-        var errored = 0;
-        var ledger  = TranscriptImportLedger.ForRecording(config);
+        var loaded    = 0;
+        var resumed   = 0;
+        var errored   = 0;
+        var ledger    = TranscriptImportLedger.ForRecording(config);
+        var canonical = new IngestCapability(httpClient, baseUrl, time);
 
         var queue = Channel.CreateUnbounded<List<SessionClassification>>(
             new() {
@@ -3525,7 +3527,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, ct, sessionCwds, defaultVisibility);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3583,6 +3585,7 @@ class ImportCommand(
             int                    slot,
             ChainWorkerEvents      events,
             TranscriptImportLedger ledger,
+            IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
             string?                              defaultVisibility = null
@@ -3629,7 +3632,8 @@ class ImportCommand(
                     progress: perSessionProgress,
                     vendor: session.Vendor,
                     failOnError: true,
-                    completeLines: completeLines
+                    completeLines: completeLines,
+                    canonical: canonical
                 );
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
@@ -3801,7 +3805,8 @@ class ImportCommand(
                 session.EncodedCwd,
                 time,
                 perSessionProgress,
-                session.Vendor
+                session.Vendor,
+                canonical
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;

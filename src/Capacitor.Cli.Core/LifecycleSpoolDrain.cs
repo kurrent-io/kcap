@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Transcripts;
 
 namespace Capacitor.Cli.Core;
 
@@ -112,23 +114,29 @@ public static class LifecycleSpoolDrain {
                                 TimeProvider time, CancellationToken ct,
                                 Action<string, string>? onWhatsDoneRequested = null,
                                 Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null,
-                                Func<string, string, bool>? holds = null)
-        => RunAsync(config, lifecycle, transcript, currentSessionId,
+                                Func<string, string, bool>? holds = null) {
+        // The other half is the posts'.
+        var routes = new SpooledTranscriptRoutes(client, baseUrl, replayBudget: budget / 2, time);
+
+        return RunAsync(config, lifecycle, transcript, currentSessionId,
             lifecyclePoster: async (route, body) => {
                 if (holds?.Invoke(route, body) == true) return DrainOutcome.TransientStop;
 
                 var outcome = await PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested);
                 return onLifecycleOutcome is null || onLifecycleOutcome(route, body, outcome) ? outcome : DrainOutcome.TransientStop;
             },
-            transcriptPoster: body => PostTranscript(markers, client, baseUrl, body, time, ct),
+            transcriptPoster: body => PostTranscript(markers, routes, client, baseUrl, body, time, ct),
             budget, time, ct);
+    }
+
+    static readonly TimeSpan PostTimeout = TimeSpan.FromSeconds(3);
 
     static async Task<DrainOutcome> PostOnce(
             HttpClient client, string baseUrl, string route, string body, TimeProvider time,
             CancellationToken ct, Action<string, string>? onWhatsDoneRequested) {
         try {
             using var content = new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json");
-            using var resp = await client.PostOnceAsync($"{baseUrl}/hooks/{route}", content, time, TimeSpan.FromSeconds(3), ct);
+            using var resp = await client.PostOnceAsync($"{baseUrl}/hooks/{route}", content, time, PostTimeout, ct);
             if (resp.IsSuccessStatusCode) {
                 if (HookSpool.IsTerminalRoute(route) && onWhatsDoneRequested is not null) {
                     try {
@@ -154,8 +162,8 @@ public static class LifecycleSpoolDrain {
         return slash >= 0 ? route[(slash + 1)..] : "claude";
     }
 
-    static Task<DrainOutcome> PostTranscript(
-            CursorMarkers markers, HttpClient client, string baseUrl, string body, TimeProvider time,
+    static async Task<DrainOutcome> PostTranscript(
+            CursorMarkers markers, SpooledTranscriptRoutes routes, HttpClient client, string baseUrl, string body, TimeProvider time,
             CancellationToken ct) {
         // A Cursor batch already quarantined by the runtime rewrite guard must never be replayed
         // from the shutdown transcript spool: the tail spooled at shutdown can predate the
@@ -170,9 +178,9 @@ public static class LifecycleSpoolDrain {
             var sid    = node?["session_id"]?.GetValue<string>();
 
             if (vendor == "cursor" && sid is not null) {
-                if (markers.IsQuarantined(sid)) return Task.FromResult(DrainOutcome.Drop);
+                if (markers.IsQuarantined(sid)) return DrainOutcome.Drop;
                 if (markers.BarrierPending(sid, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound))
-                    return Task.FromResult(DrainOutcome.TransientStop);
+                    return DrainOutcome.TransientStop;
             }
         } catch {
             // Malformed body (shouldn't happen — this is always our own serialized
@@ -180,6 +188,31 @@ public static class LifecycleSpoolDrain {
             // drain over a marker check.
         }
 
-        return PostOnce(client, baseUrl, "transcript", body, time, ct, onWhatsDoneRequested: null);
+        if (Spooled(body) is not { } batch) return await PostOnce(client, baseUrl, "transcript", body, time, ct, onWhatsDoneRequested: null);
+
+        CanonicalRoute? route;
+
+        try {
+            route = await routes.ForAsync(batch, ct);
+        } catch (OperationCanceledException) {
+            // The pass ran out before the batch was sent.
+            return DrainOutcome.TransientStop;
+        }
+
+        try {
+            using var resp = await TranscriptPost.SendOnceAsync(client, baseUrl, batch, body, route, time, PostTimeout, ct);
+
+            return resp.IsSuccessStatusCode ? DrainOutcome.Delivered : HookSpool.OutcomeOf((int)resp.StatusCode);
+        } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
+            return DrainOutcome.TransientStop;
+        }
+    }
+
+    static TranscriptBatch? Spooled(string body) {
+        try {
+            return JsonSerializer.Deserialize(body, CapacitorJsonContext.Default.TranscriptBatch);
+        } catch (JsonException) {
+            return null;
+        }
     }
 }

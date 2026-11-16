@@ -56,6 +56,11 @@ public record TranscriptBatch {
     [JsonPropertyName("more_follows")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool MoreFollows { get; init; }
+
+    // A spooled batch's source, which the drain replays the lines before the batch from. A server ignores it.
+    [JsonPropertyName("transcript_path")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TranscriptPath { get; init; }
 }
 
 /// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person

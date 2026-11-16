@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -135,6 +136,49 @@ public class InlineDrainTests : IDisposable {
 
         var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
         await Assert.That(root.GetProperty("vendor").GetString()).IsEqualTo("codex");
+    }
+
+    static string ClaudeId(int n) => $"10000000-0000-4000-8000-{n:D12}";
+
+    static string ClaudeUser(int n) =>
+        $$$"""{"type":"user","uuid":"{{{ClaudeId(n)}}}","parentUuid":{{{(n == 0 ? "null" : $"\"{ClaudeId(n - 1)}\"")}}},"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    static string ClaudeAssistant(int n, int inputTokens) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":{{{{inputTokens}}}},"output_tokens":5}}}""";
+
+    /// <summary>Line 40 repeats line 39's usage, so only a drain that projected the lines before its first knows the
+    /// usage is not new.</summary>
+    [Test]
+    public async Task A_claude_drain_from_line_40_sends_the_events_a_projection_from_line_zero_has() {
+        const string sessionId = "5cdc4fcc-ff9e-4fdc-8d93-cf47ff5a140a";
+
+        var lines = Enumerable.Range(0, 45)
+            .Select(n => n % 2 == 0 && n != 40 ? ClaudeUser(n) : ClaudeAssistant(n, inputTokens: n == 40 ? 39 : n))
+            .ToArray();
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"last_line_number": 39}"""));
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", lines);
+
+        await Watchers.InlineDrainAsync(sessionId, transcriptPath, null);
+
+        var uninterrupted = CanonicalRoute.For("claude", sessionId, null, true)!;
+        uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[..40], LineNumbers = [.. Enumerable.Range(0, 40)] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[40..], LineNumbers = [.. Enumerable.Range(40, 5)] }, DateTimeOffset.UnixEpoch);
+
+        var posts = _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").ToList();
+        await Assert.That(posts.Select(e => e.RequestMessage.Path)).IsEquivalentTo([CanonicalRoute.HttpPath]);
+
+        var events = JsonDocument.Parse(posts[0].RequestMessage.Body!).RootElement.GetProperty("events");
+        await Assert.That(events.EnumerateArray().Select(e => e.GetProperty("event_id").GetGuid())).IsEquivalentTo(expected.Events.Select(e => e.EventId));
+        await Assert.That(events.GetRawText()).IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
 
     const string Line = """{"type":"user","message":{"content":"hello"}}""";
