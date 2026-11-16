@@ -194,6 +194,44 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(tx.HasBacklog(sid)).IsFalse();
     }
 
+    /// <summary>A pass runs under a cap of a few seconds, so a server slow to say whether it takes canonical batches gets
+    /// the tail raw, as spooled, while the pass still has room to post it.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_drains_raw_as_spooled_when_the_capability_probe_hangs() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null);
+        tx.Append(sid, spooled);
+
+        using var handler = new HangingProbe(Capabilities);
+        using var client  = new HttpClient(handler);
+        // As a hook and the daemon run a pass: its posts end with its budget.
+        using var cap     = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: cap.Token, time: TimeProvider.System);
+
+        await Assert.That(handler.Requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"], CollectionOrdering.Matching);
+        await Assert.That(handler.Requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// Answers every request but <c>probe</c>, which it holds until the caller gives up.
+    sealed class HangingProbe(string probe) : HttpMessageHandler {
+        public List<(string Path, string Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            var path = request.RequestUri!.AbsolutePath;
+            Requests.Add((path, request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct)));
+
+            if (path == probe) await Task.Delay(Timeout.Infinite, ct);
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     /// <summary>A lapsed credential or a server fault on the canonical route says nothing of the lines: the tail waits in
     /// the spool for a retry, as it does on the raw route.</summary>
     [Test]

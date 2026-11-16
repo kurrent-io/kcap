@@ -866,7 +866,7 @@ public sealed partial class WatcherManager(
 
                 if (newLines.Count > 0)
                     route ??= TranscriptPost.RouteAsync(
-                        new IngestCapability(httpClient, Url!, time), vendor, sessionId, agentId, transcriptPath, startLine,
+                        new IngestCapability(httpClient, Url!, time, IngestCapability.DrainBudget), vendor, sessionId, agentId, transcriptPath, startLine,
                         DrainReplayBudget, ReplayCapture.With(redaction.Redact), time, CancellationToken.None);
 
                 var canonical = route is null ? null : await route;

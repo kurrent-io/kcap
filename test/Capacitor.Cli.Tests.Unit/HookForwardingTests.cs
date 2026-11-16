@@ -204,6 +204,37 @@ public class InlineDrainTests : IDisposable {
         await Assert.That(Posts()).IsEquivalentTo(["/hooks/transcript"]);
     }
 
+    /// <summary>The drain runs inside the agent's own SessionEnd hook, under a cap of a few seconds, so a server slow to
+    /// say whether it takes canonical batches gets raw lines while the cap still has room for them.</summary>
+    [Test]
+    public async Task A_claude_drain_whose_capability_probe_hangs_sends_raw_lines_inside_the_hooks_cap() {
+        using var handler = new HangingProbe();
+        using var tmp     = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", [ClaudeUser(0), ClaudeAssistant(1, inputTokens: 1)]);
+        var watchers       = TestWatchers.For(Config.Root, Resolutions.At("http://kcap.test", Config.Root), new FixedCapacitorHttpClient(background: handler));
+
+        // The cap Claude's SessionEnd hook gives its drain.
+        await watchers.InlineDrainAsync(ClaudeSession, transcriptPath, null).WaitAsync(TimeSpan.FromSeconds(8));
+
+        await Assert.That(handler.Posts).IsEquivalentTo(["/hooks/transcript"]);
+    }
+
+    /// A server that holds the capability probe until the caller gives up, has no lines of the session, and takes every post.
+    sealed class HangingProbe : HttpMessageHandler {
+        public List<string> Posts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            var path = request.RequestUri!.AbsolutePath;
+
+            if (path == "/api/ingest/capabilities") await Task.Delay(Timeout.Infinite, ct);
+            if (request.Method == HttpMethod.Post) Posts.Add(path);
+
+            return new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent(path.EndsWith("/last-line", StringComparison.Ordinal) ? """{"last_line_number":-1}""" : "", Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
     const string Line = """{"type":"user","message":{"content":"hello"}}""";
 
     // The first try of a line has started and has yet to end.

@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Transcripts;
 /// same way.</param>
 /// <param name="decide">The redaction that captured the spooled tails, for a replay to decide a large line with.</param>
 public sealed class SpooledTranscriptRoutes(HttpClient client, string baseUrl, TimeSpan replayBudget, TimeProvider time, LineCaptureDecider? decide = null) {
-    readonly IngestCapability _capability = new(client, baseUrl, time);
+    readonly IngestCapability _capability = new(client, baseUrl, time, IngestCapability.DrainBudget);
 
     readonly Dictionary<(string SessionId, string? AgentId), (CanonicalRoute? Route, int Next)> _streams = [];
 

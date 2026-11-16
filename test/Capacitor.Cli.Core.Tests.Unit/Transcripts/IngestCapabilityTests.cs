@@ -1,4 +1,6 @@
+using System.Net;
 using Capacitor.Cli.Core.Transcripts;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -59,5 +61,32 @@ public class IngestCapabilityTests : IDisposable {
         Reply(200, """{"canonical_format":1}""");
 
         await Assert.That(await capability.SupportsCanonicalAsync(CancellationToken.None)).IsTrue();
+    }
+
+    /// <summary>A server slower than the caller's budget is a no for now, and the next call asks again.</summary>
+    [Test]
+    public async Task An_answer_slower_than_the_budget_is_a_no_that_is_not_cached() {
+        var       time    = new FakeTimeProvider();
+        using var handler = new FirstProbeHangs();
+        using var client  = new HttpClient(handler);
+        var capability = new IngestCapability(client, "http://server", time, TimeSpan.FromSeconds(2));
+
+        var first = capability.SupportsCanonicalAsync(CancellationToken.None);
+        time.Advance(TimeSpan.FromSeconds(2));
+
+        await Assert.That(await first.WaitAsync(TimeSpan.FromSeconds(30))).IsFalse();
+        await Assert.That(await capability.SupportsCanonicalAsync(CancellationToken.None)).IsTrue();
+        await Assert.That(handler.Probes).IsEqualTo(2);
+    }
+
+    /// Holds the first probe until the caller gives up and answers every later one with format 1.
+    sealed class FirstProbeHangs : HttpMessageHandler {
+        public int Probes { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            if (++Probes == 1) await Task.Delay(Timeout.Infinite, ct);
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") };
+        }
     }
 }
