@@ -55,6 +55,10 @@ public sealed partial class WatcherManager(
     /// <summary>Replaces the commit observation a drain starts from, for a test with no git hook to read.</summary>
     internal CommitObservation? DrainCommits { get; init; }
 
+    /// <summary>The most a drain's replay of the lines the server holds may take before the drain sends raw lines. The
+    /// drain runs inside the agent's SessionEnd hook, and a replay over a 200 MB transcript measured 6–9 s.</summary>
+    internal TimeSpan DrainReplayBudget { get; init; } = TimeSpan.FromSeconds(2);
+
     internal string GetWatcherDir() => paths.Directory;
 
     internal string GetHeartbeatFilePath(string key) => paths.HeartbeatFile(key);
@@ -863,7 +867,7 @@ public sealed partial class WatcherManager(
                 if (newLines.Count > 0)
                     route ??= TranscriptPost.RouteAsync(
                         new IngestCapability(httpClient, Url!, time), vendor, sessionId, agentId, transcriptPath, startLine,
-                        Timeout.InfiniteTimeSpan, time, CancellationToken.None);
+                        DrainReplayBudget, time, CancellationToken.None);
 
                 var canonical = route is null ? null : await route;
 

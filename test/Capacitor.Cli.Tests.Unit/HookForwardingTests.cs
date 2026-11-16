@@ -146,22 +146,30 @@ public class InlineDrainTests : IDisposable {
     static string ClaudeAssistant(int n, int inputTokens) =>
         $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":{{{{inputTokens}}}},"output_tokens":5}}}""";
 
-    /// <summary>Line 40 repeats line 39's usage, so only a drain that projected the lines before its first knows the
-    /// usage is not new.</summary>
-    [Test]
-    public async Task A_claude_drain_from_line_40_sends_the_events_a_projection_from_line_zero_has() {
-        const string sessionId = "5cdc4fcc-ff9e-4fdc-8d93-cf47ff5a140a";
+    const string ClaudeSession = "5cdc4fcc-ff9e-4fdc-8d93-cf47ff5a140a";
 
-        var lines = Enumerable.Range(0, 45)
-            .Select(n => n % 2 == 0 && n != 40 ? ClaudeUser(n) : ClaudeAssistant(n, inputTokens: n == 40 ? 39 : n))
-            .ToArray();
-
-        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+    /// Line 40 repeats line 39's usage, so only a drain that projected the lines before its first knows the usage is
+    /// not new. The server holds lines 0–39 and takes canonical batches.
+    string[] ServeClaudeDrainFromLine40() {
+        _server.Given(Request.Create().WithPath($"/api/sessions/{ClaudeSession}/last-line").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"last_line_number": 39}"""));
         _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
         _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        return [.. Enumerable.Range(0, 45).Select(n => n % 2 == 0 && n != 40 ? ClaudeUser(n) : ClaudeAssistant(n, inputTokens: n == 40 ? 39 : n))];
+    }
+
+    List<string> Posts() => [.. _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").Select(e => e.RequestMessage.Path)];
+
+    [Test]
+    public async Task A_claude_drain_from_line_40_sends_the_events_a_projection_from_line_zero_has() {
+        const string sessionId = ClaudeSession;
+
+        var lines = ServeClaudeDrainFromLine40();
 
         using var tmp = new TempDir();
         var transcriptPath = tmp.CreateFile("transcript.jsonl", lines);
@@ -173,12 +181,27 @@ public class InlineDrainTests : IDisposable {
         uninterrupted.Acknowledged();
         var expected = uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[40..], LineNumbers = [.. Enumerable.Range(40, 5)] }, DateTimeOffset.UnixEpoch);
 
-        var posts = _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").ToList();
-        await Assert.That(posts.Select(e => e.RequestMessage.Path)).IsEquivalentTo([CanonicalRoute.HttpPath]);
+        await Assert.That(Posts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 
-        var events = JsonDocument.Parse(posts[0].RequestMessage.Body!).RootElement.GetProperty("events");
+        var sent   = _server.LogEntries.Single(e => e.RequestMessage.Method == "POST").RequestMessage.Body!;
+        var events = JsonDocument.Parse(sent).RootElement.GetProperty("events");
         await Assert.That(events.EnumerateArray().Select(e => e.GetProperty("event_id").GetGuid())).IsEquivalentTo(expected.Events.Select(e => e.EventId));
         await Assert.That(events.GetRawText()).IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
+    }
+
+    /// <summary>The drain runs inside the agent's own SessionEnd hook, so a replay it cannot finish in time is given up
+    /// for raw lines rather than waited out.</summary>
+    [Test]
+    public async Task A_claude_drain_whose_replay_overruns_its_budget_sends_raw_lines() {
+        var lines = ServeClaudeDrainFromLine40();
+
+        using var tmp = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", lines);
+
+        var watchers = TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), drainReplayBudget: TimeSpan.Zero);
+        await watchers.InlineDrainAsync(ClaudeSession, transcriptPath, null);
+
+        await Assert.That(Posts()).IsEquivalentTo(["/hooks/transcript"]);
     }
 
     const string Line = """{"type":"user","message":{"content":"hello"}}""";
