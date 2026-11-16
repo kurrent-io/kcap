@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Web;
 using Capacitor.Cli.Commands;
 using WireMock.RequestBuilders;
@@ -25,5 +26,15 @@ public class RoutedImportClientTests {
         await Assert.That(line).IsEqualTo(7);
         var query = HttpUtility.ParseQueryString(server.LogEntries.Single().RequestMessage.RawQuery!);
         await Assert.That(query.GetValues("agentId")).IsEquivalentTo(new[] { agentId });
+    }
+
+    [Test]
+    public async Task A_hook_post_cancelled_mid_flight_throws_rather_than_reporting_failure() {
+        using var cts  = new CancellationTokenSource();
+        using var http = new HttpClient(new CancelOnSessionStartHandler(cts));
+        var client = new RoutedImportClient(http, TimeProvider.System, "http://kcap.invalid");
+
+        await Assert.That(async () => await client.PostSyntheticHookAsync("session-start/pi", new JsonObject(), cts.Token))
+            .Throws<OperationCanceledException>();
     }
 }

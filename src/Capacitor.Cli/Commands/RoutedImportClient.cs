@@ -7,8 +7,7 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>The two server calls every routed import source makes: the transcript watermark probe and a synthetic hook post.</summary>
-/// <param name="rethrowCancellation">When false, a cancelled hook post reports false like any other failure.</param>
-internal sealed class RoutedImportClient(HttpClient http, TimeProvider time, string baseUrl, bool rethrowCancellation = false) {
+internal sealed class RoutedImportClient(HttpClient http, TimeProvider time, string baseUrl) {
     /// <summary>The highest line the server holds for the session, or for one agent's stream within it; null when it holds none.</summary>
     /// <exception cref="SessionDeletedException">The server deleted the session.</exception>
     /// <exception cref="HttpRequestException">Any other unsuccessful status, carried on the exception.</exception>
@@ -29,12 +28,13 @@ internal sealed class RoutedImportClient(HttpClient http, TimeProvider time, str
     }
 
     /// <summary>Posts <paramref name="payload"/> to <c>/hooks/{route}</c>; true only on a success status.</summary>
+    /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled: a cancelled import, not a failed post.</exception>
     public async Task<bool> PostSyntheticHookAsync(string route, JsonObject payload, CancellationToken ct) {
         try {
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await http.PostWithRetryAsync($"{baseUrl}/hooks/{route}", content, time, ct: ct);
             return resp.IsSuccessStatusCode;
-        } catch (OperationCanceledException) when (rethrowCancellation) {
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch {
             return false;

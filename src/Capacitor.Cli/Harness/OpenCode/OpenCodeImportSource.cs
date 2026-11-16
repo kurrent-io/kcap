@@ -465,6 +465,6 @@ internal sealed class OpenCodeImportSource : IImportSource {
     Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) =>
         Client(http, baseUrl).FetchServerLastLineAsync(sessionId, ct, agentId);
 
-    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl);
 }
 
