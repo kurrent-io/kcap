@@ -70,7 +70,7 @@ public sealed class WorkOSEmulator : IAsyncDisposable {
         // The host port stays fixed across a restart, because a stored token names the base URL; something that takes
         // the port while the emulator is stopped fails that one test. Passing any argument replaces the image's
         // defaults, and without --host 0.0.0.0 it listens on its own loopback.
-        var container = await ContainerHostPorts.StartAsync(() => new ContainerBuilder(new DockerImage("ghcr.io/workos/emulate", tag: "0.15.0"))
+        var container = await ContainerHostPorts.StartAsync(() => new ContainerBuilder(new DockerImage("workos/emulate", registry: "ghcr.io", tag: "0.15.0"))
             .WithPortBinding(ContainerHostPorts.Next(), Port)
             .WithResourceMapping(Encoding.UTF8.GetBytes(Seed), SeedPath)
             .WithCommand("--host", "0.0.0.0", "--seed", SeedPath)

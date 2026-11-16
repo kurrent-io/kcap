@@ -7,6 +7,8 @@ namespace Capacitor.SourceGuards.Tests.Unit;
 /// Testcontainers parses an image string with a regex whose 5-second match timeout a starved runner can exceed; only
 /// <c>new DockerImage(repository, tag: …)</c> skips the parse. So a builder or <c>WithImage</c> argument must be that
 /// call, matched with string contents blanked so a literal containing <c>tag:</c> cannot pass for the named argument.
+/// A registry goes in <c>registry:</c>, not the repository: folded in, it leaves the registry unset, and the pull then
+/// sends the runner's Docker Hub credential to that registry, which ghcr.io refuses.
 /// </summary>
 public partial class ContainerImageStringGuardTests {
     [GeneratedRegex(@"new\s+(?:[\w.]+\.)?(?:\w*ContainerBuilder|KurrentDbBuilder|PostgreSqlBuilder)\s*\((?!\s*new\s+DockerImage\s*\()|(?:[\w.]+\.)?(?:\w*ContainerBuilder|KurrentDbBuilder|PostgreSqlBuilder)\??\s+\w+\s*=\s*new\s*\((?!\s*new\s+DockerImage\s*\()|\.WithImage\s*\((?!\s*new\s+DockerImage\s*\()")]
@@ -37,7 +39,7 @@ public partial class ContainerImageStringGuardTests {
         await Assert.That(UsesAnImageString(code)).IsTrue();
 
     [Test]
-    [Arguments("new ContainerBuilder(new DockerImage(\"ghcr.io/workos/emulate\", tag: \"0.15.0\"))")]
+    [Arguments("new ContainerBuilder(new DockerImage(\"workos/emulate\", registry: \"ghcr.io\", tag: \"0.15.0\"))")]
     [Arguments(".WithImage(new DockerImage(\"alpine\", tag: \"3\"))")]
     [Arguments("new StringBuilder(\"text\")")]
     [Arguments("ContainerBuilder b = new(new DockerImage(\"alpine\", tag: \"3\"));")]
