@@ -47,13 +47,21 @@ def _read_exact(s, n):
     return buf
 
 
-def recv(s):
+def recv_frame(s):
+    """(type, payload bytes), or (None, None) when the peer closes before a whole frame arrives."""
     head = _read_exact(s, 5)
     if head is None:
         return None, None
     ftype, length = struct.unpack(">BI", head)
     body = _read_exact(s, length) if length else b""
-    return ftype, (body or b"").decode(errors="replace")
+    if body is None:
+        return None, None
+    return ftype, body
+
+
+def recv(s):
+    ftype, body = recv_frame(s)
+    return ftype, None if body is None else body.decode(errors="replace")
 
 
 def hello(path, accepts_starting=False, timeout=5.0):

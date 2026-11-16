@@ -67,7 +67,7 @@ def main():
             print(json.dumps({"t": t, "src": src, "kind": "negotiate"}))
         elif dst == a.port and body.startswith(b"GET /hubs/sessions"):
             print(json.dumps({"t": t, "src": src, "kind": "upgrade"}))
-        else:
+        elif a.port in (src, dst):
             prev = carry.get((src, dst), b"")
             joined = prev + body
             for m in INVOKE.finditer(joined):

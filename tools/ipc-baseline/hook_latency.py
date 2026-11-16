@@ -31,20 +31,19 @@ def manifest_path(explicit):
     return os.path.join(here, "..", "..", "kcap", "hooks", "hooks.json")
 
 
-def matching(manifest, event, tool):
-    found = []
+def groups(manifest, event, tool):
     for group in manifest["hooks"].get(event, []):
         matcher = group.get("matcher")
         if tool and matcher and matcher != "*" and tool not in matcher.split("|"):
             continue
-        for hook in group["hooks"]:
-            if "if" in hook:
-                continue
-            found.append((event, hook))
-    # PreToolUse fires ahead of every tool too.
+        yield group
+
+
+def matching(manifest, event, tool):
+    found = [(event, h) for g in groups(manifest, event, tool) for h in g["hooks"] if "if" not in h]
+    # PreToolUse fires ahead of the same tool too.
     if event == "PostToolUse":
-        for group in manifest["hooks"].get("PreToolUse", []):
-            found.extend(("PreToolUse", h) for h in group["hooks"])
+        found.extend(("PreToolUse", h) for g in groups(manifest, "PreToolUse", tool) for h in g["hooks"])
     return found
 
 

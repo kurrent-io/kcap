@@ -15,8 +15,8 @@ def one_shot(path, ftype, text=""):
     start = time.perf_counter()
     with k.connect(path) as s:
         k.send(s, ftype, text)
-        rtype, body = k.recv(s)
-    return time.perf_counter() - start, rtype, len(body or "")
+        rtype, body = k.recv_frame(s)
+    return time.perf_counter() - start, rtype, len(body or b"")
 
 
 def main():
@@ -36,8 +36,11 @@ def main():
     ]:
         samples = []
         for _ in range(a.n):
-            took, rtype, size = one_shot(path, ftype, text)
-            # An error frame or a connection closed unanswered is a failure, never a sample.
+            try:
+                took, rtype, size = one_shot(path, ftype, text)
+            except OSError:
+                rtype = None
+            # An error frame, a transport failure or a connection closed unanswered is a failure, never a sample.
             if rtype is None or rtype == k.ERROR:
                 failures[label] = failures.get(label, 0) + 1
                 break
@@ -48,7 +51,11 @@ def main():
     connects = []
     for _ in range(a.n):
         start = time.perf_counter()
-        k.connect(path).close()
+        try:
+            k.connect(path).close()
+        except OSError:
+            failures["connect"] = failures.get("connect", 0) + 1
+            continue
         connects.append(time.perf_counter() - start)
     results["connect"] = k.summary(connects)
 

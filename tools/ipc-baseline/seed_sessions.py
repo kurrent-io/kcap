@@ -35,8 +35,10 @@ def write_transcript(path, session, cwd, lines):
 def hook(kcap, payload, cwd, url):
     start = time.perf_counter()
     # KCAP_URL sends the hooks to the server this script polls, whatever profile is active.
-    subprocess.run([kcap, "hook", "--claude", "--no-update-check"], input=json.dumps(payload).encode(), cwd=cwd,
-                   env={**os.environ, "KCAP_URL": url}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+    done = subprocess.run([kcap, "hook", "--claude", "--no-update-check"], input=json.dumps(payload).encode(), cwd=cwd,
+                          env={**os.environ, "KCAP_URL": url}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120)
+    if done.returncode != 0:
+        raise SystemExit(f"{payload['hook_event_name']} hook exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}")
     return time.perf_counter() - start
 
 

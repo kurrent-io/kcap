@@ -4,6 +4,8 @@
 Usage:
   lifecycle.py daemon RUNS [--name DAEMON]   restarts the daemon's launch agent and times its socket: the first Hello
                                              answered (a starting daemon counts) and the first Hello from a ready one.
+                                             A daemon that never reports `starting` reads ready on its first answer,
+                                             so there ready_s equals first_hello_s.
   lifecycle.py server RUNS --label LABEL     restarts the local server's launch agent and times /healthz/ready.
   [--url http://localhost:9473]
 Both use `launchctl kickstart -k gui/<uid>/<label>`; the daemon's label is read from `launchctl list`. Prints JSON."""
