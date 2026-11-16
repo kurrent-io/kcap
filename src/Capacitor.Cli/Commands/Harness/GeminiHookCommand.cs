@@ -410,7 +410,7 @@ sealed class GeminiHookCommand(
                 , clock.Time);
 
                 if (!drained) {
-                    var handed = DetachedBacklogImport.Spawn("--gemini", sessionId, transcriptPath, null, config, Url, SystemProcessStarter.Instance);
+                    var handed = DetachedBacklogImport.Spawn("--gemini", sessionId, transcriptPath, null, config, profiles.Resolution, SystemProcessStarter.Instance);
                     await Console.Error.WriteLineAsync(handed
                         ? $"[kcap] gemini session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
                         : $"[kcap] gemini session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "

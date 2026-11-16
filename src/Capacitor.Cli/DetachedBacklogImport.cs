@@ -15,11 +15,12 @@ public static class DetachedBacklogImport {
     /// started, since it would find nothing and the hook would claim a hand-off that never happens.</param>
     /// <param name="importSearches">The directory the vendor's import discovers sessions in, when a session can live
     /// outside it; null when the hook and the import read the same place.</param>
-    /// <param name="serverUrl">The server the hook resolved: an inherited <c>KCAP_URL</c> naming another would split the
-    /// session's transcript across two servers.</param>
+    /// <param name="resolution">How the hook resolved its server. The import inherits the hook's environment and directory,
+    /// so it resolves the same way unless the hook was given <c>--server-url</c>, which it then gets too: a URL pinned any
+    /// other way would also drop the profile whose exclusions the hook applied.</param>
     public static bool Spawn(
-            string vendorFlag, string sessionId, string transcriptPath, string? importSearches, ConfigRoot config, string serverUrl,
-            IProcessStarter starter) {
+            string vendorFlag, string sessionId, string transcriptPath, string? importSearches, ConfigRoot config,
+            ResolvedProfile resolution, IProcessStarter starter) {
         if (importSearches is not null && !Under(transcriptPath, importSearches)) return false;
         if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId) ?? sessionId, config)) return false;
 
@@ -35,8 +36,11 @@ public static class DetachedBacklogImport {
             };
 
             foreach (var arg in Args(vendorFlag, sessionId)) psi.ArgumentList.Add(arg);
+            if (resolution is { Source: UrlSource.CommandLine, ServerUrl: { } cliUrl }) {
+                psi.ArgumentList.Add("--server-url");
+                psi.ArgumentList.Add(cliUrl);
+            }
             psi.Environment[ConfigRoot.ConfigDirEnvVar] = config.Directory;
-            psi.Environment[ProfileOverrides.UrlVar]    = serverUrl;
             // A detached import: no parent watchdog, which would end it moments after the hook exits, and its output in a
             // log, which the child only appends to.
             var log = LogPath(config, sessionId);
