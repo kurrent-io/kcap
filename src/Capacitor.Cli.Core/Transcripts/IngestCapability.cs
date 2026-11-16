@@ -7,8 +7,14 @@ namespace Capacitor.Cli.Core.Transcripts;
 /// answer holds for the process: a format, or a 404 from a server without the route. A failure is a no for now and is
 /// asked again on the next call.</summary>
 public sealed class IngestCapability(HttpClient client, string baseUrl, TimeProvider time) {
-    const int          CanonicalFormat = 1;
-    static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
+    /// <summary>The batch format this client sends, and the answer a server that takes it gives.</summary>
+    public const int CanonicalFormat = 1;
+
+    /// <summary>The hub's capability call, answering with the format it takes or 0.</summary>
+    public const string HubMethod = "IngestCapabilities";
+
+    /// <summary>How long a client waits for the answer before taking it as a no.</summary>
+    public static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
     const int Unknown = 0, Supported = 1, Unsupported = 2;
 

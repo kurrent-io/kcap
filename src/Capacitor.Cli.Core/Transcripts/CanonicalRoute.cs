@@ -56,6 +56,18 @@ public sealed class CanonicalRoute {
             return number >= throughLineExclusive;
         }, ct);
 
+    /// <summary>One line of <see cref="ReplayAsync"/>, for a caller that reads the transcript itself and feeds every line
+    /// from the first, in order.</summary>
+    /// <exception cref="CanonicalEncodingException">The line could not be projected, and the route has fallen back.</exception>
+    public void Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
+        try {
+            _assembler.Replay(line, lineNumber, receivedAt);
+        } catch (Exception e) {
+            FallBack();
+            throw new CanonicalEncodingException(e);
+        }
+    }
+
     /// <summary>The canonical form of a raw batch. Asking again for the same lines before <see cref="Acknowledged"/>,
     /// as after a failed send, returns the batch already built, because projecting is not repeatable.</summary>
     /// <exception cref="CanonicalEncodingException">The batch could not be projected. The route is inactive and the

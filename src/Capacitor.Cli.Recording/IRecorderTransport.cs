@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 
 namespace Capacitor.Cli.Recording;
 
@@ -16,6 +17,14 @@ public interface IRecorderTransport {
     /// <summary>Sends one batch. A Cursor batch returns the server's acknowledged next line, which can be short of
     /// what was sent. No other vendor's batch is acknowledged by line, so those callers ignore the result.</summary>
     Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct);
+
+    /// <summary>Whether the server on this connection takes canonical batches. A server without the call, or one whose
+    /// answer fails, takes none: the result is false, never an exception, unless <paramref name="ct"/> stops it.</summary>
+    Task<bool> SupportsCanonicalAsync(CancellationToken ct);
+
+    /// <summary>Sends one canonical batch. A batch the server cannot take comes back unsupported with nothing stored, and
+    /// a send that fails says nothing of what the server stored.</summary>
+    Task<CanonicalSendResult> SendCanonicalBatchAsync(CanonicalTranscriptBatch batch, CancellationToken ct);
 
     Task SendTitleAsync(string sessionId, string title, CancellationToken ct);
 

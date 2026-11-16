@@ -1,5 +1,8 @@
+using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Transcripts;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
 
@@ -17,8 +20,9 @@ public class TranscriptRecorderTests {
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
-    TranscriptRecorder Recorder(string path, string? agentId = null, string vendor = "claude", RecorderClaims? claims = null) => new(
-        new RecordingSource(Sid, agentId, path, vendor, null), _transport, new NoStamps(), TimeProvider.System,
+    TranscriptRecorder Recorder(
+            string path, string? agentId = null, string vendor = "claude", RecorderClaims? claims = null, FakeRecorderTransport? transport = null) => new(
+        new RecordingSource(Sid, agentId, path, vendor, null), transport ?? _transport, new NoStamps(), TimeProvider.System,
         new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }), claims);
 
     RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), TimeProvider.System);
@@ -32,6 +36,49 @@ public class TranscriptRecorderTests {
             await Task.Delay(10);
         }
     }
+
+    static async Task CanonicalLinesSent(FakeRecorderTransport transport, int count) {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+
+        while (transport.CanonicalBatches.Sum(batch => batch.Lines.Length) < count) {
+            if (DateTimeOffset.UtcNow > deadline) throw new TimeoutException($"{count} line(s) never reached the transport as canonical batches");
+
+            await Task.Delay(10);
+        }
+    }
+
+    static string Uuid(int n) => $"20000000-0000-4000-8000-{n:D12}";
+
+    static string Parent(int n) => n < 0 ? "null" : $"\"{Uuid(n)}\"";
+
+    static string User(int n, int parent) =>
+        $$$"""{"type":"user","uuid":"{{{Uuid(n)}}}","parentUuid":{{{Parent(parent)}}},"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"prompt {{{n}}}"}}""";
+
+    static string Assistant(int n, int parent, int usage) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{Uuid(n)}}}}","parentUuid":{{{{Parent(parent)}}}},"timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":{{{{usage}}}},"output_tokens":1}}}""";
+
+    /// Prompts and replies taking turns, except that line 30 repeats line 29's usage, an echo only to a projection that
+    /// saw line 29, and line 43 is a sibling of the unanswered prompt on line 42, which it retracts.
+    static readonly string[] Session = [
+        .. Enumerable.Range(0, 60).Select(n => n switch {
+            30                => Assistant(30, parent: 29, usage: 29),
+            43                => User(43, parent: 41),
+            _ when n % 2 == 0 => User(n, parent: n - 1),
+            _                 => Assistant(n, parent: n - 1, usage: n),
+        }),
+    ];
+
+    static string Jsonl(IEnumerable<string> lines) => string.Concat(lines.Select(line => line + "\n"));
+
+    static string[] Serialized(IEnumerable<CanonicalBatchEvent> events) =>
+        [.. events.Select(e => JsonSerializer.Serialize(e, CapacitorJsonContext.Default.CanonicalBatchEvent))];
+
+    static string[] EventsSent(FakeRecorderTransport transport) => Serialized(transport.CanonicalBatches.SelectMany(batch => batch.Events));
+
+    /// What one route projecting the whole transcript from its first line sends.
+    static string[] Projected(string[] lines) =>
+        Serialized(CanonicalRoute.For("claude", Sid, null, serverSupports: true)!.Encode(
+            new TranscriptBatch { SessionId = Sid, Vendor = "claude", Lines = lines, LineNumbers = [.. Enumerable.Range(0, lines.Length)] }, DateTimeOffset.UtcNow).Events);
 
     [Test]
     public async Task A_recorder_runs_against_a_fake_transport() {
@@ -434,6 +481,239 @@ public class TranscriptRecorderTests {
         var spool = new TranscriptSpool(Config, TimeProvider.System, "http://127.0.0.1:1");
         await Assert.That(Directory.GetFiles(spool.DirectoryPath, "*.transcript.jsonl").Length).IsEqualTo(1);
         await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_claude_source_sends_canonical_batches_when_the_server_supports_them() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await CanonicalLinesSent(_transport, 2);
+        await stop.CancelAsync();
+        await run;
+
+        var batch = _transport.CanonicalBatches.Single();
+        await Assert.That(batch.SessionId).IsEqualTo(Sid);
+        await Assert.That(batch.Lines.Select(line => line.Number)).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+        await Assert.That(batch.Events.Select(e => e.EventId)).IsEquivalentTo([Guid.Parse(Uuid(0)), Guid.Parse(Uuid(1))], CollectionOrdering.Matching);
+        await Assert.That(_transport.Batches).IsEmpty();
+        await Assert.That(recorder.State.LinesProcessed).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task A_claude_source_sends_raw_lines_when_the_server_does_not_support_canonical_batches() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.Lines)).IsEquivalentTo(Session[..2], CollectionOrdering.Matching);
+        await Assert.That(_transport.CanonicalBatches).IsEmpty();
+        await Assert.That(_transport.CapabilityAsks).IsEqualTo(1);
+    }
+
+    /// <summary>The server is not even asked: a vendor outside the canonical list sends what it always has.</summary>
+    [Test]
+    public async Task A_codex_source_sends_raw_lines_whatever_the_server_supports() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        using var recorder = Recorder(path, agentId: "a1", vendor: "codex");
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.Lines)).IsEquivalentTo(Session[..2], CollectionOrdering.Matching);
+        await Assert.That(_transport.CanonicalBatches).IsEmpty();
+        await Assert.That(_transport.CapabilityAsks).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task An_unsupported_reply_resends_the_chunk_raw_and_stays_raw_until_reconnect() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        _transport.CanonicalRefusals = 1;
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+        await File.AppendAllTextAsync(path, Jsonl(Session[2..3]));
+        await LinesSent(3);
+        var canonicalBeforeReconnect = _transport.CanonicalBatches.Count;
+
+        _transport.ResumeFrom = 3;
+        await _transport.RaiseReconnectedAsync();
+        await File.AppendAllTextAsync(path, Jsonl(Session[3..4]));
+        await CanonicalLinesSent(_transport, 1);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches[0].Lines).IsEquivalentTo(Session[..2], CollectionOrdering.Matching);
+        await Assert.That(_transport.Batches[0].LineNumbers!).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([0, 1, 2], CollectionOrdering.Matching);
+        await Assert.That(canonicalBeforeReconnect).IsEqualTo(0);
+        await Assert.That(EventsSent(_transport)).IsEquivalentTo(Projected(Session[..4])[3..], CollectionOrdering.Matching);
+        await Assert.That(_transport.CapabilityAsks).IsEqualTo(2);
+    }
+
+    /// <summary>A recorder replaced mid-session projects the lines the server already holds before it sends, so a usage
+    /// repeated across the restart stays an echo.</summary>
+    [Test]
+    public async Task A_recorder_restarted_mid_session_sends_the_events_an_uninterrupted_one_sends() {
+        var whole = new FakeRecorderTransport { IsConnected = true, SupportsCanonical = true };
+        var wholePath = Tmp.CreateFile("whole.jsonl", Jsonl(Session[..30]));
+
+        using (var recorder = Recorder(wholePath, transport: whole)) {
+            using var stop = new CancellationTokenSource();
+            var       run  = recorder.RunAsync(stop.Token);
+            await CanonicalLinesSent(whole, 30);
+            await File.AppendAllTextAsync(wholePath, Jsonl(Session[30..]));
+            await CanonicalLinesSent(whole, 60);
+            await stop.CancelAsync();
+            await run;
+        }
+
+        var restarted     = new FakeRecorderTransport { IsConnected = true, SupportsCanonical = true };
+        var restartedPath = Tmp.CreateFile("restarted.jsonl", Jsonl(Session[..30]));
+
+        using (var first = Recorder(restartedPath, transport: restarted)) {
+            using var stop = new CancellationTokenSource();
+            var       run  = first.RunAsync(stop.Token);
+            await CanonicalLinesSent(restarted, 30);
+            await stop.CancelAsync();
+            await run;
+        }
+
+        await File.AppendAllTextAsync(restartedPath, Jsonl(Session[30..]));
+        restarted.ResumeFrom = 30;
+
+        using (var second = Recorder(restartedPath, transport: restarted)) {
+            using var stop = new CancellationTokenSource();
+            var       run  = second.RunAsync(stop.Token);
+            await CanonicalLinesSent(restarted, 60);
+            await stop.CancelAsync();
+            await run;
+        }
+
+        // Without the lines before the restart, line 30 would carry its usage again and line 43 retract nothing.
+        var events = whole.CanonicalBatches.SelectMany(batch => batch.Events).ToArray();
+        await Assert.That(events.Single(e => e.Line == 29).Usage).IsNotNull();
+        await Assert.That(events.Single(e => e.Line == 30).Usage).IsNull();
+        await Assert.That(events.Count(e => e.Type == CanonicalEventTypes.UserMessageRetracted)).IsEqualTo(1);
+
+        await Assert.That(restarted.Batches).IsEmpty();
+        await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
+    }
+
+    /// <summary>The failed send projected lines the server never took. The next poll reads more lines than it did, so only
+    /// a projection rebuilt up to the cursor sends what an uninterrupted run sends: here line 30 stays an echo of 29.</summary>
+    [Test]
+    public async Task A_send_failure_leaves_the_cursor_and_the_next_poll_resends_the_same_events() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..30]));
+        _transport.SupportsCanonical = true;
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await CanonicalLinesSent(_transport, 30);
+
+        var grown = 0;
+        _transport.OnSend = async ct => {
+            if (Interlocked.Exchange(ref grown, 1) == 0) await File.AppendAllTextAsync(path, Jsonl(Session[45..]), ct);
+        };
+        _transport.CanonicalFailures = 1;
+        await File.AppendAllTextAsync(path, Jsonl(Session[30..45]));
+        await CanonicalLinesSent(_transport, 60);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.CanonicalBatches.Select(batch => batch.Lines[0].Number)).IsEquivalentTo([0, 30], CollectionOrdering.Matching);
+        await Assert.That(EventsSent(_transport)).IsEquivalentTo(Projected(Session), CollectionOrdering.Matching);
+        await Assert.That(_transport.Batches).IsEmpty();
+        await Assert.That(recorder.State.LinesProcessed).IsEqualTo(60);
+    }
+
+    /// <summary>A server that fails every canonical batch costs one rebuild, not one per poll.</summary>
+    [Test]
+    public async Task A_second_failure_before_the_cursor_moves_sends_raw_until_reconnect() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        _transport.CanonicalFailures = 2;
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+
+        _transport.ResumeFrom = 2;
+        await _transport.RaiseReconnectedAsync();
+        await File.AppendAllTextAsync(path, Jsonl(Session[2..3]));
+        await CanonicalLinesSent(_transport, 1);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+        await Assert.That(_transport.CanonicalBatches.Single().Lines.Select(line => line.Number)).IsEquivalentTo([2], CollectionOrdering.Matching);
+    }
+
+    /// <summary>The stop that ends the run here also fails the canonical send in flight, so the final drain needs the lines
+    /// before its cursor projected again, inside the seconds before the kill.</summary>
+    [Test]
+    public async Task A_final_drain_that_cannot_rebuild_its_route_in_time_sends_raw_lines() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { })) {
+            FinalDrainReplayBudget = TimeSpan.Zero,
+        };
+        using var stop = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await CanonicalLinesSent(_transport, 2);
+
+        _transport.OnSend = _ => stop.CancelAsync();
+        _transport.CanonicalFailures = 1;
+        await File.AppendAllTextAsync(path, Jsonl(Session[2..3]));
+        await run.WithinDeadlineAsync("the run to stop");
+
+        _transport.OnSend = null;
+        await recorder.FinishAsync(CancellationToken.None);
+
+        await Assert.That(_transport.CanonicalBatches.Single().Lines.Select(line => line.Number)).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([2], CollectionOrdering.Matching);
+    }
+
+    /// <summary>A transcript shorter than the server's cursor cannot give the route the state of the lines before it.</summary>
+    [Test]
+    public async Task A_resume_whose_earlier_lines_cannot_all_be_replayed_sends_raw_lines() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        _transport.SupportsCanonical = true;
+        _transport.ResumeFrom        = 4;
+        var grown = 0;
+        _housekeeping.BeforeDrain = async () => {
+            if (Interlocked.Exchange(ref grown, 1) == 0) await File.AppendAllTextAsync(path, Jsonl(Session[2..6]));
+        };
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([4, 5], CollectionOrdering.Matching);
+        await Assert.That(_transport.CanonicalBatches).IsEmpty();
     }
 
     // Cursor's own sessionStart hook posts (and spawns this very watcher)
