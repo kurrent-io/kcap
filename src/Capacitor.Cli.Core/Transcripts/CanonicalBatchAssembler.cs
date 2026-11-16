@@ -16,14 +16,24 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
 
     bool _assembledEntries;
 
-    /// <summary>Projects a line the server already holds and discards the output, so the lines after it project as one
-    /// uninterrupted run would project them. Each replayed line is a batch of its own, acknowledged.</summary>
-    public void Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
-        if (CaptureLossLine.Is(line)) return;
+    /// <summary>Projects a raw line the server already holds and discards the output, so the lines after it project as
+    /// one uninterrupted run would project them. Each replayed line is a batch of its own, acknowledged. A line its
+    /// capture replaced with a capture-loss line projects nothing, as on the way out.</summary>
+    /// <returns>False for a line whose capture only the redaction can say, which leaves the replay unable to
+    /// continue.</returns>
+    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
+        if (CaptureLossLine.Is(line)) return true;
+
+        switch (CaptureRule.Of(line)) {
+            case LineCapture.Lost:      return true;
+            case LineCapture.Undecided: return false;
+        }
 
         var batch = new Batch();
         Project(line, lineNumber, receivedAt, batch);
         Persisted([.. batch.Events.Select(e => e.Event.EventId)], batch.Events.Count > 0);
+
+        return true;
     }
 
     public CanonicalTranscriptBatch Assemble(TranscriptBatch raw, DateTimeOffset receivedAt) {

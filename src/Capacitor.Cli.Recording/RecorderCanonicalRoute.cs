@@ -29,8 +29,8 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
 
     /// <summary>Readies a route for the lines from <paramref name="cursor"/> on, when they are to go canonical and none is
     /// ready. One past line zero must first see every line before the cursor, so the result is then a consumer for
-    /// <see cref="TranscriptReplay"/> and what to call after it; null otherwise.</summary>
-    public async Task<(TranscriptReplayConsumer Consumer, Action Replayed)?> OpenAsync(int cursor, CancellationToken ct) {
+    /// <see cref="TranscriptReplay"/> and what to call after it, with the token the replay ran under; null otherwise.</summary>
+    public async Task<(TranscriptReplayConsumer Consumer, Action<CancellationToken> Replayed)?> OpenAsync(int cursor, CancellationToken ct) {
         if (!CanonicalVendors.Contains(source.Vendor)) return null;
 
         bool? supported;
@@ -60,27 +60,35 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
         if (CanonicalRoute.For(source.Vendor, source.SessionId, source.AgentId, supported.Value) is not { } route) return null;
 
         if (cursor == 0) {
-            Install(route, connection, replayed: true);
+            Install(route, connection, missing: null);
 
             return null;
         }
 
-        var seen      = 0;
-        var projected = true;
+        var     seen    = 0;
+        string? missing = null;
 
         return (new(WindowOnly: false, line => {
             try {
-                route.Replay(line, seen++, time.GetUtcNow());
+                if (route.Replay(line, seen, time.GetUtcNow())) {
+                    seen++;
 
-                return false;
-            } catch (CanonicalEncodingException) {
-                projected = false;
+                    return false;
+                }
 
-                return true;
+                missing = $"Line {seen} is too large to tell whether its capture kept it";
+            } catch (CanonicalEncodingException ex) {
+                missing = $"Line {seen} could not be projected: {ex.InnerException?.Message}";
             }
-        }), () => {
-            // A replay cut short by a stop says nothing of the lines, and the next send opens a route again.
-            if (!ct.IsCancellationRequested) Install(route, connection, replayed: projected && seen == cursor);
+
+            return true;
+        }), replay => {
+            // A stop says nothing of the lines, and the next send opens a route again.
+            if (ct.IsCancellationRequested) return;
+
+            Install(route, connection, missing ?? (seen == cursor ? null
+                : replay.IsCancellationRequested ? $"Projecting the lines before line {cursor} ran out of time at line {seen}"
+                : $"The transcript has {seen} of the {cursor} lines before the cursor"));
         });
     }
 
@@ -127,11 +135,12 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
         return true;
     }
 
-    void Install(CanonicalRoute route, int connection, bool replayed) {
+    /// <param name="missing">Why the route lacks a line before the cursor, which keeps the source raw; null installs it.</param>
+    void Install(CanonicalRoute route, int connection, string? missing) {
         lock (_gate) {
             if (connection != _connection) return;
 
-            if (replayed) {
+            if (missing is null) {
                 _route = route;
 
                 return;
@@ -140,7 +149,7 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
             _raw = true;
         }
 
-        log("The lines before the cursor could not all be projected; sending raw lines until the next connect");
+        log($"{missing}; sending raw lines until the next connect");
     }
 
     void GoRaw(CanonicalRoute route, string why) {

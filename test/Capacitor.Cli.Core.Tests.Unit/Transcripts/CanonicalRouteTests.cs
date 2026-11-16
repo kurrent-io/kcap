@@ -74,6 +74,44 @@ public class CanonicalRouteTests {
         await Assert.That(Events(replayed.Encode(Raw(2, lines[2]), Received))).IsEquivalentTo(expected);
     }
 
+    static string AssistantUsing(int n, int parent, int inputTokens, string text) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{Id(n)}}}}","parentUuid":"{{{{Id(parent)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"{{{{text}}}}"}],"usage":{"input_tokens":{{{{inputTokens}}}},"output_tokens":1}}}""";
+
+    /// What the capture sends in place of a line over the record limit.
+    const string CaptureLoss = $$"""{"type":"{{CaptureLossLine.Type}}","reason":"input_limit"}""";
+
+    /// <summary>The oversized record went out as a capture-loss line, which projects nothing. Projected from the raw file,
+    /// its usage would make the next record's, the same usage, an echo that stores nothing.</summary>
+    [Test]
+    public async Task Replay_skips_a_line_its_capture_replaced_as_the_route_that_sent_it_did() {
+        var oversized = AssistantUsing(2, parent: 1, inputTokens: 7, new string('x', CaptureRule.MaxRecordBytes));
+        var next      = AssistantUsing(3, parent: 2, inputTokens: 7, "short");
+
+        var live = Route();
+        live.Encode(Raw(0, User(1), CaptureLoss), Received);
+        live.Acknowledged();
+        var sent = live.Encode(Raw(2, next), Received);
+
+        var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{oversized}\n{next}\n");
+        var replayed = Route();
+
+        await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
+        await Assert.That(sent.Events.Single().Usage).IsNotNull();
+        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+    }
+
+    /// <summary>Whether a rewrite took this line past the record limit depends on the secrets in it, so the lines after it
+    /// cannot be projected as the capture sent them.</summary>
+    [Test]
+    public async Task Replay_stops_at_a_line_whose_capture_only_the_redaction_can_say() {
+        var large = AssistantUsing(2, parent: 1, inputTokens: 7, new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
+        var path  = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{large}\n{User(3, 2)}\n");
+        var route = Route();
+
+        await Assert.That(await route.ReplayAsync(path, 3, CancellationToken.None)).IsFalse();
+        await Assert.That(route.Active).IsTrue();
+    }
+
     [Test]
     public async Task Encoding_the_same_batch_again_returns_it_and_the_next_batch_is_unaffected() {
         var (first, second) = (Raw(0, User(1), Assistant(2, 1)), Raw(2, User(3, 2)));

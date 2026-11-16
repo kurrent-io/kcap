@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
@@ -566,44 +567,52 @@ public class TranscriptRecorderTests {
         await Assert.That(_transport.CapabilityAsks).IsEqualTo(2);
     }
 
-    /// <summary>A recorder replaced mid-session projects the lines the server already holds before it sends, so a usage
-    /// repeated across the restart stays an echo.</summary>
-    [Test]
-    public async Task A_recorder_restarted_mid_session_sends_the_events_an_uninterrupted_one_sends() {
-        var whole = new FakeRecorderTransport { IsConnected = true, SupportsCanonical = true };
-        var wholePath = Tmp.CreateFile("whole.jsonl", Jsonl(Session[..30]));
+    /// <summary>Records <paramref name="lines"/> twice: once by one recorder, written in two halves, and once by a recorder
+    /// stopped after the first half and replaced by a fresh one resuming there.</summary>
+    async Task<(FakeRecorderTransport Whole, FakeRecorderTransport Restarted)> RecordWholeAndRestartedAsync(string[] lines, int restartAt) {
+        var whole     = new FakeRecorderTransport { IsConnected = true, SupportsCanonical = true };
+        var wholePath = Tmp.CreateFile("whole.jsonl", Jsonl(lines[..restartAt]));
 
         using (var recorder = Recorder(wholePath, transport: whole)) {
             using var stop = new CancellationTokenSource();
             var       run  = recorder.RunAsync(stop.Token);
-            await CanonicalLinesSent(whole, 30);
-            await File.AppendAllTextAsync(wholePath, Jsonl(Session[30..]));
-            await CanonicalLinesSent(whole, 60);
+            await CanonicalLinesSent(whole, restartAt);
+            await File.AppendAllTextAsync(wholePath, Jsonl(lines[restartAt..]));
+            await CanonicalLinesSent(whole, lines.Length);
             await stop.CancelAsync();
             await run;
         }
 
         var restarted     = new FakeRecorderTransport { IsConnected = true, SupportsCanonical = true };
-        var restartedPath = Tmp.CreateFile("restarted.jsonl", Jsonl(Session[..30]));
+        var restartedPath = Tmp.CreateFile("restarted.jsonl", Jsonl(lines[..restartAt]));
 
         using (var first = Recorder(restartedPath, transport: restarted)) {
             using var stop = new CancellationTokenSource();
             var       run  = first.RunAsync(stop.Token);
-            await CanonicalLinesSent(restarted, 30);
+            await CanonicalLinesSent(restarted, restartAt);
             await stop.CancelAsync();
             await run;
         }
 
-        await File.AppendAllTextAsync(restartedPath, Jsonl(Session[30..]));
-        restarted.ResumeFrom = 30;
+        await File.AppendAllTextAsync(restartedPath, Jsonl(lines[restartAt..]));
+        restarted.ResumeFrom = restartAt;
 
         using (var second = Recorder(restartedPath, transport: restarted)) {
             using var stop = new CancellationTokenSource();
             var       run  = second.RunAsync(stop.Token);
-            await CanonicalLinesSent(restarted, 60);
+            await CanonicalLinesSent(restarted, lines.Length);
             await stop.CancelAsync();
             await run;
         }
+
+        return (whole, restarted);
+    }
+
+    /// <summary>A recorder replaced mid-session projects the lines the server already holds before it sends, so a usage
+    /// repeated across the restart stays an echo.</summary>
+    [Test]
+    public async Task A_recorder_restarted_mid_session_sends_the_events_an_uninterrupted_one_sends() {
+        var (whole, restarted) = await RecordWholeAndRestartedAsync(Session, restartAt: 30);
 
         // Without the lines before the restart, line 30 would carry its usage again and line 43 retract nothing.
         var events = whole.CanonicalBatches.SelectMany(batch => batch.Events).ToArray();
@@ -613,6 +622,47 @@ public class TranscriptRecorderTests {
 
         await Assert.That(restarted.Batches).IsEmpty();
         await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
+    }
+
+    /// <summary>Line 29 is over the record limit, so its capture sent a capture-loss line and line 30's usage, the same as
+    /// line 29's, is new. A replay that projected line 29 from the file would make it an echo.</summary>
+    [Test]
+    public async Task A_recorder_restarted_past_a_line_its_capture_replaced_sends_the_events_an_uninterrupted_one_sends() {
+        string[] lines = [
+            .. Session[..29],
+            Assistant(29, parent: 28, usage: 30).Replace("reply 29", new string('x', CaptureRule.MaxRecordBytes), StringComparison.Ordinal),
+            Assistant(30, parent: 29, usage: 30),
+            .. Session[31..],
+        ];
+
+        var (whole, restarted) = await RecordWholeAndRestartedAsync(lines, restartAt: 30);
+
+        var whole30 = whole.CanonicalBatches.SelectMany(batch => batch.Events).Single(e => e.Line == 30);
+        await Assert.That(whole.CanonicalBatches.SelectMany(batch => batch.CaptureLoss ?? []).Single().Line).IsEqualTo(29);
+        await Assert.That(whole30.Usage).IsNotNull();
+
+        await Assert.That(restarted.Batches).IsEmpty();
+        await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
+    }
+
+    /// <summary>Whether a rewrite took line 1 past the record limit depends on the secrets in it, so the route cannot be
+    /// rebuilt as the capture left it.</summary>
+    [Test]
+    public async Task A_resume_past_a_line_only_the_redaction_can_judge_sends_raw_lines() {
+        var large = Assistant(1, parent: 0, usage: 1).Replace("reply 1", new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth), StringComparison.Ordinal);
+        var path  = Tmp.CreateFile("t.jsonl", Jsonl([Session[0], large, .. Session[2..4]]));
+        _transport.SupportsCanonical = true;
+        _transport.ResumeFrom        = 3;
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([3], CollectionOrdering.Matching);
+        await Assert.That(_transport.CanonicalBatches).IsEmpty();
     }
 
     /// <summary>The failed send projected lines the server never took. The next poll reads more lines than it did, so only
@@ -671,10 +721,11 @@ public class TranscriptRecorderTests {
     [Test]
     public async Task A_final_drain_that_cannot_rebuild_its_route_in_time_sends_raw_lines() {
         var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        var log  = new ConcurrentQueue<string>();
         _transport.SupportsCanonical = true;
         using var recorder = new TranscriptRecorder(
             new RecordingSource(Sid, null, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
-            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { })) {
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, log.Enqueue, () => { })) {
             FinalDrainReplayBudget = TimeSpan.Zero,
         };
         using var stop = new CancellationTokenSource();
@@ -692,6 +743,7 @@ public class TranscriptRecorderTests {
 
         await Assert.That(_transport.CanonicalBatches.Single().Lines.Select(line => line.Number)).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
         await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([2], CollectionOrdering.Matching);
+        await Assert.That(log).Contains(line => line.Contains("ran out of time", StringComparison.Ordinal));
     }
 
     /// <summary>A transcript shorter than the server's cursor cannot give the route the state of the lines before it.</summary>

@@ -30,8 +30,9 @@ public sealed class CanonicalRoute {
     /// <summary>Projects the lines the server already holds, so the batches after them project as one uninterrupted
     /// run would. Lines are the agent's raw ones, read without denying it the file. A replay that fails leaves the
     /// projection half-advanced, so the route falls back.</summary>
-    /// <returns>Whether every line before the bound was there to project. A file that is missing or shorter replays
-    /// what it has, and the batches after it would lack the state of the rest.</returns>
+    /// <returns>Whether every line before the bound was there to project as its capture had it. A file that is missing
+    /// or shorter replays what it has, and a line whose capture only the redaction can say ends the replay there; either
+    /// way the batches after it would lack the state of the rest.</returns>
     public Task<bool> ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct) =>
         Task.Run(() => {
             var now    = TimeProvider.System.GetUtcNow();
@@ -42,7 +43,7 @@ public sealed class CanonicalRoute {
                     if (number >= throughLineExclusive) break;
 
                     ct.ThrowIfCancellationRequested();
-                    _assembler.Replay(line, number++, now);
+                    if (!_assembler.Replay(line, number++, now)) return false;
                 }
             } catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
                 // The source has not written anything yet.
@@ -58,10 +59,11 @@ public sealed class CanonicalRoute {
 
     /// <summary>One line of <see cref="ReplayAsync"/>, for a caller that reads the transcript itself and feeds every line
     /// from the first, in order.</summary>
+    /// <returns>False for a line whose capture only the redaction can say: the replay cannot go past it.</returns>
     /// <exception cref="CanonicalEncodingException">The line could not be projected, and the route has fallen back.</exception>
-    public void Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
+    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
         try {
-            _assembler.Replay(line, lineNumber, receivedAt);
+            return _assembler.Replay(line, lineNumber, receivedAt);
         } catch (Exception e) {
             FallBack();
             throw new CanonicalEncodingException(e);

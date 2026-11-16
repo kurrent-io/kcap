@@ -532,7 +532,7 @@ public sealed class TranscriptRecorder(
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log, _progress.Tick);
-            route?.Replayed();
+            route?.Replayed(stop);
         }
     }
 
@@ -1354,7 +1354,7 @@ public sealed class TranscriptRecorder(
                     using var replay = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
                     await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer], replay.Token, log, _progress.Tick);
-                    route.Replayed();
+                    route.Replayed(replay.Token);
                 }
 
                 // SignalR dispatch binds by arity; the record payload keeps additive fields compatible.
