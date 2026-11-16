@@ -209,6 +209,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                     return Task.CompletedTask;
                 };
                 hub.Reconnected += async _ => {
+                    EndTails();
                     var subject = await ReadSubjectAsync().ConfigureAwait(false);
                     PublishConnected(generation, capturedHub, subject);
                 };
@@ -246,6 +247,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 _streams = null;
                 _hub = null;
                 if (hub is not null) await hub.DisposeAsync().ConfigureAwait(false);
+                // A reconnect attempt already past its stop check can still meet a 401 while the hub disposes.
+                Interlocked.Exchange(ref _refusedReconnect, null);
                 // The hub goes first: disposed, the client's courtesy unsubscribe finds a dead
                 // connection and skips it (the library itself catches ObjectDisposedException),
                 // so it never makes a server round-trip on the shutdown path. A failure here still
@@ -497,6 +500,15 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             slot.Cts.Dispose();
             slot.Done.TrySetResult();
         }
+    }
+
+    /// The subscription client resubscribes a reconnected connection's streams one at a time and stops at the first
+    /// the server refuses, leaving the rest open and silent. Ending every tail instead has each consumer re-tail from
+    /// its own position, so a refusal reaches only the stream it was for.
+    void EndTails() {
+        lock (_tailLock)
+            foreach (var slot in _tails.Values)
+                slot.Cts.Cancel();
     }
 
     readonly Dictionary<string, TailSlot> _tails = new(StringComparer.Ordinal);

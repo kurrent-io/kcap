@@ -601,7 +601,26 @@ public class ServerConnectionServiceTests {
         await Assert.That(error!.Message).Contains(WireTokens.StreamNotAuthorized);
     }
 
-    // A dropped connection reconnects and resubscribes, so only a close ends a tail. The client
+    /// The client resubscribes a reconnected connection's streams in turn and stops at the first refusal, so a
+    /// reconnect ends every open tail and each consumer re-tails on its own.
+    [Test]
+    public async Task A_reconnect_ends_every_open_tail() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var tails = new[] { "AgentSession-s1", "AgentSession-s2" }.Select(stream => Task.Run(async () => {
+            await foreach (var _ in lane.TailStreamAsync(stream, null, cts.Token)) { }
+        })).ToArray();
+        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Count == 2, what: "both subscribes");
+
+        await HubTestHost.DropConnectionsAsync();
+        await Task.WhenAll(tails).WaitAsync(TimeSpan.FromSeconds(15));
+    }
+
+    // A dropped connection reconnects in place, so a close is what ends a tail without a reconnect. The client
     // completes the channel with its own cancellation token, which must read as an ended tail.
     [Test]
     public async Task StreamTailEndsCleanlyWhenTheServerClosesTheConnection() {
