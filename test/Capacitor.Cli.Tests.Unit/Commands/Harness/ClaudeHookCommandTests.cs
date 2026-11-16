@@ -2127,9 +2127,14 @@ public class ClaudeHookCommandTests {
         await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
 
         await Assert.That(fx.RouteOrder).DoesNotContain("stop");
-        var all = string.Concat(fx.SpoolFiles.Select(File.ReadAllText));
-        await Assert.That(all.IndexOf("\"route\":\"stop\"", StringComparison.Ordinal))
-            .IsGreaterThan(all.IndexOf("\"route\":\"session-start\"", StringComparison.Ordinal));
+
+        List<string> drained = [];
+        await fx.Spool.DrainAllAsync(null, (route, _) => {
+            drained.Add(route);
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(10), CancellationToken.None);
+
+        await Assert.That(drained).IsEquivalentTo(["session-start", "stop"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
     /// <summary>A restarting server can stall the hook before it has a client at all; the turn's end is spooled on that
@@ -2142,6 +2147,18 @@ public class ClaudeHookCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a stop spooled for want of a client still ends the turn's
+    /// pending asks here.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_still_clears_the_turns_asks() {
+        using var fx = new Fixture(Config.Root);
+        new PolicyDecisionJournal(Config.Root).RecordAsk(Sid, "toolu_1", "hash");
+
+        await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(new PolicyDecisionJournal(Config.Root).Consume(Sid, "toolu_1", "hash").PendingAsk).IsFalse();
     }
 
     /// <summary>A replay posts the event and nothing else, so a subagent start spooled behind a backlog still starts the

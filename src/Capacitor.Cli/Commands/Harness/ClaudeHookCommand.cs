@@ -564,6 +564,7 @@ public sealed class ClaudeHookCommand(
                                        "subagent-stop", $"{sessionId}/{agentId}", reason, unusableUrl);
             }
             else if (command == "stop" && sessionId is not null && agentId is null) {
+                ClearTurnJournal(body);
                 await ReportSpoolAsync(spool.Append(sessionId, "stop", NormalizeForSpool(body, command)), "stop", sessionId, reason, unusableUrl);
             }
             else if (unusableUrl) {
@@ -1403,14 +1404,7 @@ public sealed class ClaudeHookCommand(
             }
         }
 
-        // The turn is over, so its pending asks expire with it: a decision journalled for one turn
-        // must never answer an identical call in the next.
-        if (command == "stop") {
-            try {
-                var stopSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
-                if (stopSessionId is not null) new PolicyDecisionJournal(config).ClearTurn(stopSessionId);
-            } catch { }
-        }
+        if (command == "stop") ClearTurnJournal(body);
 
         // One attempt inside what is left of the event's ceiling: the host kills the hook at its manifest
         // timeout, so a retry that outlives it loses the event and holds the agent's turn for nothing.
@@ -1421,9 +1415,9 @@ public sealed class ClaudeHookCommand(
         // subagent's recorder above all, since a replay posts the event and nothing else.
         var deferred = false;
 
+        // Deferred even when the append fails: posting live ahead of the backlog breaks its order.
         if (spools && CurrentSessionHasBacklog(spool, genericSessionId)) {
-            spool.Append(genericSessionId!, command!, body);
-            await Console.Error.WriteLineAsync($"[kcap] {command} spooled (ordering guard); will retry on the next kcap hook ({genericSessionId})");
+            await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, "ordering guard", unusableUrl: false);
             deferred = true;
         }
 
@@ -1741,6 +1735,18 @@ public sealed class ClaudeHookCommand(
             }
         };
 
+    static string? SessionIdOf(string body) {
+        try { return JsonNode.Parse(body)?["session_id"]?.GetValue<string>(); } catch { return null; }
+    }
+
+    // The turn is over, so its pending asks expire with it: a decision journalled for one turn
+    // must never answer an identical call in the next.
+    void ClearTurnJournal(string body) {
+        try {
+            if (SessionIdOf(body) is { } sid) new PolicyDecisionJournal(config).ClearTurn(sid);
+        } catch { }
+    }
+
     /// <summary>
     /// Returns true if the given session still has undelivered spool entries. Used as an ordering
     /// guard so a stranded session-start always reaches the server before its session-end.
@@ -1754,10 +1760,6 @@ public sealed class ClaudeHookCommand(
     /// the exact cross-spool ordering violation Blockers 1/3 exist to prevent. <c>HasBacklog</c>
     /// covers all three namespaces; <see cref="CursorHookCommand"/> already routes through it.</para>
     /// </summary>
-    static string? SessionIdOf(string body) {
-        try { return JsonNode.Parse(body)?["session_id"]?.GetValue<string>(); } catch { return null; }
-    }
-
     static bool CurrentSessionHasBacklog(HookSpool spool, string? sid) =>
         sid is not null && spool.HasBacklog(sid);
 
