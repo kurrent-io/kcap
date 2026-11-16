@@ -13,23 +13,28 @@ public static class TranscriptPost {
     const string UnsupportedCode = "canonical_unsupported";
 
     /// <summary>The route for a stream whose lines go out from <paramref name="firstLine"/>, or null when they go raw.
-    /// The lines before it are the server's already: projected first, they give the rest the state an uninterrupted run
-    /// gives them. A transcript that is missing or shorter projects without that state; a replay that fails leaves the
-    /// route fallen back.</summary>
+    /// The lines before it are the server's already, and are projected first so the rest get the state an
+    /// uninterrupted run gives them. A stream goes raw when that replay cannot be whole: no transcript, a missing or
+    /// shorter one, a replay that fails or one that overruns <paramref name="replayBudget"/>. Projected without that
+    /// state, a usage repeated across the start would count twice where the raw path counts it once.</summary>
     public static async Task<CanonicalRoute?> RouteAsync(
-            IngestCapability? capability, string? vendor, string sessionId, string? agentId, string? transcriptPath, int firstLine, CancellationToken ct
+            IngestCapability? capability, string? vendor, string sessionId, string? agentId, string? transcriptPath, int firstLine,
+            TimeSpan replayBudget, TimeProvider time, CancellationToken ct
         ) {
-        if (capability is null || !CanonicalVendors.Contains(vendor)) return null;
+        if (capability is null || !CanonicalVendors.Contains(vendor) || firstLine > 0 && transcriptPath is null) return null;
         if (CanonicalRoute.For(vendor, sessionId, agentId, await capability.SupportsCanonicalAsync(ct)) is not { } route) return null;
-        if (transcriptPath is null || firstLine <= 0) return route;
+        if (firstLine <= 0) return route;
+
+        using var budget = new CancellationTokenSource(replayBudget, time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
         try {
-            await route.ReplayAsync(transcriptPath, firstLine, ct);
+            return await route.ReplayAsync(transcriptPath!, firstLine, linked.Token) ? route : null;
         } catch (CanonicalEncodingException) {
-            // Inactive now, so the stream's lines go raw.
+            return null;
+        } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+            return null;
         }
-
-        return route;
     }
 
     /// <summary>Posts <paramref name="batch"/> with <c>PostWithRetryAsync</c>. A refusal as unsupported, or a batch that

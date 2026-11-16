@@ -101,20 +101,36 @@ public class LifecycleSpoolDrainTests {
         return requests;
     }
 
-    /// <summary>An older CLI's spool names no transcript, so its tail projects without the lines before it.</summary>
+    /// <summary>An older CLI's spool names no transcript. Projected without the lines before it, a tail could count a
+    /// repeated usage the raw path knows is not new.</summary>
     [Test]
-    public async Task A_spooled_claude_tail_without_its_transcript_drains_canonical() {
+    public async Task A_spooled_claude_tail_past_line_zero_without_its_transcript_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null);
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo(["/hooks/transcript"]);
+        await Assert.That(requests[0].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_spooled_claude_tail_from_line_zero_drains_canonical() {
         using var tmp = new TempDir();
         var sid  = Guid.NewGuid().ToString("N");
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null));
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
 
         var requests = await DrainOverHttp(life, tx, canonical: true);
 
         await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
         using var sent = JsonDocument.Parse(requests[1].Body);
-        await Assert.That(sent.RootElement.GetProperty("lines")[0].GetProperty("number").GetInt32()).IsEqualTo(5);
         await Assert.That(sent.RootElement.GetProperty("events").GetArrayLength()).IsEqualTo(1);
         await Assert.That(tx.HasBacklog(sid)).IsFalse();
     }

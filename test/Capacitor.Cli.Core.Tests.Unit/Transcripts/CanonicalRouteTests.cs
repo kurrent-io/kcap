@@ -37,24 +37,25 @@ public class CanonicalRouteTests {
     }
 
     [Test]
-    public async Task Replay_of_a_missing_file_leaves_the_route_usable() {
+    public async Task Replay_of_a_missing_file_says_it_lacked_lines() {
         var route = Route();
 
-        await route.ReplayAsync(Tmp.PathTo("none.jsonl"), 5, CancellationToken.None);
-
+        await Assert.That(await route.ReplayAsync(Tmp.PathTo("none.jsonl"), 5, CancellationToken.None)).IsFalse();
         await Assert.That(route.Active).IsTrue();
-        await Assert.That(route.Encode(Raw(0, User(1)), Received).Events.Length).IsEqualTo(1);
     }
 
     [Test]
-    public async Task Replay_of_a_file_shorter_than_the_bound_leaves_the_route_usable() {
-        var path = Tmp.CreateFile("short.jsonl", $"{User(1)}\n");
+    public async Task Replay_of_a_file_shorter_than_the_bound_says_it_lacked_lines() {
+        var path  = Tmp.CreateFile("short.jsonl", $"{User(1)}\n");
         var route = Route();
 
-        await route.ReplayAsync(path, 10, CancellationToken.None);
-
+        await Assert.That(await route.ReplayAsync(path, 10, CancellationToken.None)).IsFalse();
         await Assert.That(route.Active).IsTrue();
-        await Assert.That(route.Encode(Raw(1, Assistant(2, 1)), Received).Events.Length).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task Replay_to_no_line_needs_no_file() {
+        await Assert.That(await Route().ReplayAsync(Tmp.PathTo("none.jsonl"), 0, CancellationToken.None)).IsTrue();
     }
 
     [Test]
@@ -68,8 +69,8 @@ public class CanonicalRouteTests {
 
         var path     = Tmp.CreateFile("t.jsonl", string.Join('\n', lines) + "\n");
         var replayed = Route();
-        await replayed.ReplayAsync(path, 2, CancellationToken.None);
 
+        await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
         await Assert.That(Events(replayed.Encode(Raw(2, lines[2]), Received))).IsEquivalentTo(expected);
     }
 

@@ -88,7 +88,8 @@ static class SessionImporter {
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
         var totalSent  = 0;
-        var route      = await TranscriptPost.RouteAsync(canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, firstLine: 0, CancellationToken.None);
+        var route      = await TranscriptPost.RouteAsync(
+            canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, firstLine: 0, Timeout.InfiniteTimeSpan, time, CancellationToken.None);
 
         // Read the main transcript line by line, batching and flushing as needed,
         // with agent lifecycle events inserted at the right positions.
@@ -603,7 +604,8 @@ static class SessionImporter {
 
         var totalSent = 0;
         var batch     = new TranscriptBatchBuffer();
-        var route     = await TranscriptPost.RouteAsync(canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, CancellationToken.None);
+        var route     = await TranscriptPost.RouteAsync(
+            canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, Timeout.InfiniteTimeSpan, time, CancellationToken.None);
 
         await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var       reader = new StreamReader(stream);

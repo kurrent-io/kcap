@@ -28,15 +28,16 @@ public sealed class CanonicalRoute {
     public bool Active { get; private set; } = true;
 
     /// <summary>Projects the lines the server already holds, so the batches after them project as one uninterrupted
-    /// run would. A replay that fails leaves the projection half-advanced, so the route falls back. Lines are the agent's raw ones, read without denying it the file. A file that is missing or
-    /// shorter than the bound replays what it has.</summary>
-    public Task ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct) =>
+    /// run would. Lines are the agent's raw ones, read without denying it the file. A replay that fails leaves the
+    /// projection half-advanced, so the route falls back.</summary>
+    /// <returns>Whether every line before the bound was there to project. A file that is missing or shorter replays
+    /// what it has, and the batches after it would lack the state of the rest.</returns>
+    public Task<bool> ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct) =>
         Task.Run(() => {
-            var now = TimeProvider.System.GetUtcNow();
+            var now    = TimeProvider.System.GetUtcNow();
+            var number = 0;
 
             try {
-                var number = 0;
-
                 foreach (var line in File.ReadLinesShared(transcriptPath)) {
                     if (number >= throughLineExclusive) break;
 
@@ -51,6 +52,8 @@ public sealed class CanonicalRoute {
                 FallBack();
                 throw new CanonicalEncodingException(e);
             }
+
+            return number >= throughLineExclusive;
         }, ct);
 
     /// <summary>The canonical form of a raw batch. Asking again for the same lines before <see cref="Acknowledged"/>,

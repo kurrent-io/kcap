@@ -382,6 +382,35 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(agents.Distinct()).IsEquivalentTo([null, agentId]);
     }
 
+    static string ClaudeReply(int n) =>
+        $$$$"""{"type":"assistant","uuid":"10000000-0000-4000-8000-{{{{n:D12}}}}","parentUuid":"10000000-0000-4000-8000-{{{{n - 1:D12}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// <summary>Line 3 repeats line 2's usage, so only an import that projected the lines it resumes after knows the
+    /// usage is not new.</summary>
+    [Test]
+    public async Task A_resumed_claude_import_sends_the_events_an_uninterrupted_one_sends() {
+        ServeCanonical();
+
+        string[] lines = [ClaudeLine(0), ClaudeReply(1), ClaudeReply(2), ClaudeReply(3)];
+        using var tmp = TempDir.WithPathTo("session.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, lines);
+
+        using var client = new HttpClient();
+        await SessionImporter.SendTranscriptBatches(
+            client, _server.Url!, "s1", path, agentId: null, startLine: 3, TimeProvider.System,
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        var uninterrupted = CanonicalRoute.For("claude", "s1", null, true)!;
+        uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = "s1", Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+
+        await Assert.That(TranscriptPosts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
+        var sent = JsonDocument.Parse(_server.LogEntries.Single(e => e.RequestMessage.Path == CanonicalRoute.HttpPath).RequestMessage.Body!);
+        await Assert.That(sent.RootElement.GetProperty("events").GetRawText())
+            .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
+    }
+
     [Test]
     public async Task A_codex_import_sends_raw_lines_only() {
         ServeCanonical();
