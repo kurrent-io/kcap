@@ -1001,9 +1001,10 @@ switch (command) {
             return results.Select(r => r.Exit).Prepend(claudeSideExit).Max();
         }
         // Started ahead of the spool drain, which it never waited on as a hook of its own: a span closed late leaves the
-        // baseline open, and the next turn takes edits made between turns for its own.
+        // baseline open, and the next turn takes edits made between turns for its own. On the pool, because a span with
+        // nothing to close runs its synchronous store and spool sweep before it first yields.
         var stopSpans = args.Contains("--claude") && args.Contains(ClaudeSideHooks.StopSpans)
-            ? Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!))
+            ? Task.Run(() => Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!)))
             : Task.FromResult(0);
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 
