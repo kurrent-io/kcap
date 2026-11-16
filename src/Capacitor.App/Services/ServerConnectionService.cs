@@ -203,21 +203,24 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 // ReadSubjectAsync token read below — or during StartAsync itself — is still
                 // observed, never lost with status stuck on a dead hub.
                 var closed = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                hub.Closed += ex => { closed.TrySetResult(ex); return Task.CompletedTask;  };
+                var spans  = new ConnectedSpans(_time);
+                hub.Closed += ex => { spans.Down(); closed.TrySetResult(ex); return Task.CompletedTask;  };
                 hub.Reconnecting += _ => {
+                    spans.Down();
                     Publish(generation, new(ServerLaneState.Retrying, "reconnecting"));
                     return Task.CompletedTask;
                 };
                 hub.Reconnected += async _ => {
+                    spans.Up();
                     EndTails();
                     var subject = await ReadSubjectAsync().ConfigureAwait(false);
                     PublishConnected(generation, capturedHub, subject);
                 };
 
                 await hub.StartAsync(ct).ConfigureAwait(false);
+                spans.Up();
                 _hub = hub;
                 _streams = streams;
-                var connectedAt = _time.GetTimestamp();
                 var connectedSubject = await ReadSubjectAsync().ConfigureAwait(false);
                 PublishConnected(generation, capturedHub, connectedSubject);
 
@@ -225,9 +228,10 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await using (ct.Register(() => closed.TrySetResult(null)))
                     closeReason = await closed.Task.ConfigureAwait(false);
 
-                // Only a connection that outlasted the ladder's longest step starts it over: one the server takes and
-                // closes at once keeps climbing, rather than being redialled every second.
-                if (_time.GetElapsedTime(connectedAt) >= _retry.Delay(long.MaxValue)) attempt = 0;
+                // Only a connection that stayed up longer than the ladder's longest step starts it over: one the server
+                // takes and closes at once keeps climbing, rather than being redialled every second.
+                spans.Down();
+                if (spans.Longest >= _retry.Delay(long.MaxValue)) attempt = 0;
 
                 if (Interlocked.Exchange(ref _refusedReconnect, null) is { } refused) {
                     ParkSignedOutCore(generation, refused.Message);
