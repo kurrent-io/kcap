@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 import os
 from pathlib import Path
@@ -211,18 +211,28 @@ def report_clones(roots):
         print(f"{scope:<44} {total:>10} {ex:>11} {rn:>13}")
 
 
+def label(key):
+    name, types = key
+    return f"{name}({', '.join(types)})"
+
+
 def print_families(found):
-    for (name, types), copies in found:
-        print(f"{name}({', '.join(types)}) x{len(copies)}")
+    for key, copies in found:
+        print(f"{label(key)} x{len(copies)}")
         for path, line in copies:
             print(f"    {path}:{line}")
+
+
+def read_baseline():
+    """The families allowed to stay, one signature per line; a signature listed twice allows two families."""
+    return Counter(line.strip() for line in Path(BASELINE).read_text().splitlines() if line.strip())
 
 
 def main():
     cli = argparse.ArgumentParser(description=f"Ratchet on C# method families copied into {MIN_COPIES}+ files under {SCOPE}.")
     mode = cli.add_mutually_exclusive_group()
     mode.add_argument("--list", action="store_true", help="print every family")
-    mode.add_argument("--update", action="store_true", help=f"write the current count to {BASELINE}")
+    mode.add_argument("--update", action="store_true", help=f"write the current families to {BASELINE}")
     mode.add_argument("--clones", action="store_true", help="print line-window clone counts per project")
     args = cli.parse_args()
     os.chdir(subprocess.check_output(["git", "rev-parse", "--show-toplevel"]).decode().rstrip("\n"))
@@ -231,26 +241,27 @@ def main():
         report_clones(roots)
         return 0
     found = families(roots)
-    count = len(found)
     if args.list:
         print_families(found)
-        print(f"{count} families")
+        print(f"{len(found)} families")
         return 0
+    current = Counter(label(key) for key, _ in found)
     if args.update:
-        Path(BASELINE).write_text(f"{count}\n")
-        print(f"duplication: baseline set to {count}")
+        Path(BASELINE).write_text("".join(f"{name}\n" for name in sorted(current.elements())))
+        print(f"duplication: baseline set to {len(found)} families")
         return 0
-    baseline = int(Path(BASELINE).read_text().strip())
-    if count > baseline:
-        print_families(found)
-        print(f"::error::{count} method families are copied into {MIN_COPIES}+ files, above the baseline of {baseline}. "
-              "Extract the new copy into shared code instead of adding one (the full list is above).")
+    baseline = read_baseline()
+    added = current - baseline
+    if added:
+        print_families([(key, copies) for key, copies in found if label(key) in added])
+        print(f"::error::{sum(added.values())} new method families are copied into {MIN_COPIES}+ files (above). Extract the "
+              f"shared code instead. Only copies that must stay apart go in {BASELINE}, with the reason in the PR.")
         return 1
-    if count < baseline:
-        print(f"::error::{count} method families are copied into {MIN_COPIES}+ files, below the baseline of {baseline}. "
-              f"Lower it in this change: bash scripts/check-duplication.sh --update")
-        return 1
-    print(f"duplication: {count} method families, at the baseline")
+    gone = baseline - current
+    if gone:
+        print(f"::notice::{sum(gone.values())} method families are gone: {', '.join(sorted(gone.elements()))}. "
+              "Drop them from the baseline: bash scripts/check-duplication.sh --update")
+    print(f"duplication: {len(found)} method families, none beyond the baseline")
     return 0
 
 

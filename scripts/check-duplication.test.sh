@@ -33,56 +33,59 @@ check() {
 
 new_repo
 method src/A/One.cs "$body"; method src/B/Two.cs "$body"; method src/C/Three.cs "$body"
-baseline 1
-check 'three copies at the baseline' 0 '1 method families, at the baseline'
-baseline 0
-check 'a family above the baseline' 1 'src/C/Three.cs:4'
-baseline 2
-check 'a count below the baseline' 1 'check-duplication.sh --update'
-check 'update lowers the baseline' 0 'baseline set to 1' --update
-check 'the updated baseline holds' 0 'at the baseline'
+baseline 'Sum(string[], int)'
+check 'a family the baseline lists' 0 '1 method families, none beyond the baseline'
+baseline ''
+check 'a family the baseline does not list' 1 'src/C/Three.cs:4'
+baseline 'Other(int)'
+check 'swapping one family for another' 1 '1 new method families'
+baseline "$(printf 'Gone(int)\nSum(string[], int)')"
+check 'a family gone passes and says so' 0 'families are gone: Gone(int)'
+check 'update drops a gone family' 0 'baseline set to 1 families' --update
+check 'the updated baseline holds' 0 'none beyond the baseline'
+[ "$(cat "$repo/scripts/check-duplication.baseline")" = 'Sum(string[], int)' ] || { echo 'FAIL: update writes the family names'; fail=1; }
 
 new_repo
 method src/A/One.cs "$body"; method src/B/Two.cs "$body"
-baseline 0
-check 'two copies are not a family' 0 'at the baseline'
+baseline ''
+check 'two copies are not a family' 0 'none beyond the baseline'
 method src/B/Other.cs "$body"
 check 'a third file makes a family' 1 'x3'
 git -C "$repo" rm -q -f src/B/Other.cs
 method test/T/Three.cs "$body"
-check 'copies outside src are ignored' 0 'at the baseline'
+check 'copies outside src are ignored' 0 'none beyond the baseline'
 cp "$repo/src/A/One.cs" "$repo/src/B/Untracked.cs"
-check 'untracked copies are ignored' 0 'at the baseline'
+check 'untracked copies are ignored' 0 'none beyond the baseline'
 
 new_repo
 method src/A/One.cs "$body"; method src/B/Two.cs "$body"; method src/C/Three.cs "$other"
-baseline 0
-check 'a dissimilar third body' 0 'at the baseline'
+baseline ''
+check 'a dissimilar third body' 0 'none beyond the baseline'
 method src/D/Four.cs "${body/limit)/limit + 1)}"
 check 'a near-identical third body' 1 'x3'
 
 new_repo
 for f in A B C; do method "src/$f/Short.cs" 'return items.Length + limit;'; done
-baseline 0
-check 'one-line bodies are not a family' 0 'at the baseline'
+baseline ''
+check 'one-line bodies are not a family' 0 'none beyond the baseline'
 
 new_repo
 spaces="$(printf '%120s' '')"
 for f in A B C; do method "src/$f/Padded.cs" "return \"$spaces\" + limit;"; done
-baseline 0
-check 'whitespace inside a literal is not body size' 0 'at the baseline'
+baseline ''
+check 'whitespace inside a literal is not body size' 0 'none beyond the baseline'
 
 new_repo
 interpolated='return $"the running total of every single item measured over the configured length limit {limit COMMENT} is {items.Sum(i => i.Length)} across {items.Length} items";'
 for f in A B C; do method "src/$f/Note.cs" "${interpolated/COMMENT//* $f */}"; done
-baseline 0
+baseline ''
 check 'a comment inside an interpolation is not code' 1 'x3'
 
 new_repo
 variadic='int limit, params string[] items'
 method src/A/One.cs "$body" "$variadic"; method src/B/Two.cs "$body" "$variadic"; method src/C/Three.cs "$body" 'int limit, string[] items'
-baseline 0
-check 'a params array is part of the signature' 0 'at the baseline'
+baseline ''
+check 'a params array is part of the signature' 0 'none beyond the baseline'
 method src/D/Four.cs "$body" "$variadic"
 check 'three params copies are a family' 1 'Sum(int, params string[]) x3'
 
@@ -100,8 +103,8 @@ new_repo
 method src/A/One.cs "$body"
 check 'a missing baseline is a checker failure' 2 'Duplication scan failed'
 printf 'class C { void M() { int x = 1 } }\n' > "$repo/src/A/Broken.cs"
-baseline 0
+baseline ''
 git -C "$repo" add -A
-check 'a syntax error does not stop the scan' 0 'at the baseline'
+check 'a syntax error does not stop the scan' 0 'none beyond the baseline'
 
 [ "$fail" -eq 0 ] && echo 'ok' || exit 1
