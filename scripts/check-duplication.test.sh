@@ -67,6 +67,18 @@ baseline 0
 check 'one-line bodies are not a family' 0 'at the baseline'
 
 new_repo
+spaces="$(printf '%120s' '')"
+for f in A B C; do method "src/$f/Padded.cs" "return \"$spaces\" + limit;"; done
+baseline 0
+check 'whitespace inside a literal is not body size' 0 'at the baseline'
+
+new_repo
+interpolated='return $"the running total of every single item measured over the configured length limit {limit COMMENT} is {items.Sum(i => i.Length)} across {items.Length} items";'
+for f in A B C; do method "src/$f/Note.cs" "${interpolated/COMMENT//* $f */}"; done
+baseline 0
+check 'a comment inside an interpolation is not code' 1 'x3'
+
+new_repo
 variadic='int limit, params string[] items'
 method src/A/One.cs "$body" "$variadic"; method src/B/Two.cs "$body" "$variadic"; method src/C/Three.cs "$body" 'int limit, string[] items'
 baseline 0

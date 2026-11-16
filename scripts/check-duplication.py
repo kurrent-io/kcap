@@ -44,6 +44,22 @@ def parse(path):
     return PARSER.parse(Path(path).read_bytes()).root_node
 
 
+def literal_text(node):
+    """A node's source less any comment inside it, which only an interpolation can hold."""
+    data = node.text
+    cuts = []
+    stack = list(node.children)
+    while stack:
+        current = stack.pop()
+        if current.type == "comment":
+            cuts.append((current.start_byte - node.start_byte, current.end_byte - node.start_byte))
+        else:
+            stack.extend(current.children)
+    for start, end in sorted(cuts, reverse=True):
+        data = data[:start] + data[end:]
+    return data.decode("utf-8", "replace")
+
+
 def tokens(node):
     """Yields (row, text, kind) per token, comments dropped; a literal, even a multi-line one, is one token."""
     stack = [node]
@@ -52,7 +68,7 @@ def tokens(node):
         if current.type == "comment":
             continue
         if current.type in LITERALS or current.child_count == 0:
-            text = current.text.decode("utf-8", "replace")
+            text = literal_text(current)
             if text:
                 kind = "L" if current.type in LITERALS else "I" if current.type == "identifier" else ""
                 yield current.start_point[0], text, kind
@@ -106,7 +122,7 @@ def families(roots):
         for node in methods(root):
             key = signature(node)
             text = body(node)
-            if key and text and sum(map(len, text)) >= MIN_BODY_CHARS:
+            if key and text and sum(len("".join(t.split())) for t in text) >= MIN_BODY_CHARS:
                 by_signature[key].append((path, node.start_point[0] + 1, text))
     found = []
     for key, copies in by_signature.items():
