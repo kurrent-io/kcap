@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
+using System.Web;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Harness.OpenCode;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -327,5 +329,37 @@ public class OpenCodeImportSourceTests {
         var body        = JsonNode.Parse(startEntry.RequestMessage.Body!)!.AsObject();
 
         await Assert.That(body["workspace_root"]).IsNull();
+    }
+
+    /// <summary>A child id is whatever OpenCode's database holds, so a reserved character in it must
+    /// reach the descendant watermark probe as data, not as query syntax.</summary>
+    [Test]
+    public async Task import_session_probes_a_descendant_watermark_with_its_exact_agent_id() {
+        const string childId = "ses_a&b #c+d";
+        using var fix = new OpenCodeDbFixture();
+        fix.AddSession("ses_root", null, fix.Dir, "T", 100);
+        fix.AddMessageWithText("ses_root", "m1", "hello", 100);
+        fix.AddSession(childId, "ses_root", fix.Dir, "Child", 110);
+        fix.AddMessageWithText(childId, "m2", "child hello", 110);
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/hooks/*").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+        var ctx = new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home);
+
+        var source     = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, ctx, CancellationToken.None);
+
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        var probedAgentIds = server.LogEntries
+            .Where(e => e.RequestMessage.Path.EndsWith("/last-line", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.RequestMessage.RawQuery))
+            .SelectMany(e => HttpUtility.ParseQueryString(e.RequestMessage.RawQuery!).GetValues("agentId") ?? [])
+            .ToArray();
+
+        await Assert.That(probedAgentIds).IsEquivalentTo(new[] { OpenCodeSubagentDiscovery.CanonicalAgentId(childId) });
     }
 }

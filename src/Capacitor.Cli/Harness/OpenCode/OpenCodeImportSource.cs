@@ -1,4 +1,3 @@
-using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
@@ -463,18 +462,8 @@ internal sealed class OpenCodeImportSource : IImportSource {
         return d;
     }
 
-    async Task<int?> FetchServerLastLineAsync(
-        HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) {
-        var url = $"{baseUrl}/api/sessions/{sessionId}/last-line" + (agentId is not null ? $"?agentId={agentId}" : "");
-        using var resp = await http.GetWithRetryAsync(url, _time, ct: ct);
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32() : null;
-    }
+    Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) =>
+        Client(http, baseUrl).FetchServerLastLineAsync(sessionId, ct, agentId);
 
     RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
 }

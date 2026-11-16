@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
@@ -290,14 +289,6 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
 
     RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, time, baseUrl);
 
-    async Task<int?> LastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) {
-        var url = $"{baseUrl}/api/sessions/{sessionId}/last-line" + (agentId is not null ? $"?agentId={agentId}" : "");
-        using var resp = await http.GetWithRetryAsync(url, time, ct: ct);
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number ? ln.GetInt32() : null;
-    }
+    Task<int?> LastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) =>
+        Client(http, baseUrl).FetchServerLastLineAsync(sessionId, ct, agentId);
 }
