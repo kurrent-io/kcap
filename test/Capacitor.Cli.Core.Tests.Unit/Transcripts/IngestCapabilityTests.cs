@@ -32,23 +32,25 @@ public class IngestCapabilityTests : IDisposable {
         await Assert.That(_server.LogEntries.Count).IsEqualTo(1);
     }
 
+    /// <summary>A definite no holds for the process, so a producer with many streams asks once.</summary>
     [Test]
-    public async Task A_server_without_the_route_does_not_support_it() {
-        Reply(404);
+    [Arguments(404, "")]
+    [Arguments(200, """{"canonical_format":0}""")]
+    public async Task A_definite_no_is_asked_once(int status, string body) {
+        Reply(status, body);
+        var capability = Capability();
 
-        await Assert.That(await Capability().SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
+        await Assert.That(await capability.SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
+        await Assert.That(await capability.SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
+        await Assert.That(_server.LogEntries.Count).IsEqualTo(1);
     }
 
+    /// <summary>A failure says nothing about the server, so the next call asks again.</summary>
     [Test]
-    public async Task An_unknown_format_does_not_support_it() {
-        Reply(200, """{"canonical_format":0}""");
-
-        await Assert.That(await Capability().SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
-    }
-
-    [Test]
-    public async Task A_server_fault_is_not_cached() {
-        Reply(500);
+    [Arguments(500, "")]
+    [Arguments(200, "not json")]
+    public async Task A_failed_answer_is_not_cached(int status, string body) {
+        Reply(status, body);
         var capability = Capability();
 
         await Assert.That(await capability.SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
