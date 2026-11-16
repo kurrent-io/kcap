@@ -6,6 +6,7 @@ using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Handoff;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using DynamicData;
@@ -1331,8 +1332,9 @@ public class HandoffComposerViewModelTests {
 
     // ---- source choices ----
 
-    static ActivitySessionDto Summary(string? model) => new() {
+    static ActivitySessionDto Summary(string? model, string? effort = null, string? permissionMode = null) => new() {
         SessionId = SessionId, Status = "ended", StartedAt = DateTimeOffset.UnixEpoch, Model = model,
+        Effort = effort, PermissionMode = permissionMode,
     };
 
     [Test]
@@ -1364,6 +1366,59 @@ public class HandoffComposerViewModelTests {
 
             await Assert.That(vm.Choices.SelectedModel).IsEqualTo("");
         });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_source_sessions_effort_and_permission_mode_are_the_defaults_and_start_the_hand_off() => Run(async rig => {
+        rig.Session = rig.Session with { Vendor = "claude" };
+        rig.Sessions.Summary = Summary(null, "xhigh", "acceptEdits");
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That((vm.Choices.SelectedEffort, vm.Choices.SelectedPermissionMode)).IsEqualTo(("xhigh", "acceptEdits"));
+        await vm.StartCommand.Execute();
+        var launch = rig.Launch.Requests.Single();
+        await Assert.That((launch.Effort, launch.PermissionMode)).IsEqualTo(("xhigh", "acceptEdits"));
+    });
+
+    public static IEnumerable<Func<(string Case, string Vendor, string? Effort, string? Mode, string? ExpectedEffort, string ExpectedMode)>> SourceSettings() {
+        yield return () => ("a server that keeps neither", "claude", null, null, null, HomeViewModel.DefaultPermissionMode);
+        yield return () => ("values the pickers do not offer", "claude", "turbo", "plan", null, HomeViewModel.DefaultPermissionMode);
+        yield return () => ("Claude's own name for manual", "claude", "low", "default", "low", ClaudePermissionModes.Manual);
+        yield return () => ("an agent without permission modes", "codex", "high", "bypassPermissions", "high", HomeViewModel.DefaultPermissionMode);
+        yield return () => ("an agent this daemon does not host", "gemini", "high", "acceptEdits", null, HomeViewModel.DefaultPermissionMode);
+    }
+
+    [Test]
+    [MethodDataSource(nameof(SourceSettings))]
+    [NotInParallel("AvaloniaSession")]
+    public Task Only_a_setting_the_agent_offers_replaces_its_default(
+            (string Case, string Vendor, string? Effort, string? Mode, string? ExpectedEffort, string ExpectedMode) source) =>
+        Run(async rig => {
+            rig.Session = rig.Session with { Vendor = source.Vendor };
+            rig.Sessions.Summary = Summary(null, source.Effort, source.Mode);
+            var vm = await rig.ReadyAsync();
+
+            await Assert.That((vm.Choices.SelectedEffort, vm.Choices.SelectedPermissionMode)).IsEqualTo((source.ExpectedEffort, source.ExpectedMode));
+        });
+
+    /// Each chip settles on its own: picking effort and permission mode keeps the source model coming.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Effort_and_permission_mode_picked_while_the_read_is_pending_are_kept() => Run(async rig => {
+        rig.Session = rig.Session with { Vendor = "claude" };
+        rig.Sessions.Summary = Summary("claude-opus-5", "max", "bypassPermissions");
+        rig.Sessions.SummaryGate = new TaskCompletionSource();
+        var vm = rig.Build();
+        var ready = vm.InitializeAsync(CancellationToken.None);
+        await rig.Sessions.SummaryHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        vm.Choices.SelectedEffort = null;
+        await vm.Choices.ChoosePermissionModeAsync(ClaudePermissionModes.Auto);
+        rig.Sessions.SummaryGate.SetResult();
+        await ready;
+
+        await Assert.That((vm.Choices.SelectedEffort, vm.Choices.SelectedPermissionMode)).IsEqualTo(((string?)null, ClaudePermissionModes.Auto));
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("claude-opus-5");
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -1418,8 +1473,8 @@ public class HandoffComposerViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_returned_draft_outranks_the_source_model() => Run(async rig => {
-        rig.Sessions.Summary = Summary("gpt-5.6");
+    public Task A_returned_draft_outranks_the_source_choices() => Run(async rig => {
+        rig.Sessions.Summary = Summary("gpt-5.6", "max");
         rig.Drafts.KeepFailed(SessionId, new HandoffDraft("carry on", [], "codex", "", "low",
             HomeViewModel.DefaultPermissionMode, null, null, null));
         var vm = await rig.ReadyAsync();
