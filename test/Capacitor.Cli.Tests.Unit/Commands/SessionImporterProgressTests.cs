@@ -411,6 +411,29 @@ public class SessionImporterProgressTests : IDisposable {
             .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
 
+    /// <summary>A batch the server refused is not stored, so the route's projection has run past what the server holds:
+    /// the batches after it go raw.</summary>
+    [Test]
+    public async Task A_lenient_import_sends_raw_after_a_canonical_batch_the_server_refused() {
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost()).RespondWith(Response.Create().WithStatusCode(500));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp = TempDir.WithPathTo("session.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, Enumerable.Range(0, 250).Select(n => ClaudeLine(n % 60)));
+
+        var events = new List<ImportProgress>();
+        using var client = new HttpClient();
+        await SessionImporter.SendTranscriptBatches(
+            client, _server.Url!, "s1", path, agentId: null, startLine: 0, TimeProvider.System,
+            progress: new SyncProgress<ImportProgress>(events.Add),
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(string.Join(" ", TranscriptPosts())).IsEqualTo($"{CanonicalRoute.HttpPath} /hooks/transcript /hooks/transcript");
+        await Assert.That(events.OfType<BatchDropped>().Count()).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_codex_import_sends_raw_lines_only() {
         ServeCanonical();

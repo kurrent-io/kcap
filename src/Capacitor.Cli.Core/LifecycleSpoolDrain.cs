@@ -201,8 +201,13 @@ public static class LifecycleSpoolDrain {
 
         try {
             using var resp = await TranscriptPost.SendOnceAsync(client, baseUrl, batch, body, route, time, PostTimeout, ct);
+            if (resp.IsSuccessStatusCode) return DrainOutcome.Delivered;
 
-            return resp.IsSuccessStatusCode ? DrainOutcome.Delivered : HookSpool.OutcomeOf((int)resp.StatusCode);
+            var outcome = HookSpool.OutcomeOf((int)resp.StatusCode);
+            // The pass goes on past a dropped batch, which the route's projection has run past.
+            if (outcome == DrainOutcome.Drop) route?.FallBack();
+
+            return outcome;
         } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
             return DrainOutcome.TransientStop;
         }

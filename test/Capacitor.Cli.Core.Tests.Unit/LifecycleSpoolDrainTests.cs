@@ -151,6 +151,34 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(tx.HasBacklog(sid)).IsFalse();
     }
 
+    /// <summary>A dropped batch is not stored, so the route's projection has run past what the server holds: the
+    /// stream's next batch goes raw.</summary>
+    [Test]
+    public async Task A_spooled_claude_batch_after_a_dropped_canonical_one_drains_raw() {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeAssistant(1)], [1], null));
+
+        var paths = new List<string>();
+        using var handler = new StubHandler((req, _) => {
+            var path = req.RequestUri!.AbsolutePath;
+            paths.Add(path);
+
+            return path == Capabilities ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : path == CanonicalRoute.HttpPath ? new HttpResponseMessage(HttpStatusCode.BadRequest)
+                : new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        await Assert.That(string.Join(" ", paths)).IsEqualTo($"{Capabilities} {CanonicalRoute.HttpPath} /hooks/transcript");
+    }
+
     /// <summary>Line 3 repeats line 2's usage, so only a projection that has seen line 2 knows it is not new.</summary>
     [Test]
     public async Task A_spooled_claude_tail_projects_after_the_lines_before_it_in_its_transcript() {
