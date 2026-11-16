@@ -119,13 +119,8 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
         _listingRetry = new(_time, RetryDelays);
         _accountsRetry = new(_time, RetryDelays);
         var wait = debounce ?? TimeSpan.FromMilliseconds(250);
-        var connected = lane.Status
-            .Select(s => s.State == ServerLaneState.Connected)
-            .DistinctUntilChanged()
-            .Where(c => c)
-            .Select(_ => System.Reactive.Unit.Default);
         // Not an edge: the lane can publish Connected twice in a row, and each one resets the
-        // listing and supersedes the fetch in flight, so each needs a fetch of its own.
+        // listing, can clear the rows, and supersedes the fetch in flight, so each needs a fetch of its own.
         var everyConnect = lane.Status
             .Where(s => s.State == ServerLaneState.Connected)
             .Select(_ => System.Reactive.Unit.Default);
@@ -161,9 +156,9 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
                     _generation++;
                     _lastSubject = s.Subject;
                 } else {
-                    // An unread subject is not evidence of the same account: what this connection lists
-                    // must still be cleared if the next one names somebody.
-                    _lastSubject ??= UnreadSubject;
+                    // An unread subject is not evidence of any account, the last one included: what
+                    // this connection lists must be cleared when the next one names somebody.
+                    _lastSubject = UnreadSubject;
                 }
                 _listingGeneration++;
                 _lastLaneEpoch = s.Epoch;
@@ -185,7 +180,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
             .Select(_ => Observable.FromAsync(() => RefreshDaemonAccountsAsync()))
             .Merge()
             .Subscribe();
-        var refreshAgents = connected.Merge(lane.AgentInstancesChanged.Throttle(wait))
+        var refreshAgents = everyConnect.Merge(lane.AgentInstancesChanged.Throttle(wait))
             .Select(_ => Observable.FromAsync(async () => await RefreshAgentsAsync(fetchAgents)))
             .Merge()
             .Subscribe();

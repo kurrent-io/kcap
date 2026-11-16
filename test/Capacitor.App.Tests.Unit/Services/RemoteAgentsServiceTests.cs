@@ -119,6 +119,47 @@ public class RemoteAgentsServiceTests {
         await Eventually(() => seen is { Count: 0 });
     }
 
+    /// The connection that names an account after an unread one clears the rows, so it must fetch them
+    /// again itself: Connected to Connected is no edge, and no push may ever come.
+    [Test]
+    public async Task ANamedSubjectAfterAnUnreadOneRefetchesTheRowsItCleared() {
+        var calls = 0;
+        var lane = new FakeServerLane();
+        using var svc = new RemoteAgentsService(
+            lane, _ => Task.FromResult(new RemoteFetch([Agent(Interlocked.Increment(ref calls) == 1 ? "a1" : "a2")])), TimeSpan.Zero);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => svc.Agents.Lookup("a1").HasValue);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+
+        await Eventually(() => svc.Agents.Lookup("a2").HasValue);
+        await Assert.That(svc.Agents.Lookup("a1").HasValue).IsFalse();
+    }
+
+    /// An unread connection between two under the same name is no evidence it was that account, so
+    /// what it listed is cleared even when the named reconnect's own fetch fails.
+    [Test]
+    public async Task AnUnreadConnectionBetweenTwoUnderTheSameNameIsCleared() {
+        var listing = (IReadOnlyList<DaemonInfo>?)[new DaemonInfo { Name = "u1-mac", Connected = true }];
+        var lane = new FakeServerLane { DaemonsHandler = () => Task.FromResult(listing) };
+        using var svc = new RemoteAgentsService(lane, _ => Task.FromResult(new RemoteFetch([])), TimeSpan.Zero);
+        IReadOnlyList<DaemonInfo>? seen = null;
+        using var sub = svc.Daemons.Subscribe(d => seen = d);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+        await Eventually(() => seen is [{ Name: "u1-mac" }]);
+
+        listing = [new DaemonInfo { Name = "u2-mac", Connected = true }];
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => seen is [{ Name: "u2-mac" }]);
+
+        listing = null;
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+
+        await Eventually(() => seen is { Count: 0 });
+    }
+
     // A fetch started under u1 that is still gated when u2's identity-change clear lands must
     // never repopulate the cache the clear just emptied.
     [Test]
@@ -1121,6 +1162,7 @@ public class RemoteAgentsServiceTests {
         await Eventually(() => svc.Agents.Count == 1);
         await svc.RenameAsync("a1", "s1", "New", CancellationToken.None);
 
+        rows.Set();
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2"));
         await Assert.That(svc.Agents.Count).IsEqualTo(0);
         await Serve(lane, svc, rows, "z", Titled("a1", "s1", null));
