@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
@@ -182,6 +183,7 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain(secretMarker);
         await Assert.That(result).IsEqualTo(SecretRedactor.OversizeLinePlaceholder);
+        await Assert.That(CaptureLossLine.Is(result)).IsTrue();
         // A wedged regex does not return at all, so the budget only has to be short of "hung" —
         // tightening it further measures the scheduler rather than the size cap.
         await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));

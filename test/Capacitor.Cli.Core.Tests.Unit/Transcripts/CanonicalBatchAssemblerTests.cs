@@ -82,13 +82,28 @@ public class CanonicalBatchAssemblerTests {
         await Assert.That(batch.CaptureLoss).IsNull();
     }
 
+    /// The marker kcap writes, one with its type further in, and the two forms older CLIs wrote, as the server's parser
+    /// takes each. Projected, a marker would clear the usage memory and line 2's repeated usage would count again.
     [Test]
-    public async Task A_capture_loss_line_travels_verbatim() {
-        var batch = Claude().Assemble(Raw(0, User(1, "hi"), CaptureLoss, Assistant(3, "hello", 1, 10)), Received);
+    [Arguments(CaptureLoss)]
+    [Arguments("""{"version":1,"type":"kcap_capture_loss","reason":"regex_timeout"}""")]
+    [Arguments("""{"type":"redacted_oversize_line","reason":"line exceeded SecretRedactor size limit"}""")]
+    [Arguments("""{"type":"redacted_unparsable_line","reason":"redacted line was no longer valid JSON"}""")]
+    public async Task A_capture_loss_line_travels_verbatim(string marker) {
+        var batch = Claude().Assemble(Raw(0, Assistant(1, "a", null, 10), marker, Assistant(3, "b", 1, 10)), Received);
 
-        await Assert.That(batch.CaptureLoss!).IsEquivalentTo([new CanonicalBatchCaptureLoss(1, CaptureLoss)], CollectionOrdering.Matching);
+        await Assert.That(batch.CaptureLoss!).IsEquivalentTo([new CanonicalBatchCaptureLoss(1, marker)], CollectionOrdering.Matching);
         await Assert.That(batch.Lines.Select(l => l.Number)).IsEquivalentTo([0, 1, 2], CollectionOrdering.Matching);
         await Assert.That(batch.Events.Select(e => e.Line)).IsEquivalentTo([0, 2], CollectionOrdering.Matching);
+        await Assert.That(batch.Events[1].Usage).IsNull();
+    }
+
+    [Test]
+    public async Task A_line_that_only_mentions_a_capture_loss_type_is_projected() {
+        var batch = Claude().Assemble(Raw(0, User(1, "is kcap_capture_loss a redacted_oversize_line?")), Received);
+
+        await Assert.That(batch.CaptureLoss).IsNull();
+        await Assert.That(batch.Events.Length).IsEqualTo(1);
     }
 
     [Test]

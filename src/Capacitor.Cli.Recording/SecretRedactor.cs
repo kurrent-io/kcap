@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Recording;
@@ -15,10 +16,10 @@ public static partial class SecretRedactor {
     internal const string RedactedMarker = "[REDACTED]";
 
     internal const string OversizeLinePlaceholder =
-        """{"type":"redacted_oversize_line","reason":"line exceeded SecretRedactor size limit"}""";
+        $$"""{"type":"{{CaptureLossLine.OversizeType}}","reason":"line exceeded SecretRedactor size limit"}""";
 
     internal const string UnparsableOutputPlaceholder =
-        """{"type":"redacted_unparsable_line","reason":"redacted line was no longer valid JSON"}""";
+        $$"""{"type":"{{CaptureLossLine.UnparsableType}}","reason":"redacted line was no longer valid JSON"}""";
 
     // A deadline only a super-linear pattern reaches: the linear patterns together cost about
     // 90 ns per char, so a 16M-char value takes under two seconds, while the JSON-key pattern is
