@@ -10,7 +10,7 @@ using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 
-namespace Capacitor.App.Tests.Unit;
+namespace Capacitor.App.Tests.Unit.ViewModels;
 
 [NotInParallel("AvaloniaSession")]
 public class LocalFrameInterruptPresentationTests {
@@ -44,6 +44,14 @@ public class LocalFrameInterruptPresentationTests {
             await Assert.That(rig.Chat.AgentStatus.IsRunningUnknownTurn).IsTrue();
             await Assert.That(rig.Chat.ControlNote).IsEqualTo(Note);
             await Assert.That(rig.Chat.ShowsInterrupt).IsFalse();
+        });
+
+    [Test]
+    public Task An_attached_session_whose_stop_only_disconnects_steering_gets_no_explanation() =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            await using var rig = new Rig(AgentActionService.AttachedKind);
+            await rig.PushAsync("Running", false);
+            await Assert.That(rig.Chat.ControlNote).IsNull();
         });
 
     [Test]
@@ -108,7 +116,10 @@ public class LocalFrameInterruptPresentationTests {
         public LocalFrameChatInput Input { get; }
         public ChatTabViewModel Chat { get; }
 
-        public Rig() {
+        readonly string _kind;
+
+        public Rig(string kind = "agent") {
+            _kind = kind;
             Connected();
             Input = new LocalFrameChatInput("a1", Daemon, Ops, Presence);
             var time = new FakeTimeProvider();
@@ -119,7 +130,7 @@ public class LocalFrameInterruptPresentationTests {
         public void Connected() => Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1"]));
 
         public async Task PushAsync(string status, bool? awaitingInput) {
-            var dto = Agent("a1", "pi", hasTerminal: false) with { Status = status, AwaitingInput = awaitingInput };
+            var dto = Agent("a1", "pi", hasTerminal: false, kind: _kind) with { Status = status, AwaitingInput = awaitingInput };
             Daemon.Agents.AddOrUpdate(dto);
             Presence.OnNext(new AgentPresence(dto, status == "Completed"));
             await (Chat.PendingReadForTesting ?? Task.CompletedTask);
