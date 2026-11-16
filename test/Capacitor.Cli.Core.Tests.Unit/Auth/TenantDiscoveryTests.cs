@@ -71,8 +71,8 @@ public class TenantDiscoveryTests {
 
         await Assert.That(outcome.ErrorMessage!).Contains("unreachable");
         // A discovery-service failure ALSO returns zero tenants but must NOT be counted as
-        // "reached signup, has no tenant" — that was the bug: SetupCommand used to key off
-        // outcome.Tenants.Length == 0 alone, which conflated this with the genuine case above.
+        // "reached signup, has no tenant": keying off outcome.Tenants.Length == 0 alone conflates
+        // this with the genuine case above.
         await Assert.That(outcome.NoTenantsFound).IsFalse();
     }
 

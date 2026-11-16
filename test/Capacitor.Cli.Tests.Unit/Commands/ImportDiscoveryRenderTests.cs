@@ -136,4 +136,36 @@ public class ImportDiscoveryRenderTests {
         await Assert.That(ImportDiscoveryRender.ToText(summary))
                     .Contains("no sessions could be attributed to a repository");
     }
+
+    static ImportDiscoverySummary WithAnIgnoredFolder() =>
+        ImportDiscoverySummary.Build(
+            [("a", null), ("b", null), ("c", null)],
+            new Dictionary<string, (string Owner, string Name)?>(),
+            [new ImportDiscoveryWindow(FirstRunImportWindows.Everything, null)],
+            folderBySession: new Dictionary<string, string> { ["a"] = "/w/scratch", ["b"] = "/w/secret", ["c"] = "/w/secret" },
+            ignoredSessions: new HashSet<string> { "b", "c" });
+
+    [Test]
+    public async Task Text_lists_an_ignored_folder_as_left_out_not_as_unmatched() {
+        var lines = ImportDiscoveryRender.ToText(WithAnIgnoredFolder()).Split(Environment.NewLine);
+
+        var unmatched = Array.FindIndex(lines, l => l.Contains("couldn't match to a repository: 1"));
+        var leftOut   = Array.FindIndex(lines, l => l.Contains("left out by kcap ignore, excluded_repos or an allow list: 2"));
+
+        await Assert.That(unmatched).IsGreaterThanOrEqualTo(0);
+        await Assert.That(leftOut).IsGreaterThan(unmatched);
+        await Assert.That(lines[unmatched..leftOut].Any(l => l.Contains("secret"))).IsFalse();
+        await Assert.That(lines[leftOut + 1]).IsEqualTo("    /w/secret  (2 sessions)");
+        await Assert.That(lines[(leftOut + 1)..].Any(l => l.Contains("kcap remap"))).IsFalse();
+    }
+
+    [Test]
+    public async Task Json_carries_the_ignored_sessions_apart_from_the_unmatched_ones() {
+        var root = JsonNode.Parse(ImportDiscoveryRender.ToJson(WithAnIgnoredFolder()))!.AsObject();
+
+        await Assert.That(root["unmatched_sessions"]!.GetValue<int>()).IsEqualTo(1);
+        await Assert.That(root["ignored"]!["count"]!.GetValue<int>()).IsEqualTo(2);
+        await Assert.That(root["ignored"]!["folders"]!.AsArray()[0]!["folder"]!.GetValue<string>()).IsEqualTo("/w/secret");
+        await Assert.That(root["ignored"]!["folders"]!.AsArray()[0]!["sessions"]!.GetValue<int>()).IsEqualTo(2);
+    }
 }

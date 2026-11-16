@@ -274,8 +274,6 @@ public class AgentOrchestratorBorrowLaunchTests {
     }
 
     // ── Borrowed-snapshot regression net (two distinct checkouts) ─────────────────────────
-    // docs/superpowers/specs/2026-07-27-ai1528-trust-by-default-borrowed-review-design.md
-    //
     // TWO checkouts are mandatory. The orchestrator snapshots the borrow cwd's own canonical git
     // root, deliberately INDEPENDENT of the launch command's registered RepoPath, so a test pointing
     // both at one directory would satisfy every content assertion below while proving nothing about
@@ -336,7 +334,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             await Assert.That(server.LaunchFailedCalls).IsEmpty();
             var ctx = factory.LastContext!;
 
-            // (1) THE assertion that pins the fix: the snapshot was derived from the requester's git
+            // (1) THE load-bearing assertion: the snapshot was derived from the requester's git
             // root, not the registered one. Everything below is secondary to this.
             await Assert.That(ctx.Worktree.SourceRepo).IsEqualTo(canonicalRequester);
             await Assert.That(ctx.Worktree.SourceRepo).IsNotEqualTo(canonicalDaemon);
@@ -477,7 +475,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             await Assert.That(server.LaunchFailedCalls).IsEmpty();
             var ctx = factory.LastContext!;
 
-            // (1) THE assertion that pins the fix: derived from the requester's git root, not the
+            // (1) THE load-bearing assertion: derived from the requester's git root, not the
             // registered one. Content assertions alone pass against the stale-base behaviour.
             await Assert.That(ctx.Worktree.SourceRepo).IsEqualTo(canonicalRequester);
             await Assert.That(ctx.Worktree.SourceRepo).IsNotEqualTo(canonicalDaemon);

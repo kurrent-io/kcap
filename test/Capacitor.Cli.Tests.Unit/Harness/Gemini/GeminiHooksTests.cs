@@ -119,7 +119,7 @@ public class GeminiHooksTests {
         await Assert.That(await File.ReadAllTextAsync(settingsPath)).IsEqualTo(original);
     }
 
-    // status parity (PR #169): `kcap status` renders the Gemini ✓/✗ marker via
+    // status parity: `kcap status` renders the Gemini ✓/✗ marker via
     // GeminiHooksInstaller.IsInstalled, so both detection branches need direct
     // coverage — the marker file, and the settings-hooks fallback when no marker
     // is present. Mirrors the Cursor/Pi installer-detection tests.

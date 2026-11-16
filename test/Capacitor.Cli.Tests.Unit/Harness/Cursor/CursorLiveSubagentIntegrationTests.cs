@@ -19,14 +19,9 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 /// <para>
 /// Scenarios here seed the link marker (and ack) DIRECTLY. A test may depend on that
 /// persistent state, but must never assert that a CHILD LIFECYCLE HOOK produces it: a real
-/// Cursor subagent child fires neither sessionStart nor sessionEnd, so four tests that
-/// asserted those triggers (child sessionStart → subagent-start, child sessionEnd →
-/// subagent-stop, the transcript-routing variant, and the stop-ordering guard) were removed
-/// rather than relabelled — keeping them would have preserved an obsolete contract and the
-/// false confidence that came with it. A native revival must be driven by the PARENT's
-/// subagentStart/subagentStop, so the stop-ordering invariant is deferred until that design
-/// defines how subagentStop is keyed and spooled. See
-/// docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md
+/// Cursor subagent child fires neither sessionStart nor sessionEnd. A native revival must be
+/// driven by the PARENT's subagentStart/subagentStop, so the stop-ordering invariant has no pin
+/// until that design defines how subagentStop is keyed and spooled.
 /// </para>
 /// </summary>
 public class CursorLiveSubagentIntegrationTests {
@@ -86,10 +81,9 @@ public class CursorLiveSubagentIntegrationTests {
     /// </summary>
     [Test]
     public async Task live_agent_id_matches_the_dashless_id_the_import_path_would_use() {
-        // Exercises the payload seam DIRECTLY. This previously drove a child sessionStart and
-        // asserted a subagent-start came back — the exact child-lifecycle trigger this suite no
-        // longer asserts (see the class doc). The parity property lives in the builder, not in
-        // how the builder happens to be reached, so nothing is lost by testing it here.
+        // Exercises the payload seam DIRECTLY rather than through a child sessionStart, which a
+        // real Cursor child never fires (see the class doc). The parity property lives in the
+        // builder, not in how the builder happens to be reached.
         var childRaw = Guid.NewGuid().ToString();  // dashed, as Cursor emits
         var childId  = CursorImportSource.NormalizeCursorSessionId(childRaw);
         var parentId = CursorImportSource.NormalizeCursorSessionId(Guid.NewGuid().ToString());

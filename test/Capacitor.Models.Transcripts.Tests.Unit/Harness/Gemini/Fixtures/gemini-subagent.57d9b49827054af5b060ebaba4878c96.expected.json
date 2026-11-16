@@ -1,0 +1,387 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "297dbfc8-3ae7-428c-bb2d-1e298bee8960",
+        "timestamp": "2026-06-22T14:31:13.9340000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:31:13.934Z",
+        "payload": {
+          "content": "Your task is to do a deep investigation of the codebase to find all relevant files, code locations, architectural mental map and insights to solve  for the following user objective:\n\u003Cobjective\u003E\nList the files in the current directory and describe in one sentence what each contains.\n\u003C/objective\u003E",
+          "timestamp": "2026-06-22T14:31:13.934Z"
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "a195fb3d-1ad7-bac8-f0aa-e4bec8b2757a",
+        "timestamp": "2026-06-22T14:31:48.6090000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:31:48.609Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "list_directory__fa0a64zs",
+              "toolName": "list_directory",
+              "arguments": {
+                "dir_path": "/work/demo/"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "timestamp": "2026-06-22T14:31:48.609Z",
+          "extensions": {
+            "gemini": {
+              "display_name": "ReadFolder",
+              "description": ".",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": {
+          "inputTokens": "3106",
+          "outputTokens": "82",
+          "totalTokens": "3188",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "42",
+          "model": "gemini-3-flash-preview"
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "61779c00-1042-2561-eaa8-e786eb85d010",
+        "timestamp": "2026-06-22T14:31:48.6090001\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:31:48.609Z",
+        "payload": {
+          "callId": "list_directory__fa0a64zs",
+          "result": "Directory listing for /work/demo:\ncalc.py (32 bytes)\nREADME.md (28 bytes)",
+          "timestamp": "2026-06-22T14:31:48.609000100Z",
+          "extensions": {
+            "gemini": {
+              "success": true,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "2c6aca97-6d7d-7215-ca4c-7ad37cbc412d",
+        "timestamp": "2026-06-22T14:32:47.5610000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:32:47.561Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_file__8tsf7fpz",
+              "toolName": "read_file",
+              "arguments": {
+                "file_path": "/work/demo/calc.py"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-22T14:32:47.561Z",
+          "extensions": {
+            "gemini": {
+              "display_name": "ReadFile",
+              "description": "calc.py",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": {
+          "inputTokens": "3329",
+          "outputTokens": "85",
+          "totalTokens": "3414",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "47",
+          "model": "gemini-3-flash-preview"
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "4b7ca6aa-9cd5-e3e1-dee2-973838349863",
+        "timestamp": "2026-06-22T14:32:47.5610001\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:32:47.561Z",
+        "payload": {
+          "callId": "read_file__8tsf7fpz",
+          "result": "def add(a, b):\n    return a \u002B b\n",
+          "timestamp": "2026-06-22T14:32:47.561000100Z",
+          "extensions": {
+            "gemini": {
+              "success": true,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "df3931c5-6822-7d90-274d-4ce25bb165b9",
+        "timestamp": "2026-06-22T14:33:17.6580000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:33:17.658Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "read_file__2g8fw2an",
+              "toolName": "read_file",
+              "arguments": {
+                "file_path": "/work/demo/README.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-06-22T14:33:17.658Z",
+          "extensions": {
+            "gemini": {
+              "display_name": "ReadFile",
+              "description": "README.md",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": {
+          "inputTokens": "3488",
+          "outputTokens": "85",
+          "totalTokens": "3573",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "33",
+          "model": "gemini-3-flash-preview"
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "ac22dc7b-a45c-403e-9f50-6039a2a928eb",
+        "timestamp": "2026-06-22T14:33:17.6580001\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:33:17.658Z",
+        "payload": {
+          "callId": "read_file__2g8fw2an",
+          "result": "# Demo\nA tiny demo project.\n",
+          "timestamp": "2026-06-22T14:33:17.658000100Z",
+          "extensions": {
+            "gemini": {
+              "success": true,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 16,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 17,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 18,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "3b994c7c-ac9e-872f-0081-8b39bdf5c1dd",
+        "timestamp": "2026-06-22T14:35:41.1300000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:35:41.130Z",
+        "payload": {
+          "content": "**Analyzing Project Files**\nI\u0027ve reviewed the project files. The \u0060README.md\u0060 provides essential context with a title and brief description. Moreover, I examined \u0060calc.py\u0060, a simple Python script for number addition. With this preliminary analysis, I feel I have a solid understanding of this demo.\n\n**Begin Project Execution**\nI\u0027ve got the project\u0027s basics defined: it\u0027s a small demo, according to \u0060README.md\u0060. I now think I have the required context to move forward. To be safe, I will follow the instructions and start a scratchpad before continuing with other steps.",
+          "timestamp": "2026-06-22T14:35:41.130Z"
+        },
+        "usage": {
+          "inputTokens": "3628",
+          "outputTokens": "168",
+          "totalTokens": "3796",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "252",
+          "model": "gemini-3-flash-preview"
+        }
+      }
+    ]
+  },
+  {
+    "line": 19,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 20,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "3b994c7c-ac9e-872f-0081-8b39bdf5c1dd",
+        "timestamp": "2026-06-22T14:35:41.1300000\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:35:41.130Z",
+        "payload": {
+          "content": "**Analyzing Project Files**\nI\u0027ve reviewed the project files. The \u0060README.md\u0060 provides essential context with a title and brief description. Moreover, I examined \u0060calc.py\u0060, a simple Python script for number addition. With this preliminary analysis, I feel I have a solid understanding of this demo.\n\n**Begin Project Execution**\nI\u0027ve got the project\u0027s basics defined: it\u0027s a small demo, according to \u0060README.md\u0060. I now think I have the required context to move forward. To be safe, I will follow the instructions and start a scratchpad before continuing with other steps.",
+          "timestamp": "2026-06-22T14:35:41.130Z"
+        },
+        "usage": {
+          "inputTokens": "3628",
+          "outputTokens": "168",
+          "totalTokens": "3796",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "252",
+          "model": "gemini-3-flash-preview"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "881d5411-dd94-8206-166f-b89d6eabd2f3",
+        "timestamp": "2026-06-22T14:35:41.1300001\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:35:41.130Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "complete_task__5ffpyfoh",
+              "toolName": "complete_task",
+              "arguments": {
+                "report": {
+                  "ExplorationTrace": [
+                    "Listed the files in the root directory using \u0060list_directory\u0060.",
+                    "Read the content of \u0060calc.py\u0060 using \u0060read_file\u0060.",
+                    "Read the content of \u0060README.md\u0060 using \u0060read_file\u0060."
+                  ],
+                  "RelevantLocations": [
+                    {
+                      "Reasoning": "This file contains the logic for a simple addition function.",
+                      "KeySymbols": [
+                        "add"
+                      ],
+                      "FilePath": "calc.py"
+                    },
+                    {
+                      "FilePath": "README.md",
+                      "KeySymbols": [],
+                      "Reasoning": "This file provides documentation for the project."
+                    }
+                  ],
+                  "SummaryOfFindings": "The directory contains two files: \u0027calc.py\u0027, which defines a basic addition function, and \u0027README.md\u0027, which provides a brief project overview."
+                }
+              },
+              "toolKind": "other"
+            }
+          ],
+          "timestamp": "2026-06-22T14:35:41.130000100Z",
+          "extensions": {
+            "gemini": {
+              "display_name": "Complete Task",
+              "description": "Completing task and submitting results.",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "d8f6062c-ae9c-2c3c-65fa-3aff34fb176a",
+        "timestamp": "2026-06-22T14:35:41.1300002\u002B00:00",
+        "recordTimestamp": "2026-06-22T14:35:41.130Z",
+        "payload": {
+          "callId": "complete_task__5ffpyfoh",
+          "result": "Output submitted and task completed.",
+          "timestamp": "2026-06-22T14:35:41.130000200Z",
+          "extensions": {
+            "gemini": {
+              "success": true,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 21,
+    "rejected": null,
+    "events": []
+  }
+]

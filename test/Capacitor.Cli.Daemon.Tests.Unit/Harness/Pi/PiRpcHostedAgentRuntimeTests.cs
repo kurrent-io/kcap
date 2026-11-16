@@ -346,6 +346,31 @@ public class PiRpcHostedAgentRuntimeTests {
         await Assert.That(env.Text).IsEqualTo("typed straight into pi");
     }
 
+    // ---- Commands ----
+
+    [Test]
+    public async Task A_launch_lists_its_commands_for_the_composer() {
+        var (rt, proc) = NewRuntime();
+        await using var _ = rt;
+        await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
+        var listed = new TaskCompletionSource<IReadOnlyList<HostedAgentCommand>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rt.OnCommandsAvailable = commands => listed.TrySetResult(commands);
+
+        proc.Push($$$"""{"type":"response","id":"{{{FirstCommandId(proc, "get_commands")}}}","command":"get_commands","success":true,"data":{"commands":[{"name":"skill:pdf","description":"PDFs","source":"skill"}]}}""");
+
+        await Assert.That(await listed.Task.WaitAsync(HangGuard)).IsEquivalentTo([new HostedAgentCommand("skill:pdf", "PDFs", null)]);
+    }
+
+    [Test]
+    public async Task A_reviewer_lists_no_commands() {
+        var (rt, proc) = NewRuntime(reviewerGuards: new PiReviewerGuards(TimeSpan.FromSeconds(600), TimeSpan.FromMilliseconds(100)));
+        await using var _ = rt;
+
+        await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
+
+        await Assert.That(FirstCommandId(proc, "get_commands")).IsNull();
+    }
+
     // ---- Keys, raw input, resize ----
 
     [Test]
@@ -360,7 +385,7 @@ public class PiRpcHostedAgentRuntimeTests {
         var aborts = proc.Writes.Count(w => w.Contains("\"type\":\"abort\"", StringComparison.Ordinal));
 
         await Assert.That(aborts).IsEqualTo(1);
-        await Assert.That(proc.Writes.Count).IsEqualTo(2);   // get_state + the one abort
+        await Assert.That(proc.Writes.Count).IsEqualTo(3);   // get_state, get_commands, the one abort
     }
 
     [Test]

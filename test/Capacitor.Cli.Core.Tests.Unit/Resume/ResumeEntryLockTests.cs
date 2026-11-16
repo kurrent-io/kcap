@@ -25,4 +25,17 @@ public class ResumeEntryLockTests {
 
         await Assert.That(again).IsNotNull();
     }
+
+    /// <summary>The budget is long enough that a retry loop over the missing directory fails the elapsed check.</summary>
+    [Test]
+    public async Task A_missing_directory_returns_null_without_waiting_out_the_budget() {
+        var entry = Path.Combine(Tmp.PathTo("absent"), "entry.json");
+        var start = TimeProvider.System.GetTimestamp();
+
+        var held = ResumeEntryLock.TryAcquire(entry, TimeSpan.FromSeconds(30));
+
+        await Assert.That(held).IsNull();
+        await Assert.That(TimeProvider.System.GetElapsedTime(start)).IsLessThan(TimeSpan.FromSeconds(10));
+        await Assert.That(Directory.Exists(Tmp.PathTo("absent"))).IsFalse();
+    }
 }

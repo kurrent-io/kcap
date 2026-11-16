@@ -89,8 +89,8 @@ public class LaunchAgentCommandWireFormatTests {
 
     [Test]
     public async Task Mcp_allowlist_round_trips_snake_case() {
-        // D-c: the server sends the flow definition's MCP allowlist so the daemon can
-        // thread it to the launcher (Task 6 materializes it). Appended last after
+        // The server sends the flow definition's MCP allowlist so the daemon can
+        // thread it to the launcher. Appended last after
         // BaseRef so older daemons/servers stay wire-compatible.
         var cmd = new LaunchAgentCommand(
             AgentId:       "mcp00001",
@@ -182,7 +182,7 @@ public class LaunchAgentCommandWireFormatTests {
 
     [Test]
     public async Task Borrowed_and_BorrowCwd_round_trip_snake_case() {
-        // Phase A: the server tells the daemon to launch against the user's own checkout
+        // The server tells the daemon to launch against the user's own checkout
         // (skip worktree creation) instead of a fresh daemon-owned worktree. Appended last after
         // McpAllowlist, same wire-compat rule as the fields before it.
         var cmd = new LaunchAgentCommand(
@@ -309,7 +309,7 @@ public class LaunchAgentCommandWireFormatTests {
 
     [Test]
     public async Task InactivityBoundSeconds_roundtrips_and_defaults_null_when_absent() {
-        // Task 12 / liveness-supervision spec §3 decision 6: an old server never sends this field —
+        // An old server never sends this field —
         // the daemon must default to null (⇒ FindReviewersToReap's no-bound legacy path), never fail
         // to bind the command.
         var legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";

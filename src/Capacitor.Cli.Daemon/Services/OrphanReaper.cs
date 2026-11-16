@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(3)): reaps hosted-agent children that OUTLIVED the daemon that spawned
+/// Reaps hosted-agent children that OUTLIVED the daemon that spawned
 /// them — the crash/restart case where the in-memory registry is empty but a review-flow reviewer (or
 /// any hosted child) is still running and holding a slot. Runs once at boot under the daemon lock (next
 /// to <c>WorktreeManager.CleanupOrphanedAsync</c>) and again on a heartbeat tick. Two passes, in order:
@@ -29,7 +29,7 @@ internal sealed class OrphanReaper(
         MarkerCandidateStore? markerStore = null,
         Action<string, string>? onMarkerResolved = null,
         Func<string, bool>? stoppedForResume = null) {
-    // Phase B2-b (sequenced-settlement design): CurrentDiscovery is a multi-field struct
+    // CurrentDiscovery is a multi-field struct
     // ({enum, DateTimeOffset?}) written on the reap thread and read on the report/connect thread, so an
     // unguarded read could tear. A dedicated gate around just the field's get/set makes each access
     // atomic; the sweep is single-flight (only the reap thread ever writes), so the read-modify-write at
@@ -38,7 +38,7 @@ internal sealed class OrphanReaper(
     StartupDiscovery _currentDiscovery =
         new(OperatingSystem.IsLinux() ? MarkerScanState.Pending : MarkerScanState.NotApplicable);
 
-    /// <summary>Phase B2-b (sequenced-settlement design): the recordless-survivor env-marker-scan
+    /// <summary>The recordless-survivor env-marker-scan
     /// status, advertised on the daemon's startup-completeness signals. Seeded per-platform:
     /// <c>Pending</c> on Linux (a scan runs and must complete one clean pass), <c>NotApplicable</c> on
     /// Windows (no scan — layer-1 containment) and macOS (env redaction makes the scan find nothing).
@@ -49,7 +49,7 @@ internal sealed class OrphanReaper(
         private set { lock (_discoveryGate) { _currentDiscovery = value; } }
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): the known-id prior-incarnation candidates
+    /// <summary>The known-id prior-incarnation candidates
     /// that are BLOCKED — each keeps <c>StartupReapComplete</c> false until resolved. Three sources,
     /// each with its reason:
     /// <list type="bullet">
@@ -78,7 +78,7 @@ internal sealed class OrphanReaper(
             else if (OperatingSystem.IsMacOS() && ProcessIdentity.IsAlive(r.Pid) && ProcessIdentity.MatchesTri(r.Pid, r.StartIdentity) is null)
                 list.Add(new(r.AgentId, StartupCandidateUnresolvedReason.LegacyUnresolvable, r.FlowRunId, r.FlowRole));
             else
-                // Phase B2-b (sequenced-settlement design §5.5): any OTHER prior-epoch record still on disk
+                // Any OTHER prior-epoch record still on disk
                 // was SPARED by the record pass (a transient ambiguous identity read on Linux, or a
                 // record-pass fault) — NOT confirmed dead. The spec requires completion to stay false until
                 // every record is confirmed dead, so it blocks (identity_unresolvable). Confirmed-dead
@@ -98,7 +98,7 @@ internal sealed class OrphanReaper(
         var handledPids = new HashSet<int>();
 
         // ── (0) marker-candidate reconciliation (crash recovery) ───────────────────────────────────
-        // Phase B2-b (sequenced-settlement design §4.2.4): re-derive any persisted marker-candidate
+        // Re-derive any persisted marker-candidate
         // source BEFORE the record pass. A source outlives one pass, so this covers the crash-before-kill
         // window: re-read the LIVE triple so a pid reused since the source was written is spared, never
         // mis-killed. It runs FIRST so a source co-existing with an identity_unavailable RECORD is
@@ -126,7 +126,7 @@ internal sealed class OrphanReaper(
             // expectedIdentity). Do NOT mark the pid "handled" here, so the env-marker scan below
             // still gets a chance to reap it via the live process's OWN env triple (Linux only;
             // macOS has no marker scan, so such a record stays identity_unresolvable/manual — see
-            // §4.3 and this file's class doc).
+            // this file's class doc).
             if (record.IdentityKind == PidIdentityKind.Present) {
                 handledPids.Add(record.Pid);
             }
@@ -142,7 +142,7 @@ internal sealed class OrphanReaper(
                 var running       = ProcessIdentity.Matches(record.Pid, record.StartIdentity);
                 var confirmedGone = await ProcessReaper.ReapByRecordAsync(record, logger, time, ct);
                 if (confirmedGone) {
-                    // Phase B2-b (sequenced-settlement design §4.2.4): ledger-append BEFORE
+                    // Ledger-append BEFORE
                     // source-deletion. A crash between the two leaves a committed entry + leftover
                     // source; the next boot re-derives it and Upsert (idempotent on the source-stable
                     // (AgentId, OldEpoch) key) collapses onto the committed entry, then deletes the
@@ -157,8 +157,8 @@ internal sealed class OrphanReaper(
                         record.AgentId, record.Pid, time.GetUtcNow() - record.SpawnedAt);
                 } else if (OperatingSystem.IsMacOS()) {
                     // Present but Ambiguous on macOS almost always means a cross-scheme mismatch
-                    // (a pre-M1-A tk: record compared against the now-mac:-producing live
-                    // process) — the spec's "legacy_unresolvable" residual.
+                    // (a tk: record written by an older daemon compared against the mac:-producing
+                    // live process) — the "legacy_unresolvable" residual.
                     logger.LogWarning(
                         "OrphanReaper: legacy_unresolvable record for {AgentId} (pid {Pid}, age {Age}) — spared every pass (cross-scheme token); manually verify and kill the pid",
                         record.AgentId, record.Pid, time.GetUtcNow() - record.SpawnedAt);
@@ -214,7 +214,7 @@ internal sealed class OrphanReaper(
             pids = EnumeratePids();
         } catch (Exception ex) {
             logger.LogWarning(ex, "OrphanReaper: process enumeration failed — skipping env-marker scan this tick");
-            // Phase B2-b (sequenced-settlement design): an enumeration failure leaves discovery FAILED on
+            // An enumeration failure leaves discovery FAILED on
             // Linux (retried next heartbeat); keep the last successful scan time so a prior clean pass is
             // still remembered. Off Linux there is no scan, so CurrentDiscovery stays NotApplicable.
             if (OperatingSystem.IsLinux())
@@ -222,7 +222,7 @@ internal sealed class OrphanReaper(
             return;
         }
 
-        // Phase B2-b (sequenced-settlement design §5.5): track a marker-candidate source-WRITE failure
+        // Track a marker-candidate source-WRITE failure
         // (a survivor we could neither durably record nor kill) so the pass does not falsely report
         // Complete below — such a survivor is invisible to BlockedCandidates AND still alive.
         var captureFailed = false;
@@ -281,7 +281,7 @@ internal sealed class OrphanReaper(
             }
         }
 
-        // Phase B2-b (sequenced-settlement design §5.5): a clean env-marker-scan pass = enumeration
+        // A clean env-marker-scan pass = enumeration
         // succeeded AND every discovered survivor was durably captured (its pending_marker source now
         // blocks via BlockedCandidates) or resolved — never cancelled mid-pass (a cancel returns early
         // above, leaving discovery unchanged). Only then is the pass a completeness proof → flip to

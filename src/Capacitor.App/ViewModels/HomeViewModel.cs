@@ -9,6 +9,9 @@ using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.App.ViewModels.Composer;
+using Capacitor.App.Services.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -50,7 +53,7 @@ internal enum LaunchAvailability { Ready, Pending, DaemonUnavailable, ServerDisc
 /// on the daemon client's own background thread (same as MainWindowViewModel/
 /// ConsentPromptViewModel), so projections ObserveOn RxSchedulers.MainThreadScheduler BEFORE the
 /// operator that touches bound state — a binding must never see a mutation off the UI thread.
-public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink, ILaunchChoices {
+public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IComposer, ILaunchChoices {
     /// A repository with no remembered choice falls back to this — never to whatever vendor was
     /// selected for a DIFFERENT repository, which would leak a preference across repositories.
     public const string DefaultVendor = "claude";
@@ -173,6 +176,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
+    public ComposerPicker? Picker { get; }
+
     public string SelectedRepoPath {
         get => _selectedRepoPath;
         set {
@@ -778,7 +783,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             IObservable<DaemonListing>? listing = null, IObservable<IReadOnlyList<DaemonAccountsDto>>? daemonAccounts = null,
             IObservable<AccountsSnapshotDto?>? localAccounts = null, Func<Task>? retryListing = null,
-            AccountReadings? readings = null, IBranchReader? branches = null, Action<string>? launchFailed = null) {
+            AccountReadings? readings = null, IBranchReader? branches = null,
+            ComposerPickers? pickers = null,
+            Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
         _branches = branches;
         _daemon = daemon;
@@ -847,6 +854,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                 (machine, server, account) => WithAccountCatalog(MergeCatalogs(machine.Models, server), machine.ByAccount, account))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.EffectiveModelCatalog, ServerVendorModelCatalog.Empty)
+            .DisposeWith(_disposables);
+
+        Picker = pickers?.Create(_selectedRepoPathChanges
+                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), this.WhenAnyValue(x => x.AccountRows), _machineSelectionChanges, (repo, vendor, accounts, machine) =>
+                    !machine.Remote && repo is { Length: > 0 }
+                        ? new ComposerContext(repo, HarnessId.From(vendor), Account: ComposerContext.AccountOf(accounts))
+                        : null)
+                .ObserveOn(RxSchedulers.MainThreadScheduler))
             .DisposeWith(_disposables);
 
         // A model the previous catalog listed and the next one withdraws resets to the default. A

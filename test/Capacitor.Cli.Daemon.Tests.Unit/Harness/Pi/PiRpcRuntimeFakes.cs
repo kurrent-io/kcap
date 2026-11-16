@@ -148,13 +148,14 @@ internal static class PiRpcRuntimeFakes {
             string? sessionId   = PiSessionId,
             string? modelId     = StateModelId,
             bool    isStreaming = false,
+            string  sessionFile = "/tmp/s.jsonl",
             bool    success     = true) {
         var data = new JsonObject {
             ["model"]        = modelId is null
                 ? null
                 : new JsonObject { ["id"] = modelId, ["provider"] = "anthropic" },
             ["isStreaming"]  = isStreaming,
-            ["sessionFile"]  = "/tmp/s.jsonl",
+            ["sessionFile"]  = sessionFile,
             ["messageCount"] = 3,
         };
 

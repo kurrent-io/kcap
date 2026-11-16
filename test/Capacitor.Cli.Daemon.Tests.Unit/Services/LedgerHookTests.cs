@@ -62,7 +62,7 @@ public class LedgerHookTests {
 
     [Test]
     public async Task Crash_before_append_re_derives_the_record_pass_evidence_next_boot() {
-        // Parent §8: crash BEFORE the durable append leaves the source only → re-derived next boot
+        // Crash BEFORE the durable append leaves the source only → re-derived next boot
         // (at-least-once, deduped). The record pass confirms death but the daemon dies before Upsert.
         var (store, ledger, _) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
@@ -102,7 +102,7 @@ public class LedgerHookTests {
         await Assert.That(drained.Single().FlowRole).IsEqualTo("reviewer");
     }
 
-    // ── Quarantine-drain hook — crash both sides (parent §8). The drain's durable source is the RETAINED
+    // ── Quarantine-drain hook — crash both sides. The drain's durable source is the RETAINED
     // AgentPidRecord (teardown quarantines AND keeps the record); the drain emits (AgentId, epoch-at-drain,
     // flow…) then deletes the record. After a crash the record's DaemonEpoch == that same epoch, so the
     // next boot's OrphanReaper record pass reconciles on the source-stable (AgentId, OldEpoch) key (NOT
@@ -142,7 +142,7 @@ public class LedgerHookTests {
         await Assert.That(store.ReadAll()).IsEmpty();
     }
 
-    // ── StopAgent-fallback hook — crash both sides (parent §8). TryStopByPidRecordAsync emits
+    // ── StopAgent-fallback hook — crash both sides. TryStopByPidRecordAsync emits
     // (agentId, record.DaemonEpoch, record.flow…) before deleting the record; same durable source +
     // (AgentId, OldEpoch) reconciliation as the drain hook.
     [Test]

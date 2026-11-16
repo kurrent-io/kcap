@@ -75,14 +75,14 @@ public readonly record struct RemoteTraySummary(
 public sealed record TrayMenuModel(
     TrayState State, int RunningCount, string Header,
     IReadOnlyList<TrayAgentEntry> Agents, TrayPauseItem Pause, int PendingConsent, bool ShimInstallVisible = false,
-    string? UpdateItemLabel = null, bool FinishSwitchVisible = false) {
+    string? UpdateItemLabel = null, bool FinishSwitchVisible = false, string? ToolTipHint = null) {
     const int ToolTipLimit = 127;
 
     /// The tray icon's tooltip, which screen readers also read as its name. Windows keeps only
-    /// the first 127 characters of a notification-area tooltip.
+    /// the first 127 characters of a notification-area tooltip, so a hint goes first.
     public string ToolTip {
         get {
-            var text = $"kcap — {Header}";
+            var text = ToolTipHint is { } hint ? $"{hint}\nkcap — {Header}" : $"kcap — {Header}";
             return text.Length <= ToolTipLimit ? text : text[..(ToolTipLimit - 1)] + "…";
         }
     }

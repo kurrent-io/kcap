@@ -622,16 +622,11 @@ public static class OpenCodeExtensionInstaller {
         try { if (File.Exists(marker)) File.Delete(marker); } catch { }
     }
 
-    public static bool Install(string pluginPath) {
-        try {
-            Directory.CreateDirectory(Path.GetDirectoryName(pluginPath)!);
-            File.WriteAllText(pluginPath, ExtensionContent);
-            WriteMarker(pluginPath);
-            return true;
-        } catch {
-            return false;
-        }
-    }
+    /// <summary>Leaves a current file and marker untouched and says so.</summary>
+    public static SettingsEdit Apply(string pluginPath) =>
+        OwnedFile.Write(pluginPath, ExtensionContent, ReadMarker(pluginPath), WriteMarker);
+
+    public static bool Install(string pluginPath) => Apply(pluginPath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
 
     /// <summary>Removes kcap.ts + marker. Returns true if kcap.ts existed.</summary>
     public static bool Remove(string pluginPath) {

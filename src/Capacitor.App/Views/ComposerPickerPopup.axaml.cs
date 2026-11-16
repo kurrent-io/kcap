@@ -1,0 +1,108 @@
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Capacitor.App.ViewModels.Composer;
+
+namespace Capacitor.App.Views;
+
+public partial class ComposerPickerPopup : UserControl {
+    readonly Flyout _flyout;
+    TextBox _input = null!;
+    Func<ComposerPicker?> _picker = () => null;
+    int _active;
+    int _updates;
+    IReadOnlyList<object> _rows = [];
+    (ComposerPicker? Picker, string Text, int Caret) _shownFor;
+
+    public ComposerPickerPopup() {
+        InitializeComponent();
+        Rows.ContainerPrepared += (_, e) => e.Container.Classes.Set("active", e.Index == _active);
+        Rows.ContainerIndexChanged += (_, e) => e.Container.Classes.Set("active", e.NewIndex == _active);
+        _flyout = new Flyout { Content = this, Placement = PlacementMode.TopEdgeAlignedLeft, ShowMode = FlyoutShowMode.Transient, VerticalOffset = -6 };
+        _flyout.FlyoutPresenterClasses.Add("kcapPanel");
+    }
+
+    /// Call before the host adds its own KeyDown handlers: handlers run in the order they were added, and the
+    /// picker must take Enter before the host sends with it.
+    public static void Attach(TextBox input, Func<ComposerPicker?> picker) {
+        var popup = new ComposerPickerPopup { _input = input, _picker = picker };
+        input.AddHandler(KeyDownEvent, (_, e) => e.Handled |= popup.HandleKey(e), RoutingStrategies.Tunnel);
+        // Posted: the caret moves after TextChanged, and the query is the text before it.
+        input.TextChanged += (_, _) => Dispatcher.UIThread.Post(popup.Update);
+        input.PropertyChanged += (_, e) => {
+            if (e.Property == TextBox.CaretIndexProperty) Dispatcher.UIThread.Post(popup.Update);
+        };
+        input.DataContextChanged += (_, _) => popup.Close();
+    }
+
+    void Close() {
+        _updates++;
+        _flyout.Hide();
+    }
+
+    async void Update() {
+        if (_picker() is not { } picker) {
+            Close();
+            return;
+        }
+        var update = ++_updates;
+        var at = Current();
+        try {
+            await picker.UpdateAsync(at.Text, at.Caret);
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: composer picker: {ex.Message}");
+            picker.Dismiss();
+        }
+        if (update != _updates || Current() != at) return;
+
+        if (picker.Rows.Count == 0 || !_input.IsFocused) {
+            _flyout.Hide();
+            return;
+        }
+        _active = 0;
+        _rows = picker.Rows;
+        _shownFor = at;
+        Rows.ItemsSource = _rows;
+        Scroller.Width = _input.Bounds.Width;
+        Scroller.Offset = default;
+        if (_flyout.IsOpen) return;
+        _flyout.ShowAt(_input);
+        _input.Focus();
+    }
+
+    bool HandleKey(KeyEventArgs e) {
+        if (!_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _rows is not { Count: > 0 and var count }) return false;
+        switch (e.Key) {
+            case Key.Up or Key.Down:
+                Rows.ContainerFromIndex(_active)?.Classes.Set("active", false);
+                _active = (_active + (e.Key == Key.Down ? 1 : -1) + count) % count;
+                Rows.ScrollIntoView(_active);
+                Rows.ContainerFromIndex(_active)?.Classes.Set("active", true);
+                return true;
+            case Key.Enter or Key.Tab:
+                Pick(_rows[_active]);
+                return true;
+            case Key.Escape:
+                _picker()?.Dismiss();
+                _flyout.Hide();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    void OnRowClick(object? sender, RoutedEventArgs e) => Pick(((Button)sender!).DataContext!);
+
+    (ComposerPicker? Picker, string Text, int Caret) Current() => (_picker(), _input.Text ?? "", _input.CaretIndex);
+
+    /// Rows answer the text, caret and picker they were listed for. Until a pending update catches up, a pick does nothing.
+    void Pick(object row) {
+        if (Current() != _shownFor) return;
+        if (row is not FileMention { Path: [.., '/'] }) _flyout.Hide();
+        var (text, caret) = ComposerPicker.Insert(row, _input.Text ?? "", _input.CaretIndex);
+        _input.Text = text;
+        _input.CaretIndex = caret;
+        _input.Focus();
+    }
+}

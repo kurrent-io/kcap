@@ -191,6 +191,6 @@ public class WatchCommandTests {
 // real subagent transcript: tool_use carries `id`, tool_result carries `tool_use_id`, both inside
 // message.content[].
 // Loss markers carry no correlation IDs, so local trackers must use raw source lines.
-// PR #162: Pi emits type:"message" with message.role (not Claude's
+// Pi emits type:"message" with message.role (not Claude's
 // top-level user/assistant), so the watcher title helpers need a Pi branch —
 // otherwise live Pi sessions never get the initial/LLM title.

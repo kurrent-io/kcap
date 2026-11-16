@@ -12,10 +12,10 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 public class ShutdownAgentReportTests {
     [Test]
-    public async Task Disposing_reports_every_live_agent_ended_with_a_shutdown_reason() {
+    public async Task Disposing_reports_every_live_agent_ended_with_a_shutdown_reason_held_by_this_process() {
         var server = new CaptureServerConnection();
         var orch   = AgentOrchestratorHarness.BuildOrchestrator(
-            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: c => c.InstanceId = "instance-now");
         orch.ShutdownIntent = ShutdownIntent.EndAgents;
 
         orch.SeedAgentForTest("shutdown-1", status: "Running");
@@ -23,9 +23,11 @@ public class ShutdownAgentReportTests {
 
         await orch.DisposeAsync();
 
-        foreach (var id in new[] { "shutdown-1", "shutdown-2" })
+        foreach (var id in new[] { "shutdown-1", "shutdown-2" }) {
             await Assert.That(server.ShutdownReports)
                 .Contains((id, "Failed", AgentOrchestrator.DaemonShutdownStopReason, false));
+            await Assert.That(server.ShutdownReportRunInstances).Contains((id, "instance-now"));
+        }
     }
 
     /// <summary>The token is the whole point: every other method on the real connection bakes in

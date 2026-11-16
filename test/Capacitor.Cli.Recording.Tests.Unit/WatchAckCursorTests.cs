@@ -43,11 +43,11 @@ public class WatchAckCursorTests {
         var path = Tmp.CreateFile("rollout.jsonl", "\n\n\n");
 
         var child = new WatchState { LinesProcessed = 0, ThresholdReached = true };
-        await Recorders.For(Sid, path, "agent-1", "codex").GatedDrainNewLinesAsync(null, child, CancellationToken.None);
+        await Recorders.For(Sid, path, "agent-1", "codex").GatedDrainNewLinesAsync(new(1, 1), child, CancellationToken.None);
         await Assert.That(Cursor.TryRead(Sid)).IsNull();
 
         var root = new WatchState { LinesProcessed = 0, ThresholdReached = true };
-        await Recorders.For(Sid, path, null, "codex").GatedDrainNewLinesAsync(null, root, CancellationToken.None);
+        await Recorders.For(Sid, path, null, "codex").GatedDrainNewLinesAsync(new(1, 1), root, CancellationToken.None);
         await Assert.That(Cursor.TryRead(Sid)).IsEqualTo(3);
     }
 

@@ -54,8 +54,7 @@ internal static class DaemonStatusValidator {
 
 /// Self-healing typed client for the daemon's local control socket: connect → hello gate →
 /// StatusSubscribe → snapshot stream, reconnecting with backoff. All failure is DATA (the
-/// event stream); only cancellation ends the enumeration. See the state machine and
-/// classification rules in the app-shell design spec §4 — every branch here is pinned there.
+/// event stream); only cancellation ends the enumeration.
 public sealed class LocalControlClient(DaemonStore store, string daemonName, TimeProvider time) {
     readonly TimeProvider _time = time;
 
@@ -128,7 +127,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
             }
 
             // The cycle SUCCEEDED only because the first VALID snapshot arrived — reset the
-            // backoff schedule and yield Connected carrying that very snapshot (§4.1/§4.3).
+            // backoff schedule and yield Connected carrying that very snapshot.
             last = null;
             attempt = 0;
 

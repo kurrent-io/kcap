@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 
@@ -46,4 +47,6 @@ sealed class FakeHandoffProbeOps : ILocalControlOps {
         ResumeProbes.Add(request);
         return Task.FromResult(ResumeNext);
     }
+
+    public Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct) => throw new NotSupportedException();
 }

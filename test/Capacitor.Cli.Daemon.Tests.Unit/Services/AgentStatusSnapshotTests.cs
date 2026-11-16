@@ -225,7 +225,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(byId["t-blank"].Title).IsNull();
             await Assert.That(byId["t-none"].Title).IsNull();
 
-            // The wire boundary, not just the in-memory DTO (spec §1).
+            // The wire boundary, not just the in-memory DTO.
             var json = JsonSerializer.Serialize(byId["t-short"], StatusIpcJsonContext.Default.AgentStatusDto);
             await Assert.That(json).Contains("\"title\":\"Fix the flaky test\"");
             var jsonNone = JsonSerializer.Serialize(byId["t-none"], StatusIpcJsonContext.Default.AgentStatusDto);

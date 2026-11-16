@@ -214,7 +214,7 @@ public class LocalControlProbeTests {
         await Assert.That(r.IdentityConsistent).IsFalse();
     }
 
-    /// <summary>Fail-closed (spec §4): a hello carrying no pid/instance_id (an older daemon that
+    /// <summary>Fail-closed: a hello carrying no pid/instance_id (an older daemon that
     /// predates those fields, per <see cref="HelloReplyDto"/>'s own doc comment) must never default
     /// to "consistent" just because one side has nothing to disagree with — both sides must
     /// carry BOTH ids and agree, or the two dials cannot be proven to have landed on the same

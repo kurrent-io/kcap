@@ -29,7 +29,6 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     Task _accountMemoryWrites = Task.CompletedTask;
     AccountSupport _support;
     AccountsSnapshotDto? _snapshot;
-    string _repoPath;
 
     /// sessionVendor is the ended session's own agent, kept while this daemon hosts it; repoPath is
     /// where it ran, until the composer names the checkout the hand-off starts in.
@@ -40,12 +39,12 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null,
             string? repoPath = null, AccountReadings? readings = null, AppStateStore? state = null) {
         _selectedVendor = string.IsNullOrWhiteSpace(sessionVendor) ? HomeViewModel.DefaultVendor : sessionVendor;
-        _repoPath = repoPath ?? "";
+        RepoPath = repoPath ?? "";
         _state = state;
         _accounts = new AccountChooser(
             (hostId, vendor, path, remote) => AccountMemory.Lookup(_accountMemory, hostId, vendor, path, remote), RememberAccount);
         _accounts.Changed += PublishAccountChoice;
-        _accounts.EnterTarget(_repoPath, _selectedVendor, remote: false);
+        _accounts.EnterTarget(RepoPath, _selectedVendor, remote: false);
 
         // ObserveOn before ToProperty: snapshots arrive on the daemon client's own thread.
         var options = daemon.Snapshots.Select(s => HostedHarnessCatalog.Build(s.Daemon.SupportedVendors));
@@ -134,6 +133,11 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     };
 
     public IReadOnlyList<HarnessOption> Harnesses => _harnesses.Value;
+
+    public string RepoPath {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
 
     string _selectedVendor;
     public string SelectedVendor {
@@ -250,8 +254,8 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     /// The checkout the hand-off would start in, which the remembered account is read under. A pick
     /// made before it was found is the person's choice for it too.
     public void SetRepository(string? repoPath) {
-        if (repoPath is not { Length: > 0 } path || PlatformPaths.Comparer.Equals(path, _repoPath)) return;
-        _repoPath = path;
+        if (repoPath is not { Length: > 0 } path || PlatformPaths.Comparer.Equals(path, RepoPath)) return;
+        RepoPath = path;
         _accounts.EnterTarget(path, SelectedVendor, remote: false);
         if (_picked is { } picked) _accounts.Pick(picked.Id);
         else ReapplyRestored();
@@ -316,7 +320,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         SelectedVendor = vendor;
         if (!changed) return;
         _picked = null;
-        _accounts.EnterTarget(_repoPath, vendor, remote: false);
+        _accounts.EnterTarget(RepoPath, vendor, remote: false);
         ReapplyRestored();
     }
 

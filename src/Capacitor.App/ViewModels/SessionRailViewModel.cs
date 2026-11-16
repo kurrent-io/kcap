@@ -303,6 +303,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var endedPaging = paging.CombineLatest(_stateFilter.Select(_ => State).DistinctUntilChanged(),
                 (p, state) => (Page: p, Visible: state != RailState.Live))
             .Replay(1).RefCount();
+        var endedListPartial = endedPaging.Select(p => p.Visible && p.Page.Loaded < p.Page.Total)
+            .DistinctUntilChanged().Replay(1).RefCount();
         _loadedText = endedPaging.Select(p => p.Visible && p.Page.Loaded < p.Page.Total
                 ? $"{p.Page.Loaded} of {p.Page.Total} ended sessions loaded" : "")
             .ToProperty(this, x => x.LoadedText, initialValue: "").DisposeWith(_disposables);
@@ -339,7 +341,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                     if (expanded) _collapsed.Remove(g.Key);
                     else _collapsed.Add(g.Key);
                     Persist();
-                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges))
+                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial))
             .DisposeMany()
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -6,7 +7,6 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Copilot;
-using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Titles;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Recording.PrDetection;
@@ -25,28 +25,34 @@ namespace Capacitor.Cli.Harness.Copilot;
 /// <para>
 /// Unlike Cursor there is no lossy workspace encoding to reverse:
 /// <c>workspace.yaml</c> in each session dir carries <c>cwd</c>,
-/// <c>created_at</c>/<c>updated_at</c>, and Copilot's auto-generated session
-/// <c>name</c> (forwarded as the session title via <c>/hooks/set-title</c>,
-/// which is why <see cref="SupportsTitleGeneration"/> is false). Session dirs
+/// <c>created_at</c>/<c>updated_at</c>, and Copilot's session <c>name</c>, read
+/// through <see cref="CopilotWorkspaceTitle"/> as the live watcher reads it. Session dirs
 /// WITHOUT an events.jsonl are failed-startup scaffolding and are skipped.
 /// </para>
 /// </summary>
 internal sealed class CopilotImportSource : IImportSource {
+    const string NumberingKey      = "Numbering";
+    const string ChatSessionLogKey = "ChatSessionLog";
+    const string WorkspaceYamlKey  = "WorkspaceYaml";
+
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
     readonly ConfigRoot                            _config;
     readonly GitProviderRouter                     _router;
+    readonly IReadOnlyList<string>                 _vsCodeWorkspaceStorageDirs;
 
     public CopilotImportSource(
         ConfigRoot                              config,
         CopilotPaths                            paths,
+        IReadOnlyList<string>                   vsCodeWorkspaceStorageDirs,
         GitProviderRouter                        router,
         TimeProvider                            time
     ) {
-        _paths  = paths;
-        _time   = time;
-        _config = config;
-        _router = router;
+        _paths                      = paths;
+        _time                       = time;
+        _config                     = config;
+        _router                     = router;
+        _vsCodeWorkspaceStorageDirs = vsCodeWorkspaceStorageDirs;
     }
 
     static StringComparison PathComparison =>
@@ -64,13 +70,10 @@ internal sealed class CopilotImportSource : IImportSource {
 
     public HarnessId Vendor => HarnessId.Copilot;
 
-    public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists);
+    public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists) || _vsCodeWorkspaceStorageDirs.Any(Directory.Exists);
 
-    /// <summary>
-    /// False — Copilot names every session itself (workspace.yaml <c>name</c>);
-    /// ImportSessionAsync forwards it via /hooks/set-title, so the LLM title
-    /// pipeline would only burn tokens to overwrite a good title.
-    /// </summary>
+    /// <summary>False — ImportSessionAsync forwards Copilot's own name, and the server titles a session Copilot never
+    /// named from its first prompt, as it does every routed harness's.</summary>
     public bool SupportsTitleGeneration => false;
     public bool AttachesChildContentOnReplay => false; // no child import
 
@@ -104,7 +107,8 @@ internal sealed class CopilotImportSource : IImportSource {
                     if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal))
                         continue;
 
-                    var meta = CopilotWorkspaceYaml.TryRead(_paths.WorkspaceYaml(root, dirName));
+                    var workspaceYaml = _paths.WorkspaceYaml(root, dirName);
+                    var meta          = CopilotWorkspaceYaml.TryRead(workspaceYaml);
 
                     if (normalizedCwd is not null
                      && (meta?.Cwd is null
@@ -131,8 +135,7 @@ internal sealed class CopilotImportSource : IImportSource {
                         SourceMeta:     new Dictionary<string, object?> {
                             ["TranscriptPath"] = jsonl,
                             ["Cwd"]            = meta?.Cwd,
-                            ["Name"]           = meta?.Name,
-                            ["UserNamed"]      = meta?.UserNamed ?? false,
+                            [WorkspaceYamlKey] = workspaceYaml,
                             ["Branch"]         = meta?.Branch,
                             [ImportCommand.RecordedRepositoryKey] = meta?.Repository,
                         }));
@@ -145,8 +148,79 @@ internal sealed class CopilotImportSource : IImportSource {
             ct.ThrowIfCancellationRequested();
         }
 
+        foreach (var storage in _vsCodeWorkspaceStorageDirs) {
+            DiscoverVsCodeLocal(storage, sessionFilter, normalizedCwd, sinceUtc, seen, result, ct);
+        }
+
         return Task.FromResult<IReadOnlyList<DiscoveredSession>>(result);
     }
+
+    /// <summary>VS Code's Local sessions: <c>{workspace}/GitHub.copilot-chat/transcripts/{id}.jsonl</c>, the file
+    /// the live watcher tails, so an import numbers its lines the same way. The folder the workspace is open on is
+    /// the cwd, since the transcript does not name one.</summary>
+    static void DiscoverVsCodeLocal(
+            string storage, string? sessionFilter, string? normalizedCwd, DateTimeOffset? sinceUtc,
+            HashSet<string> seen, List<DiscoveredSession> result, CancellationToken ct) {
+        if (!Directory.Exists(storage)) return;
+
+        // The enumeration is lazy, so a storage root that turns unreadable mid-scan throws from the loop itself.
+        try {
+            foreach (var workspace in Directory.EnumerateDirectories(storage)) {
+                ct.ThrowIfCancellationRequested();
+
+                try {
+                    var transcripts = Path.Combine(workspace, "GitHub.copilot-chat", "transcripts");
+                    if (!Directory.Exists(transcripts)) continue;
+
+                    var cwd = VsCodeWorkspaceFolder(Path.Combine(workspace, "workspace.json"));
+                    if (normalizedCwd is not null && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+
+                    foreach (var jsonl in Directory.EnumerateFiles(transcripts, "*.jsonl")) {
+                        var stem = Path.GetFileNameWithoutExtension(jsonl);
+                        if (!Guid.TryParse(stem, out _)) continue;
+
+                        var dashless = stem.Replace("-", "");
+                        if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal)) continue;
+                        if (!seen.Add(dashless)) continue;
+
+                        DateTimeOffset? firstTimestamp = null;
+                        try { firstTimestamp = File.GetCreationTimeUtc(jsonl); } catch (Exception ex) when (IsUnreadable(ex)) { /* best effort */ }
+                        if (sinceUtc is { } cutoff && firstTimestamp is { } ts && ts < cutoff) continue;
+
+                        result.Add(new DiscoveredSession(
+                            SessionId:      dashless,
+                            Vendor:         HarnessId.Copilot,
+                            Cwd:            cwd,
+                            FirstTimestamp: firstTimestamp,
+                            SourceMeta:     new Dictionary<string, object?> {
+                                ["TranscriptPath"]  = jsonl,
+                                ["Cwd"]             = cwd,
+                                [ChatSessionLogKey] = CopilotPaths.ChatSessionLogFor(jsonl),
+                            }));
+                    }
+                } catch (Exception ex) when (IsUnreadable(ex)) {
+                    // One unreadable workspace must not abort the scan.
+                }
+            }
+        } catch (Exception ex) when (IsUnreadable(ex)) {
+            // An unreadable storage root ends its own scan, not the others'.
+        }
+    }
+
+    // A multi-root workspace names a .code-workspace file instead, and a remote one a non-file URI: neither is a cwd.
+    static string? VsCodeWorkspaceFolder(string workspaceJson) {
+        try {
+            using var doc = JsonDocument.Parse(File.ReadAllTextShared(workspaceJson));
+
+            return doc.RootElement.Str("folder") is { } folder && Uri.TryCreate(folder, UriKind.Absolute, out var uri) && uri.IsFile
+                ? uri.LocalPath
+                : null;
+        } catch (Exception ex) when (IsUnreadable(ex) || ex is JsonException) {
+            return null;
+        }
+    }
+
+    static bool IsUnreadable(Exception ex) => ex is IOException or UnauthorizedAccessException;
 
     public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions,
@@ -232,13 +306,27 @@ internal sealed class CopilotImportSource : IImportSource {
             // forever re-sending noise lines that can never advance the
             // watermark.
             var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
+            var sourceMeta     = s.SourceMeta;
+
+            // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
+            // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
+            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) {
+                var resume = numbering?.ToFile(srv + 1) ?? srv + 1;
+
+                // A copy the rewrite kept of a line the server holds is never sent, so it does not keep a session partial.
+                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)
+                 || (numbering is not null && resume <= lastImportable
+                  && Enumerable.Range(resume, lastImportable - resume + 1).All(line => numbering.HeldBack(line, srv + 1)))) {
                     status = ImportCommand.ClassificationStatus.AlreadyLoaded;
                 } else {
                     status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
+                    resumeFromLn = resume;
+                    if (numbering is not null) {
+                        Func<int, int?> sentAs = line => numbering.HeldBack(line, srv + 1) ? null : numbering.ToSent(line);
+                        sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = sentAs };
+                    }
                 }
             }
 
@@ -254,7 +342,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = s.SourceMeta,
+                SourceMeta      = sourceMeta,
             });
         }
 
@@ -308,33 +396,69 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
-                progress:   ctx.Progress);
+                progress:   ctx.Progress,
+                lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
+                    ? numbering as Func<int, int?>
+                    : null);
         } catch {
             return ImportOutcome.Failed;
         }
 
-        // Copilot auto-names every session (workspace.yaml `name`) — forward it as the title,
-        // waiting out the server's projection lag. Best-effort: a title miss must not fail the import.
-        if (classification.SourceMeta!.TryGetValue("Name", out var nameObj)
-         && nameObj is string name
-         && !string.IsNullOrWhiteSpace(name)) {
-            var userNamed = classification.SourceMeta!.TryGetValue("UserNamed", out var un) && un is true;
+        var usageOk = true;
+        if (classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog) {
+            usageOk = await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
+        }
 
-            await ImportHarnessTitle.PostAsync(
-                ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId,
-                new HarnessTitlePost(name, userNamed ? HarnessTitleKind.Rename : HarnessTitleKind.Auto, null),
-                ctx.Progress, ct);
+        // Best-effort: a title miss must not fail the import.
+        if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
+            await ImportHarnessTitle.PostFromStoreAsync(
+                new CopilotWorkspaceTitle(workspaceYaml), ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId, ctx.Progress, ct);
         }
 
         var endOk = await PostSyntheticHookAsync(
             ctx.HttpClient, _time, ctx.BaseUrl, "session-end/copilot",
             BuildSessionEndPayload(classification.SessionId, cwd, classification.Meta.LastTimestamp),
             ct);
-        if (!endOk) return ImportOutcome.Failed;
+        if (!endOk || !usageOk) return ImportOutcome.Failed;
 
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
 
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;
+    }
+
+    /// <summary>A Local session's usage and title, from its chat log. Posted on every classification, an already
+    /// loaded one included, because the usage lines sit above the transcript watermark and dedupe by id. False only
+    /// when the server refused the usage, so the import fails and can be run again; a missing or unreadable log fails
+    /// nothing.</summary>
+    async Task<bool> PostVsCodeLocalAsync(ImportContext ctx, string sessionId, string transcriptPath, string chatLog, CancellationToken ct) {
+        var cache = new VsCodeChatSessionCache(
+            chatLog, Path.GetFileNameWithoutExtension(transcriptPath), note => ctx.Progress?.Report(new ChatLogPartsSkipped(sessionId, null, note)));
+        if (cache.Current() is not { } session) return true;
+
+        var delivered = true;
+
+        var usage = CopilotLocalUsage.Build(sessionId, session, FrozenSet<string>.Empty, FrozenDictionary<string, long>.Empty);
+        if (usage.Lines.Count > 0) {
+            var batch = new TranscriptBatch {
+                SessionId   = sessionId,
+                Lines       = [.. usage.Lines],
+                LineNumbers = [.. usage.LineNumbers],
+                Vendor      = HarnessId.Copilot.VendorId,
+                Strict      = false,
+            };
+
+            try {
+                using var content = new StringContent(JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch), Encoding.UTF8, "application/json");
+                using var resp    = await ctx.HttpClient.PostWithRetryAsync($"{ctx.BaseUrl}/hooks/transcript", content, _time, ct: ct);
+                delivered = resp.IsSuccessStatusCode;
+            } catch (Exception ex) when (ex is HttpRequestException or IOException) {
+                delivered = false;
+            }
+        }
+
+        await ImportHarnessTitle.PostFromStoreAsync(new VsCodeChatTitle(cache), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
+
+        return delivered;
     }
 
     /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is

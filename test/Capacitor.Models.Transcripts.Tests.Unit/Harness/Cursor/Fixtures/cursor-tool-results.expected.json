@@ -1,0 +1,514 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "aa197264-8548-53a8-9c47-21e15da955f6",
+        "timestamp": "2026-07-08T09:49:00.0000000-04:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "0"
+        },
+        "payload": {
+          "content": "Have we worked on ACP before?",
+          "messageId": "line:0",
+          "createdAt": "2026-07-08T13:49:00Z",
+          "timestamp": "2026-07-08T13:49:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "88c65bf8-8d08-5daa-a0f2-df5d88517902",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "content": "Looking for ACP code and notes.\n\n[REDACTED]",
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "7a3607c7-8c5c-5b9b-9f1b-547a40d0177b",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "toolu_01AcpGlob",
+              "toolName": "Glob",
+              "arguments": {
+                "target_directory": "/Users/johndoe/dev/acme-api",
+                "glob_pattern": "**/*Acp*"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "cc250502-06ba-5695-b354-561bf3edb0d9",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "toolu_02AcpGrep",
+              "toolName": "Grep",
+              "arguments": {
+                "pattern": "ACP",
+                "path": "/Users/johndoe/dev/acme-api/docs"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "98601dba-ab35-5559-b469-38a78be71c44",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:1:3",
+              "toolName": "Read",
+              "arguments": {
+                "path": "/Users/johndoe/dev/acme-api/NOTES.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "43604c72-f603-575a-9b09-ae6df52182ab",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "callId": "toolu_01AcpGlob",
+          "result": "src/Acp/AcpClient.cs\nsrc/Acp/AcpSession.cs",
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "8640f40d-48fc-5b3b-b4e9-efa74c1ad1c0",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "callId": "toolu_02AcpGrep",
+          "result": "[{\u0022type\u0022:\u0022text\u0022,\u0022text\u0022:\u0022docs/acp.md:3: The ACP client spike landed in July.\u0022}]",
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "c66c1514-5b1f-5fbe-8d23-1b365623f73e",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "3"
+        },
+        "payload": {
+          "content": "There is an ACP client. A subagent will map it.",
+          "messageId": "line:3",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "9f39a898-ca70-5f63-8718-48e43931db35",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "3"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "toolu_03AcpTask",
+              "toolName": "Task",
+              "arguments": {
+                "description": "Map the ACP client",
+                "prompt": "Map how src/Acp/AcpClient.cs opens and closes a session, and report the entry points.",
+                "subagent_type": "explore"
+              },
+              "toolKind": "other"
+            }
+          ],
+          "messageId": "line:3",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "4500411f-1ef2-5d16-aaab-d1e54f33ce6b",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "4"
+        },
+        "payload": {
+          "callId": "toolu_03AcpTask",
+          "result": "AcpClient.OpenAsync starts a session; AcpSession.DisposeAsync closes it.",
+          "messageId": "line:4",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "eead1854-f93a-5123-9c15-58e35bb3c2f3",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "5"
+        },
+        "payload": {
+          "content": "Yes: an ACP client spike landed in July. \u0060AcpClient.OpenAsync\u0060 starts a session and \u0060AcpSession.DisposeAsync\u0060 closes it.",
+          "messageId": "line:5",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "431a90e9-a9c5-5acb-8f59-2071d30a900e",
+        "timestamp": "2026-09-14T16:20:00.0000000\u002B06:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "8"
+        },
+        "payload": {
+          "content": "[Image #1]  fix the settings window",
+          "messageId": "line:8",
+          "createdAt": "2026-09-14T10:20:00Z",
+          "timestamp": "2026-09-14T10:20:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "567b257c-1511-5ece-b28f-8900eb86156e",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "9"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:9:0",
+              "toolName": "StrReplace",
+              "arguments": {
+                "path": "/Users/johndoe/dev/acme-api/src/Settings/SettingsWindow.cs",
+                "old_string": "Width = 300;",
+                "new_string": "Width = 480;"
+              },
+              "toolKind": "edit"
+            }
+          ],
+          "messageId": "line:9",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "1e7b4d24-b431-54fc-9680-f245a809a826",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "9"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "toolu_04Build",
+              "toolName": "Shell",
+              "arguments": {
+                "command": "dotnet build",
+                "description": "Build the app"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "messageId": "line:9",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "7cf9061f-3236-5b6d-9018-fef54d42a7f0",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "10"
+        },
+        "payload": {
+          "callId": "toolu_04Build",
+          "result": "Build succeeded.",
+          "messageId": "line:10",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "UserMessageReceived",
+        "id": "4a6f8053-1890-5023-9faa-1d692ccda9d6",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "10"
+        },
+        "payload": {
+          "content": "also make it resizable",
+          "messageId": "line:10",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "35785cf2-2f7d-5a8a-afa8-dea3734baa23",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "11"
+        },
+        "payload": {
+          "content": "The settings window is wider and resizable, and it keeps its size.",
+          "messageId": "line:11",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "347e0573-2811-5a3c-8834-5a71667110a3",
+        "timestamp": "2026-09-14T16:31:00.0000000\u002B06:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "12"
+        },
+        "payload": {
+          "content": "Briefly inform the user about the task result.",
+          "messageId": "line:12",
+          "createdAt": "2026-09-14T10:31:00Z",
+          "timestamp": "2026-09-14T10:31:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "c5929e61-27aa-5f12-82ad-9c759e7f59d6",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "13"
+        },
+        "payload": {
+          "content": "",
+          "messageId": "line:13",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "fde05bfa-c77d-5ea9-a8ea-1c00af86b902",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "14"
+        },
+        "payload": {
+          "content": "thanks",
+          "messageId": "line:14",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 16,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 17,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 18,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]

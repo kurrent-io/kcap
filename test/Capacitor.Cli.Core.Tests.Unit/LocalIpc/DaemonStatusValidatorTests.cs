@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.LocalIpc;
 namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
-/// Structural validity for DaemonStatus payloads (spec §4.1): every member StatusIpc.cs
+/// Structural validity for DaemonStatus payloads: every member StatusIpc.cs
 /// declares non-nullable must be non-null, and agent ids must be non-whitespace and unique
 /// (ordinal) — STJ source-gen does not enforce non-nullable members at runtime.
 /// </summary>

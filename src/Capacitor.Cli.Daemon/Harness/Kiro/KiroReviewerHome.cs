@@ -179,10 +179,9 @@ internal static class KiroReviewerHome {
     /// umask, and the thing written into it is review context. .NET's mode-carrying overload closes
     /// the window at the syscall.</para>
     ///
-    /// <para>And not best-effort. An earlier revision swallowed every mode failure, on the LaunchConsentStore
-    /// precedent — but that store degrades to a safe default, whereas here the mode IS the protection.
-    /// A POSIX host where it cannot be achieved must not run a reviewer at all, so this throws and the
-    /// launch fails.</para>
+    /// <para>And not best-effort. LaunchConsentStore can swallow a failure because it degrades to a safe
+    /// default; here the mode IS the protection. A POSIX host where it cannot be achieved must not run a
+    /// reviewer at all, so this throws and the launch fails.</para>
     /// </summary>
     static void CreateOwnerOnly(string path) {
         if (OperatingSystem.IsWindows()) {

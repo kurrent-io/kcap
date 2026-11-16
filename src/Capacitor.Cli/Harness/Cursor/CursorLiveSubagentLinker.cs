@@ -65,7 +65,7 @@ public static class CursorLiveSubagentLinker {
     /// parents, which it already refuses to attribute).
     ///
     /// <para>
-    /// NOT AN EVENTUAL-CONSISTENCY RACE — this was previously documented as one. Measurement
+    /// NOT AN EVENTUAL-CONSISTENCY RACE. Measurement
     /// shows the parent's <c>Task</c>/<c>Agent</c> tool_use stays unflushed for the WHOLE of the
     /// child's hook window and lands only after the child's final hook, so correlation here is
     /// not merely often unavailable, it is never available live. (The child's own side does
@@ -177,8 +177,8 @@ public static class CursorLiveSubagentLinker {
             //    top-level session — duplication, not a graceful fallback.
             //
             // A known, accepted corrupt-state risk; remedies are recorded in
-            // docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md
-            // (D2a). It has no producer on the measured cursor-agent contract, because the
+            // docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md.
+            // It has no producer on the measured cursor-agent contract, because the
             // only caller sits behind a guard that never opens there.
         }
     }

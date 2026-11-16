@@ -102,7 +102,7 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
 
-        // Replay via the same DrainAsync path the global drain (task 3) uses — only the
+        // Replay via the same DrainAsync path the global drain uses — only the
         // undelivered tail (lines 2 and 3) is replayed, in order, nothing from before LinesProcessed.
         var replayed = new List<string>();
         await spool.DrainAsync(Sid, body => {

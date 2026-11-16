@@ -81,7 +81,6 @@ static class SessionImporter {
             spawnCalls     = scan.SpawnCallByAgent;
         }
 
-        // Track which agents were sent inline
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
         var totalSent  = 0;
@@ -126,7 +125,6 @@ static class SessionImporter {
 
         var completeLines = CompleteLines(stream, lineIndex);
 
-        // Flush remaining main transcript lines
         if (!batch.IsEmpty) await FlushAsync();
 
         // Send any agents that had transcript files but NO progress marker in the
@@ -339,7 +337,6 @@ static class SessionImporter {
                     break;
             }
         } catch (JsonException) {
-            // Skip malformed lines
         }
     }
 
@@ -371,7 +368,6 @@ static class SessionImporter {
             Dictionary<string, int>     toolUsePositions,
             Dictionary<string, string?> toolUseTypes
         ) {
-        // assistant events: root.message.content[] or root.content[]
         var content = root.Obj("message")?.Arr("content") ?? root.Arr("content");
 
         if (content is not { } arr)
@@ -513,7 +509,6 @@ static class SessionImporter {
         ) {
         var resolvedAgentType = agentType ?? "task";
 
-        // Start agent
         var agentStartHook = new JsonObject {
             ["session_id"]      = sessionId,
             ["transcript_path"] = sessionTranscriptPath,
@@ -530,7 +525,6 @@ static class SessionImporter {
             using var agentStartContent = new StringContent(agentStartHook.ToJsonString(), Encoding.UTF8, "application/json");
             await httpClient.PostWithRetryAsync($"{baseUrl}/hooks/subagent-start", agentStartContent, time);
         } catch {
-            // Best effort
         }
 
         progress?.Report(new SubagentStarted(agentId));
@@ -538,7 +532,6 @@ static class SessionImporter {
             httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
-        // Stop agent
         var agentStopHook = new JsonObject {
             ["session_id"]             = sessionId,
             ["transcript_path"]        = sessionTranscriptPath,
@@ -555,7 +548,6 @@ static class SessionImporter {
             using var agentStopContent = new StringContent(agentStopHook.ToJsonString(), Encoding.UTF8, "application/json");
             await httpClient.PostWithRetryAsync($"{baseUrl}/hooks/subagent-stop", agentStopContent, time);
         } catch {
-            // Best effort
         }
 
         return agentLines;
@@ -593,6 +585,7 @@ static class SessionImporter {
             IProgress<ImportProgress>? progress          = null,
             HarnessId                  vendor            = HarnessId.Claude,
             int                        lineNumberOffset  = 0,
+            Func<int, int?>?           lineNumberFor     = null,
             bool                       failOnError       = false,
             Func<bool>?                abortDelivery     = null,
             StrongBox<int>?            completeLines     = null,
@@ -616,10 +609,11 @@ static class SessionImporter {
                 continue;
             }
 
-            if (!string.IsNullOrWhiteSpace(line)) {
+            // A null number leaves the line out.
+            if (!string.IsNullOrWhiteSpace(line)
+             && (lineNumberFor is null ? checked(lineIndex + lineNumberOffset) : lineNumberFor(lineIndex)) is { } lineNumber) {
                 var captured   = TranscriptCapture.EncodeRecorded(line);
                 var bytes      = TranscriptBatchBuffer.SizeOf(captured.Line);
-                var lineNumber = checked(lineIndex + lineNumberOffset);
 
                 if (captured.Loss is { } loss) progress?.Report(new CaptureLineLost(sessionId, agentId, lineNumber, loss));
                 if (!batch.Fits(bytes)) await FlushAsync();
@@ -710,7 +704,7 @@ static class SessionImporter {
         }
 
         if (loss is not null) {
-            if (failOnError) throw new HttpRequestException($"transcript batch lines {first}-{last} failed: {loss}", cause);
+            if (failOnError) throw new HttpRequestException($"transcript batch lines {first + 1}-{last + 1} failed: {loss}", cause);
 
             progress?.Report(new BatchDropped(sessionId, agentId, first, last, loss));
         }

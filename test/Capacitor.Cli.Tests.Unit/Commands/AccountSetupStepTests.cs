@@ -13,7 +13,7 @@ public class AccountSetupStepTests {
 
     AccountStore Store => new(Tmp.PathTo("accounts"));
 
-    AccountSetupStep Sut() => new(Store, TestPluginEnvironment.For(Home, PluginDir()), TimeProvider.System);
+    AccountSetupStep Sut(AccountStore? store = null) => new(store ?? Store, TestPluginEnvironment.For(Home, PluginDir()), TimeProvider.System);
 
     string PluginDir() {
         var dir = Directory.CreateDirectory(Home.PathTo("plugin")).FullName;
@@ -126,13 +126,13 @@ public class AccountSetupStepTests {
 
     [Test]
     public async Task A_held_registry_lock_fails_each_account_and_moves_on() {
-        var store = Store;
+        var store = new AccountStore(Tmp.PathTo("accounts")) { LockWait = TimeSpan.FromMilliseconds(100) };
         foreach (var name in new[] { ".claude-a", ".claude-b" })
             AccountAdoption.EnsureDefault(store, HarnessId.Claude, Directory.CreateDirectory(Home.PathTo(name)).FullName, TimeProvider.System);
         var lines = new List<string>();
 
         using (store.Lock())
-            await Task.Run(() => Sut().Run(Options(noPrompt: true, skipCodex: true), true, _ => true, lines.Add));
+            await Task.Run(() => Sut(store).Run(Options(noPrompt: true, skipCodex: true), true, _ => true, lines.Add));
 
         await Assert.That(lines.Count(l => l.Contains("Could not wire"))).IsEqualTo(2);
         await Assert.That(lines.Any(l => l.Contains("Skipped vendor accounts"))).IsFalse();

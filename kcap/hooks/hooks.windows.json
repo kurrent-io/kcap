@@ -212,7 +212,7 @@
             "type": "command",
             "command": "kcap.exe",
             "args": ["hook", "--claude", "--no-update-check"],
-            "timeout": 36000,
+            "timeout": 86400,
             "onFailure": "continue"
           }
         ]

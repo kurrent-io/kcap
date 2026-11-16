@@ -108,14 +108,14 @@ public class GeminiMemoryIndexLiveCertTests {
     }
 
     /// <summary>
-    /// The third case §3.3 owes: a SessionStart whose lifecycle POST genuinely fails, so the hook exits
-    /// non-zero while still emitting <c>additionalContext</c> — does the model still receive it?
+    /// A SessionStart whose lifecycle POST genuinely fails, so the hook exits non-zero while still
+    /// emitting <c>additionalContext</c> — does the model still receive it?
     ///
-    /// <para>§3.3 chose "no commit gate" on a reading of Gemini's hook runner (<c>stdout.trim() ||
+    /// <para>Gemini has "no commit gate" on a reading of its hook runner (<c>stdout.trim() ||
     /// stderr.trim()</c>, parsed with no exit-code gate). That is a source reading, not a behavioural
-    /// one, and the spec's definition of done requires settling it live. This test is that settlement:
-    /// if Gemini ever did discard a failing hook's stdout, the lease would be spent on an injection the
-    /// model never saw, and the decision would have to flip to a commit gate.</para>
+    /// one, so this test settles it live: if Gemini ever did discard a failing hook's stdout, the lease
+    /// would be spent on an injection the model never saw, and the decision would have to flip to a
+    /// commit gate.</para>
     ///
     /// <para>The failure is REAL, not simulated: a WireMock instance proxies the whole API to the
     /// configured server and fails exactly <c>POST /hooks/session-start/gemini</c>. The index fetch on

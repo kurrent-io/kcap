@@ -79,7 +79,7 @@ public class CursorSubagentCorrelatorTests {
 
     [Test]
     public async Task ambiguous_prompt_across_two_parents_yields_no_link_regardless_of_input_order() {
-        // Review finding: if two DISTINCT parents issue the same Task prompt, the linkage is
+        // If two DISTINCT parents issue the same Task prompt, the linkage is
         // genuinely ambiguous — the correlator must NOT guess a parent (which could misattribute
         // the child). It drops the link entirely, deterministically, in any input order.
         using var fx = new CorrelatorFixture();
@@ -124,7 +124,7 @@ public class CursorSubagentCorrelatorTests {
 
     [Test]
     public async Task a_bad_transcript_entry_is_skipped_without_aborting_correlation() {
-        // Review finding: a bad transcript entry must not break correlation (which would abort
+        // A bad transcript entry must not break correlation (which would abort
         // ClassifyAsync for the whole import). A non-file path is skipped by the File.Exists
         // guard; genuine read errors are additionally swallowed by the per-session try/catch.
         using var fx = new CorrelatorFixture();

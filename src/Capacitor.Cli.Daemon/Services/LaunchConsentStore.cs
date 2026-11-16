@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
 
-/// Outcome of a boot-time <see cref="LaunchConsentStore.BootSeed"/> classification (spec §6).
+/// Outcome of a boot-time <see cref="LaunchConsentStore.BootSeed"/> classification.
 internal enum SeedOutcome { Seeded, Respected, Rewritten, Quarantined, RefusedInvalidDirective, RefusedUnwritable }
 
 /// <see cref="SeedResult.RefusalToken"/> is non-null exactly when Outcome is one of the
@@ -113,7 +113,7 @@ internal sealed partial class LaunchConsentStore {
         lock (_gate) return Persist(doc with { Steering = _doc?.Steering }, out error);
     }
 
-    /// Boot-time seed classification (spec §6). Re-parses the raw file itself — unlike
+    /// Boot-time seed classification. Re-parses the raw file itself — unlike
     /// <see cref="Load"/>, which silently collapses an unrecognized `default` to Allow, this
     /// distinguishes absent / unreadable / malformed / null-doc / unrecognized-default so each
     /// gets quarantined rather than quietly defaulting to the most permissive policy.

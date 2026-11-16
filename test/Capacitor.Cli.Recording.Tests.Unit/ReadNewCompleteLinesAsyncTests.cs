@@ -106,7 +106,7 @@ public class ReadNewCompleteLinesAsyncTests {
         await Assert.That(await TranscriptReader.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 1, delayMs: 1)).IsTrue();
 
         // Step 2: the writer RESUMES, appending a new partial record (no newline, unparseable)
-        // in the gap before the consuming read — the exact TOCTOU the fix must close.
+        // in the gap before the consuming read — the TOCTOU this pins.
         await File.WriteAllTextAsync(path, "{\"a\":1}\n{\"b\":2");
 
         // Step 3: the consuming final drain re-validates on the bytes it actually reads and
@@ -266,8 +266,8 @@ public class ReadNewCompleteLinesAsyncTests {
     [Test]
     public async Task Bounded_capture_allocates_only_the_window_from_rawBytesReadFrom_not_the_whole_file() {
         // A large "already-checkpointed" prefix (well past any TrailingBytes window a real guard
-        // would use) followed by a few new lines. Before this fix, captureRawBytes always
-        // allocated a buffer the size of the WHOLE file, every poll, no matter how little was new.
+        // would use) followed by a few new lines: captureRawBytes must not allocate a buffer the
+        // size of the WHOLE file every poll, no matter how little is new.
         var padding = string.Concat(Enumerable.Repeat("x", 50_000)); // one huge already-processed line
         var content = padding + "\nnew1\nnew2\nnew3\n";
         var path    = WriteTemp(content);

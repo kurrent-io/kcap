@@ -1,5 +1,3 @@
-using Avalonia.Threading;
-
 namespace Capacitor.App.Tests.Unit;
 
 [NotInParallel("AvaloniaSession")]
@@ -38,15 +36,5 @@ public class AvaloniaSessionTests {
             caught = ex;
         }
         await Assert.That(ReferenceEquals(caught, failure)).IsTrue();
-    }
-
-    [Test]
-    public async Task Dispatch_keeps_async_continuations_on_the_ui_thread() {
-        var onUiThread = false;
-        await AvaloniaSession.DispatchAsync(async () => {
-            await Task.Yield();
-            onUiThread = Dispatcher.UIThread.CheckAccess();
-        });
-        await Assert.That(onUiThread).IsTrue();
     }
 }

@@ -84,4 +84,44 @@ public class CopilotWorkspaceYamlTests {
     public async Task unquote_handles_yaml_scalar_quote_forms(string raw, string expected) {
         await Assert.That(CopilotWorkspaceYaml.Unquote(raw)).IsEqualTo(expected);
     }
+
+    [Test]
+    public async Task workspace_yaml_parser_reads_a_block_scalar_name() {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, "cwd: /work\nname: |-\n  Review this PR.\n\n  Additional instructions:\n    (none)\nuser_named: false\n");
+
+        var meta = CopilotWorkspaceYaml.TryRead(path);
+
+        await Assert.That(meta!.Name).IsEqualTo("Review this PR.\n\nAdditional instructions:\n  (none)");
+        await Assert.That(meta.UserNamed).IsFalse();
+    }
+
+    /// <summary>A folded scalar joins a paragraph's lines with spaces, keeps a blank line as one break, and keeps
+    /// the breaks around a more-indented line.</summary>
+    [Test]
+    [Arguments("  Release\n  notes\n\n  Migration steps\n", "Release notes\nMigration steps")]
+    [Arguments("  Steps:\n    one\n  done\n", "Steps:\n  one\ndone")]
+    [Arguments("  Steps:\n    one\n\n  done\n", "Steps:\n  one\n\ndone")]
+    public async Task workspace_yaml_parser_folds_a_folded_scalar_name(string block, string expected) {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, $"name: >-\n{block}user_named: true\n");
+
+        await Assert.That(CopilotWorkspaceYaml.TryRead(path)!.Name).IsEqualTo(expected);
+    }
+
+    /// <summary>An indentation indicator fixes the block's indent, so a first line indented further keeps its spaces
+    /// and no later line loses text to the dedent.</summary>
+    [Test]
+    public async Task workspace_yaml_parser_applies_a_block_scalars_indentation_indicator() {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, "name: |2-\n    hello\n  world\nuser_named: true\n");
+
+        await Assert.That(CopilotWorkspaceYaml.TryRead(path)!.Name).IsEqualTo("hello\nworld");
+    }
 }

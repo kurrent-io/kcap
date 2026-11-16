@@ -359,8 +359,7 @@ static partial class ProcessHelpers {
     /// <remarks>
     /// Only touches descriptors positively identified as pipes — <see cref="IsPipeFd"/>
     /// gates every <see cref="MarkCloExec"/> call — rather than sweeping every open fd
-    /// regardless of type, which an earlier revision of this fix did. That blind version
-    /// crashed a real .NET process outright: on macOS, marking a KERNEL-GUARDED descriptor
+    /// regardless of type. A blind sweep crashes a real .NET process outright: on macOS, marking a KERNEL-GUARDED descriptor
     /// close-on-exec (Apple's <c>guarded_fd</c> mechanism, used internally by some system
     /// frameworks to protect specific fds from exactly this kind of blind manipulation)
     /// delivers <c>EXC_GUARD</c> — an immediate, unrecoverable kill that bypasses errno

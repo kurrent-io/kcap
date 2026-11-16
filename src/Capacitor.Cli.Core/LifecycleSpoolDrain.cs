@@ -56,15 +56,15 @@ public static class LifecycleSpoolDrain {
             // must not follow a later run's start: both are settled before the phases run.
             if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
 
-            // Phase 1: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
+            // First: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
             await lifecycle.DrainRoutesAsync(sid, isTerminal: false, PostLifecycle, Expired, ct);
             if (Expired()) return;
-            // Phase 2: transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
+            // Then: transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
             await transcript.DrainAsync(sid, PostTranscript, Expired, ct);
             if (transcript.HasBacklog(sid)) continue;
             if (transcript.NeedsImport(sid)) await DeliverNeedsImportAsync(sid, PostLifecycle);
             if (Expired()) return;
-            // Phase 3: session-end LAST. A non-zero consumed count means a terminal entry was truly
+            // Last: session-end. A non-zero consumed count means a terminal entry was truly
             // resolved (delivered or permanently dropped) in THIS call — not merely left for a retry
             // by a TransientStop/budget — so the session can be durably marked ended.
             string? ended = null;
@@ -103,13 +103,23 @@ public static class LifecycleSpoolDrain {
     /// <c>generate_whats_done</c> vendor-agnostically, see <c>WatchCommand</c>'s parent-exit path) would
     /// silently drop the what's-done generation. Callers that don't need it (or can't reach the
     /// process-spawning helper — the daemon has its own) may omit it.</para>
+    /// <para><paramref name="onLifecycleOutcome"/> sees what the server made of each lifecycle entry, for a caller that
+    /// must tell a delivered end from one a rejection removed. False keeps the entry spooled for a retry.
+    /// <paramref name="holds"/> keeps an entry spooled unsent, for a later pass.</para>
     /// </summary>
     public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
                                 TimeProvider time, CancellationToken ct,
-                                Action<string, string>? onWhatsDoneRequested = null)
+                                Action<string, string>? onWhatsDoneRequested = null,
+                                Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null,
+                                Func<string, string, bool>? holds = null)
         => RunAsync(config, lifecycle, transcript, currentSessionId,
-            lifecyclePoster: (route, body) => PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested),
+            lifecyclePoster: async (route, body) => {
+                if (holds?.Invoke(route, body) == true) return DrainOutcome.TransientStop;
+
+                var outcome = await PostOnce(client, baseUrl, route, body, time, ct, onWhatsDoneRequested);
+                return onLifecycleOutcome is null || onLifecycleOutcome(route, body, outcome) ? outcome : DrainOutcome.TransientStop;
+            },
             transcriptPoster: body => PostTranscript(markers, client, baseUrl, body, time, ct),
             budget, time, ct);
 

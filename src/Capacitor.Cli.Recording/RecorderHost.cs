@@ -177,6 +177,8 @@ public sealed class RecorderHost {
         if (hurried) entry.Hurry();
         else entry.CancelRun();
 
+        // The cancel can run the whole drain inline, and WaitAsync on a finished task ignores a cancelled token.
+        ct.ThrowIfCancellationRequested();
         await entry.Done.WaitAsync(ct);
     }
 

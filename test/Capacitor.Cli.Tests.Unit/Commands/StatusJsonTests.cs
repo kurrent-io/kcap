@@ -37,6 +37,25 @@ public class StatusJsonTests {
         await Assert.That(r.GetProperty("harnesses")[0].GetProperty("last_hook_event").ValueKind).IsEqualTo(JsonValueKind.Null);
     }
 
+    /// <summary>The text report names a missing vendor CLI before the install command, so the JSON carries it too.</summary>
+    [Test]
+    public async Task Renders_the_missing_cli_an_install_command_needs_and_null_without_one() {
+        var payload = StatusCommand.BuildPayload(
+            "default", new StatusCommand.ServerReach(Server, true, null),
+            new StatusCommand.AuthSnapshot(StatusAuthState.Valid, "george", Expiry),
+            "1.1.2", new UpdateAdvisory("1.1.2", null, Newer: false, ServerCapped: false), bundled: false,
+            [
+                new StatusHarnessJson("kiro", true, false, "kcap plugin install --kiro", MissingCli: "kiro-cli"),
+                new StatusHarnessJson("claude", true, false, "kcap plugin install"),
+            ], []);
+
+        using var doc = JsonDocument.Parse(StatusJsonRender.Render(payload));
+        var harnesses = doc.RootElement.GetProperty("harnesses");
+
+        await Assert.That(harnesses[0].GetProperty("missing_cli").GetString()).IsEqualTo("kiro-cli");
+        await Assert.That(harnesses[1].GetProperty("missing_cli").ValueKind).IsEqualTo(JsonValueKind.Null);
+    }
+
     [Test]
     public async Task Renders_the_last_hook_event_of_a_wired_harness() {
         var at = new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero);

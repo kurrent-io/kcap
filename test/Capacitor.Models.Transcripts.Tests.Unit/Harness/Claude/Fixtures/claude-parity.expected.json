@@ -303,5 +303,103 @@
         "attachments": null
       }
     ]
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "10000000-0000-4000-8000-000000000012",
+        "causedBy": "10000000-0000-4000-8000-000000000005",
+        "recordTimestamp": "2026-09-04T10:00:12Z",
+        "payload": {
+          "content": "first try",
+          "timestamp": "2026-09-04T10:00:12Z"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "attachments": null
+      }
+    ]
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageRetracted",
+        "id": "7d41f746-a53f-55da-05e6-eb0ded30941a",
+        "causedBy": null,
+        "recordTimestamp": "2026-09-04T10:00:13Z",
+        "payload": {
+          "message_id": "10000000-0000-4000-8000-000000000012"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "attachments": null
+      },
+      {
+        "type": "UserMessageReceived",
+        "id": "10000000-0000-4000-8000-000000000013",
+        "causedBy": "10000000-0000-4000-8000-000000000005",
+        "recordTimestamp": "2026-09-04T10:00:13Z",
+        "payload": {
+          "content": "second try",
+          "timestamp": "2026-09-04T10:00:13Z"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "attachments": null
+      }
+    ]
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ContextCompacted",
+        "id": "10000000-0000-4000-8000-000000000014",
+        "causedBy": null,
+        "recordTimestamp": "2026-09-04T10:00:14Z",
+        "payload": {
+          "replacement_history": null,
+          "encrypted_content": null,
+          "pre_tokens": 167005,
+          "trigger": "auto"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "attachments": null
+      }
+    ]
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 16,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ContextCompacted",
+        "id": "10000000-0000-4000-8000-000000000016",
+        "causedBy": "10000000-0000-4000-8000-000000000014",
+        "recordTimestamp": "2026-09-04T10:00:16Z",
+        "payload": {
+          "replacement_history": null,
+          "encrypted_content": null,
+          "pre_tokens": 225521,
+          "post_tokens": 37040,
+          "trigger": "manual"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "attachments": null
+      }
+    ]
   }
 ]

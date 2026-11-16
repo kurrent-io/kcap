@@ -317,7 +317,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// THIS call — never those left for a retry by a <c>TransientStop</c> or the budget. The caller
     /// uses a non-zero terminal-phase count to durably mark the session ended (see
     /// <see cref="MarkEnded"/>), which is how <see cref="LifecycleSpoolDrain"/> prevents a later
-    /// straggler non-terminal entry from ever being delivered after session-end (BLOCKER-3).</para>
+    /// straggler non-terminal entry from ever being delivered after session-end.</para>
     /// </summary>
     public async Task<int> DrainRoutesAsync(
             string sid, bool isTerminal, Func<string, string, Task<DrainOutcome>> poster,
@@ -609,7 +609,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// <summary>
     /// True if a terminal (session-end) entry for this session has already been durably delivered
     /// (or permanently dropped) by a previous ordered-drain pass — see <see cref="MarkEnded"/>.
-    /// Task 12 / BLOCKER-3: once true, <see cref="LifecycleSpoolDrain"/> must never attempt
+    /// Once true, <see cref="LifecycleSpoolDrain"/> must never attempt
     /// to deliver a straggler non-terminal entry for this session, even one that arrives (or is
     /// discovered) in a later pass — that would be a real cross-pass ordering violation, not just a
     /// same-pass one (the same-pass case is already prevented by <see cref="DrainRoutesAsync"/>'s

@@ -96,7 +96,7 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
             ClaudeHarness.Over(new ClaudePaths(home, null)),
             CodexHarness.Over(new CodexPaths(home, null)),
             CursorHarness.Over(new CursorPaths(home)),
-            CopilotHarness.Over(new CopilotPaths(home, null)),
+            CopilotHarness.Over(new CopilotPaths(home, null, null)),
             gemini,
             KiroHarness.Over(new KiroPaths(home, null)),
             PiHarness.Over(new PiPaths(home, null)),

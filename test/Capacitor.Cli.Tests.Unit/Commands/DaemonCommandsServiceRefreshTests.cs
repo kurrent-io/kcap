@@ -41,8 +41,8 @@ public class DaemonCommandsServiceRefreshTests {
                 };
             });
 
-    DaemonServiceCommands Commands(LaunchdServiceManager manager, string id, Func<string, ReloadStop>? stopForReload) =>
-        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System) { ReloadStopper = stopForReload };
+    DaemonServiceCommands Commands(LaunchdServiceManager manager, string id, Func<string, ReloadStop>? stopForReload, TimeSpan? lockWait = null) =>
+        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System) { ReloadStopper = stopForReload, LockWait = lockWait };
 
     [Test]
     public async Task Forced_run_reloads_only_the_named_daemon_and_prints_one_token() {
@@ -159,7 +159,8 @@ public class DaemonCommandsServiceRefreshTests {
         var asked = false;
         using var console = ConsoleOutput.StartFullCapture();
 
-        var commands = Commands(Manager(calls, new() { ["a"] = "adaptive (6)" }), "a", _ => { asked = true; return ReloadStop.Exited; });
+        var commands = Commands(Manager(calls, new() { ["a"] = "adaptive (6)" }), "a", _ => { asked = true; return ReloadStop.Exited; },
+                                lockWait: TimeSpan.FromMilliseconds(100));
         var exit = await commands.Refresh(force: true, stabilize: s => s);
 
         await Assert.That(exit).IsEqualTo(1);

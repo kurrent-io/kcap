@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 
 /// <summary>
-/// The codex app-server notification → <see cref="AcpEventEnvelope"/> mapper (§2.4). Canonical lane =
+/// The codex app-server notification → <see cref="AcpEventEnvelope"/> mapper. Canonical lane =
 /// completed snapshots / tool opens / plan / token deltas; ephemeral lane = accumulated live deltas;
 /// unknown item types surface generically and bump the drift counter. Shapes are grounded on codex
 /// 0.147.0's generated JSON schema.

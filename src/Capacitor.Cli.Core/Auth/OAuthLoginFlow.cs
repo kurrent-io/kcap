@@ -105,7 +105,8 @@ public static class OAuthLoginFlow {
     /// <returns>The GitHub access token on success, or <c>null</c> on failure.</returns>
     internal static async Task<string?> RunDeviceFlowAsync(
             GitHubOAuthClient github, string clientId, IBrowserLauncher launcher, TimeProvider time,
-            CancellationToken ct = default, IAuthProgress? progress = null, bool openBrowser = true) {
+            CancellationToken ct = default, IAuthProgress? progress = null, bool openBrowser = true,
+            Func<TimeSpan, CancellationToken, Task>? pollDelay = null) {
         progress ??= ConsoleAuthProgress.Instance;
 
         var deviceResponse = await github.RequestDeviceCodeAsync(clientId, ct);
@@ -153,8 +154,14 @@ public static class OAuthLoginFlow {
             new() { ["client_id"] = clientId, ["device_code"] = device.DeviceCode },
             CapacitorJsonContext.Default.GitHubTokenResponse,
             r => (r.AccessToken, r.Error),
-            device, interval, ct, progress, time);
+            device, interval, ct, progress, time, pollDelay);
     }
+
+    // The poll gap stays off `time`: it bounds the deadline, and a fake clock that only advances on a
+    // read cannot advance while the poll is blocked inside the delay.
+#pragma warning disable RS0030
+    static readonly Func<TimeSpan, CancellationToken, Task> RealClockDelay = Task.Delay;
+#pragma warning restore RS0030
 
     /// <summary>
     /// RFC 8628 §3.4-3.5 polling, shared by every provider. Parameterised on the token URL, the extra
@@ -166,18 +173,16 @@ public static class OAuthLoginFlow {
             System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResponse> typeInfo,
             Func<TResponse, (T? Value, string? Error)> read,
             DeviceCodeResponse device, int interval,
-            CancellationToken ct, IAuthProgress progress, TimeProvider time)
+            CancellationToken ct, IAuthProgress progress, TimeProvider time,
+            Func<TimeSpan, CancellationToken, Task>? pollDelay = null)
         where T : class where TResponse : class {
+        pollDelay ??= RealClockDelay;
         form["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code";
 
         var deadline = time.GetUtcNow().AddSeconds(device.ExpiresInOrDefault);
 
         while (true) {
-            // The poll gap stays on the real clock: `time` bounds the deadline, and a caller whose
-            // fake clock only advances on a read cannot advance one while blocked inside the delay.
-#pragma warning disable RS0030
-            await Task.Delay(TimeSpan.FromSeconds(interval), ct);
-#pragma warning restore RS0030
+            await pollDelay(TimeSpan.FromSeconds(interval), ct);
             ct.ThrowIfCancellationRequested();
 
             if (time.GetUtcNow() >= deadline) {
@@ -506,7 +511,8 @@ public static class OAuthLoginFlow {
     internal static async Task<string?> AcquireGitHubTokenAsync(
             GitHubOAuthClient github, string clientId, string? codeExchangeUrl, bool forceDevice,
             IBrowserLauncher launcher, ILoopbackJoin join, TimeProvider time,
-            CancellationToken ct = default, IAuthProgress? progress = null) {
+            CancellationToken ct = default, IAuthProgress? progress = null,
+            Func<TimeSpan, CancellationToken, Task>? pollDelay = null) {
         progress ??= ConsoleAuthProgress.Instance;
 
         var headless = HeadlessEnvironment.IsHeadless();
@@ -529,7 +535,7 @@ public static class OAuthLoginFlow {
             }
         }
 
-        return await RunDeviceFlowAsync(github, clientId, launcher, time, ct, progress, openBrowser: !forceDevice);
+        return await RunDeviceFlowAsync(github, clientId, launcher, time, ct, progress, openBrowser: !forceDevice, pollDelay);
     }
 
     /// <summary>
@@ -608,7 +614,8 @@ public static class OAuthLoginFlow {
     /// </summary>
     internal static async Task<WorkOSAuthResponse?> RunWorkOSDeviceFlowAsync(
             WorkOSClient workos, string apiBase, string clientId, IBrowserLauncher launcher, TimeProvider time,
-            CancellationToken ct = default, IAuthProgress? progress = null, bool openBrowser = true) {
+            CancellationToken ct = default, IAuthProgress? progress = null, bool openBrowser = true,
+            Func<TimeSpan, CancellationToken, Task>? pollDelay = null) {
         progress ??= ConsoleAuthProgress.Instance;
 
         var authorize = await workos.AuthorizeDeviceAsync(apiBase, clientId, ct);
@@ -668,7 +675,7 @@ public static class OAuthLoginFlow {
             new() { ["client_id"] = clientId, ["device_code"] = device.DeviceCode },
             CapacitorJsonContext.Default.WorkOSAuthResponse,
             r => (string.IsNullOrEmpty(r.AccessToken) ? null : r, r.Error),
-            device, device.IntervalOrDefault, ct, progress, time);
+            device, device.IntervalOrDefault, ct, progress, time, pollDelay);
 
         // Stamped here rather than at the ladder's fall-through points, because this is the one
         // place every device-code answer passes through.
@@ -682,18 +689,19 @@ public static class OAuthLoginFlow {
     /// device grant reachable by pressing <c>d</c> at any point and taken automatically when loopback
     /// cannot bind. A loopback attempt that RAN and failed returns <c>null</c> rather than falling
     /// through — a cancel or a state mismatch is an answer, and silently re-asking through another
-    /// channel would ignore it. Mirrors <see cref="AcquireGitHubTokenAsync(GitHubOAuthClient,string,string?,bool,IBrowserLauncher,Telemetry.ILoopbackJoin,TimeProvider,CancellationToken,IAuthProgress?)"/>.
+    /// channel would ignore it. Mirrors <see cref="AcquireGitHubTokenAsync(GitHubOAuthClient,string,string?,bool,IBrowserLauncher,Telemetry.ILoopbackJoin,TimeProvider,CancellationToken,IAuthProgress?,Func{TimeSpan,CancellationToken,Task}?)"/>.
     /// </summary>
     internal static async Task<WorkOSAuthResponse?> AcquireWorkOSAsync(
             WorkOSClient workos, string apiBase, string clientId, string? organizationId, bool forceDevice,
             IBrowserLauncher launcher, ILoopbackJoin join,
             TimeProvider time, IBrowser? browser = null,
-            CancellationToken ct = default, IAuthProgress? progress = null, IKeyWatcher? keys = null) {
+            CancellationToken ct = default, IAuthProgress? progress = null, IKeyWatcher? keys = null,
+            Func<TimeSpan, CancellationToken, Task>? pollDelay = null) {
         progress ??= ConsoleAuthProgress.Instance;
         keys     ??= ConsoleKeyWatcher.Instance;
 
         if (ChooseWorkOSFlow(forceDevice) is WorkOSFlow.Device) {
-            return await RunWorkOSDeviceFlowAsync(workos, apiBase, clientId, launcher, time, ct, progress, openBrowser: false);
+            return await RunWorkOSDeviceFlowAsync(workos, apiBase, clientId, launcher, time, ct, progress, openBrowser: false, pollDelay);
         }
 
         using var escape = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -739,7 +747,7 @@ public static class OAuthLoginFlow {
             await watch;
         }
 
-        return await RunWorkOSDeviceFlowAsync(workos, apiBase, clientId, launcher, time, ct, progress);
+        return await RunWorkOSDeviceFlowAsync(workos, apiBase, clientId, launcher, time, ct, progress, pollDelay: pollDelay);
     }
 
     /// <summary>
@@ -795,10 +803,10 @@ public static class OAuthLoginFlow {
             WorkOSClient workos, string apiBase, string serverUrl, string clientId, string? organizationId,
             bool forceDevice, IBrowserLauncher launcher, ILoopbackJoin join,
             IBrowser? browser, CancellationToken ct, IAuthProgress progress, TimeProvider time,
-            IKeyWatcher? keys = null) {
+            IKeyWatcher? keys = null, Func<TimeSpan, CancellationToken, Task>? pollDelay = null) {
         // AcquireWorkOSAsync already reported the specific failure reason.
         var json = await AcquireWorkOSAsync(
-            workos, apiBase, clientId, organizationId, forceDevice, launcher, join, time, browser, ct, progress, keys);
+            workos, apiBase, clientId, organizationId, forceDevice, launcher, join, time, browser, ct, progress, keys, pollDelay);
         if (json is null) return null;
 
         // Org gate: a multi-org user must not be "logged in" to the wrong org — every API call would

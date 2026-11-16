@@ -16,7 +16,7 @@ static class LocalSetupJsonLines {
         LocalInstallEvent.DownloadProgress d => new() { Event = "download_progress", Received = d.Received, Bytes = d.Bytes },
         LocalInstallEvent.Verified v         => new() { Event = "verified", Sha256 = v.Sha256 },
         LocalInstallEvent.Unpacked u         => new() { Event = "unpacked", Path = u.Path },
-        LocalInstallEvent.Starting s         => new() { Event = "starting", Unit = s.Unit },
+        LocalInstallEvent.Starting s         => new() { Event = "starting", Unit = s.Unit, AlreadyRunning = s.AlreadyRunning ? true : null },
         LocalInstallEvent.Ready r            => new() { Event = "ready", ServerUrl = r.ServerUrl },
         LocalInstallEvent.Committing         => new() { Event = "committing" },
         LocalInstallEvent.Reused r           => new() { Event = "reused", ServerUrl = r.ServerUrl, InstalledVersion = r.InstalledVersion },

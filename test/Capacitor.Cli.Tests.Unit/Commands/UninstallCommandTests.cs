@@ -229,10 +229,9 @@ public class UninstallCommandTests {
 
     [Test]
     public async Task User_level_uninstall_removes_legacy_kapacitor_codex_hooks() {
-        // Regression: a user who installed via the pre-rename `kapacitor` CLI
-        // has hooks.json entries pointing at `kapacitor codex-hook`. Running
-        // `kcap uninstall` must clean those up — the rename PR did not migrate
-        // the detection marker, so legacy entries previously survived.
+        // A user who installed via the pre-rename `kapacitor` CLI has hooks.json
+        // entries pointing at `kapacitor codex-hook`, which were never migrated.
+        // `kcap uninstall` must clean those up too.
         await using var fixture = await Fixture.CreateAsync();
 
         var codexDir = Path.Combine(fixture.Home, ".codex");
@@ -586,10 +585,9 @@ public class UninstallCommandTests {
     [Test, ExcludeOn(OS.Windows)]
     [UnsupportedOSPlatform("windows")]
     public async Task Cursor_hooks_write_failure_propagates_to_exit_code() {
-        // Cursor's RemoveCursor previously returned 0 even when the helper's
-        // inner try/catch swallowed a write failure. The helper now throws,
-        // RemoveCursor catches + returns 1, and uninstall aggregates that
-        // into hadFailures.
+        // A write failure in the helper must not be swallowed: RemoveCursor
+        // catches it and returns 1, and uninstall aggregates that into
+        // hadFailures.
         await using var fixture = await Fixture.CreateAsync();
 
         var cursorDir = Path.Combine(fixture.Home, ".cursor");
@@ -614,9 +612,9 @@ public class UninstallCommandTests {
     [Test, ExcludeOn(OS.Windows)]
     [UnsupportedOSPlatform("windows")]
     public async Task Sweep_failure_propagates_to_exit_code() {
-        // SweepCapacitorPrefixedDirs previously logged Directory.Delete errors
-        // but never flipped hadFailures, so a stuck kcap-* folder under
-        // ~/.agents/skills/ would leave uninstall claiming success.
+        // A Directory.Delete error in SweepCapacitorPrefixedDirs must flip
+        // hadFailures, or a stuck kcap-* folder under ~/.agents/skills/ leaves
+        // uninstall claiming success.
         await using var fixture = await Fixture.CreateAsync();
 
         var skillsDir = Path.Combine(fixture.Home, ".agents", "skills");

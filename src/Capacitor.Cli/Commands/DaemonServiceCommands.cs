@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
@@ -158,7 +159,7 @@ sealed class DaemonServiceCommands(
         if (windows.Enrollment is not { } enrollment) return 0;
         var name = enrollment.Name;
 
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, Wait(TimeSpan.FromSeconds(10)), time);
         if (txn is null) return await RefuseContendedAsync(name, "The Windows service was not changed.");
 
         var daemonPath = File.Exists(enrollment.DaemonPath) ? enrollment.DaemonPath : UnitIdentity.ResolveDaemonBinary();
@@ -229,7 +230,7 @@ sealed class DaemonServiceCommands(
     /// <summary>Held from reading the unit's PATH to the last write, so a concurrent install's unit is never
     /// merged into or restored over.</summary>
     async Task<PathRefresh?> RefreshStalePathAsync(HarnessRegistry harnesses) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, ForcedLockWait, time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(ForcedLockWait), time);
         if (txn is null) return new(UnitRefresh.Contended);
 
         if (manager.UnitEnvironment(id) is not { } env) return null;
@@ -375,6 +376,11 @@ sealed class DaemonServiceCommands(
 
     /// <summary>Whether the daemon of a service id hosts this process. Test seam; production asks <see cref="HostedCaller"/>.</summary>
     internal Func<string, bool>? HostsCaller { get; init; }
+
+    /// <summary>Replaces each verb's own bounded wait for a service lock held elsewhere; null keeps them.</summary>
+    internal TimeSpan? LockWait { get; init; }
+
+    TimeSpan Wait(TimeSpan own) => LockWait ?? own;
 
     static Func<string, bool> HostsCallerOf(DaemonStore store) => serviceId => HostedCaller.HostedBy(store, serviceId);
 
@@ -523,7 +529,7 @@ sealed class DaemonServiceCommands(
         string?     error = null;
         ReloadStop? stop  = null;
         try {
-            using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, ForcedLockWait, time);
+            using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(ForcedLockWait), time);
             if (txn is null) {
                 outcome = UnitRefresh.Contended;
             } else {
@@ -659,7 +665,7 @@ sealed class DaemonServiceCommands(
         var spec    = new ServiceSpec(id, daemonPath, logPath, env, extra);
 
         if (verify) {
-            // The CLI is the safety boundary for §4.1's precondition: prove the pinned profile resolves
+            // The CLI is the safety boundary for the viability precondition: prove the pinned profile resolves
             // to a valid server URL here too, so the transaction never destroys a working unit only to
             // install one whose daemon would exit config-invalid and never satisfy readiness.
             var profileUrlValid = await ServiceInstallViability.PinnedProfileServerUrlValidAsync(env, root);
@@ -743,7 +749,7 @@ sealed class DaemonServiceCommands(
     /// null lock → the same coded-contention message, exit 1, without calling <c>Install</c>. Internal so
     /// the lock-contention path is testable without <see cref="UnitIdentity.ResolveDaemonBinary"/> in the loop.</summary>
     internal async Task<int> InstallPlain(ServiceSpec spec, bool startNow) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(spec.ServiceId);
 
@@ -792,7 +798,7 @@ sealed class DaemonServiceCommands(
     }
 
     internal async Task<int> Uninstall() {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(id);
 
@@ -826,7 +832,7 @@ sealed class DaemonServiceCommands(
             try {
                 if (!Owned(unit)) continue;
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -906,7 +912,7 @@ sealed class DaemonServiceCommands(
                     continue;
                 }
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -990,7 +996,7 @@ sealed class DaemonServiceCommands(
                     continue;
                 }
 
-                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, Wait(TimeSpan.FromSeconds(5)), time);
                 if (txn is null) {
                     await RefuseContendedAsync(unit);
                     failed = true;
@@ -1090,7 +1096,7 @@ sealed class DaemonServiceCommands(
     async Task<int> StartPlain(bool waitOutOthers = false) {
         using var txn = waitOutOthers
             ? await AcquireWaitingOutOthersAsync()
-            : await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+            : await ServiceTxnLock.TryAcquireAsync(store, id, Wait(TimeSpan.FromSeconds(10)), time);
 
         if (txn is null) return await RefuseContendedAsync(id);
 
@@ -1104,12 +1110,29 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
+    /// Shortens the readiness window of <c>kcap daemon service start --verify</c>, in whole milliseconds, so the
+    /// real-process tests of its lock and stdio handling need not sit out the default. Honoured in production: a
+    /// shorter window can end a start that would still have become ready.
+    /// </summary>
+    internal const string StartVerifyForwardBudgetEnvVar = "KCAP_SERVICE_START_VERIFY_FORWARD_BUDGET_MS";
+
+    /// <summary>The override's value when it is a positive whole number of milliseconds below the default, else null
+    /// for the default: it can shorten the window but never lengthen it.</summary>
+    internal static TimeSpan? ShortenedStartForwardBudget(string? milliseconds) =>
+        int.TryParse(milliseconds, NumberStyles.None, CultureInfo.InvariantCulture, out var ms)
+     && ms > 0
+     && TimeSpan.FromMilliseconds(ms) < ServiceVerify.DefaultForwardBudget
+            ? TimeSpan.FromMilliseconds(ms)
+            : null;
+
+    /// <summary>
     /// <c>--verify</c>: hands off to the <see cref="ServiceVerify"/> transaction engine, which
     /// acquires the <see cref="ServiceTxnLock"/> itself — no double-acquire here.
     /// </summary>
     async Task<int> StartVerified() {
         var engine = new ServiceVerify(store, root, (LaunchdServiceManager)manager,
             n => DaemonPidProbe.ValidatedPid(store, n), (n, t) => HelloProbe.RunAsync(store, n, time, t), time,
+            forwardBudget: ShortenedStartForwardBudget(Environment.GetEnvironmentVariable(StartVerifyForwardBudgetEnvVar)),
             gateEnv: Environment.GetEnvironmentVariable);
         var exit = await engine.StartVerifiedAsync(id);
 
@@ -1243,7 +1266,7 @@ sealed class DaemonServiceCommands(
              + $"  Repair it with: kcap daemon service install --replace --verify --name {id}";
     }
 
-    async Task<int> StatusJson() {
+    internal async Task<int> StatusJson() {
         await StaleTxnMarker.SettleAsync(store, manager, id, time);
         var query           = manager.Query(id);
         var installBinary   = UnitIdentity.ResolveDaemonBinary();
@@ -1254,11 +1277,10 @@ sealed class DaemonServiceCommands(
         var markedAt        = txnMarker ? ServiceTxnMarker.WrittenAt(store, id) : null;
         var (unitProfile, unitServerUrl, unitExpectedServer, unitConsentSeed) = UnitEnvEvidence(query.UnitPresent);
 
-        string? supervisor = null;
+        var supervisor = ServiceManagerFactory.SupervisorWord(manager);
         bool? upgrade = null, installable = null, adopted = null, runsServer = null;
         if (OperatingSystem.IsWindows()) {
-            supervisor  = ServiceManagerFactory.SupervisorWord(manager);
-            upgrade     = manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
+            upgrade     =manager is WindowsServiceManager ? WindowsServiceBinaries.UpgradeAvailable() : null;
             installable = manager is WindowsScheduledTaskServiceManager && WindowsServiceBinaries.Bundled() is not null;
             if (manager is WindowsServiceManager windows) {
                 adopted    = query.UnitPresent ? windows.Supervision().Daemon?.Adopted : null;
@@ -1554,7 +1576,7 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
-    /// UX-evidence-only re-read of the installed unit's baked environment (spec §3): which profile,
+    /// UX-evidence-only re-read of the installed unit's baked environment: which profile,
     /// server URL, expectation and consent-seed default it was installed with. Sourced by re-reading the
     /// plist rather than threading it through <see cref="ServiceQuery"/> so the query type stays a pure
     /// lifecycle probe. All four are null when no unit is present or the re-read/parse fails for any

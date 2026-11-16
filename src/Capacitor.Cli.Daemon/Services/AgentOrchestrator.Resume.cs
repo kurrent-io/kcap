@@ -1661,7 +1661,7 @@ internal partial class AgentOrchestrator {
     Task ReportSupersededAsync(ResumeLedgerEntry entry, string reason, CancellationToken ct) =>
         entry.Launch.IsPrivate || reason == RegistrationRefusedReason
             ? Task.CompletedTask
-            : _server.ReportAgentEndedForShutdownAsync(entry.AgentId, entry.SessionId, "Completed", SupersededReason, null, ct);
+            : _server.ReportAgentEndedForShutdownAsync(entry.AgentId, entry.SessionId, "Completed", SupersededReason, null, runInstanceId: null, ct);
 
     /// <summary>Runs the takeover off the lane, once, as soon as the successor's session exists and the
     /// session it continues is known: either may come first. A terminal agent's pinned id names no
@@ -1903,7 +1903,7 @@ internal partial class AgentOrchestrator {
     }
 
     Task ReportResumeFailedAsync(ResumeLedgerEntry entry, string reason, int? exitCode, CancellationToken ct) =>
-        _server.ReportAgentEndedForShutdownAsync(entry.AgentId, entry.SessionId, "Failed", $"resume_failed:{reason}", exitCode, ct);
+        _server.ReportAgentEndedForShutdownAsync(entry.AgentId, entry.SessionId, "Failed", $"resume_failed:{reason}", exitCode, runInstanceId: null, ct);
 
     /// <summary>A private agent's launch reports nothing to the server, failures included.</summary>
     Task LaunchFailedUnlessPrivateAsync(bool isPrivate, string agentId, string reason) =>

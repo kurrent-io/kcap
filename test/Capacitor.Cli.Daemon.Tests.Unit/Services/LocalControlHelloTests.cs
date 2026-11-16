@@ -366,7 +366,7 @@ public class LocalControlHelloTests {
             // route anywhere — it falls into the default arm, which is what this pins: the Error
             // reply for a decodable-but-unrouted frame. It is NOT the down-level discovery signal —
             // that is hello-then-EOF (a pre-hello daemon can't even decode byte 15), never an Error
-            // frame (§3.1 of the design doc).
+            // frame.
             await FrameCodec.WriteAsync(s, LocalFrame.Detach(), ct);
 
             var resp = await FrameCodec.ReadAsync(s, ct);

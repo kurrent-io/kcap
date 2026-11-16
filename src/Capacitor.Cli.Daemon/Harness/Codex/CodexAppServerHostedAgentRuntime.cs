@@ -52,8 +52,8 @@ internal sealed record CodexAppServerLaunch(
 
 /// <summary>
 /// A <see cref="IHostedAgentRuntime"/> that hosts a Codex agent over the <c>codex app-server</c>
-/// JSON-RPC protocol instead of the interactive PTY. It exposes <see cref="IAcpTranscriptSource"/>
-/// (§2.4): every app-server notification is translated by <see cref="CodexNotificationMapper"/> into the
+/// JSON-RPC protocol instead of the interactive PTY. It exposes <see cref="IAcpTranscriptSource"/>:
+/// every app-server notification is translated by <see cref="CodexNotificationMapper"/> into the
 /// canonical/ephemeral <see cref="AcpEventEnvelope"/> vocabulary and drained through a bounded
 /// <see cref="CodexForwardBuffer"/>, so the envelope transcript — not the hooks + <c>kcap watch</c>
 /// rollout path — is the ingestion source for hosted app-server sessions. <see cref="EmitsTerminalOutput"/>
@@ -84,7 +84,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     const string ClientName = "kcap-daemon";
     const int    BackpressureMaxAttempts = 6;
 
-    // §2.4 forward buffer sizing. The capacity trades memory for the SignalR-outage window a canonical
+    // Forward buffer sizing. The capacity trades memory for the SignalR-outage window a canonical
     // burst can ride before the read loop blocks; the stall timeout bounds that block before a
     // deterministic terminal fault. `codex.appServer.forwardStallSeconds` (spec-named) maps to the
     // injectable stall timeout below; the default engages when the caller passes none.
@@ -105,11 +105,11 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     readonly TaskCompletionSource _runtimeTerminal = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     // The single input serializer: all input enqueues here, one dispatcher chooses turn/start vs
-    // turn/steer and owns the completion-window race (§2.2). Turn state (active turn id, in-flight
+    // turn/steer and owns the completion-window race. Turn state (active turn id, in-flight
     // clock, WaitForTurnIdle) is derived from it — the runtime no longer tracks turns itself.
     readonly CodexTurnInputDispatcher _dispatcher;
 
-    // §2.4 envelope transcript: the mapper translates every app-server notification into
+    // The mapper translates every app-server notification into
     // canonical/ephemeral envelopes, drained through the bounded forward buffer (IAcpTranscriptSource).
     readonly CodexNotificationMapper _mapper;
     readonly CodexSubmittedInputs    _submitted;
@@ -126,16 +126,15 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     CodexTokenUsage?          _usage;
     int                       _disposed;
 
-    // §2.4 envelope emission is gated OFF until §2.5 activates the envelope-source ingestion (deferred
-    // first-turn, source claim, and the hooks/watch dedup). Feeding the buffer while it is NOT drained
-    // by an attached AcpTranscriptForwarder would fill it and stall the read loop; draining it WITHOUT
-    // the §2.5 dedup would double-ingest a reviewer session (hooks + envelopes). So the transcript
-    // surface (IAcpTranscriptSource, mapper, buffer) ships here dormant; §2.5 flips this one flag
-    // together with the factory's Transcript wiring and the dedup guards.
+    // Envelope emission is on only alongside envelope-source ingestion (deferred first-turn, source
+    // claim, and the hooks/watch dedup). Feeding the buffer while it is NOT drained by an attached
+    // AcpTranscriptForwarder would fill it and stall the read loop; draining it WITHOUT the dedup would
+    // double-ingest a reviewer session (hooks + envelopes). So this flag flips only together with the
+    // factory's Transcript wiring and the dedup guards.
     readonly bool _emitEnvelopeTranscript;
 
-    // Whether the FIRST turn is deferred behind a source claim (the §2.5 deferred-first-turn contract).
-    // Distinct from _emitEnvelopeTranscript (envelope EMISSION, §2.4): the two are logically separable
+    // Whether the FIRST turn is deferred behind a source claim.
+    // Distinct from _emitEnvelopeTranscript (envelope EMISSION): the two are logically separable
     // (emission needs no seal; a seal needs no emission) and each is independently testable, even
     // though production flips BOTH together at the envelope-source activation.
     readonly bool _deferFirstTurn;
@@ -146,7 +145,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     // lands — the signal the orchestrator confirms on. Null with no initial prompt, or single-phase.
     Task? _firstTurnDispatch;
 
-    // §2.3 interactive approvals: non-null only for an INTERACTIVE launch (approvalPolicy != never) that
+    // Interactive approvals: non-null only for an INTERACTIVE launch (approvalPolicy != never) that
     // was given a requestInteraction delegate — it forwards server-initiated requestApproval to the user
     // and answers with their decision. Null on the reviewer path (never), which keeps DeclineServerRequestAsync.
     readonly CodexApprovalBridge? _approvalBridge;
@@ -231,7 +230,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     /// if none has arrived yet.</summary>
     public CodexTokenUsage? Usage => _usage;
 
-    // ── IAcpTranscriptSource (§2.4 envelope transcript) ──────────────────────────────────────────
+    // ── IAcpTranscriptSource ──────────────────────────────────────────
     // The canonical session id is the app-server thread id (== the rollout filename id and the hook
     // payload session_id, established by the app-server protocol spike), read only after the
     // thread/start handshake sets it.
@@ -353,7 +352,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         _process    = process;
 
         connection.OnNotification  += HandleNotification;
-        // Interactive launches forward requestApproval to the user (§2.3); reviewers (approvalPolicy:never)
+        // Interactive launches forward requestApproval to the user; reviewers (approvalPolicy:never)
         // keep declining, since a request there is a protocol violation, not a prompt.
         connection.OnServerRequest  = _approvalBridge is { } bridge ? bridge.HandleAsync : DeclineServerRequestAsync;
 
@@ -396,9 +395,6 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         return CodexHookTrust.ParseHooksList(result);
     }
 
-    // Best-effort: surface Codex's skills as the composer's `/` picker entries. skills/list is not
-    // required for the launch, so an older app-server without the method — or an unexpected shape —
-    // must not fail it; the picker just shows nothing for Codex.
     async Task TryPublishSkillsAsync(CancellationToken ct) {
         try {
             var listParams = new JsonObject { ["cwds"] = new JsonArray((JsonNode?) _launch.Cwd) };
@@ -412,7 +408,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     }
 
     async Task StartThreadAsync(CancellationToken ct) {
-        // §2.7 B4: a non-null ResumeSessionId REOPENS that thread via thread/resume (no round-1 replay, no
+        // A non-null ResumeSessionId REOPENS that thread via thread/resume (no round-1 replay, no
         // second SessionStarted); null ⇒ first launch via thread/start. A present-but-blank id is NOT a
         // valid "no resume" sentinel — treating it as absent would silently thread/start and FORK the
         // transcript, breaking the never-silently-fork invariant — so fail the launch loudly instead.
@@ -456,7 +452,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         if (string.IsNullOrEmpty(_threadId))
             throw new InvalidOperationException($"codex app-server: {method} returned no thread id.");
 
-        // §2.7 B4 usage baseline: on resume the first thread/tokenUsage/updated carries the thread-CUMULATIVE
+        // Usage baseline: on resume the first thread/tokenUsage/updated carries the thread-CUMULATIVE
         // total, so baseline off the next snapshot (emits nothing) to avoid double-counting round 1 as the
         // first delta. Bounded fallback (an exact thread/read baseline is a follow-up); set before the
         // deferred first turn so it lands ahead of any post-resume usage notification.
@@ -466,7 +462,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     // ── Turns / rounds ─────────────────────────────────────────────────────────────────────────
 
-    // The dispatcher's turn/start sender: builds the per-turn posture params (§2.1 renders them here,
+    // The dispatcher's turn/start sender: builds the per-turn posture params (rendered here,
     // not argv) and issues turn/start, returning the server-assigned turn. A -32001 backpressure
     // rejection is retried inside RequestAsync.
     async Task<CodexTurnStarted> IssueTurnStartAsync(string text, CancellationToken ct) {
@@ -575,10 +571,10 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
                 break;
         }
 
-        // §2.4 envelope transcript: translate every notification into canonical/ephemeral envelopes and
+        // Translate every notification into canonical/ephemeral envelopes and
         // drain them through the forward buffer. Runs on the read-loop thread, so a full buffer blocks
         // here (a canonical emit) — the intended lossless backpressure onto the app-server's stdout.
-        // Gated off until §2.5 activates envelope-source ingestion (see _emitEnvelopeTranscript).
+        // Gated on envelope-source ingestion (see _emitEnvelopeTranscript).
         if (_policy is { } policy) ObservePolicyFacts(policy, n.Method, n.Params);
 
         if (_emitEnvelopeTranscript)
@@ -602,7 +598,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         }
     }
 
-    // §2.4 stall watchdog: the forward buffer stayed full of canonical envelopes past the stall timeout
+    // Stall watchdog: the forward buffer stayed full of canonical envelopes past the stall timeout
     // (the SignalR leg is wedged). Fault the runtime deterministically rather than wedging the read loop
     // forever — the truncated canonical tail is reported here, never dropped silently.
     void OnForwardStall(TimeSpan stallTimeout) {

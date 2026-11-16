@@ -244,8 +244,8 @@ public class AntigravityImportTests : IDisposable {
         var result = await source.ImportSessionAsync(
             classified[0], new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
         // Outcome stays hardcoded Skipped, but SentChildContent threads through the repair's
-        // actual work: this repair attaches brand-new child content (the child was previously
-        // missing entirely), so it must report true.
+        // actual work: this repair attaches brand-new child content (the child was missing
+        // entirely), so it must report true.
         await Assert.That(result.Outcome).IsEqualTo(ImportOutcome.Skipped);
         await Assert.That(result.SentChildContent).IsTrue();
 
@@ -274,7 +274,7 @@ public class AntigravityImportTests : IDisposable {
 
         // Parent (no agentId) fully ingested → AlreadyLoaded; the child (agentId=dashless Child)
         // was never imported (404), so the repair pass attempts to resend its content — but the
-        // server REJECTS that batch (500). Regression for a Qodo-flagged false positive:
+        // server REJECTS that batch (500).
         // SentChildContent must reflect only server-ACCEPTED batches (failOnError: true), so a
         // rejected batch must NOT flip the signal to true.
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").WithParam("agentId", Dashless(Child)).UsingGet())
@@ -322,7 +322,7 @@ public class AntigravityImportTests : IDisposable {
         await Assert.That(posts.Contains("/hooks/session-end/antigravity")).IsTrue();
 
         // A routed AlreadyLoaded+Skipped replay with a false signal is SUPPRESSED for counting,
-        // not reported as Loaded — the false-positive Qodo flagged.
+        // not reported as Loaded.
         var isSuppressed = ImportCommand.IsLifecycleOnlyRoutedReplay(
             classified[0].Status, result.Outcome, result.SentChildContent);
         await Assert.That(isSuppressed).IsTrue();
@@ -404,8 +404,8 @@ public class AntigravityImportTests : IDisposable {
         WriteLinkage();
 
         // Parent not yet imported (404) → New; child partially imported up to line 0 → resume from
-        // file line 1, numbered by TRUE position (1). The pre-fix code fed the HWM as
-        // lineNumberOffset and re-sent the whole file as [1,2].
+        // file line 1, numbered by TRUE position (1); feeding the HWM as lineNumberOffset would
+        // re-send the whole file as [1,2].
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").WithParam("agentId", Dashless(Child)).UsingGet())
             .AtPriority(1)
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":0}"""));

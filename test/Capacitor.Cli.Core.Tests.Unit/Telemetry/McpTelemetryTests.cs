@@ -33,10 +33,9 @@ public class McpTelemetryTests {
         await Assert.That(probe.Events.Single().Properties["ok"]!.GetValue<bool>()).IsFalse();
     }
 
-    // Tool arguments can contain repo paths, prompts, and session ids. An earlier draft of this
-    // test checked the absence of three literal key names (arguments/params/input), which would
-    // still pass against an implementation that leaked argument data under any OTHER key.
-    // Inverted to an allowlist so ANY unexpected key fails the test, regardless of its name.
+    // Tool arguments can contain repo paths, prompts, and session ids. An allowlist, not a check
+    // for absent literal names (arguments/params/input), so argument data leaked under any OTHER
+    // key still fails the test.
     [Test]
     public async Task No_argument_data_is_carried() {
         var probe = StartCapturing();

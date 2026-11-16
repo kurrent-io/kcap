@@ -97,8 +97,8 @@ sealed class PiHookCommand(
             return 0;
         }
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
+        // The cross-vendor backlog drain runs centrally in Program.cs's `case "hook":` before
+        // dispatch, not here.
         var spool = new HookSpool(config, clock.Time, Url);
 
         var activeProfile = profiles.Effective;

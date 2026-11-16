@@ -29,8 +29,9 @@ public sealed class TranscriptRecorder(
     readonly Lock           _ackCursorGate = new();
     int _ackCursorWritten = -1;
 
-    readonly OnceLog _parseErrors  = new(context.Log);
-    readonly OnceLog _kiroWarnings = new(context.Log);
+    readonly OnceLog _parseErrors          = new(context.Log);
+    readonly OnceLog _kiroWarnings         = new(context.Log);
+    readonly OnceLog _copilotLocalWarnings = new(context.Log);
 
     // Each loop over lines ticks it: a large backlog can take longer than a host's threshold before its first send, and a
     // source restarted for that resumes from the same cursor and takes as long again.
@@ -39,9 +40,9 @@ public sealed class TranscriptRecorder(
     // The rewrite guard's checkpoint and pending range persist from poll to poll. Only Cursor has one.
     readonly CursorRewriteGuard? _cursorGuard = source.Vendor == "cursor" ? new(context.Server.Config, source.SessionId, time, context.Log) : null;
 
-    // Serializes a reconnect rewind against a drain: both move the byte and line frontiers and the
-    // guard's checkpoint, and the transport can report a reconnect while the loop is mid-drain.
-    readonly SemaphoreSlim? _cursorRewindGate = source.Vendor == "cursor" ? new(1, 1) : null;
+    // A drain and a reconnect's re-registration take turns. Both move the frontiers, and the server drops a line at or
+    // below one it took, so a line sent before the server's answer would sit above the gap a rewind resends.
+    readonly SemaphoreSlim _rewindGate = new(1, 1);
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
@@ -64,6 +65,10 @@ public sealed class TranscriptRecorder(
     /// <summary>Every Nth poll, roughly once a minute, the whole file is hashed again, so a rewrite inside a
     /// region the per-poll zone checks have moved past is still caught.</summary>
     internal const int CursorFullPrefixVerifyEveryNPolls = 60;
+
+    /// <summary>How often a transcript its agent rewrites is compared line by line below the cursor, which catches a
+    /// rewrite that left the line just before it unchanged.</summary>
+    internal const int RewrittenPrefixCheckEveryNPolls = 60;
 
     internal static readonly TimeSpan DrainOnceConnectBudget = TimeSpan.FromSeconds(30);
 
@@ -159,12 +164,11 @@ public sealed class TranscriptRecorder(
         try {
             _titleCts.Cancel();
         } catch (ObjectDisposedException) {
-            // Disposed twice.
         }
 
         _titleCts.Dispose();
         _givenUp.Dispose();
-        _cursorRewindGate?.Dispose();
+        _rewindGate.Dispose();
     }
 
     /// <summary>Tails the transcript until <paramref name="ct"/> or the recorder itself stops it. A failure to
@@ -275,7 +279,6 @@ public sealed class TranscriptRecorder(
                 }
             }
         } catch (OperationCanceledException) {
-            // Expected
         }
     }
 
@@ -323,7 +326,7 @@ public sealed class TranscriptRecorder(
 
         // The turn may have landed after the last poll, so the unsent lines are read again here.
         if (agentId is null && !State.ThresholdReached
-         && TranscriptLineText.UnsentLinesHoldRealTurn(TranscriptPath, State.LinesProcessed, vendor, _parseErrors)) {
+         && TranscriptLineText.UnsentLinesHoldRealTurn(TranscriptPath, State.LineMap?.ToFile(State.LinesProcessed) ?? State.LinesProcessed, vendor, _parseErrors)) {
             log("Session ended below the buffering threshold with a real turn; draining it");
             State.ThresholdReached = true;
             State.BufferedLines.Clear();
@@ -351,7 +354,7 @@ public sealed class TranscriptRecorder(
             try {
                 finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                // Cut off behind a reconnect's rewind. The spool below takes the lines.
+                // Cut off behind a reconnect's re-registration. The spool below takes the lines.
             }
 
             // Whatever comes next outlives this recorder: a spooled tail replays, and a mark asks for an import.
@@ -375,9 +378,16 @@ public sealed class TranscriptRecorder(
             FollowMovedTranscript();
             var spooled = await SpoolUndeliveredTranscriptTailAsync(
                 _spool, State.LinesProcessed, State.Commits, CancellationToken.None,
-                ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets);
+                ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets, State.LineMap);
 
             LeftLines |= spooled is not (null or TranscriptSpool.AppendResult.Appended);
+
+            // Usage lines are not in the transcript, so the tail spool cannot carry them; an import rebuilds them.
+            if (State.CopilotLocalUsage is { } usage && (usage.StagedRequests.Count > 0 || usage.StagedCredits.Count > 0)) {
+                log("VS Code chat log usage not delivered by the final drain; flagging needs-import");
+                LeftLines = true;
+                MarkForImport(_spool, "shutdown final drain: VS Code chat log usage was not delivered");
+            }
 
             try {
                 await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
@@ -590,23 +600,15 @@ public sealed class TranscriptRecorder(
         try {
             if (HasLostClaim()) return;
 
-            var stop           = _stop.Token;
-            var serverPosition = await ConnectAsync(stop);
+            var rewound = await GatedReregisterAsync(_rewindGate, State, ct => ConnectAsync(ct), _cursorGuard, _stop.Token);
+            PublishAckedLines(State);
 
-            if (serverPosition < State.LinesProcessed) {
-                TryLog($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");
-
-                var rewound = await GatedApplyReconnectRewindAsync(_cursorRewindGate, State, serverPosition, _cursorGuard, stop);
-                PublishAckedLines(State);
-
-                if (!rewound) {
-                    // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
-                    TryLog("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
-                    _stop.Cancel();
-                }
+            if (!rewound) {
+                // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
+                TryLog("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
+                _stop.Cancel();
             }
         } catch (ObjectDisposedException) {
-            // Already finished.
         } catch (Exception ex) {
             TryLog($"Re-register after reconnect failed: {ex.Message}");
 
@@ -649,7 +651,7 @@ public sealed class TranscriptRecorder(
 
         context.Housekeeping.RefreshTranscript(TranscriptPath);
 
-        return GatedDrainNewLinesAsync(_cursorRewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
+        return GatedDrainNewLinesAsync(_rewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
     }
 
     /// <summary>Splits a total wait into consecutive chunks of at most <paramref name="maxSlice"/>, so the caller can
@@ -785,7 +787,6 @@ public sealed class TranscriptRecorder(
     }
 
     static string TruncateForTitle(string text, int maxLength) {
-        // Take first line only, then truncate
         var firstLine  = text.AsSpan();
         var newlineIdx = firstLine.IndexOfAny('\r', '\n');
 
@@ -797,7 +798,6 @@ public sealed class TranscriptRecorder(
             return firstLine.ToString().Trim();
         }
 
-        // Find last word boundary before maxLength
         var truncated = firstLine[..maxLength];
         var lastSpace = truncated.LastIndexOf(' ');
 
@@ -881,6 +881,20 @@ public sealed class TranscriptRecorder(
             CursorRewriteGuard? cursorGuard             = null,
             Action?             onCursorRewriteDetected = null
         ) {
+        try {
+            return await DrainAndSendAsync(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
+        } finally {
+            SaveSentHashes(state);
+        }
+    }
+
+    async Task<IReadOnlyList<string>> DrainAndSendAsync(
+            WatchState          state,
+            CancellationToken   ct,
+            bool                isFinalDrain,
+            CursorRewriteGuard? cursorGuard,
+            Action?             onCursorRewriteDetected
+        ) {
         var sessionId      = source.SessionId;
         var agentId        = source.AgentId;
         var vendor         = source.Vendor;
@@ -929,18 +943,32 @@ public sealed class TranscriptRecorder(
             // Only newline-terminated lines are read. A final line still being written is held back: sending
             // its truncated prefix and advancing past it would drop the completed line for good. Large tool
             // results are slow to flush and get caught mid-write. The next drain re-reads it once complete.
-            NewTranscriptLines drainRead;
-            await using (var stream = OpenTranscript?.Invoke(transcriptPath) ?? new FileStream(
-                    transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
+            async Task<NewTranscriptLines> ReadFrom(int line) {
+                await using var stream = OpenTranscript?.Invoke(transcriptPath) ?? new FileStream(
+                    transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
                 // Cursor captures the raw bytes this read decodes from, so the guard hashes exactly what
                 // produced the lines rather than a later read of a file that may have changed.
-                drainRead = await TranscriptReader.ReadNewCompleteLinesAsync(
-                    stream, state.LinesProcessed,
+                return await TranscriptReader.ReadNewCompleteLinesAsync(
+                    stream, line,
                     isFinalDrain ? IncompleteFinalLinePolicy.ConsumeIfComplete : IncompleteFinalLinePolicy.Hold,
                     ct, captureRawBytes: vendor == "cursor",
                     rawBytesReadFrom: cursorBoundedReadFrom,
                     newRangeByteOffset: vendor == "cursor" ? cursorGuardOldOffset : null,
                     lineOffsets: state.LineOffsets);
+            }
+
+            var lineMap = state.LineMap ??= NewLineMap();
+            var read    = lineMap is null
+                ? await ReadFrom(state.LinesProcessed)
+                : await ReadRewritableAsync(state.LinesProcessed, lineMap, state.LineOffsets, ReadFrom,
+                    isFinalDrain || lineMap.PollIsDue(RewrittenPrefixCheckEveryNPolls), ct);
+
+            // The next poll reads again, and at shutdown the tail spool after the final drain does.
+            if (read is not { } drainRead) {
+                log("Transcript kept changing under every read; reading it again next poll");
+
+                return [];
             }
 
             if (vendor == "cursor" && cursorGuard is not null) {
@@ -1043,6 +1071,11 @@ public sealed class TranscriptRecorder(
                 KiroLiveUsage.AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, log);
             }
 
+            // The chat log lags the transcript, so this runs on drains that read no new transcript line too.
+            if (vendor == "copilot" && agentId is null && state.ThresholdReached && CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+                CopilotLocalUsage.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, _copilotLocalWarnings.Write);
+            }
+
             if (newLines.Count > 0) {
                 state.LastActivityAt          = time.GetUtcNow();
                 // New activity restarts the idle measure, so discard disconnected time accrued
@@ -1135,7 +1168,6 @@ public sealed class TranscriptRecorder(
                     }
                 }
 
-                // Also check new lines (normal path)
                 if (state.FirstUserText is null && newLines.Count > 0) {
                     foreach (var userText in Progressing(newLines).Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
                         TranscriptLineText.SetFirstUserText(state, userText, log);
@@ -1387,6 +1419,8 @@ public sealed class TranscriptRecorder(
                 foreach (var anchor in state.KiroUsagePendingAnchors)
                     state.KiroUsageEmittedAnchors.Add(anchor);
 
+                state.CopilotLocalUsage?.Commit();
+
                 if (repoToSend is not null) {
                     state.LastSentRepository = repoToSend;
                 }
@@ -1408,10 +1442,120 @@ public sealed class TranscriptRecorder(
         } catch (Exception ex) when (ex is IOException || (isFinalDrain && ex is UnauthorizedAccessException)) {
             log($"Error reading file: {ex.Message}");
         } catch (OperationCanceledException) {
-            // Expected during shutdown
         }
 
         return [];
+    }
+
+    // Restoring a checkpoint drops the turns after it from Copilot's events.jsonl, and the next prompt is
+    // appended to the shorter file.
+    static bool RewritesTranscriptInPlace(string vendor) => vendor == "copilot";
+
+    // Kept for `kcap import` and for the next watcher of this transcript, which number lines through it.
+    TranscriptRenumbering Numbering => new(context.Server.Config, context.Server.Url);
+
+    void RecordNumbering(TranscriptLineMap map) {
+        if (source.AgentId is null) Numbering.Record(source.SessionId, map);
+    }
+
+    TranscriptLineMap? NewLineMap() {
+        if (!RewritesTranscriptInPlace(source.Vendor)) return null;
+        if (source.AgentId is not null) return new();
+
+        var recorded = Numbering.Read(source.SessionId);
+
+        return recorded is null
+            ? new TranscriptLineMap([(0, 0)], [], Numbering.ReadHashes(source.SessionId))
+            : new TranscriptLineMap(recorded.Segments, recorded.Kept, Numbering.ReadHashes(source.SessionId));
+    }
+
+    // The hashes of the lines below the cursor, which the server holds, are what the next watcher compares against.
+    void SaveSentHashes(WatchState state) {
+        if (source.AgentId is not null || state.LineMap is not { } map) return;
+
+        var sent = Math.Min(map.ToFile(state.LinesProcessed), map.Known);
+        if (sent == map.HashesSaved) return;
+
+        if (Numbering.SaveHashes(source.SessionId, map.Hashes, map.HashesSaved, sent)) map.HashesSaved = sent;
+    }
+
+    /// <summary>
+    /// Reads past <paramref name="sentCursor"/> in a transcript its agent can rewrite, with each line numbered as it
+    /// is sent. The line before the cursor is read again to check it is unchanged, and with
+    /// <paramref name="wholePrefix"/> every line below it is. When one changed, or the file is now shorter than the
+    /// cursor, the lines from the first one the rewrite changed are numbered on from the cursor and read again.
+    /// A line sent before the rewrite was found is not sent again. Lines a watcher before this one read are taken as
+    /// they now are, since nothing recorded them. Null when the file changed under every read.
+    /// </summary>
+    async Task<NewTranscriptLines?> ReadRewritableAsync(
+            int                                 sentCursor,
+            TranscriptLineMap                   map,
+            TranscriptLineIndex?                offsets,
+            Func<int, Task<NewTranscriptLines>> readFrom,
+            bool                                wholePrefix,
+            CancellationToken                   ct
+        ) {
+        // Each rewrite found moves the cursor back, so this ends unless the file keeps changing under the reads.
+        for (var attempt = 0; attempt < 3; attempt++) {
+            var cursor    = map.ToFile(sentCursor);
+            var verifying = cursor > 0 && map.Known >= cursor;
+            var read      = await readFrom(verifying ? cursor - 1 : Math.Min(map.Known, cursor));
+
+            int? rewrittenAt = null;
+
+            if (verifying) {
+                var check   = read.LineNumbers is [var first, ..] && first == cursor - 1 ? read.Lines[0] : null;
+                var suspect = read.NextPosition < cursor || !map.Matches(cursor - 1, check);
+
+                if (suspect || wholePrefix) {
+                    var at = await map.FirstChangedLineAsync(TranscriptPath, cursor, ct);
+                    if (at < cursor) {
+                        rewrittenAt = at;
+                    } else if (suspect) {
+                        // Unchanged read from the top, as a final line consumed without its newline is: only the
+                        // offsets the first read seeked by are suspect.
+                        offsets?.Reset();
+                        read = await readFrom(cursor);
+                    }
+                }
+            } else {
+                // Lines below the cursor whose hashes were never saved are taken as the file has them; the ones that
+                // were are compared first, or a rewrite of them would be taken in as what was sent. A change at or past
+                // the cursor is only content the server has not got, which the read below takes in.
+                var compared = Math.Min(map.Known, cursor);
+                var at       = compared > 0 ? await map.FirstChangedLineAsync(TranscriptPath, compared, ct) : 0;
+                if (at < compared) {
+                    rewrittenAt = at;
+                } else {
+                    map.Observe(read.Lines, read.LineNumbers, Math.Min(read.NextPosition, cursor));
+                    if (read.NextPosition < cursor) rewrittenAt = read.NextPosition;
+                }
+            }
+
+            if (rewrittenAt is { } changed) {
+                context.Log($"Transcript was rewritten from line {changed}; numbering the lines after it from {sentCursor}");
+                map.Rewritten(changed, sentCursor, cursor);
+                RecordNumbering(map);
+                offsets?.Reset();
+                wholePrefix = false;
+                continue;
+            }
+
+            map.Observe(read.Lines, read.LineNumbers, read.NextPosition);
+
+            var lines   = new List<string>(read.Lines.Count);
+            var numbers = new List<int>(read.Lines.Count);
+            if (map.Match(read.Lines, read.LineNumbers, cursor)) RecordNumbering(map);
+            for (var i = 0; i < read.Lines.Count; i++) {
+                if (read.LineNumbers[i] < cursor || map.HeldBack(read.LineNumbers[i], sentCursor)) continue;
+                lines.Add(read.Lines[i]);
+                numbers.Add(map.ToSent(read.LineNumbers[i]));
+            }
+
+            return read with { Lines = lines, LineNumbers = numbers, NextPosition = map.ToSent(read.NextPosition) };
+        }
+
+        return null;
     }
 
     /// <summary>Spool only records beyond the acknowledged source frontier.</summary>
@@ -1421,7 +1565,8 @@ public sealed class TranscriptRecorder(
             CommitObservation    commits,
             CancellationToken    ct,
             TimeSpan?            redactionLimit = null,
-            TranscriptLineIndex? lineOffsets    = null
+            TranscriptLineIndex? lineOffsets    = null,
+            TranscriptLineMap?   lineMap        = null
         ) {
         var sessionId      = source.SessionId;
         var agentId        = source.AgentId;
@@ -1439,16 +1584,31 @@ public sealed class TranscriptRecorder(
             return null;
         }
 
-        NewTranscriptLines tail;
+        NewTranscriptLines? read;
         try {
-            await using var stream = new FileStream(
-                transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            tail = await TranscriptReader.ReadNewCompleteLinesAsync(
-                stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
+            async Task<NewTranscriptLines> ReadFrom(int line) {
+                await using var stream = OpenTranscript?.Invoke(transcriptPath) ?? new FileStream(
+                    transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+                return await TranscriptReader.ReadNewCompleteLinesAsync(
+                    stream, line, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
+            }
+
+            // The final drain may have been cut off before its read, so this can be the first to see a rewrite.
+            read = lineMap is null
+                ? await ReadFrom(linesProcessed)
+                : await ReadRewritableAsync(linesProcessed, lineMap, lineOffsets, ReadFrom, wholePrefix: true, ct);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // Nothing is left that could say what the final drain missed, and a mark is the only way those lines survive.
             log($"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
             MarkForImport(transcriptSpool, $"shutdown tail: transcript could not be read: {ex.Message}");
+
+            return TranscriptSpool.AppendResult.MarkedNeedsImport;
+        }
+
+        if (read is not { } tail) {
+            log($"Shutdown-tail spool: transcript for {sessionId} kept changing under every read");
+            MarkForImport(transcriptSpool, "shutdown tail: transcript kept being rewritten while it was read");
 
             return TranscriptSpool.AppendResult.MarkedNeedsImport;
         }
@@ -1569,40 +1729,42 @@ public sealed class TranscriptRecorder(
         return true;
     }
 
-    /// <summary>Runs <see cref="ApplyReconnectRewindAsync"/> under <paramref name="gate"/>, the gate
-    /// <see cref="GatedDrainNewLinesAsync"/> holds, so a rewind can't land in a drain that already read the
-    /// frontiers it is moving. Null for every vendor but Cursor.</summary>
-    internal async Task<bool> GatedApplyReconnectRewindAsync(
-            SemaphoreSlim? gate, WatchState state, int serverPosition, CursorRewriteGuard? cursorGuard, CancellationToken ct) {
-        if (gate is null) {
-            return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
-        }
-
+    /// <summary>Registers through <paramref name="register"/> and, when the server's frontier is behind the cursor,
+    /// rewinds to it with <see cref="ApplyReconnectRewindAsync"/>, all under <paramref name="gate"/>, the gate
+    /// <see cref="GatedDrainNewLinesAsync"/> holds. False, with neither frontier moved, when the rewind quarantined
+    /// the session.</summary>
+    internal async Task<bool> GatedReregisterAsync(
+            SemaphoreSlim gate, WatchState state, Func<CancellationToken, Task<int>> register, CursorRewriteGuard? cursorGuard, CancellationToken ct) {
         await gate.WaitAsync(ct);
+
         try {
-            return await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct);
+            var serverPosition = await register(ct);
+            if (serverPosition >= state.LinesProcessed) return true;
+
+            TryLog($"Server behind ({serverPosition} vs {state.LinesProcessed}), rewinding to resend gap");
+
+            if (!await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct)) return false;
+
+            // Usage lines sit above the server's frontier, so it cannot say whether it lost them with the gap.
+            state.CopilotLocalUsage?.ForgetSent();
+            return true;
         } finally {
             gate.Release();
         }
     }
 
     /// <summary>Runs <see cref="DrainNewLines"/> under <paramref name="gate"/>, the counterpart of
-    /// <see cref="GatedApplyReconnectRewindAsync"/>.</summary>
+    /// <see cref="GatedReregisterAsync"/>. The wait beats: it can last as long as the server takes to answer.</summary>
     internal async Task<IReadOnlyList<string>> GatedDrainNewLinesAsync(
-            SemaphoreSlim?      gate,
+            SemaphoreSlim       gate,
             WatchState          state,
             CancellationToken   ct,
             bool                isFinalDrain            = false,
             CursorRewriteGuard? cursorGuard             = null,
             Action?             onCursorRewriteDetected = null
         ) {
-        if (gate is null) {
-            var drained = await DrainNewLines(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
-            PublishAckedLines(state);
-            return drained;
-        }
+        while (!await gate.WaitAsync(HeartbeatSlice, ct)) context.Beat();
 
-        await gate.WaitAsync(ct);
         try {
             var drained = await DrainNewLines(state, ct, isFinalDrain, cursorGuard, onCursorRewriteDetected);
             PublishAckedLines(state);

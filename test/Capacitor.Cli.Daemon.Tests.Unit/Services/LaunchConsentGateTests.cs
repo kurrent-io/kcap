@@ -138,7 +138,7 @@ public class LaunchConsentGateTests {
         await Assert.That(parsed.RootElement.GetProperty("requester_display").GetString()).IsEqualTo("Mathias");
     }
 
-    // ══ Deadline discipline (spec §3.2) — grace + monotonic deadline + TimeProvider plumbing.
+    // ══ Deadline discipline — grace + monotonic deadline + TimeProvider plumbing.
     // All timing driven by FakeTimeProvider; no real sleeps stand in for timeout semantics. ═══
 
     /// Drives the two ILaunchConsentPrompter members via caller-supplied callbacks, so a test can
