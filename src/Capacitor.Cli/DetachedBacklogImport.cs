@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.Cli;
 
@@ -14,8 +15,11 @@ public static class DetachedBacklogImport {
     /// started, since it would find nothing and the hook would claim a hand-off that never happens.</param>
     /// <param name="importSearches">The directory the vendor's import discovers sessions in, when a session can live
     /// outside it; null when the hook and the import read the same place.</param>
+    /// <param name="serverUrl">The server the hook resolved: an inherited <c>KCAP_URL</c> naming another would split the
+    /// session's transcript across two servers.</param>
     public static bool Spawn(
-            string vendorFlag, string sessionId, string transcriptPath, string? importSearches, ConfigRoot config, IProcessStarter starter) {
+            string vendorFlag, string sessionId, string transcriptPath, string? importSearches, ConfigRoot config, string serverUrl,
+            IProcessStarter starter) {
         if (importSearches is not null && !Under(transcriptPath, importSearches)) return false;
         if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId) ?? sessionId, config)) return false;
 
@@ -32,6 +36,7 @@ public static class DetachedBacklogImport {
 
             foreach (var arg in Args(vendorFlag, sessionId)) psi.ArgumentList.Add(arg);
             psi.Environment[ConfigRoot.ConfigDirEnvVar] = config.Directory;
+            psi.Environment[ProfileOverrides.UrlVar]    = serverUrl;
             // A detached import: no parent watchdog, which would end it moments after the hook exits, and its output in a
             // log, which the child only appends to.
             var log = LogPath(config, sessionId);
@@ -47,7 +52,8 @@ public static class DetachedBacklogImport {
     }
 
     public static string[] Args(string vendorFlag, string sessionId) =>
-        ["import", vendorFlag, "--session", sessionId, "--skip-title", "--no-update-check"];
+        // No minimum length: what is left of a cut-off backlog is worth sending however short the session is.
+        ["import", vendorFlag, "--session", sessionId, "--min-lines", "0", "--skip-title", "--no-update-check"];
 
     public static string LogPath(ConfigRoot config, string sessionId) =>
         config.Path("logs", $"backlog-import-{SessionIds.Canonical(sessionId) ?? sessionId}.log");
