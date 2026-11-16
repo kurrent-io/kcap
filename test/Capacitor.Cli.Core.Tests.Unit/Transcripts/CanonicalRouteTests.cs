@@ -101,4 +101,15 @@ public class CanonicalRouteTests {
         await Assert.That(route.Active).IsFalse();
         await Assert.That(() => route.Encode(Raw(0, User(1)), Received)).Throws<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task A_replay_that_fails_falls_the_route_back() {
+        var deep  = string.Concat(Enumerable.Repeat("[", 58)) + string.Concat(Enumerable.Repeat("]", 58));
+        var line  = $$$$"""{"type":"assistant","uuid":"{{{{Id(2)}}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{{deep}}}}}}]}}""";
+        var path  = Tmp.CreateFile("bad.jsonl", $"{User(1)}\n{line}\n");
+        var route = Route();
+
+        await Assert.That(() => route.ReplayAsync(path, 2, CancellationToken.None)).Throws<CanonicalEncodingException>();
+        await Assert.That(route.Active).IsFalse();
+    }
 }

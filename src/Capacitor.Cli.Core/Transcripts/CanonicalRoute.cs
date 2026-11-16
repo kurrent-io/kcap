@@ -28,7 +28,7 @@ public sealed class CanonicalRoute {
     public bool Active { get; private set; } = true;
 
     /// <summary>Projects the lines the server already holds, so the batches after them project as one uninterrupted
-    /// run would. Lines are the agent's raw ones, read without denying it the file. A file that is missing or
+    /// run would. A replay that fails leaves the projection half-advanced, so the route falls back. Lines are the agent's raw ones, read without denying it the file. A file that is missing or
     /// shorter than the bound replays what it has.</summary>
     public Task ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct) =>
         Task.Run(() => {
@@ -45,6 +45,11 @@ public sealed class CanonicalRoute {
                 }
             } catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
                 // The source has not written anything yet.
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                throw;
+            } catch (Exception e) {
+                FallBack();
+                throw new CanonicalEncodingException(e);
             }
         }, ct);
 
