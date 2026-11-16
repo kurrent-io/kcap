@@ -82,8 +82,8 @@ sealed class OrchestratorFixture : IAsyncDisposable {
 
     public string SockPath => Daemons.Store.SocketPath(Config.Name);
 
-    /// <summary>Starts the control server and waits for its socket file. Bind publishes the file
-    /// before Listen, so a caller that connects at once can still be refused.</summary>
+    /// <summary>Starts the control server and returns once it accepts a connection: Bind publishes the
+    /// socket file before Listen, so the file alone does not mean a connect will succeed.</summary>
     public async Task<LocalControlServer> StartServerAsync(
             CancellationToken           ct,
             IRestartStrategy?           restartStrategy   = null,
@@ -103,7 +103,11 @@ sealed class OrchestratorFixture : IAsyncDisposable {
         await Server.StartAsync(ct);
 
         var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(SockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, ct);
+        while (!File.Exists(SockPath)) {
+            if (DateTime.UtcNow >= deadline) throw new TimeoutException($"The control server never bound {SockPath}.");
+            await Task.Delay(20, ct);
+        }
+        await using (await ControlSocket.ConnectAsync(SockPath, ct)) { }
 
         return Server;
     }
