@@ -686,11 +686,13 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         if (info != _session.Value) _session.OnNext(info);
     }
 
-    /// Only a daemon of the signed-in account, which fetches the files with its owner's credential, and
-    /// only a session it hosts: an attached terminal session submits text alone, so its daemon refuses files.
+    /// Only a session hosted by one of the signed-in account's daemons, which fetches the files with its
+    /// owner's credential. The daemon listing is that proof: the server folds it through the account's
+    /// aliases and the service empties it on an account switch, so a daemon kept under a merged older id
+    /// still qualifies. An attached terminal session submits text alone, so its daemon refuses files.
     internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
-        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId == viewer && row.MachineBadge is { } name
-        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == viewer) is { } daemon
+        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId is { Length: > 0 } owner && row.MachineBadge is { } name
+        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
     /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,

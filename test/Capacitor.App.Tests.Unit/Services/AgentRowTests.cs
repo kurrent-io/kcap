@@ -176,15 +176,15 @@ public class AgentRowTests {
     }
 
     /// The remote daemon fetches with its owner's credential, so files are offered only when the
-    /// signed-in account owns both the session and the daemon, and the daemon's build fetches on
-    /// dispatched input. The listing's own ownership flag plays no part: it can be unset, or stale
-    /// after an account switch.
+    /// session's daemon is in the signed-in account's daemon listing and its build fetches on dispatched
+    /// input. The listing names a daemon kept under a merged alias by that alias, which need not be the
+    /// token subject. The session listing's ownership flag plays no part: it can be unset, or stale.
     [Test]
     [Arguments("u7",  "u7",    "1.0.3",        null,  true)]
     [Arguments("u7",  "u7",    "1.0.3-beta.1", false, true)]
+    [Arguments("u8",  "u7",    "1.0.3",        null,  true)]
     [Arguments("u7",  "u7",    "1.0.2",        true,  false)]
     [Arguments("u7",  "other", "1.0.3",        true,  false)]
-    [Arguments("u8",  "u7",    "1.0.3",        true,  false)]
     [Arguments(null,  "u7",    "1.0.3",        true,  false)]
     public async Task A_remote_session_accepts_attachments_only_on_the_signed_in_accounts_capable_daemon(
             string? viewer, string daemonOwner, string version, bool? ownerIsViewer, bool expected) {
