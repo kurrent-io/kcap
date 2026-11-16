@@ -5,6 +5,7 @@ using Capacitor.Models.Transcripts.Harness.Copilot;
 using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.Muse;
 using Google.Protobuf;
+using Kurrent.Agent.Schema;
 using Kurrent.Agent.Schema.Events;
 
 namespace Capacitor.Models.Transcripts;
@@ -34,6 +35,9 @@ public static class CanonicalEventJson {
             _ => throw new ArgumentException($"{payload.GetType().Name} is never stored as itself", nameof(payload)),
         };
     }
+
+    /// A usage in the same form as a payload; it is not an event, so <see cref="Write"/> refuses it.
+    public static string WriteUsage(TokenUsage usage) => Formatter.Format(usage);
 
     /// Null for a type the chat does not read or a payload that does not parse as it.
     public static object? TryParse(string eventType, string json) {

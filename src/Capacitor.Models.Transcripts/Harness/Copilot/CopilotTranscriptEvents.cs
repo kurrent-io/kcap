@@ -199,7 +199,8 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
             var fileName    = attachment.Str("displayName") is { Length: > 0 } name ? name : assetId;
             var contentType = attachment.Str("mimeType") is { Length: > 0 } mime ? mime : asset.MimeType;
 
-            (resolved ??= []).Add(new TranscriptAttachment(TranscriptIds.Sibling(messageId, "att:" + assetId), fileName, contentType, asset.Data));
+            // The id hashes the asset id, not a position, so there is no block index to give.
+            (resolved ??= []).Add(new TranscriptAttachment(TranscriptIds.Sibling(messageId, "att:" + assetId), fileName, contentType, asset.Data, messageId, BlockIndex: 0));
         }
 
         return resolved;

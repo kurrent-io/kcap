@@ -276,8 +276,9 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                      && source.Str("data") is { } data && source.Prop("media_type") is not null
                      && Decode(data) is { } bytes) {
                         var mediaType = source.Str("media_type") ?? "application/octet-stream";
-                        var id = TranscriptIds.ClaudeAttachment(record.IdScope, record.Id, attachments.Count);
-                        attachments.Add(new TranscriptAttachment(id, $"attachment-{id.ToString()[..8]}{Extension(mediaType)}", mediaType, bytes));
+                        var index = attachments.Count;
+                        var id    = TranscriptIds.ClaudeAttachment(record.IdScope, record.Id, index);
+                        attachments.Add(new TranscriptAttachment(id, $"attachment-{id.ToString()[..8]}{Extension(mediaType)}", mediaType, bytes, record.Id, index));
                     }
                     break;
             }

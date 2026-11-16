@@ -1110,6 +1110,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(WorkItems.WorkItemErrorDto))]
 [JsonSerializable(typeof(RepositoryPayload))]
 [JsonSerializable(typeof(TranscriptBatch))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalTranscriptBatch))]
 [JsonSerializable(typeof(SessionTitlePayload))]
 [JsonSerializable(typeof(HarnessTitleHook))]
 [JsonSerializable(typeof(WhatsDonePayload))]
