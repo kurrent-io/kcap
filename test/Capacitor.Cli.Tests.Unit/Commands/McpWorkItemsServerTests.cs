@@ -147,6 +147,24 @@ public class McpWorkItemsServerTests {
         });
     }
 
+    /// <summary>The scenarios' "the agent has no tool to merge duplicates, to say one work item blocks another, or to create a
+    /// work item".</summary>
+    [Test]
+    public async Task Version_2_lists_the_part_tools_in_place_of_breakdowns_blocks_and_merges() {
+        var tools = McpWorkItemsServer.BuildToolsList(workItemsV2: true).ToDictionary(t => t.Name);
+
+        await Assert.That(tools.Keys).IsEquivalentTo(new[] {
+            "declare_work_item", "get_session_work_items", "get_next_work", "declare_loose_end",
+            "create_work_item_part", "add_work_item_link", "wait_on_part", "stop_waiting_on_part", "get_work_item_parts",
+            "detach_work_item", "declare_work_incomplete",
+            "dismiss_next_work", "restore_next_work", "list_dismissed_next_work",
+            "list_loose_ends", "claim_loose_end", "release_loose_end", "close_loose_end", "reopen_loose_end",
+            "list_work_item_evals", "get_work_item_eval", "request_work_item_eval", "cancel_work_item_eval"
+        });
+        await Assert.That(tools["declare_work_item"].InputSchema.Properties.Keys).IsEquivalentTo(new[] { "work_item_id", "session_id" });
+        await Assert.That(tools["declare_work_item"].InputSchema.Required).IsEquivalentTo(new[] { "work_item_id" });
+    }
+
     [Test]
     public async Task Merge_body_carries_the_survivor_under_the_servers_name() {
         var body = McpWorkItemsServer.BuildMergeBody(Args("""{"work_item_id":"wi-dup","into_work_item_id":"wi-keyed"}"""));
@@ -368,6 +386,16 @@ public class McpWorkItemsServerTests {
         await Assert.That(url).Contains("session_id=source");
         await Assert.That(url).Contains("claimed_session_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         await Assert.That(url).Contains("status=open");
+    }
+
+    [Test]
+    public async Task Version_2_instructions_name_the_part_tools_and_none_it_retires() {
+        var instructions = McpWorkItemsServer.InstructionsFor(headless: false, workItemsV2: true);
+
+        foreach (var tool in new[] { "create_work_item_part", "add_work_item_link", "wait_on_part", "get_work_item_parts" })
+            await Assert.That(instructions).Contains(tool);
+        foreach (var tool in new[] { "new_title", "declare_work_breakdown", "declare_work_relation", "merge_work_item" })
+            await Assert.That(instructions).DoesNotContain(tool);
     }
 
     [Test]
@@ -966,6 +994,35 @@ public class McpWorkItemsServerTests {
         await Assert.That(h.Method).IsEqualTo(HttpMethod.Get);
         await Assert.That(h.Url).IsEqualTo("http://x/api/next-work/dismissals");
         await Assert.That(h.Body).IsNull();
+    }
+
+    [Test]
+    [Arguments("create_work_item_part", """{"work_item_id":"wi-1","title":"Payment form"}""", "POST", "http://x/api/work-items/wi-1/parts", """{"title":"Payment form"}""")]
+    [Arguments("add_work_item_link", """{"work_item_id":"wi-1","reference":"web#40"}""", "POST", "http://x/api/work-items/wi-1/links", """{"reference":"web#40"}""")]
+    [Arguments("wait_on_part", """{"part_id":"p2","waits_on_id":"p1"}""", "POST", "http://x/api/work-items/p2/waits", """{"waits_on_id":"p1"}""")]
+    [Arguments("stop_waiting_on_part", """{"part_id":"p2","waits_on_id":"p1"}""", "POST", "http://x/api/work-items/p2/waits/remove", """{"waits_on_id":"p1"}""")]
+    [Arguments("get_work_item_parts", """{"work_item_id":"wi-1"}""", "GET", "http://x/api/work-items/wi-1/parts", null)]
+    public async Task Dispatch_of_a_part_tool_sends_its_route_and_body(string tool, string args, string method, string url, string? body) {
+        var h = await DispatchAsync(tool, args);
+
+        await Assert.That((h.Method?.Method, h.Url, h.Body)).IsEqualTo((method, url, body));
+    }
+
+    [Test]
+    public async Task A_refused_part_tool_tells_the_agent_why() {
+        using var client = new HttpClient(new FixedStatusHandler(System.Net.HttpStatusCode.BadRequest,
+            """{"error":"parent_is_part","message":"A part can't have parts. Create it under the work item instead."}"""));
+        var request = new JsonObject {
+            ["params"] = new JsonObject {
+                ["name"]      = "create_work_item_part",
+                ["arguments"] = JsonNode.Parse("""{"work_item_id":"p1","title":"Card icons"}""")
+            }
+        };
+
+        var response = await Server().HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", NoRepo);
+
+        await Assert.That(response).Contains("\"isError\":true");
+        await Assert.That(response).Contains("Create it under the work item instead");
     }
 
     sealed class FixedStatusHandler(System.Net.HttpStatusCode status, string body) : HttpMessageHandler {

@@ -27,8 +27,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     public async Task<int> RunAsync() {
         var baseUrl = profiles.Resolution.ServerUrl!;
 
-        var repository = new CwdRepository(config, workdir.Path, router, time);
-        var tools      = BuildToolsList();
+        var repository  = new CwdRepository(config, workdir.Path, router, time);
+        var workItemsV2 = !PlanEntitlementStore.Get(baseUrl, config, time.GetUtcNow()).Allows(PlanFeature.WorkItemsV1);
+        var tools       = BuildToolsList(workItemsV2);
 
         // Best-effort, and recorded even when the read throws: a stale token on disk must never
         // block the server from starting, and an absent property is a different value in a funnel
@@ -93,7 +94,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
             null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request, InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable))),
+            "initialize" => BuildInitializeResponse(id, request, InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable), workItemsV2)),
             "tools/list" => BuildToolsListResponse(id, tools),
             _            => McpProtocol.TryHandleStandardMethod(method, id)
                             ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
@@ -104,16 +105,25 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     // Claude Code keeps only the first 2,048 characters of an MCP server's instructions, so the
     // completion rule leads: it is the one sentence no tool description repeats.
-    internal const string ServerInstructions = NextWorkEmitter.CompletionInstruction + " " + DeclarationInstructions;
+    internal const string ServerInstructions = NextWorkEmitter.CompletionInstruction + " " + StructureInstructions + WorkInstructions;
 
-    const string DeclarationInstructions =
+    const string StructureInstructions =
         "Attach this session to its work item with declare_work_item. When work splits into parts, create " +
         "them (declare_work_item with new_title) and declare the breakdown (declare_work_breakdown); when " +
         "one item must land first, declare_work_relation ('blocks'/'blocked_by'). Structure is declared, " +
         "never inferred; retract_* undoes it. A title-only duplicate of an issue- or PR-keyed item: " +
-        "merge_work_item into it. A wrong attach: detach_work_item, never a breakdown. Work you leave " +
-        "unfinished: declare_loose_end. When the user asks for new work, or you are about to propose some, " +
-        "call get_next_work first and " +
+        "merge_work_item into it. A wrong attach: detach_work_item, never a breakdown. ";
+
+    const string PartsInstructions =
+        "Add this session to its work item or part with declare_work_item. Only a person creates a work item, " +
+        "so ask the user for one rather than inventing it. When the user asks, split a work item with " +
+        "create_work_item_part (a part can't have parts), add its PRs and issues with add_work_item_link, and " +
+        "say what a part waits on with wait_on_part (stop_waiting_on_part undoes it); get_work_item_parts " +
+        "reads it back. A wrong attach: detach_work_item. ";
+
+    const string WorkInstructions =
+        "Work you leave unfinished: declare_loose_end. When the user asks for new work, or you are about to " +
+        "propose some, call get_next_work first and " +
         "answer from it, citing its because-clauses; trackers and memory are context, not a substitute. A " +
         "declined suggestion: dismiss_next_work (restore_next_work undoes it). Before working on a loose end, " +
         "claim_loose_end and keep its claim_id; pass it when you close it with close_loose_end " +
@@ -121,7 +131,11 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         "refusal is not permission to dismiss, close, or launch a duplicate.";
 
     /// <summary>A headless run's answer is its output, so it is not told to present next work.</summary>
-    internal static string InstructionsFor(bool headless) => headless ? DeclarationInstructions : ServerInstructions;
+    internal static string InstructionsFor(bool headless, bool workItemsV2 = false) {
+        var declaration = (workItemsV2 ? PartsInstructions : StructureInstructions) + WorkInstructions;
+
+        return headless ? declaration : NextWorkEmitter.CompletionInstruction + " " + declaration;
+    }
 
     static string BuildInitializeResponse(JsonNode id, JsonObject request, string instructions) =>
         ToResponse<McpInitResult>(
@@ -205,6 +219,17 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                 "declare_work_incomplete" => await client.PostAsync(
                     ItemUrl(baseUrl, arguments, "work_item_id", "incomplete"), ToJsonContent(BuildDeclareIncompleteBody(arguments))),
 
+                "create_work_item_part" => await client.PostAsync(
+                    ItemUrl(baseUrl, arguments, "work_item_id", "parts"), ToJsonContent(new() { ["title"] = McpToolArguments.RequireString(arguments, "title") })),
+                "add_work_item_link"    => await client.PostAsync(
+                    ItemUrl(baseUrl, arguments, "work_item_id", "links"), ToJsonContent(new() { ["reference"] = McpToolArguments.RequireString(arguments, "reference") })),
+                "wait_on_part"          => await client.PostAsync(
+                    ItemUrl(baseUrl, arguments, "part_id", "waits"), ToJsonContent(new() { ["waits_on_id"] = McpToolArguments.RequireString(arguments, "waits_on_id") })),
+                "stop_waiting_on_part"  => await client.PostAsync(
+                    ItemUrl(baseUrl, arguments, "part_id", "waits/remove"), ToJsonContent(new() { ["waits_on_id"] = McpToolArguments.RequireString(arguments, "waits_on_id") })),
+                "get_work_item_parts"   => await client.GetAsync(
+                    ItemUrl(baseUrl, arguments, "work_item_id", "parts")),
+
                 "list_work_item_evals"   => await client.GetAsync(ItemUrl(baseUrl, arguments, "work_item_id",
                     WorkItemEvalToolResults.ListSuffix(McpToolArguments.OptionalString(arguments, "cursor"))), HttpCompletionOption.ResponseHeadersRead, evalToken),
                 "get_work_item_eval"     => await client.GetAsync(ItemUrl(baseUrl, arguments, "work_item_id",
@@ -258,6 +283,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             }
 
             if (toolName == "declare_loose_end") return BuildToolResult(id, FormatDeclareLooseEndResult(body));
+            if (httpResponse.StatusCode == HttpStatusCode.NoContent) return BuildToolResult(id, "Done.");
 
             return BuildToolResult(id, body);
         } catch (OperationCanceledException) when (IsWorkItemEvalTool(toolName)) {
@@ -1026,7 +1052,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         return envelope.ToJsonString();
     }
 
-    internal static McpTool[] BuildToolsList() => [
+    static readonly McpTool DeclareWorkItem =
         new("declare_work_item",
             "Attach the CURRENT session (and its continuation chain) to a work item on the kcap server. Provide exactly one of issue_key, pr_number, work_item_id, or new_title.",
             new("object", new() {
@@ -1035,45 +1061,21 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                 ["work_item_id"] = new("string", "Attach directly to this work item id."),
                 ["new_title"]    = new("string", "Create a brand-new work item with this title and attach to it."),
                 ["session_id"]   = new("string", "Session id to attach. Defaults to the session this server runs in when omitted.")
-            }, []), McpToolAnnotations.Additive),
-        new("get_session_work_items",
-            "List the work items the current session is attached to.",
-            new("object", new() {
-                ["session_id"] = new("string", "Session id to look up. Defaults to the session this server runs in when omitted.")
-            }, []), McpToolAnnotations.Read),
+            }, []), McpToolAnnotations.Additive);
 
-        new("get_next_work",
-            "What the user should work on next: work others are waiting on, the user's own unfinished "
-          + "work (work items, interrupted sessions, loose ends) and new backlog. Rows take turns by the "
-          + "signal behind them, one row per signal per pass, in an order that depends on whether others "
-          + "work alongside the user: if they do, teammates blocked on the user, review requests and "
-          + "interrupted sessions lead; if not, loose ends and unfinished work items lead. Each row "
-          + "carries a because-clause, evidence, and a target_key to pass to dismiss_next_work if the "
-          + "user turns it down. Read this before proposing new work; prefer finishing a listed item "
-          + "over starting something new. Not for the next step of this session's open work: answer "
-          + "that from its plan, parts or PR.",
+    static readonly McpTool DeclareWorkItemOnPart =
+        new("declare_work_item",
+            "Add the CURRENT session (and its continuation chain) to a work item or part on the kcap server. Only a "
+          + "person creates a work item, so attach to one that exists: ask the user for it, or find it with "
+          + "get_session_work_items or get_work_item_parts.",
             new("object", new() {
-                ["repo_hash"] = new("string", "Repository to rank for. Defaults to the repository this server runs in."),
-                ["limit"]     = new("integer", "How many rows to return. Default 5, max 20.")
-            }, []), McpToolAnnotations.Read),
+                ["work_item_id"] = new("string", "The work item or part to add the session to."),
+                ["session_id"]   = new("string", "Session id to add. Defaults to the session this server runs in when omitted.")
+            }, ["work_item_id"]), McpToolAnnotations.Additive);
 
-        new("declare_loose_end",
-            "Record a loose end — a concrete piece of work this session leaves unfinished (a missing test, "
-          + "a flaky test you hit and did not fix, one that failed and then passed on a rerun, a TODO, a "
-          + "follow-up) — so it appears in the user's next-work ledger. One call per item, in plain text; "
-          + "do not declare 'none'. Requires a session: the current kcap-hooked one by default.",
-            new("object", new() {
-                ["text"]       = new("string", "The unfinished work, as one plain-text sentence; the server accepts 12-500 characters after normalizing whitespace and case."),
-                ["subject"]    = new("string", "The issue this loose end is about (PROJ-123, #123, owner/repo#123 or a GitHub issue URL). Name it when the end is a specific issue: the end then sits under that issue's work item, never this session's."),
-                ["work_item_id"] = new("string", "The work item this loose end belongs to, when it has no issue of its own. Overrides the subject's item."),
-                ["standalone"] = new("boolean", "True when the end belongs to none of this session's work items, such as an issue still to be filed. Not with work_item_id."),
-                ["session_id"] = new("string", "Session id to declare against. Defaults to the session this server runs in when omitted.")
-            }, ["text"]), McpToolAnnotations.Upsert),
-
-        // The declared work-breakdown / relation surface. NOTE: no tool
-        // here accepts `source` or `declared_by`. The server resolves both from the authenticated
-        // caller and rejects a `source` of "user" outright, so exposing either would be an argument
-        // the server ignores at best and a spoofing surface at worst.
+    // No tool here accepts `source` or `declared_by`: the server resolves both from the caller, so either would be
+    // ignored at best and a spoofing surface at worst.
+    static readonly McpTool[] StructureTools = [
         new("declare_work_breakdown",
             "Declare that a work item is broken down into parts (sub-items). Idempotent: re-declaring an "
           + "existing part is accepted and reported as existing rather than created. A part can have at "
@@ -1127,7 +1129,88 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             new("object", new() {
                 ["work_item_id"]      = new("string", "The work item to merge away (the duplicate)."),
                 ["into_work_item_id"] = new("string", "The work item that survives (prefer the issue- or PR-keyed one).")
-            }, ["work_item_id", "into_work_item_id"]), McpToolAnnotations.Destructive),
+            }, ["work_item_id", "into_work_item_id"]), McpToolAnnotations.Destructive)
+    ];
+
+    static readonly McpTool[] PartTools = [
+        new("create_work_item_part",
+            "Create a part under a work item, when the user asks to split it. A part can't have parts, so create it "
+          + "under the work item. Answers the new part's work_item_id.",
+            new("object", new() {
+                ["work_item_id"] = new("string", "The work item to create the part under."),
+                ["title"]        = new("string", "The part's title.")
+            }, ["work_item_id", "title"]), McpToolAnnotations.Additive),
+
+        new("add_work_item_link",
+            "Add a PR or issue to a work item or part as a link. A PR or issue is a link on one work item or part only: "
+          + "one already on another is refused, naming it, until a person removes it there.",
+            new("object", new() {
+                ["work_item_id"] = new("string", "The work item or part to add the link to."),
+                ["reference"]    = new("string", "The PR or issue: a tracker key ('PROJ-1234'), 'owner/repo#123', or a GitHub issue or PR URL.")
+            }, ["work_item_id", "reference"]), McpToolAnnotations.Additive),
+
+        new("wait_on_part",
+            "Say a part waits on another part of the same work item: it can't start until that one is done. A part "
+          + "can't wait on a part of another work item, on itself, or in a loop.",
+            new("object", new() {
+                ["part_id"]     = new("string", "The part that waits."),
+                ["waits_on_id"] = new("string", "The part it waits on.")
+            }, ["part_id", "waits_on_id"]), McpToolAnnotations.Upsert),
+
+        new("stop_waiting_on_part",
+            "Take back that a part waits on another part.",
+            new("object", new() {
+                ["part_id"]     = new("string", "The part that waits."),
+                ["waits_on_id"] = new("string", "The part it no longer waits on.")
+            }, ["part_id", "waits_on_id"]), McpToolAnnotations.Destructive),
+
+        new("get_work_item_parts",
+            "Read a work item's links and its parts, each with its links and the parts it waits on. A part's id reads "
+          + "its work item. Scoped to what the caller can see.",
+            new("object", new() {
+                ["work_item_id"] = new("string", "The work item, or one of its parts.")
+            }, ["work_item_id"]), McpToolAnnotations.Read)
+    ];
+
+    /// <summary>Under work items version 2 parts are one level deep, wait only on parts, and nothing merges, so the
+    /// structure tools give way to the part tools, and the agent attaches only to a work item that exists.</summary>
+    internal static McpTool[] BuildToolsList(bool workItemsV2 = false) => [
+        workItemsV2 ? DeclareWorkItemOnPart : DeclareWorkItem,
+        new("get_session_work_items",
+            "List the work items the current session is attached to.",
+            new("object", new() {
+                ["session_id"] = new("string", "Session id to look up. Defaults to the session this server runs in when omitted.")
+            }, []), McpToolAnnotations.Read),
+
+        new("get_next_work",
+            "What the user should work on next: work others are waiting on, the user's own unfinished "
+          + "work (work items, interrupted sessions, loose ends) and new backlog. Rows take turns by the "
+          + "signal behind them, one row per signal per pass, in an order that depends on whether others "
+          + "work alongside the user: if they do, teammates blocked on the user, review requests and "
+          + "interrupted sessions lead; if not, loose ends and unfinished work items lead. Each row "
+          + "carries a because-clause, evidence, and a target_key to pass to dismiss_next_work if the "
+          + "user turns it down. Read this before proposing new work; prefer finishing a listed item "
+          + "over starting something new. Not for the next step of this session's open work: answer "
+          + "that from its plan, parts or PR.",
+            new("object", new() {
+                ["repo_hash"] = new("string", "Repository to rank for. Defaults to the repository this server runs in."),
+                ["limit"]     = new("integer", "How many rows to return. Default 5, max 20.")
+            }, []), McpToolAnnotations.Read),
+
+        new("declare_loose_end",
+            "Record a loose end — a concrete piece of work this session leaves unfinished (a missing test, "
+          + "a flaky test you hit and did not fix, one that failed and then passed on a rerun, a TODO, a "
+          + "follow-up) — so it appears in the user's next-work ledger. One call per item, in plain text; "
+          + "do not declare 'none'. Requires a session: the current kcap-hooked one by default.",
+            new("object", new() {
+                ["text"]       = new("string", "The unfinished work, as one plain-text sentence; the server accepts 12-500 characters after normalizing whitespace and case."),
+                ["subject"]    = new("string", "The issue this loose end is about (PROJ-123, #123, owner/repo#123 or a GitHub issue URL). Name it when the end is a specific issue: the end then sits under that issue's work item, never this session's."),
+                ["work_item_id"] = new("string", "The work item this loose end belongs to, when it has no issue of its own. Overrides the subject's item."),
+                ["standalone"] = new("boolean", "True when the end belongs to none of this session's work items, such as an issue still to be filed. Not with work_item_id."),
+                ["session_id"] = new("string", "Session id to declare against. Defaults to the session this server runs in when omitted.")
+            }, ["text"]), McpToolAnnotations.Upsert),
+
+        ..(workItemsV2 ? PartTools : StructureTools),
 
         new("detach_work_item",
             "Detach a session from a work item it was wrongly attached to. The removal is durable: automated "

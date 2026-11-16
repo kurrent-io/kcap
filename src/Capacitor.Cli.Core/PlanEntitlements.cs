@@ -7,6 +7,9 @@ public static class PlanFeature {
     public const string WorkItems = "work_items";
     public const string Projects  = "projects";
     public const string Analytics = "analytics";
+
+    /// <summary>Denied once the server runs work items version 2, which retires the version 1 work-item tools.</summary>
+    public const string WorkItemsV1 = "work_items_v1";
 }
 
 /// <summary>

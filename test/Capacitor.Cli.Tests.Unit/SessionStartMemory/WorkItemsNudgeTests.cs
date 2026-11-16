@@ -119,6 +119,21 @@ public class WorkItemsNudgeEmitterTests {
     }
 
     [Test]
+    public async Task Under_work_items_version_2_the_nudge_names_the_part_tools_and_none_it_retires() {
+        using var tmp = new TempDir();
+
+        var nudge = WorkItemsNudgeEmitter.Resolve(
+            HarnessId.Codex, "s1", optedOut: false, harnesses: Harnesses,
+            plan: PlanEntitlements.Parse("work_items=1,work_items_v1=0"),
+            codexConfigPath: CodexConfigWithWorkItems(tmp))!;
+
+        foreach (var tool in new[] { "declare_work_item", "create_work_item_part", "add_work_item_link", "wait_on_part", "detach_work_item" })
+            await Assert.That(nudge).Contains(tool);
+        foreach (var tool in new[] { "merge_work_item", "declare_work_breakdown", "declare_work_relation", "by title" })
+            await Assert.That(nudge).DoesNotContain(tool);
+    }
+
+    [Test]
     public async Task Resolve_returns_null_when_the_harness_lacks_the_server() {
         // Codex with an empty temp config → workitems not registered → suppressed.
         using var tmp = new TempDir();

@@ -13,6 +13,7 @@ public class McpToolAnnotationsTests {
         ("kcap-analytics",      McpAnalyticsServer.BuildToolsList()),
         ("kcap-memory",         McpMemoryServer.BuildToolsList()),
         ("kcap-workitems",      McpWorkItemsServer.BuildToolsList()),
+        ("kcap-workitems v2",   McpWorkItemsServer.BuildToolsList(workItemsV2: true)),
         ("kcap-plans",          McpPlansServer.BuildToolsList()),
         ("kcap-handoff",        McpHandoffServer.BuildToolsList()),
         ("kcap-pages",          McpArtefactsServer.BuildToolsList()),

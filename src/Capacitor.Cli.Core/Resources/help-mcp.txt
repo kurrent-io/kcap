@@ -165,6 +165,12 @@ mcp workitems:
   inferred, so an item whose structure nobody declares has an empty
   topology. Requires `kcap login`.
 
+  On a server running work items version 2, a person creates every work
+  item, so declare_work_item takes only work_item_id, and parts are one
+  level deep: create_work_item_part, add_work_item_link, wait_on_part,
+  stop_waiting_on_part and get_work_item_parts replace the breakdown,
+  relation, topology and merge tools.
+
     Tools:
       declare_work_item        Attach the current session to a work item by
                                 issue key, PR number, work item id, or a new

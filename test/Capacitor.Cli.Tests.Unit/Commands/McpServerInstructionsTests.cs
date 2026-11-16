@@ -18,6 +18,7 @@ public class McpServerInstructionsTests {
         yield return () => ("kcap-review", McpReviewServer.ServerInstructions);
         yield return () => ("kcap-sessions", McpSessionsServer.ServerInstructions);
         yield return () => ("kcap-workitems", McpWorkItemsServer.ServerInstructions);
+        yield return () => ("kcap-workitems v2", McpWorkItemsServer.InstructionsFor(headless: false, workItemsV2: true));
     }
 
     [Test]

@@ -42,7 +42,7 @@ static class WorkItemsNudgeEmitter {
         if (optedOut) return null;
         if (!plan.Allows(PlanFeature.WorkItems)) return null;
         if (!ToolsRegisteredFor(harness, harnesses, codexConfigPath, audience)) return null;
-        return Build(sessionId);
+        return Build(sessionId, workItemsV2: !plan.Allows(PlanFeature.WorkItemsV1));
     }
 
     /// <summary>Whether the harness has the <c>kcap-workitems</c> tools to call — fail closed, so
@@ -51,7 +51,7 @@ static class WorkItemsNudgeEmitter {
                                           string? codexConfigPath = null, SessionStartAudience? audience = null) =>
         McpServerNudgeAvailability.IsRegisteredFor(harness, harnesses, "kcap-workitems", codexConfigPath, audience);
 
-    public static string? Build(string? sessionId) {
+    public static string? Build(string? sessionId, bool workItemsV2 = false) {
         if (string.IsNullOrWhiteSpace(sessionId)) return null;
         var id = sessionId.Trim();
         if (id.Length == 0 || id.Length > MaxSessionIdLength) return null;
@@ -61,6 +61,17 @@ static class WorkItemsNudgeEmitter {
         // passes untouched; a pathological one just suppresses the nudge (fail-safe).
         foreach (var c in id)
             if (c == '`' || char.IsControl(c)) return null;
+
+        if (workItemsV2)
+            return
+                "## Work items\n" +
+                $"You are in a recorded kcap session (id: `{id}`). When you start work on a work item or one of " +
+                "its parts, add this session to it by its id with the kcap-workitems MCP tool `declare_work_item`. " +
+                "Only a person creates a work item: never create one or invent an id, ask the user. When the user " +
+                "asks, split a work item with `create_work_item_part` (a part can't have parts), add its PRs and " +
+                "issues with `add_work_item_link`, and say what a part waits on with `wait_on_part`. Undo a wrong " +
+                "attach with `detach_work_item`. If a tool cannot resolve the session automatically, pass " +
+                "`session_id` explicitly.";
 
         return
             "## Work items\n" +

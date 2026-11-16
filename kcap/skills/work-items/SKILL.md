@@ -1,7 +1,8 @@
 ---
 name: work-items
 description: >-
-  Use when planning a work item's parts or dependencies, correcting a duplicate
+  Use when planning a work item's parts or dependencies, adding a PR or issue
+  to a work item or part, saying what a part waits on, correcting a duplicate
   or wrong attachment, declaring an item a tracker closed still unfinished, or
   deferring unfinished work as a loose end. Also use
   when picking up, releasing or completing a loose end, continuing another
@@ -21,6 +22,23 @@ no dependency graph, and no `n/m parts` progress figure for it.
 Only declare structure that is **real and you are confident of**. Fabricated or
 speculative parts/relations are worse than none. A single indivisible task needs
 no breakdown.
+
+## Work items version 2
+
+When your tools include `create_work_item_part`, the server runs work items version 2,
+and this section replaces the breakdown, relation and merge guidance below:
+
+- Only a person creates a work item. `declare_work_item` takes only `work_item_id`, a work
+  item or part that exists; ask the user for it, or find it with `get_session_work_items`.
+- When the user asks to split a work item, `create_work_item_part` (`work_item_id`,
+  `title`) under it. A part can't have parts.
+- `add_work_item_link` (`work_item_id`, `reference`) adds a PR or issue to a work item or
+  part. One already on another is refused, naming it: tell the user, a person removes it.
+- `wait_on_part` (`part_id`, `waits_on_id`) says a part can't start until another part of
+  the same work item is done; `stop_waiting_on_part` takes it back. Never in a loop.
+- `get_work_item_parts` reads a work item's links and parts, with each part's links and
+  what it waits on.
+- A refusal says why. Do not retry it another way.
 
 ## When to use these tools
 
