@@ -1313,7 +1313,7 @@ kcap import --org EventStore --private        # mark every imported session as O
 kcap import --org EventStore --since 2026-01-01  # only sessions on or after this date
 kcap import --org EventStore --cwd /path/to/project  # filter by working directory
 kcap import --org EventStore --session abc123    # single session
-kcap import --session abc123                     # one session, no scope or --yes needed
+kcap import --session abc123                     # one session, no scope or --yes needed; stops at a batch the server refuses
 kcap import --org EventStore --skip-title    # no titles: no excerpts to your agent's model provider, no quota
 kcap import --opencode --session ses_x --reimport  # force one OpenCode session past its ledger entry
 ```

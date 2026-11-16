@@ -375,6 +375,36 @@ public class CopilotImportSourceTests {
     }
 
     /// <summary>Usage the server refuses fails the import, so it can be run again rather than read as done.</summary>
+    /// <summary>A one-session import that loses a batch stops there and posts no session-end: a later batch would move
+    /// the server's watermark past the lost lines, and the session would read as complete over the gap.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task a_lost_batch_ends_a_one_session_import_before_its_session_end(bool stopAtLoss) {
+        using var tmp = new TempDir();
+        var paths = Layout(tmp);
+        WriteSession(paths.SessionStateDir, Sid1, cwd: tmp.CreateDir("work"), createdAt: "2026-06-01T10:00:00Z");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).AtPriority(0).RespondWith(Response.Create().WithStatusCode(400));
+        using var client = new HttpClient();
+
+        var source     = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        var result     = await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false) { StopAtLoss = stopAtLoss }, CancellationToken.None);
+
+        var ended = server.LogEntries.Any(e => e.RequestMessage.Path == "/hooks/session-end/copilot");
+        await Assert.That(ended).IsEqualTo(!stopAtLoss);
+        if (stopAtLoss) await Assert.That(result.Outcome).IsEqualTo(ImportOutcome.Failed);
+        // Normalization stays lenient either way.
+        var batch = server.LogEntries.First(e => e.RequestMessage.Path == "/hooks/transcript");
+        await Assert.That(JsonNode.Parse(batch.RequestMessage.Body!)!["strict"]?.GetValue<bool>() ?? false).IsFalse();
+    }
+
     [Test]
     public async Task an_import_whose_usage_the_server_refuses_fails() {
         using var tmp = new TempDir();

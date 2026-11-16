@@ -264,6 +264,7 @@ internal sealed class PiImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
+                stopAtLoss: ctx.StopAtLoss,
                 progress:   ctx.Progress);
         } catch {
             return ImportOutcome.Failed;
