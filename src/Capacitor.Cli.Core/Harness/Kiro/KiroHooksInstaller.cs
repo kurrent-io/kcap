@@ -18,7 +18,9 @@ public static class KiroHooksInstaller {
     public static bool IsInstalled(string agentJsonPath) =>
         HooksJson.IsInstalled(agentJsonPath, MarkerFileName, KiroHooksParser.EntryReferencesCapacitorKiroHook);
 
-    public static string? ReadMarker(string agentJsonPath) => InstallMarker.Read(agentJsonPath, MarkerFileName);
+    /// <summary>The installed version: the marker's first line, without the previous default that may follow it.</summary>
+    public static string? ReadMarker(string agentJsonPath) =>
+        InstallMarker.Read(agentJsonPath, MarkerFileName) is { } body ? body.Split('\n')[0].Trim() : null;
 
     /// <summary>
     /// Stamps the marker with the current version and, optionally, the default
