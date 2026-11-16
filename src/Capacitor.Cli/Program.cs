@@ -834,6 +834,14 @@ switch (command) {
         // (before this potentially slow resolution) so a parent exit can't truncate it.
         if (detachedImport is not null) DetachedImportLog.SignalAccepted();
 
+        using var disableGuard = detachedImport is not null && filterSession is not null
+            ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
+                Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
+                Console.Error.Flush();
+                Environment.Exit(0);
+            })
+            : null;
+
         try {
             ImportCommand.ImportRunOutcome? outcome = null;
 
