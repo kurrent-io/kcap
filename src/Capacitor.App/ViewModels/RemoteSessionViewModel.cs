@@ -686,8 +686,6 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         if (info != _session.Value) _session.OnNext(info);
     }
 
-    /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
-    /// unless the ended session's hand-off composer stands in its place.
     /// Only a daemon of the signed-in account, which fetches the files with its owner's credential, and
     /// only a session it hosts: an attached terminal session submits text alone, so its daemon refuses files.
     internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
@@ -695,6 +693,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == viewer) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
+    /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
+    /// unless the ended session's hand-off composer stands in its place.
     ChatSessionInfo SessionInfo(AgentRow row, bool ended) =>
         ChatSessionInfo.FromRemote(row, ended,
             row.Origin != AgentOrigin.Server ? "" : ended ? _handoff is null ? EndedNote : "" : TerminalNote);
