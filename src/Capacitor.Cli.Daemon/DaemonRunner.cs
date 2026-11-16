@@ -214,16 +214,7 @@ public static partial class DaemonRunner {
         if (Harness.Codex.LegacyCodexEnvironment.Warning(Environment.GetEnvironmentVariable) is { } legacyCodexWarning)
             await Console.Error.WriteLineAsync(legacyCodexWarning);
 
-        // Committed before the first advertisement, which carries it to the server.
         config.CodexAppServerByDefault = Harness.Codex.CodexTransportDecision.AppServerByDefault;
-        var startupCodex = Harness.Codex.CodexTransportResolution.Read(
-            1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
-            problem => {
-                config.ExperimentalSettingsProblem = problem;
-                return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
-            },
-            config.CodexAppServerByDefault);
-        config.CodexResolution = startupCodex;
 
         // The per-vendor reviewer switches are opt-out: unset means enabled, matching the vendors that
         // are never gated. The reviewer vendor is a caller-chosen parameter, so where an ungated vendor
@@ -338,12 +329,6 @@ public static partial class DaemonRunner {
         // built, so the epoch advertised on DaemonConnect and the orchestrator's own _daemonEpoch (which
         // falls back to config.DaemonEpoch) are provably the same value.
         config.DaemonEpoch ??= Guid.NewGuid().ToString("N");
-
-        // Fold the durable coverage boot-chain BEFORE any
-        // Connect/spawn. this_epoch_contained is true only where OS containment leaves NO recordless
-        // survivor class (the Windows Job Object). Fail-closed inside RecordBoot. NullLogger is acceptable
-        // this early — the host's logging pipeline isn't built yet.
-        SeedReviewerFloors(coverageStateDir, config);
 
         // Recovers reviewer homes left by a SIGKILLed predecessor. Runs unconditionally: a daemon
         // whose operator has since disabled the reviewer still owns whatever its last incarnation
@@ -771,6 +756,18 @@ public static partial class DaemonRunner {
             DeathRattle(time, "Lifetime: ApplicationStopped fired");
             LogLifetimeStopped(logger);
         });
+
+        // Both can run a vendor's --version, so they wait for the bind. The Codex transport is committed before the first
+        // advertisement, which carries it to the server; the reviewer floors before any launch or capability reads them.
+        var startupCodex = Harness.Codex.CodexTransportResolution.Read(
+            1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
+            problem => {
+                config.ExperimentalSettingsProblem = problem;
+                return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
+            },
+            config.CodexAppServerByDefault);
+        config.CodexResolution = startupCodex;
+        SeedReviewerFloors(coverageStateDir, config);
 
         // Set by the supervised restart strategy so we exit non-zero for a supervisor relaunch.
         var restartState = host.Services.GetRequiredService<RestartState>();

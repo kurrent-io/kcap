@@ -129,7 +129,7 @@ public sealed class StatusCommand(
                     trust,
                     install is null ? null : MissingCli(h, harnesses.ResolveExecutable(h.Id) is not null));
             })],
-            ReadDaemonEntries(store));
+            await WithStartingAsync(store, ReadDaemonEntries(store), time));
 
         await Console.Out.WriteLineAsync(StatusJsonRender.Render(payload));
 
@@ -156,7 +156,7 @@ public sealed class StatusCommand(
             harnesses,
             new StatusDaemonJson(
                 live.Count > 0,
-                [.. live.Select(e => new StatusDaemonEntryJson(e.Name, e.Pid!.Value, e.Version is { } v ? CapacitorVersion.Display(v) : null))],
+                [.. live.Select(e => new StatusDaemonEntryJson(e.Name, e.Pid!.Value, e.Version is { } v ? CapacitorVersion.Display(v) : null, e.Starting))],
                 daemons.Count > live.Count));
     }
 
@@ -511,10 +511,6 @@ public sealed class StatusCommand(
         return lines;
     }
 
-    /// <summary>
-    /// Every daemon PID file with the name, pid, and whether that process is still there. Shared by
-    /// the Daemon line and the JSON payload so they cannot disagree about what is running.
-    /// </summary>
     /// <summary>A ready daemon answers in well under a millisecond, and one that does not answer at all is reported as
     /// running by its PID file alone.</summary>
     static readonly TimeSpan StartingProbeBudget = TimeSpan.FromMilliseconds(250);
@@ -528,6 +524,10 @@ public sealed class StatusCommand(
         return entries;
     }
 
+    /// <summary>
+    /// Every daemon PID file with the name, pid, and whether that process is still there. Shared by
+    /// the Daemon line and the JSON payload so they cannot disagree about what is running.
+    /// </summary>
     static List<DaemonEntry> ReadDaemonEntries(DaemonStore store) {
         var entries = new List<DaemonEntry>();
 
