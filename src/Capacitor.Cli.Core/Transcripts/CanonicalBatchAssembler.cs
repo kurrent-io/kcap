@@ -14,20 +14,22 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
 
     Guid[] _assembled = [];
 
+    bool _assembledEntries;
+
     /// <summary>Projects a line the server already holds and discards the output, so the lines after it project as one
     /// uninterrupted run would project them. Each replayed line is a batch of its own, acknowledged.</summary>
     public void Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
-        _context.BeginBatch();
+        if (CaptureLossLine.Is(line)) return;
+
         var batch = new Batch();
-        if (!CaptureLossLine.Is(line)) Project(line, lineNumber, receivedAt, batch);
-        Persisted(batch.Events.Select(e => e.Event.EventId));
+        Project(line, lineNumber, receivedAt, batch);
+        Persisted([.. batch.Events.Select(e => e.Event.EventId)], batch.Events.Count > 0);
     }
 
     public CanonicalTranscriptBatch Assemble(TranscriptBatch raw, DateTimeOffset receivedAt) {
         if (raw.LineNumbers is not { } numbers || numbers.Length != raw.Lines.Length)
             throw new ArgumentException("A canonical batch needs a line number for every line", nameof(raw));
 
-        _context.BeginBatch();
         var batch = new Batch();
         var lines = new CanonicalBatchLine[raw.Lines.Length];
         List<CanonicalBatchTitle>?       titles      = null;
@@ -50,7 +52,8 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
             if (read.EndsTurn) turnEnd = Math.Max(turnEnd ?? number, number);
         }
 
-        _assembled = [.. batch.Events.Select(e => e.Event.EventId)];
+        _assembled        = [.. batch.Events.Select(e => e.Event.EventId)];
+        _assembledEntries = batch.Events.Count > 0 || captureLoss is not null;
 
         return new() {
             SessionId       = sessionId,
@@ -70,15 +73,20 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
 
     /// <summary>The server stored every event of the last assembled batch.</summary>
     public void Acknowledged() {
-        Persisted(_assembled);
-        _assembled = [];
+        Persisted(_assembled, _assembledEntries);
+        _assembled        = [];
+        _assembledEntries = false;
     }
 
-    void Persisted(IEnumerable<Guid> eventIds) {
+    /// The server's pipeline clears a projection's per-batch state only after a batch that stored something, so a
+    /// record waiting for a later line, such as a Codex exec end for its output, outlives a batch that stored nothing.
+    void Persisted(Guid[] eventIds, bool storedEntries) {
         foreach (var id in eventIds) {
             _context.MarkPersisted(id);
             _acknowledged.Add(id);
         }
+
+        if (storedEntries) _context.BeginBatch();
     }
 
     /// False for a line the projection rejected, which the batch covers and nothing else.

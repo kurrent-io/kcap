@@ -210,6 +210,43 @@ public class CanonicalBatchAssemblerTests {
         await Assert.That(target.GetProperty("event_id").GetString()).IsEqualTo(thinking.EventId.ToString("N"));
     }
 
+    static readonly string CodexExecEnd =
+        CodexEvent("""{"type":"exec_command_end","call_id":"c1","exit_code":2,"duration":{"secs":1,"nanos":500000000},"stdout":"out","stderr":"err"}""");
+
+    static readonly string CodexOutput = CodexItem("""{"type":"function_call_output","call_id":"c1","output":"ok"}""");
+
+    static JsonElement? Exec(CanonicalBatchEvent e) =>
+        e.Payload.TryGetProperty("extensions", out var extensions) && extensions.TryGetProperty("codex", out var codex)
+     && codex.TryGetProperty("exec", out var exec) ? exec : null;
+
+    /// A batch holding only an exec end stores nothing, so the end still waits for its output in the next batch, whether
+    /// that first batch was sent or replayed.
+    [Test]
+    public async Task An_exec_end_waits_for_its_output_past_a_batch_that_stored_nothing() {
+        var sent = Codex();
+        await Assert.That(sent.Assemble(Raw(0, CodexExecEnd), Received).Events).IsEmpty();
+        sent.Acknowledged();
+
+        var replayed = Codex();
+        replayed.Replay(CodexExecEnd, 0, Received);
+
+        foreach (var assembler in new[] { sent, replayed }) {
+            var exec = Exec(assembler.Assemble(Raw(1, CodexOutput), Received).Events.Single())!.Value;
+            await Assert.That(exec.GetProperty("exit_code").GetDouble()).IsEqualTo(2d);
+            await Assert.That(exec.GetProperty("duration_ms").GetDouble()).IsEqualTo(1500d);
+            await Assert.That(exec.GetProperty("stdout").GetString()).IsEqualTo("out");
+        }
+    }
+
+    [Test]
+    public async Task An_exec_end_is_forgotten_after_an_acknowledged_batch_that_stored_something() {
+        var assembler = Codex();
+        assembler.Assemble(Raw(0, CodexText, CodexExecEnd), Received);
+        assembler.Acknowledged();
+
+        await Assert.That(Exec(assembler.Assemble(Raw(2, CodexOutput), Received).Events.Single())).IsNull();
+    }
+
     static double? TaskDuration(CanonicalBatchEvent e) =>
         e.Payload.TryGetProperty("extensions", out var extensions) && extensions.TryGetProperty("codex", out var codex)
      && codex.TryGetProperty("task", out var task) ? task.GetProperty("duration_ms").GetDouble() : null;
