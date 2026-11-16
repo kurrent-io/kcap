@@ -30,6 +30,8 @@ The Claude switch is done when all four hold:
 3. The server never ran the Claude normalizer for a session sent through the new ingress.
 4. An older CLI that still posts raw lines keeps working unchanged.
 
+"The same" in criterion 1 has one known limit. The library deliberately records more than the server's Claude normalizer on a few inputs, pinned in `ClaudeServerDeltaTests`: every content block of an assistant record and every tool result of a line become events, where the server reads the first only, and an unanswered prompt that was resubmitted is retracted. On those inputs the new path shows the fuller session. They are intended and are not parity failures. Any other difference is a defect to close before the switch; the plan must check the one a review reported, that a noise record between two assistant records with identical usage clears `PreviousUsage` in the library but not on the server.
+
 ## Non-goals
 
 - Switching any vendor other than Claude. The contract must not block them, and the notes under "Later vendors" say what each will need.
@@ -69,11 +71,12 @@ Batch fields:
 | `events` | The events, each naming its source line |
 | `titles` | Harness title sightings: kind (summary, auto, rename), text, source line, and for a rename the time it took effect |
 | `turnEndLine` | Highest covered line that ends a turn, or absent |
+| `lastLineTimestamp` | Timestamp of the last covered line that has one, events or not. The server keeps it as `context.LastLineTimestamp`, so a rename read on the raw path after a fallback is timed as before |
 | `questions` | What the question tracker needs per question call and answer: tool call id, record uuid, parent uuid |
 | `captureLoss` | kcap's own capture-loss lines, verbatim, with their line numbers |
 | `repository`, `observedCommits`, `strict`, `moreFollows` | As in `TranscriptBatch` |
 
-Event fields: `type`, `payload`, `eventId`, `line`, `timestamp`, `recordTimestamp`, `causedBy`, `usage`, `usageIsEcho`, `cacheCreationTokens`, `vendorMetadata`, `attachments` (id, file name, content type, bytes), and a reserved optional `stamp`.
+Event fields: `type`, `payload`, `eventId`, `line`, `timestamp`, `recordTimestamp`, `causedBy`, `usage`, `usageIsEcho`, `cacheCreationTokens`, `vendorMetadata`, `attachments` (block index, file name, content type, bytes), and a reserved optional `stamp`.
 
 Rules:
 
@@ -131,7 +134,7 @@ What differs:
 - No normalizer is resolved or called.
 - Titles, turn end and question tracking take the batch's signals in place of reading raw lines. Their state and rules (`RecordHarnessTitlesAsync`, `ConfirmTurnEndedAsync`, the pending-question correlation) are unchanged.
 - `captureLoss` entries go through the existing `CaptureLossParser`.
-- Held lines: a line whose write failed is held in `unstored_transcript_lines` as today, storing the wire form of that line's events in place of the raw line, marked so the retry feeds it back to the ingress. No new table. Limits and attempts are unchanged.
+- Held lines: a line whose write failed is held in `unstored_transcript_lines` as today, storing in place of the raw line everything the batch carried for that line: its events, title sightings, question entries, turn end and timestamp. A title-only line whose title write failed is held too, as it is today. The row is marked so the retry feeds it back to the ingress. No new table. Limits and attempts are unchanged.
 
 Fields the server owns. The ingress sets or removes them whatever the client sent:
 
@@ -139,7 +142,7 @@ Fields the server owns. The ingress sets or removes them whatever the client sen
 - Stored metadata comes only from the named event fields and allow-listed `vendorMetadata` keys, so `$source`, `$acpSeq`, `$captureRepair`, `$origin`, `$commits_observed` and `$copilotForkMarker` cannot be set by a client.
 - On `SessionStarted`: `capacitor.owner_user_id`, `agent_host_id` and `session_origin` are removed, and `default_visibility` follows the existing rule, including `StampUnset` on a transcript-made start.
 - On user messages: the turn block is written by `UserMessageStamper`; a client-sent delivery block (`CapacitorUndeliveredBlock`) is removed.
-- On attachments: a client-sent `StreamName` is ignored.
+- On attachments: the server derives the attachment id itself, from the session scope it established, the event id and the block index, as `ClaudeCodeNormalizer.DeriveAttachmentId` does. The wire carries no attachment id and no `StreamName`. Blob streams are named by id alone (`Attachment-{id}`) and an existing one is reused without a check, so a client-chosen id would let one session claim another's.
 - `eventId` is taken from the client. It is the dedup contract, and it only ever addresses the caller's own stream, which the ownership check has already established.
 
 ### 6. Reserved: the stamp
@@ -192,6 +195,8 @@ The owner agreed to the overall behaviour in sections 3 and 4 as a summary. Thes
 - Signals travel in the same batch as the events, as named fields.
 - Capture-loss lines travel verbatim and the server keeps its parser, because they are kcap's own format.
 - Held canonical lines reuse the existing table.
+- The server derives attachment ids; the wire carries the block index only.
+- Criterion 1 allows the deliberate differences pinned in `ClaudeServerDeltaTests`. The owner has not confirmed this reading.
 - The mid-session fallback on an "unsupported" refusal, and that anything the server does not understand refuses the whole batch.
 - A switch from canonical to raw inside a turn may mis-stamp a usage or miss a retraction, as a server restart does today.
 - State is rebuilt from raw lines, not redacted ones.
