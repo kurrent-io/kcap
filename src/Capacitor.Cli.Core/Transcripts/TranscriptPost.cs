@@ -15,14 +15,15 @@ public static class TranscriptPost {
     /// <summary>The route for a stream whose lines go out from <paramref name="firstLine"/>, or null when they go raw.
     /// The lines before it are the server's already, and are projected first so the rest get the state an
     /// uninterrupted run gives them. A stream goes raw when that replay cannot be whole: no transcript, a missing or
-    /// shorter one, a replay that fails or one that overruns <paramref name="replayBudget"/>. Projected without that
-    /// state, a usage repeated across the start would count twice where the raw path counts it once.</summary>
+    /// shorter one, a replay that fails or one that overruns <paramref name="replayBudget"/>, the redaction of large
+    /// lines by <paramref name="decide"/> included. Projected without that state, a usage repeated across the start would
+    /// count twice where the raw path counts it once.</summary>
     public static async Task<CanonicalRoute?> RouteAsync(
             IngestCapability? capability, string? vendor, string sessionId, string? agentId, string? transcriptPath, int firstLine,
-            TimeSpan replayBudget, TimeProvider time, CancellationToken ct
+            TimeSpan replayBudget, LineCaptureDecider? decide, TimeProvider time, CancellationToken ct
         ) {
         if (capability is null || !CanonicalVendors.Contains(vendor) || firstLine > 0 && transcriptPath is null) return null;
-        if (CanonicalRoute.For(vendor, sessionId, agentId, await capability.SupportsCanonicalAsync(ct)) is not { } route) return null;
+        if (CanonicalRoute.For(vendor, sessionId, agentId, await capability.SupportsCanonicalAsync(ct), decide) is not { } route) return null;
         if (firstLine <= 0) return route;
 
         using var budget = new CancellationTokenSource(replayBudget, time);

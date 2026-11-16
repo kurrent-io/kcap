@@ -8,21 +8,24 @@ public sealed class CanonicalRoute {
     public const string HubMethod = "SendCanonicalBatch";
 
     readonly CanonicalBatchAssembler _assembler;
+    readonly LineCaptureDecider?     _decide;
 
     int[]?                    _lastNumbers;
     CanonicalTranscriptBatch? _last;
 
-    CanonicalRoute(CanonicalBatchAssembler assembler) => _assembler = assembler;
+    CanonicalRoute(CanonicalBatchAssembler assembler, LineCaptureDecider? decide) => (_assembler, _decide) = (assembler, decide);
 
     /// <summary>The route for a source, or null when its lines go raw: a vendor that is not canonical, or a server
     /// that cannot take canonical batches.</summary>
-    public static CanonicalRoute? For(string? vendor, string sessionId, string? agentId, bool serverSupports) {
+    /// <param name="decide">The redaction of the producer sending the source's lines, for a replay to decide a line
+    /// <see cref="CaptureRule"/> cannot; without it such a line ends the replay.</param>
+    public static CanonicalRoute? For(string? vendor, string sessionId, string? agentId, bool serverSupports, LineCaptureDecider? decide = null) {
         if (!serverSupports || !CanonicalVendors.Contains(vendor)) return null;
 
         var name = vendor ?? "claude";
         if (TranscriptProjection.For(name) is not { } projection || TranscriptSignals.For(name) is not { } signals) return null;
 
-        return new(new(projection, signals, sessionId, agentId, name));
+        return new(new(projection, signals, sessionId, agentId, name), decide);
     }
 
     public bool Active { get; private set; } = true;
@@ -31,8 +34,8 @@ public sealed class CanonicalRoute {
     /// run would. Lines are the agent's raw ones, read without denying it the file. A replay that fails leaves the
     /// projection half-advanced, so the route falls back.</summary>
     /// <returns>Whether every line before the bound was there to project as its capture had it. A file that is missing
-    /// or shorter replays what it has, and a line whose capture only the redaction can say ends the replay there; either
-    /// way the batches after it would lack the state of the rest.</returns>
+    /// or shorter replays what it has, and a line whose capture stays undecided ends the replay there; either way the
+    /// batches after it would lack the state of the rest.</returns>
     public Task<bool> ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct) =>
         Task.Run(() => {
             var now    = TimeProvider.System.GetUtcNow();
@@ -43,7 +46,7 @@ public sealed class CanonicalRoute {
                     if (number >= throughLineExclusive) break;
 
                     ct.ThrowIfCancellationRequested();
-                    if (!_assembler.Replay(line, number++, now)) return false;
+                    if (!_assembler.Replay(line, number++, now, _decide, ct)) return false;
                 }
             } catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) {
                 // The source has not written anything yet.
@@ -59,11 +62,12 @@ public sealed class CanonicalRoute {
 
     /// <summary>One line of <see cref="ReplayAsync"/>, for a caller that reads the transcript itself and feeds every line
     /// from the first, in order.</summary>
-    /// <returns>False for a line whose capture only the redaction can say: the replay cannot go past it.</returns>
+    /// <param name="ct">The replay's, which a redaction deciding the line stops at.</param>
+    /// <returns>False for a line whose capture stays undecided: the replay cannot go past it.</returns>
     /// <exception cref="CanonicalEncodingException">The line could not be projected, and the route has fallen back.</exception>
-    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
+    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt, CancellationToken ct = default) {
         try {
-            return _assembler.Replay(line, lineNumber, receivedAt);
+            return _assembler.Replay(line, lineNumber, receivedAt, _decide, ct);
         } catch (Exception e) {
             FallBack();
             throw new CanonicalEncodingException(e);

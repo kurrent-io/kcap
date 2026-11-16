@@ -78,7 +78,7 @@ public sealed class HeldLineRedaction(HeldLineStore store, TimeProvider time, Ti
             Release();
         }
 
-        var outcome = SecretRedactor.RedactLineWithOutcome(raw, redactionClock);
+        var outcome = FirstTry(raw, redactionClock);
         if (outcome.Loss is not { } reason || !reason.IsTransient()) return outcome;
 
         var first = new HeldLine {
@@ -132,6 +132,9 @@ public sealed class HeldLineRedaction(HeldLineStore store, TimeProvider time, Ti
 
         return null;
     }
+
+    /// <summary>A line's redaction before any hold, which a replay also decides a large line with.</summary>
+    internal static RedactionOutcome FirstTry(string raw, TimeProvider redactionClock) => SecretRedactor.RedactLineWithOutcome(raw, redactionClock);
 
     internal static TimeSpan BudgetFor(int attempt) => Doubling(attempt, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(60));
 

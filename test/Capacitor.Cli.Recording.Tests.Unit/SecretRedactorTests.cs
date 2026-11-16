@@ -1288,6 +1288,14 @@ public class SecretRedactorTests {
 
     static string Nested(int depth) => new string('[', depth) + new string(']', depth);
 
+    /// A line of <paramref name="bytes"/> whose every string a redaction marker replaces: each three-byte <c>"",</c> under
+    /// a secret key becomes <c>"[REDACTED]",</c>, the largest growth a marker gives.
+    static string SecretEmptyStrings(int bytes) {
+        var line = "{\"pwd\":[" + string.Join(",", Enumerable.Repeat("\"\"", (bytes - 9) / 3)) + "]}";
+
+        return line.Insert(1, new string(' ', bytes - line.Length));
+    }
+
     /// <summary>A replay skips the lines the capture rule calls lost and projects the ones it calls kept, so on every line it
     /// decides it has to say what the redaction does.</summary>
     [Test]
@@ -1305,6 +1313,7 @@ public class SecretRedactorTests {
             ("nesting under the limit", Nested(CaptureRule.MaxDepth)),
             ("an oversized record", "{\"t\":\"" + new string('x', CaptureRule.MaxRecordBytes) + "\"}"),
             ("the largest growth at the largest kept size", Escaping(CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth)),
+            ("markers for every string at the largest kept size", SecretEmptyStrings(CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth)),
         ];
 
         var disagreements = new List<string>();

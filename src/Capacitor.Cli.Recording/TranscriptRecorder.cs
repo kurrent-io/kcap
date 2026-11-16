@@ -45,7 +45,8 @@ public sealed class TranscriptRecorder(
     // below one it took, so a line sent before the server's answer would sit above the gap a rewind resends.
     readonly SemaphoreSlim _rewindGate = new(1, 1);
 
-    readonly RecorderCanonicalRoute _canonical = new(transport, source, time, context.Log);
+    readonly RecorderCanonicalRoute _canonical = new(transport, source, time, context.Log,
+        ReplayCapture.With(raw => HeldLineRedaction.FirstTry(raw, context.RedactionClock)));
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
@@ -518,7 +519,7 @@ public sealed class TranscriptRecorder(
             _stop.Cancel();
         }
 
-        var route = await _canonical.OpenAsync(State.LinesProcessed, stop);
+        var route = await _canonical.OpenAsync(State.LinesProcessed, stop, stop);
 
         // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
         // that opened before it, which idle-end would otherwise mistake for an idle agent, or a canonical route's
@@ -532,7 +533,7 @@ public sealed class TranscriptRecorder(
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log, _progress.Tick);
-            route?.Replayed(stop);
+            route?.Replayed();
         }
     }
 
@@ -1349,12 +1350,14 @@ public sealed class TranscriptRecorder(
                 StampLines(drainRead.Lines, drainRead.LineNumbers);
 
                 // After a connect or a failed send, a canonical route projects the lines before the cursor first.
-                if (newLines.Count > 0 && await _canonical.OpenAsync(state.LinesProcessed, ct) is { } route) {
+                if (newLines.Count > 0) {
                     using var budget = new CancellationTokenSource(isFinalDrain ? FinalDrainReplayBudget : Timeout.InfiniteTimeSpan, time);
                     using var replay = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
-                    await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer], replay.Token, log, _progress.Tick);
-                    route.Replayed(replay.Token);
+                    if (await _canonical.OpenAsync(state.LinesProcessed, ct, replay.Token) is { } route) {
+                        await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer], replay.Token, log, _progress.Tick);
+                        route.Replayed();
+                    }
                 }
 
                 // SignalR dispatch binds by arity; the record payload keeps additive fields compatible.

@@ -100,16 +100,70 @@ public class CanonicalRouteTests {
         await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
     }
 
-    /// <summary>Whether a rewrite took this line past the record limit depends on the secrets in it, so the lines after it
-    /// cannot be projected as the capture sent them.</summary>
+    /// A readable line a rewrite could take past the record limit, with the same usage as the line after it.
+    static string Large(int n, int parent) =>
+        AssistantUsing(n, parent, inputTokens: 7, new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
+
+    /// <summary>Whether a rewrite took this line past the record limit depends on the secrets in it, so without the
+    /// producer's redaction the lines after it cannot be projected as the capture sent them.</summary>
     [Test]
-    public async Task Replay_stops_at_a_line_whose_capture_only_the_redaction_can_say() {
-        var large = AssistantUsing(2, parent: 1, inputTokens: 7, new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
-        var path  = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{large}\n{User(3, 2)}\n");
+    public async Task Without_the_producers_redaction_a_replay_stops_at_a_large_line() {
+        var path  = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{Large(2, 1)}\n{User(3, 2)}\n");
         var route = Route();
 
         await Assert.That(await route.ReplayAsync(path, 3, CancellationToken.None)).IsFalse();
         await Assert.That(route.Active).IsTrue();
+    }
+
+    /// <summary>The capture sent the large line, so the line after it, with the same usage, is an echo.</summary>
+    [Test]
+    public async Task A_large_line_the_producers_redaction_keeps_is_replayed_as_it_was_sent() {
+        var (large, next) = (Large(2, 1), AssistantUsing(3, parent: 2, inputTokens: 7, "short"));
+        var asked         = new List<(string Line, CancellationToken Ct)>();
+        using var replay  = new CancellationTokenSource();
+
+        var live = Route();
+        live.Encode(Raw(0, User(1), large), Received);
+        live.Acknowledged();
+        var sent = live.Encode(Raw(2, next), Received);
+
+        var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{large}\n{next}\n");
+        var replayed = CanonicalRoute.For("claude", Session, null, true, (line, ct) => {
+            asked.Add((line, ct));
+
+            return LineCapture.Kept;
+        })!;
+
+        await Assert.That(await replayed.ReplayAsync(path, 2, replay.Token)).IsTrue();
+        await Assert.That(sent.Events.Single().Usage).IsNull();
+        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+        await Assert.That(asked).IsEquivalentTo([(large, replay.Token)]);
+    }
+
+    /// <summary>The capture sent a capture-loss line, so the line after it carries its usage.</summary>
+    [Test]
+    public async Task A_large_line_the_producers_redaction_replaces_is_skipped() {
+        var next = AssistantUsing(3, parent: 2, inputTokens: 7, "short");
+
+        var live = Route();
+        live.Encode(Raw(0, User(1), CaptureLoss), Received);
+        live.Acknowledged();
+        var sent = live.Encode(Raw(2, next), Received);
+
+        var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{Large(2, 1)}\n{next}\n");
+        var replayed = CanonicalRoute.For("claude", Session, null, true, (_, _) => LineCapture.Lost)!;
+
+        await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
+        await Assert.That(sent.Events.Single().Usage).IsNotNull();
+        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+    }
+
+    [Test]
+    public async Task A_large_line_the_producers_redaction_cannot_decide_ends_the_replay() {
+        var path  = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{Large(2, 1)}\n{User(3, 2)}\n");
+        var route = CanonicalRoute.For("claude", Session, null, true, (_, _) => LineCapture.Undecided)!;
+
+        await Assert.That(await route.ReplayAsync(path, 3, CancellationToken.None)).IsFalse();
     }
 
     [Test]

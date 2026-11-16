@@ -107,16 +107,18 @@ public static class LifecycleSpoolDrain {
     /// process-spawning helper — the daemon has its own) may omit it.</para>
     /// <para><paramref name="onLifecycleOutcome"/> sees what the server made of each lifecycle entry, for a caller that
     /// must tell a delivered end from one a rejection removed. False keeps the entry spooled for a retry.
-    /// <paramref name="holds"/> keeps an entry spooled unsent, for a later pass.</para>
+    /// <paramref name="holds"/> keeps an entry spooled unsent, for a later pass. <paramref name="decide"/> is the
+    /// redaction that captured the spooled tails, which a replay before a tail decides a large line with.</para>
     /// </summary>
     public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
                                 TimeProvider time, CancellationToken ct,
                                 Action<string, string>? onWhatsDoneRequested = null,
                                 Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null,
-                                Func<string, string, bool>? holds = null) {
+                                Func<string, string, bool>? holds = null,
+                                LineCaptureDecider? decide = null) {
         // The other half is the posts'.
-        var routes = new SpooledTranscriptRoutes(client, baseUrl, replayBudget: budget / 2, time);
+        var routes = new SpooledTranscriptRoutes(client, baseUrl, replayBudget: budget / 2, time, decide);
 
         return RunAsync(config, lifecycle, transcript, currentSessionId,
             lifecyclePoster: async (route, body) => {

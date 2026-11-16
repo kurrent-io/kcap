@@ -5,7 +5,8 @@ namespace Capacitor.Cli.Core.Transcripts;
 /// <param name="replayBudget">The most a stream's replay may take. One that cannot finish sends the stream raw, which a
 /// server always takes, rather than leave its tail, and the session's end behind it, to a pass that would run out the
 /// same way.</param>
-public sealed class SpooledTranscriptRoutes(HttpClient client, string baseUrl, TimeSpan replayBudget, TimeProvider time) {
+/// <param name="decide">The redaction that captured the spooled tails, for a replay to decide a large line with.</param>
+public sealed class SpooledTranscriptRoutes(HttpClient client, string baseUrl, TimeSpan replayBudget, TimeProvider time, LineCaptureDecider? decide = null) {
     readonly IngestCapability _capability = new(client, baseUrl, time);
 
     readonly Dictionary<(string SessionId, string? AgentId), (CanonicalRoute? Route, int Next)> _streams = [];
@@ -20,7 +21,7 @@ public sealed class SpooledTranscriptRoutes(HttpClient client, string baseUrl, T
         // A batch that does not start where the route left off opens the stream again: the route has either projected
         // its lines already or not seen the ones before it.
         if (!_streams.TryGetValue(key, out var stream) || numbers[0] != stream.Next)
-            stream = (await TranscriptPost.RouteAsync(_capability, batch.Vendor, batch.SessionId, batch.AgentId, batch.TranscriptPath, numbers[0], replayBudget, time, ct), 0);
+            stream = (await TranscriptPost.RouteAsync(_capability, batch.Vendor, batch.SessionId, batch.AgentId, batch.TranscriptPath, numbers[0], replayBudget, decide, time, ct), 0);
 
         _streams[key] = stream with { Next = numbers[^1] + 1 };
 

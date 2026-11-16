@@ -20,6 +20,9 @@ namespace Capacitor.Cli.Commands;
 /// interleaved agent lifecycle events at the correct chronological position.
 /// </summary>
 static class SessionImporter {
+    // The redaction an import captures lines with, which a resumed import's replay decides a large line with.
+    static readonly LineCaptureDecider ImportCapture = ReplayCapture.With(TranscriptCapture.EncodeRecorded);
+
     /// <summary>
     /// Import a single session: send transcript batches with agent lifecycle
     /// events interleaved at the position where each agent first appears in
@@ -89,7 +92,7 @@ static class SessionImporter {
         var agentIds   = new List<string>();
         var totalSent  = 0;
         var route      = await TranscriptPost.RouteAsync(
-            canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, firstLine: 0, Timeout.InfiniteTimeSpan, time, CancellationToken.None);
+            canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, firstLine: 0, Timeout.InfiniteTimeSpan, ImportCapture, time, CancellationToken.None);
 
         // Read the main transcript line by line, batching and flushing as needed,
         // with agent lifecycle events inserted at the right positions.
@@ -605,7 +608,7 @@ static class SessionImporter {
         var totalSent = 0;
         var batch     = new TranscriptBatchBuffer();
         var route     = await TranscriptPost.RouteAsync(
-            canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, Timeout.InfiniteTimeSpan, time, CancellationToken.None);
+            canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, Timeout.InfiniteTimeSpan, ImportCapture, time, CancellationToken.None);
 
         await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var       reader = new StreamReader(stream);

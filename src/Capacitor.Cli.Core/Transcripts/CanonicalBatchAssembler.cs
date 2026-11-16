@@ -19,12 +19,16 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
     /// <summary>Projects a raw line the server already holds and discards the output, so the lines after it project as
     /// one uninterrupted run would project them. Each replayed line is a batch of its own, acknowledged. A line its
     /// capture replaced with a capture-loss line projects nothing, as on the way out.</summary>
-    /// <returns>False for a line whose capture only the redaction can say, which leaves the replay unable to
-    /// continue.</returns>
-    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt) {
+    /// <param name="decide">Runs the redaction on a line the rule cannot decide on its own; without it such a line stays
+    /// undecided.</param>
+    /// <returns>False for a line whose capture stays undecided, which leaves the replay unable to continue.</returns>
+    public bool Replay(string line, int lineNumber, DateTimeOffset receivedAt, LineCaptureDecider? decide = null, CancellationToken ct = default) {
         if (CaptureLossLine.Is(line)) return true;
 
-        switch (CaptureRule.Of(line)) {
+        var capture = CaptureRule.Of(line);
+        if (capture == LineCapture.Undecided && decide is not null) capture = decide(line, ct);
+
+        switch (capture) {
             case LineCapture.Lost:      return true;
             case LineCapture.Undecided: return false;
         }

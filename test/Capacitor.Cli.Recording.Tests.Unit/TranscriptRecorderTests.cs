@@ -646,24 +646,44 @@ public class TranscriptRecorderTests {
         await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
     }
 
-    /// <summary>Whether a rewrite took line 1 past the record limit depends on the secrets in it, so the route cannot be
-    /// rebuilt as the capture left it.</summary>
+    /// Line 29 large enough that only the redaction can say how it was captured, with <paramref name="text"/>, and line 30
+    /// repeating its usage.
+    static string[] WithLargeLine29(string text) => [
+        .. Session[..29],
+        Assistant(29, parent: 28, usage: 30).Replace("reply 29", text, StringComparison.Ordinal),
+        Assistant(30, parent: 29, usage: 30),
+        .. Session[31..],
+    ];
+
+    /// <summary>The capture sent line 29, so line 30's usage is an echo; the restarted recorder redacts line 29 to learn
+    /// that, rather than sending raw.</summary>
     [Test]
-    public async Task A_resume_past_a_line_only_the_redaction_can_judge_sends_raw_lines() {
-        var large = Assistant(1, parent: 0, usage: 1).Replace("reply 1", new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth), StringComparison.Ordinal);
-        var path  = Tmp.CreateFile("t.jsonl", Jsonl([Session[0], large, .. Session[2..4]]));
-        _transport.SupportsCanonical = true;
-        _transport.ResumeFrom        = 3;
-        using var recorder = Recorder(path);
-        using var stop     = new CancellationTokenSource();
+    public async Task A_recorder_restarted_past_a_large_line_its_capture_kept_sends_the_events_an_uninterrupted_one_sends() {
+        var lines = WithLargeLine29(new string('x', CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
 
-        var run = recorder.RunAsync(stop.Token);
-        await LinesSent(1);
-        await stop.CancelAsync();
-        await run;
+        await Assert.That(CaptureRule.Of(lines[29])).IsEqualTo(LineCapture.Undecided);
 
-        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([3], CollectionOrdering.Matching);
-        await Assert.That(_transport.CanonicalBatches).IsEmpty();
+        var (whole, restarted) = await RecordWholeAndRestartedAsync(lines, restartAt: 30);
+
+        await Assert.That(whole.CanonicalBatches.SelectMany(batch => batch.Events).Single(e => e.Line == 30).Usage).IsNull();
+        await Assert.That(restarted.Batches).IsEmpty();
+        await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
+    }
+
+    /// <summary>Redacting line 29's token rewrites it, and its DEL characters, escaped at six bytes each, take it past the
+    /// record limit: the capture sent a capture-loss line and line 30's usage is new.</summary>
+    [Test]
+    public async Task A_recorder_restarted_past_a_large_line_its_capture_replaced_sends_the_events_an_uninterrupted_one_sends() {
+        var lines = WithLargeLine29("ghp_abcdefghij1234567890 " + new string((char)0x7F, CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth));
+
+        await Assert.That(CaptureRule.Of(lines[29])).IsEqualTo(LineCapture.Undecided);
+
+        var (whole, restarted) = await RecordWholeAndRestartedAsync(lines, restartAt: 30);
+
+        await Assert.That(whole.CanonicalBatches.SelectMany(batch => batch.CaptureLoss ?? []).Single().Line).IsEqualTo(29);
+        await Assert.That(whole.CanonicalBatches.SelectMany(batch => batch.Events).Single(e => e.Line == 30).Usage).IsNotNull();
+        await Assert.That(restarted.Batches).IsEmpty();
+        await Assert.That(EventsSent(restarted)).IsEquivalentTo(EventsSent(whole), CollectionOrdering.Matching);
     }
 
     /// <summary>The failed send projected lines the server never took. The next poll reads more lines than it did, so only

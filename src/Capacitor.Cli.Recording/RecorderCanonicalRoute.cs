@@ -10,7 +10,8 @@ namespace Capacitor.Cli.Recording;
 /// </summary>
 /// <remarks>Called from the recorder's first connect and from its drains and re-registrations, which take turns. Only
 /// the first connect can overlap a re-registration, so what a connect opened is installed only on that connection.</remarks>
-internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, RecordingSource source, TimeProvider time, Action<string> log) {
+/// <param name="decide">The recorder's own capture, which a replay decides a large line with.</param>
+internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, RecordingSource source, TimeProvider time, Action<string> log, LineCaptureDecider decide) {
     readonly Lock _gate = new();
 
     int             _connection;
@@ -29,8 +30,9 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
 
     /// <summary>Readies a route for the lines from <paramref name="cursor"/> on, when they are to go canonical and none is
     /// ready. One past line zero must first see every line before the cursor, so the result is then a consumer for
-    /// <see cref="TranscriptReplay"/> and what to call after it, with the token the replay ran under; null otherwise.</summary>
-    public async Task<(TranscriptReplayConsumer Consumer, Action<CancellationToken> Replayed)?> OpenAsync(int cursor, CancellationToken ct) {
+    /// <see cref="TranscriptReplay"/> and what to call after it; null otherwise.</summary>
+    /// <param name="replay">What the replay runs under, a stop or its own time: a large line's redaction ends with it.</param>
+    public async Task<(TranscriptReplayConsumer Consumer, Action Replayed)?> OpenAsync(int cursor, CancellationToken ct, CancellationToken replay) {
         if (!CanonicalVendors.Contains(source.Vendor)) return null;
 
         bool? supported;
@@ -57,7 +59,7 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
             }
         }
 
-        if (CanonicalRoute.For(source.Vendor, source.SessionId, source.AgentId, supported.Value) is not { } route) return null;
+        if (CanonicalRoute.For(source.Vendor, source.SessionId, source.AgentId, supported.Value, decide) is not { } route) return null;
 
         if (cursor == 0) {
             Install(route, connection, missing: null);
@@ -70,19 +72,19 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
 
         return (new(WindowOnly: false, line => {
             try {
-                if (route.Replay(line, seen, time.GetUtcNow())) {
+                if (route.Replay(line, seen, time.GetUtcNow(), replay)) {
                     seen++;
 
                     return false;
                 }
 
-                missing = $"Line {seen} is too large to tell whether its capture kept it";
+                missing = $"Redacting line {seen} to tell whether its capture kept it ran out of time";
             } catch (CanonicalEncodingException ex) {
                 missing = $"Line {seen} could not be projected: {ex.InnerException?.Message}";
             }
 
             return true;
-        }), replay => {
+        }), () => {
             // A stop says nothing of the lines, and the next send opens a route again.
             if (ct.IsCancellationRequested) return;
 
