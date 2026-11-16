@@ -349,7 +349,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
 
                 // fail-closed: no content unless the subagent registered first.
                 var startOk = await Client(client, baseUrl).PostSyntheticHookAsync("subagent-start",
-                    OpenCodeSubagentDiscovery.BuildStartPayload(rootId, agentId, agentType, tmp), ct);
+                    SubagentHookPayloads.Start(rootId, agentId, agentType, tmp), ct);
                 if (!startOk) throw new HttpRequestException($"subagent-start failed for {child.Id}");
 
                 await SessionImporter.SendTranscriptBatches(
@@ -358,7 +358,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                     lineNumberOffset: childOffset, failOnError: true, progress: progress);
 
                 if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop",
-                        OpenCodeSubagentDiscovery.BuildStopPayload(rootId, agentId, agentType, tmp), ct))
+                        SubagentHookPayloads.Stop(rootId, agentId, agentType, tmp), ct))
                     throw new HttpRequestException($"subagent-stop failed for {child.Id}");
             } finally {
                 try { File.Delete(tmp); } catch { }

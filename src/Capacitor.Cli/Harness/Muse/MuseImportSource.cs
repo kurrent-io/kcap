@@ -331,7 +331,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             var label = MuseSubagentDiscovery.LabelFor(Path.GetFileName(Path.GetDirectoryName(childLog))!, labels);
 
             if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-start",
-                    Strict(MuseSubagentDiscovery.BuildStartPayload(parentSessionId, label.AgentId, label.AgentType, childLog)), ct)) {
+                    SubagentHookPayloads.Start(parentSessionId, label.AgentId, label.AgentType, childLog, strict: true), ct)) {
                 allRecorded = false;
                 continue;
             }
@@ -353,7 +353,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             if (!stopChildren) continue;
 
             if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-stop",
-                    Strict(MuseSubagentDiscovery.BuildStopPayload(parentSessionId, label.AgentId, label.AgentType, childLog)), ct))
+                    SubagentHookPayloads.Stop(parentSessionId, label.AgentId, label.AgentType, childLog, strict: true), ct))
                 allRecorded = false;
         }
 
@@ -381,12 +381,6 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             var label = MuseSubagentDiscovery.LabelFor(Path.GetFileName(Path.GetDirectoryName(childLog))!, labels);
             return WatcherLiveness.PidAlive(watchers, $"{sessionId}-{label.AgentId}");
         });
-    }
-
-    // Without strict the server answers 200 when it fails to record a child's start or stop.
-    static JsonObject Strict(JsonObject payload) {
-        payload["strict"] = true;
-        return payload;
     }
 
     static JsonObject BuildSessionStartPayload(string sessionId, string log, string? cwd, DateTimeOffset? startedAt) {

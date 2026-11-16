@@ -253,7 +253,7 @@ internal sealed class GeminiImportSource : IImportSource {
             // Fail-closed: don't stream content unless the subagent registered first.
             var startOk = await client.PostSyntheticHookAsync(
                 "subagent-start",
-                GeminiSubagentDiscovery.BuildStartPayload(parentSessionIdDashless, agentId, agentType, d.File), ct);
+                SubagentHookPayloads.Start(parentSessionIdDashless, agentId, agentType, d.File), ct);
             if (!startOk) continue;
 
             int subSent;
@@ -274,7 +274,7 @@ internal sealed class GeminiImportSource : IImportSource {
 
             await client.PostSyntheticHookAsync(
                 "subagent-stop",
-                GeminiSubagentDiscovery.BuildStopPayload(parentSessionIdDashless, agentId, agentType, d.File), ct);
+                SubagentHookPayloads.Stop(parentSessionIdDashless, agentId, agentType, d.File), ct);
         }
 
         return anySubagentContentSent;

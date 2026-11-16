@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -340,9 +339,9 @@ internal sealed class AntigravityImportSource : IImportSource {
                 // so we only post stop when start truly re-marked the agent, and a re-import retries
                 // otherwise.
                 if (await client.PostSyntheticHookAsync("subagent-start",
-                        BuildSubagentStartPayload(rootId, childAgentId, childTranscript, strict: true), ct))
+                        SubagentHookPayloads.Start(rootId, childAgentId, "subagent", childTranscript, strict: true), ct))
                     await client.PostSyntheticHookAsync("subagent-stop",
-                        BuildSubagentStopPayload(rootId, childAgentId, childTranscript, strict: true), ct);
+                        SubagentHookPayloads.Stop(rootId, childAgentId, "subagent", childTranscript, strict: true), ct);
 
                 continue;
             }
@@ -355,7 +354,7 @@ internal sealed class AntigravityImportSource : IImportSource {
 
             // Fail-closed: no content unless the subagent registered first.
             if (!await client.PostSyntheticHookAsync("subagent-start",
-                    BuildSubagentStartPayload(rootId, childAgentId, childTranscript), ct))
+                    SubagentHookPayloads.Start(rootId, childAgentId, "subagent", childTranscript), ct))
                 continue;
 
             int childSent;
@@ -376,50 +375,10 @@ internal sealed class AntigravityImportSource : IImportSource {
             if (childSent > 0) anyChildContentSent = true;
 
             await client.PostSyntheticHookAsync("subagent-stop",
-                BuildSubagentStopPayload(rootId, childAgentId, childTranscript), ct);
+                SubagentHookPayloads.Stop(rootId, childAgentId, "subagent", childTranscript), ct);
         }
 
         return anyChildContentSent;
-    }
-
-    // ── payload builders ────────────────────────────────────────────────────────
-
-    // strict=true makes the server return non-2xx when the lifecycle write itself fails, rather
-    // than a fail-open 200 — so a caller that gates on the POST result learns the server actually
-    // recorded the event.
-
-    static JsonObject BuildSubagentStartPayload(string parentSid, string agentId, string transcriptPath, bool strict = false) {
-        var p = new JsonObject {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSid,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = "subagent",
-            ["transcript_path"] = transcriptPath,
-            ["cwd"]             = "",
-        };
-        if (strict) p["strict"] = true;
-        return p;
-    }
-
-    // The stop route binds SubagentStopHook, whose REQUIRED fields include stop_hook_active,
-    // agent_transcript_path, and last_assistant_message. Omitting them makes the server reject the
-    // body at binding (before HandleSubagentStop runs), so strict is never honored and PostHookAsync
-    // returns false — the repair would then loop start→failed-stop forever. Send the full shape,
-    // mirroring GeminiSubagentDiscovery.BuildStopPayload.
-    static JsonObject BuildSubagentStopPayload(string parentSid, string agentId, string transcriptPath, bool strict = false) {
-        var p = new JsonObject {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSid,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = "subagent",
-            ["transcript_path"]        = transcriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = transcriptPath,
-            ["last_assistant_message"] = "",
-        };
-        if (strict) p["strict"] = true;
-        return p;
     }
 
     // Synthetic USAGE line numbers live in a high band so they never collide with real transcript

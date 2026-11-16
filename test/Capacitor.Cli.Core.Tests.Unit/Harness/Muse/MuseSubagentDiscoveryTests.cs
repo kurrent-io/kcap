@@ -169,33 +169,6 @@ public class MuseSubagentDiscoveryTests {
     }
 
     [Test]
-    public async Task Start_payload_has_the_claude_shaped_subagent_start_keys() {
-        var p = MuseSubagentDiscovery.BuildStartPayload(ParentId, "aid", "goal-reminder", "/x/session.jsonl");
-
-        await Assert.That(p.Select(kv => kv.Key).ToList()).IsEquivalentTo(new[] { "hook_event_name", "session_id", "agent_id", "agent_type", "transcript_path", "cwd" });
-        await Assert.That(p["hook_event_name"]!.GetValue<string>()).IsEqualTo("subagent_start");
-        await Assert.That(p["session_id"]!.GetValue<string>()).IsEqualTo(ParentId);
-        await Assert.That(p["agent_id"]!.GetValue<string>()).IsEqualTo("aid");
-        await Assert.That(p["agent_type"]!.GetValue<string>()).IsEqualTo("goal-reminder");
-        await Assert.That(p["transcript_path"]!.GetValue<string>()).IsEqualTo("/x/session.jsonl");
-        await Assert.That(p["cwd"]!.GetValue<string>()).IsEqualTo("");
-    }
-
-    [Test]
-    public async Task Stop_payload_has_the_claude_shaped_subagent_stop_keys() {
-        var p = MuseSubagentDiscovery.BuildStopPayload(ParentId, "aid", "goal-reminder", "/x/session.jsonl");
-
-        await Assert.That(p.Select(kv => kv.Key).ToList()).IsEquivalentTo(new[] {
-            "hook_event_name", "session_id", "agent_id", "agent_type", "transcript_path", "cwd",
-            "stop_hook_active", "agent_transcript_path", "last_assistant_message",
-        });
-        await Assert.That(p["hook_event_name"]!.GetValue<string>()).IsEqualTo("subagent_stop");
-        await Assert.That(p["stop_hook_active"]!.GetValue<bool>()).IsFalse();
-        await Assert.That(p["agent_transcript_path"]!.GetValue<string>()).IsEqualTo("/x/session.jsonl");
-        await Assert.That(p["last_assistant_message"]!.GetValue<string>()).IsEqualTo("");
-    }
-
-    [Test]
     [Arguments("skill-reminder", true)]
     [Arguments("goal-reminder", true)]
     [Arguments("", true)]

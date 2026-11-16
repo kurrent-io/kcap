@@ -810,15 +810,8 @@ internal sealed class CursorImportSource : IImportSource {
         var subagentType = string.IsNullOrEmpty(child.SubagentType) ? "task" : child.SubagentType!;
 
         // subagent-start on the parent stream (creates AgentSubsession-{parent}-{child}).
-        var startOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-start", new JsonObject {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = subagentType,
-            ["transcript_path"] = child.TranscriptPath, // required by HookBase
-            ["cwd"]             = "",                    // required by HookBase
-            ["strict"]          = true,                  // fail-closed: 500 if SubagentStarted isn't persisted
-        }, ct);
+        var startOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-start",
+            SubagentHookPayloads.Start(parentSessionId, agentId, subagentType, child.TranscriptPath, strict: true), ct);
         if (!startOk) return (false, false);
 
         // Resume from the subsession watermark (AgentSubsession-{parent}-{child}) so a re-import
@@ -886,20 +879,8 @@ internal sealed class CursorImportSource : IImportSource {
             return (false, false);
         }
 
-        // Full SubagentStopHook shape (mirrors the Gemini/OpenCode builders) — the server
-        // binds all fields, so an incomplete body can be rejected before HandleSubagentStop.
-        var stopOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-stop", new JsonObject {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = subagentType,
-            ["transcript_path"]        = child.TranscriptPath, // required by HookBase
-            ["cwd"]                    = "",                   // required by HookBase
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = child.TranscriptPath,
-            ["last_assistant_message"] = "",
-            ["strict"]                 = true,                 // fail-closed: 500 if SubagentCompleted isn't persisted
-        }, ct);
+        var stopOk = await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-stop",
+            SubagentHookPayloads.Stop(parentSessionId, agentId, subagentType, child.TranscriptPath, strict: true), ct);
 
         // Whether the probe succeeded (known watermark) or failed (fail-open full resend), any
         // lines actually POSTED count as SentContent: a probe failure is indeterminate, never a

@@ -88,8 +88,8 @@ public class CursorLiveSubagentIntegrationTests {
         var childId  = CursorImportSource.NormalizeCursorSessionId(childRaw);
         var parentId = CursorImportSource.NormalizeCursorSessionId(Guid.NewGuid().ToString());
 
-        var body = CursorLiveSubagentLinker.BuildSubagentStartPayload(
-            parentId, childId, "task", "/tmp/parity.jsonl");
+        var body = SubagentHookPayloads.Start(
+            parentId, childId, "task", "/tmp/parity.jsonl", strict: true);
 
         var liveAgentId = body["agent_id"]!.GetValue<string>();
         // Mirrors CursorImportSource.NormalizeCursorSessionId, the import path's own
@@ -97,17 +97,6 @@ public class CursorLiveSubagentIntegrationTests {
         await Assert.That(liveAgentId).IsEqualTo(childId);
         await Assert.That(liveAgentId.Contains('-')).IsFalse();
         await Assert.That(body["session_id"]!.GetValue<string>()).IsEqualTo(parentId);
-    }
-
-    [Test]
-    public async Task live_lifecycle_payloads_serialize_to_the_import_paths_strict_bytes() {
-        var start = CursorLiveSubagentLinker.BuildSubagentStartPayload("parent", "child", "task", "/t/child.jsonl");
-        var stop  = CursorLiveSubagentLinker.BuildSubagentStopPayload("parent", "child", "task", "/t/child.jsonl");
-
-        await Assert.That(start.ToJsonString()).IsEqualTo(
-            """{"hook_event_name":"subagent_start","session_id":"parent","agent_id":"child","agent_type":"task","transcript_path":"/t/child.jsonl","cwd":"","strict":true}""");
-        await Assert.That(stop.ToJsonString()).IsEqualTo(
-            """{"hook_event_name":"subagent_stop","session_id":"parent","agent_id":"child","agent_type":"task","transcript_path":"/t/child.jsonl","cwd":"","stop_hook_active":false,"agent_transcript_path":"/t/child.jsonl","last_assistant_message":"","strict":true}""");
     }
 
     sealed class Fixture : IDisposable {

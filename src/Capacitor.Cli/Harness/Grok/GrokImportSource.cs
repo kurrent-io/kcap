@@ -5,7 +5,6 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 
 namespace Capacitor.Cli.Harness.Grok;
@@ -188,7 +187,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
             var agentId   = GrokSubagents.AgentId(child.ChildSessionId);
             var agentType = child.SubagentType ?? "subagent";
 
-            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-start", GeminiSubagentDiscovery.BuildStartPayload(sid, agentId, agentType, transcript), ct))
+            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-start", SubagentHookPayloads.Start(sid, agentId, agentType, transcript), ct))
                 throw new HttpRequestException($"subagent-start failed for {child.ChildSessionId}");
 
             var watermark = await LastLineAsync(client, baseUrl, sid, agentId, ct);
@@ -197,7 +196,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
                 filePath: transcript, agentId: agentId, startLine: watermark is { } w ? w + 1 : 0,
                 time: time, vendor: Vendor, failOnError: true, progress: progress) > 0;
 
-            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop", GeminiSubagentDiscovery.BuildStopPayload(sid, agentId, agentType, transcript), ct))
+            if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop", SubagentHookPayloads.Stop(sid, agentId, agentType, transcript), ct))
                 throw new HttpRequestException($"subagent-stop failed for {child.ChildSessionId}");
         }
 
