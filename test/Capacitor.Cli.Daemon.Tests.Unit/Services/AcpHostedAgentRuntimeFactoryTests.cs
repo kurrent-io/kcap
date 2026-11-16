@@ -1445,6 +1445,27 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
     }
 
+    /// <summary>VS Code's Copilot launcher on the PATH is not a Copilot CLI to host, and one behind it is.</summary>
+    [Test]
+    public async Task Copilot_is_available_only_when_a_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var shim = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", Launchable("copilot")), ""))!;
+        var cli  = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("bin", Launchable("copilot")), ""))!;
+
+        static bool Available(string searchPath) => new AcpHostedAgentRuntimeFactory(
+            descriptor: AcpVendorDescriptors.Copilot,
+            config: new DaemonConfig { Binaries = BinaryProbe.Searching(searchPath) },
+            loggerFactory: NullLoggerFactory.Instance,
+            connection: new CaptureServerConnection(),
+            connectionSource: _ => throw new InvalidOperationException("IsAvailable must not spawn a process."),
+            timeProvider: TimeProvider.System).IsAvailable();
+
+        await Assert.That(Available(shim)).IsFalse();
+        await Assert.That(Available(shim + Path.PathSeparator + cli)).IsTrue();
+
+        static string Launchable(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
+    }
+
     /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the
     /// <c>vibe</c> TUI would never answer <c>initialize</c>.</summary>
     [Test]

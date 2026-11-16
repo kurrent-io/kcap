@@ -61,7 +61,11 @@ public sealed class BinaryProbe {
     /// <c>./codex</c> and <c>C:\tools\codex.cmd</c> alike — and is still retried with the launchable
     /// extensions, so an extensionless configured path resolves to its <c>.cmd</c>.
     /// </summary>
-    public string? Resolve(string? command) {
+    public string? Resolve(string? command) => Resolve(command, static _ => false);
+
+    /// <summary><see cref="Resolve(string?)"/>, passing over search-path hits <paramref name="skip"/> rejects. A
+    /// command carrying a directory is taken as given.</summary>
+    public string? Resolve(string? command, Func<string, bool> skip) {
         if (string.IsNullOrWhiteSpace(command)) return null;
 
         if (Path.IsPathRooted(command) || command.Contains('/') || command.Contains('\\'))
@@ -80,7 +84,7 @@ public sealed class BinaryProbe {
                 continue;
             }
 
-            if (FirstCandidate(candidate) is { } hit) return hit;
+            if (FirstCandidate(candidate) is { } hit && !skip(hit)) return hit;
         }
 
         return null;

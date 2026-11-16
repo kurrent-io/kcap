@@ -183,6 +183,30 @@ public class HarnessSignalTests {
         await Assert.That(found.HostApp).IsNull();
     }
 
+    /// <summary>VS Code's launcher earlier on the PATH than a Copilot CLI still reads as the CLI: the launcher runs it.</summary>
+    [Test]
+    public async Task A_copilot_cli_behind_vs_code_s_launcher_reads_as_the_cli() {
+        using var tmp = new TempDir();
+        var binaries = BinaryProbe.Searching(
+            CopilotBinaryIn(tmp, "Code", "copilot-shim") + Path.PathSeparator + CopilotBinaryIn(tmp, "bin"));
+
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+
+        await Assert.That(found.HostApp).IsNull();
+    }
+
+    /// <summary>VS Code's launcher is not a Copilot CLI: with no CLI behind it there is nothing to launch.</summary>
+    [Test]
+    public async Task The_copilot_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var shim = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var cli  = CopilotBinaryIn(tmp, "bin");
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim + Path.PathSeparator + cli), CopilotHarness.CliBinary))
+            .IsEqualTo(BinaryProbe.Searching(cli).Resolve(CopilotHarness.CliBinary));
+    }
+
     /// <summary>VS Code signs Copilot in through ide/ and keeps the extension's data in its own storage.</summary>
     [Test]
     public async Task Vs_code_copilot_with_no_cli_is_found_as_vs_code() {

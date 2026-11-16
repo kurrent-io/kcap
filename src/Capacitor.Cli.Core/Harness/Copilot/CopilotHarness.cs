@@ -38,6 +38,10 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
     static bool IsVsCodeShim(string path) =>
         path.Split('/', '\\').Any(segment => segment.Equals("copilot-shim", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>The Copilot CLI <paramref name="command"/> names on the search path, passing over VS Code's
+    /// launcher: it only runs a CLI installed elsewhere, and with none it prints that Copilot CLI was not found.</summary>
+    public static string? ResolveCli(BinaryProbe binaries, string? command) => binaries.Resolve(command, IsVsCodeShim);
+
     bool InVsCode(DesktopAppProbe apps) => Paths.HasVsCodeSignIn() || apps.Finds(VsCodeExtensionData);
 
     // The marker covers users who launch Copilot through an IDE wrapper; the PATH probe covers
@@ -46,9 +50,9 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
         LaunchSignal   = probe => probe.Finds(CliBinary),
         UserDataSignal = Paths.HasUserData,
         AppSignal      = InVsCode,
-        HostApp        = (binaries, apps) => binaries.Resolve(CliBinary) is { } cli
-            ? IsVsCodeShim(cli) ? VsCode : null
-            : InVsCode(apps) ? VsCode : null,
+        HostApp        = (binaries, apps) => ResolveCli(binaries, CliBinary) is null && (binaries.Finds(CliBinary) || InVsCode(apps))
+            ? VsCode
+            : null,
         Wired          = () => CopilotHooksInstaller.IsInstalled(Paths.KcapHooksJson),
     };
 }
