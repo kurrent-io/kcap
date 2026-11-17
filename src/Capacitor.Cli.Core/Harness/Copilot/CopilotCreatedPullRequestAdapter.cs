@@ -86,6 +86,6 @@ public sealed partial class CopilotCreatedPullRequestAdapter : ICreatedPullReque
     [GeneratedRegex(@"<shellId: (?<shell>\w+) completed with exit code (?<code>-?\d+)>\s*$")]
     private static partial Regex Completed();
 
-    [GeneratedRegex(@"^\s*<command with shellId: (?<shell>\w+) is still running")]
+    [GeneratedRegex(@"<command with shellId: (?<shell>\w+) is still running[^>]*>\s*$")]
     private static partial Regex Running();
 }

@@ -72,6 +72,17 @@ public class CopilotCreatedPullRequestAdapterTests {
         await Assert.That(found.Select(f => f.CallId ?? "")).IsEquivalentTo(["copilot-shell:3"]);
     }
 
+    // Output written before the wait lapsed comes ahead of the still-running marker.
+    [Test]
+    public async Task A_still_running_create_with_partial_output_waits_for_its_read_bash() {
+        var found = Observe(
+            Bash("toolu_pr", "gh pr create --fill"),
+            Complete("toolu_pr", "Creating pull request for feature into main in kurrent-io/kcap\n\n<command with shellId: 3 is still running after 30 seconds. The command is still running. Use read_bash to continue waiting, or stop_bash to stop it.>"),
+            Complete("toolu_read", Url + "\n<shellId: 3 completed with exit code 0>"));
+
+        await Assert.That(found.Select(f => f.CallId ?? "")).IsEquivalentTo(["copilot-shell:3"]);
+    }
+
     [Test]
     public async Task A_read_bash_of_another_shell_is_not_tied_to_the_create() {
         var found = Observe(
