@@ -52,7 +52,14 @@ public sealed partial class GeminiCreatedPullRequestAdapter : ICreatedPullReques
         var lines  = report.Split('\n').ToList();
         var failed = false;
 
-        while (lines.Count > 0 && Trailer().Match(lines[^1]) is { Success: true } trailer) {
+        while (lines.Count > 0) {
+            if (string.IsNullOrWhiteSpace(lines[^1])) {
+                lines.RemoveAt(lines.Count - 1);
+                continue;
+            }
+
+            if (Trailer().Match(lines[^1]) is not { Success: true } trailer) break;
+
             var value = trailer.Groups["value"].Value.Trim();
 
             failed |= trailer.Groups["label"].Value switch {
