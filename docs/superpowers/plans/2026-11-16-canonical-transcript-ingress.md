@@ -27,7 +27,7 @@
 
 ## Review Focus
 
-1. A transcript shorter than the resume line, or rewritten since (Claude rewrites on compaction): the producer projects without prior state and sends; it does not throw or stall.
+1. A transcript shorter than the resume line, or rewritten since (Claude rewrites on compaction): the replay is incomplete, so the producer sends raw lines; it does not throw or stall.
 2. One line larger than the chunk limit (a pasted image): it still goes out, as a batch of one line.
 3. The server refuses a chunk as unsupported in the middle of a split read: that chunk and the rest go raw, with the same observed commits and `more_follows`.
 4. A subagent transcript (`agentId` set, sidechain records): no title sightings and no turn end are sent.
@@ -246,7 +246,7 @@ Work in a fresh clone; set `src/cli` to the Phase A merge commit first (the reci
 - Produces:
   - Configuration key `Ingest:CanonicalEnabled`, bool, default `false`.
   - `GET /api/ingest/capabilities` → `200 {"canonical_format":1}` when on, `{"canonical_format":0}` when off. Authorized like `/hooks/transcript`.
-  - Hub method `Task<int> IngestCapabilities()`, same number.
+  - Hub method `Task<CanonicalCapabilities> IngestCapabilities()`, the same `canonical_format` object the HTTP route returns.
   - `POST /hooks/transcript/canonical` with the same filters as `/hooks/transcript` (`RequireAuthorization`, `RefuseDeletedSessions`, `RefuseForeignSessions`). Replies: `200 TranscriptProgress`; `422 {"error":"canonical_unsupported","reason":"…"}`; the raw route's `400`, `403`, `410`, `500` unchanged.
   - Hub method `Task<CanonicalBatchAck> SendCanonicalBatch(CanonicalTranscriptBatch batch)`, `record CanonicalBatchAck(int NextLineNumber, bool Unsupported, string? Reason)`.
   - `SessionActivityHookHandlers.HandleCanonicalTranscript(CanonicalTranscriptBatch, CancellationToken)`, which in this task refuses everything as unsupported when the switch is off and throws `NotImplementedException` when on.
@@ -362,7 +362,7 @@ public sealed class CanonicalRoute {
 
 `ReplayAsync` reads with the `SharedFileText` helpers (the agent owns the file).
 
-- [ ] **Step 1:** Tests: `For` is null for `codex`, for `claude` with `serverSupports: false`; non-null for `claude` and for a null vendor with support. `ReplayAsync` on a missing file and on a file shorter than the bound returns without throwing and leaves the route usable (Review Focus 1). Capability: WireMock `200 {"canonical_format":1}` → true and one request for two calls; `404` → false; `{"canonical_format":0}` → false; a `500` → false and the next call asks again.
+- [ ] **Step 1:** Tests: `For` is null for `codex`, for `claude` with `serverSupports: false`; non-null for `claude` and for a null vendor with support. `ReplayAsync` on a missing file and on a file shorter than the bound returns false without throwing, and the caller sends raw (Review Focus 1). Capability: WireMock `200 {"canonical_format":1}` → true and one request for two calls; `404` → false; `{"canonical_format":0}` → false; a `500` → false and the next call asks again.
 - [ ] **Step 2–4:** Run, implement, run.
 - [ ] **Step 5:** Commit: `Route a transcript source to the canonical ingress (#2638)`.
 
@@ -389,14 +389,14 @@ It keeps each producer's `PostWithRetryAsync` behaviour and returns the final re
 Per producer:
 - **Inline drain:** build the route from the drain's vendor and `IngestCapability`; `ReplayAsync(transcriptPath, firstLineToSend)` before the first post.
 - **Import:** one route per stream (session, and each subagent); no replay, import starts at line zero. The per-vendor `*ImportSource`s that post on their own are not Claude and stay as they are.
-- **Spool drain:** the spooled JSON stays a raw `TranscriptBatch`. On drain, deserialize it; when its vendor is canonical and the server supports it, build a route, replay from `transcript_path` when present, and post through `TranscriptPost`. A spool entry without `transcript_path` (written by an older CLI) projects without prior state.
+- **Spool drain:** the spooled JSON stays a raw `TranscriptBatch`. On drain, deserialize it; when its vendor is canonical and the server supports it, build a route, replay from `transcript_path` when present, and post through `TranscriptPost`. A tail that starts above line zero goes canonical only when the replay covered every earlier line; a spool entry without `transcript_path` (written by an older CLI) drains raw.
 
 - [ ] **Step 1:** Tests:
   - `TranscriptPost`: canonical `200` → one request to the canonical path, `Acknowledged` effect visible on the next encode; `422 canonical_unsupported` → a second request to `/hooks/transcript` with the identical raw body, route inactive afterwards; a `500` → returned as is, no raw retry; a null route → raw only.
   - `A_refused_chunk_and_the_rest_of_a_split_read_go_raw_with_their_commits` (Review Focus 3): three chunks, the second refused; requests are canonical, canonical+raw, raw; `observed_commits` and `more_follows` equal on the raw resends.
   - Inline drain: with capability on, a Claude drain from line 40 posts canonical and the events' ids equal a from-zero projection of the same file.
   - Import: a Claude import posts canonical only; a Codex import posts raw only.
-  - Spool drain: an entry written without `transcript_path` drains canonical; with the capability off it drains raw, byte-identical to the spooled JSON.
+  - Spool drain: an entry starting above line zero without `transcript_path` drains raw; with the capability off every entry drains raw, byte-identical to the spooled JSON.
 - [ ] **Step 2–4:** Run, implement, run.
 - [ ] **Step 5:** Measure the replay: time an inline drain's `ReplayAsync` over a 200 MB Claude transcript (generate one by repeating a fixture). Put the number in the PR description. If it exceeds two seconds, stop and report before continuing; the hook runs inside Claude's SessionEnd.
 - [ ] **Step 6:** Commit: `Send Claude drains, imports and spooled tails as canonical batches (#2638)`.
