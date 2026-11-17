@@ -50,7 +50,8 @@ public sealed partial class GeminiCreatedPullRequestAdapter : ICreatedPullReques
     /// other than <c>(none)</c> when the command did not run to completion.</summary>
     static (string Text, bool Failed) Parse(string report) {
         var lines  = report.Split('\n').ToList();
-        var failed = false;
+        var failed      = false;
+        var hasExitCode = false;
 
         while (lines.Count > 0) {
             if (string.IsNullOrWhiteSpace(lines[^1])) {
@@ -61,6 +62,7 @@ public sealed partial class GeminiCreatedPullRequestAdapter : ICreatedPullReques
             if (Trailer().Match(lines[^1]) is not { Success: true } trailer) break;
 
             var value = trailer.Groups["value"].Value.Trim();
+            hasExitCode |= trailer.Groups["label"].Value == "Exit Code";
 
             failed |= trailer.Groups["label"].Value switch {
                 "Exit Code"         => value != "0",
@@ -74,6 +76,9 @@ public sealed partial class GeminiCreatedPullRequestAdapter : ICreatedPullReques
         while (lines.Count > 0 && (lines[0].StartsWith("Command: ", StringComparison.Ordinal) || lines[0].StartsWith("Directory: ", StringComparison.Ordinal))) lines.RemoveAt(0);
         // A cancelled or backgrounded command is reported in prose, with no labelled output to read.
         if (lines.Count == 0 || Lead().Match(lines[0]) is not { Success: true } lead) return ("", true);
+
+        // The older layout states every exit code, 0 included; only the newer one leaves 0 unsaid.
+        if (lead.Value.StartsWith("Stdout", StringComparison.Ordinal) && !hasExitCode) failed = true;
 
         lines[0] = lines[0][lead.Length..];
 

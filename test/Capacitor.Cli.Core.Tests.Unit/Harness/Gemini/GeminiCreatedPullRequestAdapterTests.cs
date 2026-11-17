@@ -43,6 +43,7 @@ public class GeminiCreatedPullRequestAdapterTests {
         await Assert.That(Observe(ShellTurn("c1", "gh pr create --fill", report))).IsEmpty();
         await Assert.That(Observe(ShellTurn("c2", "gh pr create --fill", "Output: " + Url, status: "error"))).IsEmpty();
         await Assert.That(Observe(ShellTurn("c3", "gh pr create --fill", "Output: " + Url + "\nSignal: 15\nProcess Group PGID: 4242"))).IsEmpty();
+        await Assert.That(Observe(ShellTurn("c6", "gh pr create --fill", "Command: gh pr create --fill\nDirectory: (root)\nStdout: " + Url + "\nStderr: (empty)\nProcess Group PGID: 1"))).IsEmpty();
         await Assert.That(Observe(ShellTurn("c5", "gh pr create --fill", "Output: already exists:\n" + Url + "\n\nExit Code: 1\n\nProcess Group PGID: 42\n\n"))).IsEmpty();
         await Assert.That(Observe(ShellTurn("c4", "gh pr create --fill", "Command was cancelled by user before it could complete. Below is the output before it was cancelled:\n" + Url))).IsEmpty();
     }
