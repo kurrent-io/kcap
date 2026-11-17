@@ -1,10 +1,13 @@
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -13,11 +16,22 @@ namespace Capacitor.App.Views;
 /// never builds or assigns one.
 public partial class SessionRailView : UserControl {
     readonly SerialDisposable _searchLabel = new();
+    readonly Flyout _rowMenu;
+    readonly ItemsControl _rowMenuItems;
+    Button? _rowMenuAnchor;
 
     public SessionRailView() {
         InitializeComponent();
         DataContextChanged += (_, _) => BindSearchLabel();
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+        RailGroups.AddHandler(PointerPressedEvent, OnRowsPointerPressed, RoutingStrategies.Tunnel);
+        RailGroups.AddHandler(ContextRequestedEvent, OnRowsContextRequested);
+        _rowMenu = (Flyout)Resources["RailRowMenu"]!;
+        _rowMenuItems = (ItemsControl)_rowMenu.Content!;
+        // Pointer-opened: focus for Escape without the keyboard focus ring, once the items are realized.
+        _rowMenu.Opened += (_, _) => Dispatcher.UIThread.Post(() => FocusFirstItem(_rowMenuItems, NavigationMethod.Pointer), DispatcherPriority.Loaded);
+        _rowMenuItems.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(_rowMenu, (Control?)_rowMenuAnchor ?? RailGroups, e, NavigationMethod.Pointer), RoutingStrategies.Bubble);
+        AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
@@ -39,24 +53,47 @@ public partial class SessionRailView : UserControl {
         anchor.Focus(refocus);
     }
 
-    void OnRowMenuOpened(object? sender, EventArgs e) {
-        // Pointer-opened: take focus for Escape without drawing the keyboard focus ring.
-        if (sender is Flyout { Content: Control content }) FocusFirstItem(content, NavigationMethod.Pointer);
-    }
+    SessionRailViewModel? RailModel => (DataContext as MainWindowViewModel)?.Rail;
 
-    void OnRowMenuKeyDown(object? sender, KeyEventArgs e) {
-        if (sender is Control item && RowMenuOf(item) is ({ } row, { } flyout)) DismissOnEscape(flyout, row, e, NavigationMethod.Pointer);
+    static Button? RowButtonOf(object? source) =>
+        (source as Visual)?.GetSelfAndVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("railRow"));
+
+    void OnRowsContextRequested(object? sender, ContextRequestedEventArgs e) {
+        if (RailModel is not { } rail || RowButtonOf(e.Source) is not { DataContext: RailSessionViewModel row } button) return;
+        e.Handled = true;
+        var items = rail.MenuFor(row);
+        if (items.Count == 0) return;
+        _rowMenuAnchor = button;
+        _rowMenuItems.ItemsSource = items;
+        _rowMenu.ShowAt(RailGroups, showAtPointer: true);
     }
 
     void OnRowMenuItemClick(object? sender, RoutedEventArgs e) {
-        if (sender is not Button { Command: { } command } item || !command.CanExecute(null)) return;
-        if (RowMenuOf(item) is (_, { } flyout)) flyout.Hide();
-        command.Execute(null);
+        if (sender is not Button { DataContext: RailMenuItem item }) return;
+        _rowMenu.Hide();
+        item.Run();
         e.Handled = true;
     }
 
-    static (Control? Row, FlyoutBase? Flyout) RowMenuOf(Control item) =>
-        item.FindLogicalAncestorOfType<Popup>()?.PlacementTarget is Control row ? (row, row.ContextFlyout) : (null, null);
+    // Ctrl/Cmd+click marks a row and Shift+click a range, for the row menu to act on together; a plain
+    // click opens the row and drops the marks. Tunnelled so a marking click never reaches the row's Click.
+    void OnRowsPointerPressed(object? sender, PointerPressedEventArgs e) {
+        if (RailModel is not { } rail || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        if (RowButtonOf(e.Source)?.DataContext is not RailSessionViewModel row) return;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) rail.ExtendMarks(row);
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)) rail.ToggleMark(row);
+        else {
+            rail.ClearMarks();
+            return;
+        }
+        e.Handled = true;
+    }
+
+    void OnRailKeyDown(object? sender, KeyEventArgs e) {
+        if (e.Key != Key.Escape || e.Handled || RailModel is not { HasMarks: true } rail) return;
+        rail.ClearMarks();
+        e.Handled = true;
+    }
 
     // The field shows the page's query while the page is up, and its placeholder otherwise.
     void BindSearchLabel() {

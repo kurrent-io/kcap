@@ -14,6 +14,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
+using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -35,6 +36,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     HashSet<string> _collapsed;
     HashSet<string> _removed;
     readonly Action? _closeWorkspace;
+    readonly IReadOnlyList<RailAction> _actions;
+    readonly BehaviorSubject<IReadOnlySet<string>> _marked = new(FrozenSet<string>.Empty);
+    string? _markAnchor;
     bool _applying;
 
     // SelectedSessionKey is fed to the nested VMs via this subject, not this.WhenAnyValue: that
@@ -302,6 +306,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<AgentRow>? stopSession = null, Action? closeWorkspace = null) {
         _directory = directory;
         _closeWorkspace = closeWorkspace;
+        _actions = [
+            new(LucideIconKind.CircleStop, rows => rows[0].IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop",
+                row => stopSession is not null && RailSessionViewModel.Stoppable(row), rows => stopSession!(rows[0]), SingleRow: true),
+            new(LucideIconKind.EyeOff, rows => rows.Count == 1 ? "Remove from sidebar" : $"Remove {rows.Count} from sidebar",
+                row => SessionIds.Canonical(row.SessionId) is not null, Remove),
+        ];
+        _disposables.Add(_marked);
         _sessions = sessions;
         _persist = persistPreferences;
         _time = time;
@@ -453,7 +464,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         else _collapsed.Add(g.Key);
                         Persist();
                     }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, suggested: suggested,
-                    stop: stopSession, remove: Remove);
+                    marked: _marked);
             });
         var workItemGroups = _workItems.Connect()
             .TransformWithInlineUpdate(item => {
@@ -468,7 +479,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         if (expanded) _openWorkItems.Add(key);
                         else _openWorkItems.Remove(key);
                     }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item,
-                    stop: stopSession, remove: Remove);
+                    marked: _marked);
             }, (group, item) => group.UpdateWorkItem(item));
         groups.Or(workItemGroups)
             .DisposeMany()
@@ -554,11 +565,67 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     }
 
     /// Hides the session for this user, by its id, so it stays gone when its daemon row hands over to the server's.
-    internal void Remove(AgentRow row, bool selected) {
-        if (_disposables.IsDisposed || SessionIds.Canonical(row.SessionId) is not { } id || _removed.Contains(id)) return;
-        if (selected) _closeWorkspace?.Invoke();
-        SetRemoved([.. _removed, id], persist: true);
+    void Remove(IReadOnlyList<AgentRow> rows) {
+        if (_disposables.IsDisposed) return;
+        if (rows.Any(row => row.Key == _selectedSessionKey)) _closeWorkspace?.Invoke();
+        SetRemoved(_removed.Concat(rows.Select(row => SessionIds.Canonical(row.SessionId)).OfType<string>()), persist: true);
     }
+
+    public bool HasMarks => _marked.Value.Count > 0;
+
+    /// Adds the row to the marked rows, or takes it out.
+    public void ToggleMark(RailSessionViewModel row) {
+        var marked = new HashSet<string>(_marked.Value, StringComparer.Ordinal);
+        if (!marked.Remove(row.Key)) marked.Add(row.Key);
+        _markAnchor = row.Key;
+        SetMarks(marked);
+    }
+
+    /// Marks every shown row from the last one toggled, or the open one, through this one.
+    public void ExtendMarks(RailSessionViewModel row) {
+        var shown = ShownRows();
+        var to = shown.IndexOf(row);
+        var from = shown.FindIndex(r => r.Key == (_markAnchor ?? _selectedSessionKey));
+        if (to < 0) return;
+        if (from < 0) from = to;
+        var marked = new HashSet<string>(_marked.Value, StringComparer.Ordinal);
+        for (var i = Math.Min(from, to); i <= Math.Max(from, to); i++) marked.Add(shown[i].Key);
+        _markAnchor ??= row.Key;
+        SetMarks(marked);
+    }
+
+    public void ClearMarks() {
+        _markAnchor = null;
+        if (HasMarks) SetMarks([]);
+    }
+
+    void SetMarks(IEnumerable<string> keys) {
+        if (_disposables.IsDisposed) return;
+        _marked.OnNext(keys.ToFrozenSet(StringComparer.Ordinal));
+        this.RaisePropertyChanged(nameof(HasMarks));
+    }
+
+    /// The menu for a row: over the marked rows when it is one of them, else over it alone.
+    public IReadOnlyList<RailMenuItem> MenuFor(RailSessionViewModel row) {
+        if (!_marked.Value.Contains(row.Key)) ClearMarks();
+        IReadOnlyList<AgentRow> targets = HasMarks
+            ? [.. ShownRows().Where(r => _marked.Value.Contains(r.Key)).Select(r => r.Row)]
+            : [row.Row];
+        var items = new List<RailMenuItem>();
+        foreach (var action in _actions) {
+            if (action.SingleRow && targets.Count > 1) continue;
+            IReadOnlyList<AgentRow> rows = [.. targets.Where(action.AppliesTo)];
+            if (rows.Count == 0) continue;
+            items.Add(new(action.Icon, action.Label(rows), () => {
+                action.Run(rows);
+                ClearMarks();
+            }));
+        }
+        return items;
+    }
+
+    List<RailSessionViewModel> ShownRows() =>
+        [.. Groups.Where(group => group.IsExpanded).SelectMany(group => group.Sessions)];
 
     void SetRemoved(IEnumerable<string> ids, bool persist) {
         if (_disposables.IsDisposed) return;

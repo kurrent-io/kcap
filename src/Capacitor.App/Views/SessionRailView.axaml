@@ -8,6 +8,28 @@
              x:DataType="vm:MainWindowViewModel">
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
+    <UserControl.Resources>
+        <!-- One menu for every row, anchored to the list rather than a row: a live re-sort recycles row
+             containers, which would close a menu owned by one. -->
+        <Flyout x:Key="RailRowMenu" Placement="Pointer" FlyoutPresenterClasses="kcapPanel">
+            <ItemsControl Margin="6" MinWidth="188">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RailMenuItem">
+                        <Button Classes="kcapGhost" Click="OnRowMenuItemClick" AutomationProperties.Name="{Binding Label}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <views:AppIcon Kind="{Binding Icon}" Size="14" />
+                                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Flyout>
+    </UserControl.Resources>
     <UserControl.Styles>
         <!-- A row's resting Background and BorderThickness MUST come from this class style, never a
              local attribute on the Button: a local value outranks a style trigger, which would leave
@@ -66,7 +88,7 @@
         <Style Selector="TextBlock.rowTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="Button.railRow:pointerover TextBlock.rowTitle, Button.railRow.selected TextBlock.rowTitle, Button.railRow.attention TextBlock.rowTitle">
+        <Style Selector="Button.railRow:pointerover TextBlock.rowTitle, Button.railRow.selected TextBlock.rowTitle, Button.railRow.marked TextBlock.rowTitle, Button.railRow.attention TextBlock.rowTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="Button.railRow.attention TextBlock.rowTitle">
@@ -187,6 +209,14 @@
                          Button.selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <!-- Marked rows, the ones the row menu acts on together, read as a selection over the open row. -->
+        <Style Selector="Button.railRow.marked">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+        <Style Selector="Button.railRow.marked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railRow.marked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
     </UserControl.Styles>
 
@@ -613,29 +643,7 @@
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4"
                                                                 AutomationProperties.Name="{Binding SessionAccessibleName}"
-                                                                Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.attention="{Binding Status.IsWarning}">
-                                                            <Button.ContextFlyout>
-                                                                <Flyout Placement="Pointer" FlyoutPresenterClasses="kcapPanel" Opened="OnRowMenuOpened">
-                                                                    <StackPanel Spacing="2" Margin="6" MinWidth="188" KeyDown="OnRowMenuKeyDown">
-                                                                        <Button x:Name="RailRowStopButton" Classes="kcapGhost" Command="{Binding StopCommand}"
-                                                                                IsVisible="{Binding CanStop}" Click="OnRowMenuItemClick"
-                                                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
-                                                                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                                                                <views:AppIcon Kind="CircleStop" Size="14" />
-                                                                                <TextBlock Text="{Binding StopLabel}" VerticalAlignment="Center" />
-                                                                            </StackPanel>
-                                                                        </Button>
-                                                                        <Button x:Name="RailRowRemoveButton" Classes="kcapGhost" Command="{Binding RemoveCommand}"
-                                                                                IsVisible="{Binding CanRemove}" Click="OnRowMenuItemClick"
-                                                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
-                                                                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                                                                <views:AppIcon Kind="EyeOff" Size="14" />
-                                                                                <TextBlock Text="Remove from sidebar" VerticalAlignment="Center" />
-                                                                            </StackPanel>
-                                                                        </Button>
-                                                                    </StackPanel>
-                                                                </Flyout>
-                                                            </Button.ContextFlyout>
+                                                                Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.marked="{Binding IsMarked}" Classes.attention="{Binding Status.IsWarning}">
                                                             <ToolTip.Tip>
                                                                 <StackPanel Spacing="10" MaxWidth="320">
                                                                     <!-- The row trims its title; the tip carries it whole. -->

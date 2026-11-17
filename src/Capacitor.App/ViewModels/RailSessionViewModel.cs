@@ -89,14 +89,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
     public AgentRow Row => _row.Value;
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
-    /// The workspace's Stop, offered from the row: the same confirm, the same gate.
-    public ReactiveCommand<Unit, Unit> StopCommand { get; }
-    bool _canStop;
-    public bool CanStop { get => _canStop; private set => this.RaiseAndSetIfChanged(ref _canStop, value); }
-    public string StopLabel => IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop";
-    public ReactiveCommand<Unit, Unit> RemoveCommand { get; }
-    bool _canRemove;
-    public bool CanRemove { get => _canRemove; private set => this.RaiseAndSetIfChanged(ref _canRemove, value); }
+    readonly ObservableAsPropertyHelper<bool> _isMarked;
+    /// One of the rows the sidebar's menu acts on together.
+    public bool IsMarked => _isMarked.Value;
     public ReactiveCommand<Unit, Unit> OpenPullRequestCommand { get; }
     public ReactiveCommand<RailPullRequestMenuItem, Unit> OpenPullRequestChoiceCommand { get; }
     RailPullRequestSummary? _pullRequest;
@@ -124,8 +119,6 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly TimeProvider _time;
     RailSort _sort = RailSort.LastUpdated;
     RunningWork _work;
-    readonly bool _stops;
-    readonly bool _removes;
 
     public RailSessionViewModel(
             AgentRow row, IObservable<string?> selectedSessionKey,
@@ -139,10 +132,8 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
             IObservable<RailSort>? sort = null, IObservable<string>? part = null,
             IObservable<IReadOnlySet<string>>? suggested = null,
-            Action<AgentRow>? stop = null, Action<AgentRow, bool>? remove = null) {
+            IObservable<IReadOnlySet<string>>? marked = null) {
         _time = time;
-        _stops = stop is not null;
-        _removes = remove is not null;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
         Id = row.Id;
         Key = row.Key;
@@ -170,6 +161,10 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             }).DisposeWith(_disposables);
         // Pending launches open a local workspace; publication must keep that row selected.
         var selectionKey = row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key;
+        _isMarked = (marked ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
+            .Select(keys => keys.Contains(row.Key)).DistinctUntilChanged()
+            .ToProperty(this, x => x.IsMarked, initialValue: false)
+            .DisposeWith(_disposables);
         _isSelected = selectedSessionKey.Select(sel => sel == selectionKey)
             .ToProperty(this, x => x.IsSelected, initialValue: false)
             .DisposeWith(_disposables);
@@ -210,10 +205,6 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             else (IsRemote ? openRemote : openLocal)(row.Id);
         });
         _disposables.Add(OpenCommand);
-        StopCommand = ReactiveCommand.Create(() => { if (CanStop) stop?.Invoke(_row.Value); });
-        _disposables.Add(StopCommand);
-        RemoveCommand = ReactiveCommand.Create(() => { if (CanRemove) remove?.Invoke(_row.Value, IsSelected); });
-        _disposables.Add(RemoveCommand);
         OpenPullRequestCommand = ReactiveCommand.Create(() => {
             if (HasPullRequest && !HasMultiplePullRequests)
                 openPullRequest?.Invoke(Id, Origin(), PullRequest!.Subject);
@@ -261,9 +252,6 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         RefreshMeta(row);
         MachineBadge = row.MachineBadge;
         IsRemote = row.Origin == AgentOrigin.Remote;
-        CanStop = _stops && Stoppable(row);
-        CanRemove = _removes && SessionIds.Canonical(row.SessionId) is not null;
-        this.RaisePropertyChanged(nameof(StopLabel));
 
         if (oldPrimary != Primary || oldVendor != Vendor) {
             this.RaisePropertyChanged(nameof(SessionAccessibleName));
@@ -318,7 +306,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         Meta = MetaFor(row);
     }
 
-    /// A daemon row still running, that the viewer may control.
+    /// A daemon row still running, that the viewer may control, as the workspace's Stop requires.
     internal static bool Stoppable(AgentRow row) =>
         row.Origin is AgentOrigin.Local or AgentOrigin.Remote
         && row.Status is not ("Completed" or AgentRow.DaemonDownStatus)
