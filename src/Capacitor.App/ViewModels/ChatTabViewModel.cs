@@ -143,6 +143,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
     public ChatTopics Topics => _topics;
     readonly ChatTopics _topics;
+    public ChatBookmarks Bookmarks { get; }
 
     ChatSendMode _sendMode;
     /// Whether Send also changes topic; back to a plain send once a message goes out.
@@ -878,13 +879,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
             IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
             IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null,
-            ChatTopicMarks? topicMarks = null)
+            ChatMarks? chatMarks = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
                signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, viewerAccess: viewerAccess,
-               findMemory: findMemory, topicMarks: topicMarks) { }
+               findMemory: findMemory, chatMarks: chatMarks) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -897,8 +898,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
-            ChatTopicMarks? topicMarks = null) {
-        _topics = new ChatTopics(_items, topicMarks);
+            ChatMarks? chatMarks = null) {
+        _topics = new ChatTopics(_items, chatMarks);
+        Bookmarks = new ChatBookmarks(_topics, chatMarks);
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
         _findMemory = findMemory;
@@ -1488,6 +1490,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
         _topics.Reset(key);
+        Bookmarks.Reset(key);
         _items.Clear();
         // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
         var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;
@@ -1917,6 +1920,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 // names where that history ends — anything past it arrived after and can acknowledge.
                 RebaseQueuedMessages(read.SnapshotOffset ?? CurrentOffset ?? 0);
                 _topics.Reset(_feedKey);
+                Bookmarks.Reset(_feedKey);
                 _items.Clear();
                 _history.ClearForReplay();
                 _pendingTools.Clear();

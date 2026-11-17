@@ -74,6 +74,17 @@ static class MarkViewSelection {
         return text.ToString();
     }
 
+    /// The text of the block under a point in the viewer's coordinates, or the nearest one, without a
+    /// list item's marker.
+    public static string? TextAt(MarkdownViewer viewer, Point pointInViewer) {
+        if (LayerOf(viewer) is not Visual layer) return null;
+        var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
+        var entry = HitTestEntry(layer, point) ?? (Nearest(layer, point) is { } inside ? HitTestEntry(layer, inside) : null);
+        if (entry is null) return null;
+        var plain = PlainText(entry);
+        return plain[MarkerLength(entry, plain)..];
+    }
+
     public static async Task CopyAsync(MarkdownViewer viewer) {
         var text = SelectedText(viewer);
         if (text.Length == 0 || TopLevel.GetTopLevel(viewer)?.Clipboard is not { } clipboard) return;

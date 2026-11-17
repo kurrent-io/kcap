@@ -244,7 +244,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             ComposerPickers? pickers = null,
-            Func<bool>? inAppPages = null, ChatTopicMarks? topicMarks = null) {
+            Func<bool>? inAppPages = null, ChatMarks? chatMarks = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -475,7 +475,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink, findMemory: finds, topicMarks: topicMarks,
+                    openLink: Artefacts.OpenLink, findMemory: finds, chatMarks: chatMarks,
                     viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
@@ -490,6 +490,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
                 WorkContext.Topics = Chat.Topics;
+                WorkContext.Bookmarks = Chat.Bookmarks;
                 Chat.Topics.Revealing += ShowTopic;
                 _disposables.Add(Disposable.Create(() => Chat.Topics.Revealing -= ShowTopic));
                 if (PullRequests is { } fixHost)

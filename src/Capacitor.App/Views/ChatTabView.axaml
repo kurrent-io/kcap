@@ -640,7 +640,7 @@
                                 </Button>
                                 <TextBox Classes="kcapField topicNameField" IsVisible="{Binding IsRenaming}" Text="{Binding Draft}" MinWidth="260" MaxWidth="420"
                                          Margin="-4,-2" Padding="4,2" MinHeight="0" FontSize="13"
-                                         Watermark="Name this topic" AutomationProperties.Name="Topic name"
+                                         PlaceholderText="Name this topic" AutomationProperties.Name="Topic name"
                                          PropertyChanged="OnTopicNameFieldChanged" KeyDown="OnTopicNameKeyDown"
                                          LostFocus="OnTopicNameLostFocus" />
                             </Panel>

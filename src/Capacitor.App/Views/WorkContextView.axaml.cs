@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -13,6 +14,51 @@ namespace Capacitor.App.Views;
 public partial class WorkContextView : UserControl {
     public WorkContextView() {
         InitializeComponent();
+        BookmarkList.AddHandler(PointerMovedEvent, OnBookmarkDragMoved, handledEventsToo: true);
+        BookmarkList.AddHandler(PointerReleasedEvent, (_, _) => EndBookmarkDrag(), handledEventsToo: true);
+        BookmarkList.AddHandler(PointerCaptureLostEvent, (_, _) => EndBookmarkDrag(), handledEventsToo: true);
+    }
+
+    ChatBookmark? _dragged;
+    ChatBookmark? _colouring;
+
+    void OnBookmarkGripPressed(object? sender, PointerPressedEventArgs e) {
+        if (sender is not Control { DataContext: ChatBookmark bookmark } || !e.GetCurrentPoint(BookmarkList).Properties.IsLeftButtonPressed) return;
+        _dragged = bookmark;
+        e.Pointer.Capture(BookmarkList);
+        e.Handled = true;
+    }
+
+    // A row moves once the pointer passes the middle of its neighbour, so rows of different heights
+    // do not swap back and forth.
+    void OnBookmarkDragMoved(object? sender, PointerEventArgs e) {
+        if (_dragged is null || DataContext is not WorkContextViewModel { Bookmarks: { } bookmarks }) return;
+        var from = bookmarks.All.IndexOf(_dragged);
+        if (from < 0) { EndBookmarkDrag(); return; }
+        var y = e.GetPosition(BookmarkList).Y;
+        var to = from;
+        for (var i = 0; i < bookmarks.All.Count; i++) {
+            if (i == from || BookmarkList.ContainerFromIndex(i) is not { } row) continue;
+            var middle = row.Bounds.Top + row.Bounds.Height / 2;
+            if (i < from && y < middle) { to = i; break; }
+            if (i > from && y > middle) to = i;
+        }
+        bookmarks.Move(from, to);
+    }
+
+    void EndBookmarkDrag() => _dragged = null;
+
+    void OnBookmarkColorsOpening(object? sender, EventArgs e) {
+        _colours = sender as FlyoutBase;
+        _colouring = _colours?.Target?.DataContext as ChatBookmark;
+    }
+
+    FlyoutBase? _colours;
+
+    void OnBookmarkColorClick(object? sender, RoutedEventArgs e) {
+        if (sender is Button { Tag: ChatBookmarkColor color } && _colouring is { } bookmark) bookmark.Color = color;
+        _colouring = null;
+        _colours?.Hide();
     }
 
     /// Shown only where something can bring the pane back, so set by <see cref="ContextPaneSizing"/>.

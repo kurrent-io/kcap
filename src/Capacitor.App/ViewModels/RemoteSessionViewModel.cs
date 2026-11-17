@@ -333,7 +333,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IAttachmentUploader? uploader = null, ChatTopicMarks? topicMarks = null) {
+            IAttachmentUploader? uploader = null, ChatMarks? chatMarks = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -422,13 +422,14 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                 .Select(sid => sid is null
                     ? Observable.Empty<IReadOnlyList<QueuedInputItem>>()
                     : lane.PendingInputChanged.Where(u => u.SessionId == sid).Select(u => u.Items))),
-            planActivity: planActivity, openCard: OpenCard, drafts: drafts, topicMarks: topicMarks, senders: senders,
+            planActivity: planActivity, openCard: OpenCard, drafts: drafts, chatMarks: chatMarks, senders: senders,
             accountReadings: row.MachineBadge is { } daemon ? readings?.Remote(daemon) : null, usageClock: readings?.Clock,
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
             openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
         WorkContext.Topics = Chat.Topics;
+        WorkContext.Bookmarks = Chat.Bookmarks;
         Chat.Topics.Revealing += ShowTopic;
         _disposables.Add(Disposable.Create(() => Chat.Topics.Revealing -= ShowTopic));
         this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);

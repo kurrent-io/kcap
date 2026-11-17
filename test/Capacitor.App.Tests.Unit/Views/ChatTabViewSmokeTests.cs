@@ -1305,6 +1305,51 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Right-clicking an item of a list in a message offers to bookmark every item of that list, and a
+    /// selection can be bookmarked whole.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Right_clicking_a_list_bookmarks_each_of_its_items() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("bookmark-list.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter\n3. Logging"}]}}"""]);
+                await host.AttachAsync(path);
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+
+                var menu = OpenContextMenu(host, reply, item);
+                await Assert.That(MenuRow(menu, "Bookmark selection").IsEnabled).IsFalse();
+                Invoke(MenuRow(menu, "Bookmark each list item"));
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Retry jitter", "Logging"]);
+
+                reply.SelectAll();
+                menu = OpenContextMenu(host, reply, MarkdownViewHarness.Paragraphs(reply).First());
+                await Assert.That(MenuRow(menu, "Bookmark each list item").IsVisible).IsFalse();
+                Invoke(MenuRow(menu, "Bookmark selection"));
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All.Last().Text).StartsWith("To cover:");
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    static FlyoutPresenter OpenContextMenu(Host host, Control owner, Control target) {
+        var point = PresentAndLocate(host, target);
+        host.Window.MouseMove(point);
+        host.Window.MouseDown(point, MouseButton.Right);
+        host.Window.MouseUp(point, MouseButton.Right);
+        host.Settle();
+        return owner.ContextFlyout is Flyout { IsOpen: true, Content: Control { Parent: FlyoutPresenter presenter } }
+            ? presenter
+            : throw new InvalidOperationException("no flyout opened");
+    }
+
+    static Button MenuRow(FlyoutPresenter menu, string label) =>
+        menu.GetVisualDescendants().OfType<Button>().Single(b => b.Content is string text && text == label);
+
     // What a pointer or key press on a row does: its Click handlers, then its command.
     static void Invoke(Button button) =>
         typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(button, null);

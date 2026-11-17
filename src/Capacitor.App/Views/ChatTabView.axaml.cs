@@ -115,6 +115,19 @@ public partial class ChatTabView : UserControl {
         set => SetValue(LaneWidthProperty, value);
     }
 
+    public static readonly StyledProperty<bool> CanBookmarkProperty =
+        AvaloniaProperty.Register<ChatTabView, bool>(nameof(CanBookmark), true);
+
+    /// Whether text here can be bookmarked: off where the bookmarks would not be listed.
+    public bool CanBookmark {
+        get => GetValue(CanBookmarkProperty);
+        set => SetValue(CanBookmarkProperty, value);
+    }
+
+    /// Where a message's text bookmarks to, when it can.
+    internal ChatBookmarks? BookmarksFor(Control text) =>
+        CanBookmark && DataContext is ChatTabViewModel chat && text.DataContext is ChatItemViewModel ? chat.Bookmarks : null;
+
     internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     /// Paired with the visual tree rather than the constructor: a tab swap detaches and re-attaches
@@ -787,14 +800,14 @@ public partial class ChatTabView : UserControl {
     void OnTopicRevealing() {
         var topics = _topics;
         Dispatcher.UIThread.Post(() => {
-            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } topic) ShowTopic(topic);
+            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } row) ShowRow(row);
         }, DispatcherPriority.Loaded);
     }
 
-    /// Scrolls a topic's header to the top of the transcript.
-    void ShowTopic(ChatTopicItem topic) {
+    /// Scrolls a row, such as a topic's header, to the top of the transcript.
+    void ShowRow(ChatItemViewModel target) {
         if (ChatItems.Items is not { } items) return;
-        var index = items.IndexOf(topic);
+        var index = items.IndexOf(target);
         if (index < 0) return;
         DropToggleAnchor();
         CancelSmoothScroll();
@@ -806,10 +819,10 @@ public partial class ChatTabView : UserControl {
         ChatItems.UpdateLayout();
         if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
         var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
-        _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - TopicRevealGap, 0, max));
+        _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
     }
 
-    const double TopicRevealGap = 8;
+    const double RevealGap = 8;
 
     void ObserveFind() {
         if (_find is not null) _find.Navigated -= OnFindNavigated;

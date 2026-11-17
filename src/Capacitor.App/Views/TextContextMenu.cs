@@ -24,7 +24,11 @@ public static class TextContextMenu {
     public static FlyoutBase ForMarkdown { get; } = Build<MarkdownView>(
         new("Copy link", _ => true, c => _ = ((MarkdownView)c).CopyLinkAsync(), c => ((MarkdownView)c).ContextLinkUrl is not null),
         new("Copy", c => ((MarkdownView)c).HasSelection, c => _ = ((MarkdownView)c).CopySelectionAsync()),
-        new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()));
+        new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()),
+        new("Bookmark selection", c => ((MarkdownView)c).HasSelection, c => ((MarkdownView)c).BookmarkSelection(),
+            c => ((MarkdownView)c).Bookmarks is not null),
+        new("Bookmark each list item", _ => true, c => ((MarkdownView)c).BookmarkListItems(),
+            c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null));
 
     static Flyout Build<T>(params Row[] rows) where T : Control {
         var flyout = new Flyout();

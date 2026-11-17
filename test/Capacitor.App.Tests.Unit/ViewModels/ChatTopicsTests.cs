@@ -132,7 +132,7 @@ public class ChatTopicsTests {
     [NotInParallel("AvaloniaSession")]
     public async Task Topics_come_back_when_the_transcript_replays_into_a_new_tab() {
         await RunOnUiAsync(async () => {
-            var store = new ChatTopicMarks();
+            var store = new ChatMarks();
             var items = new AvaloniaList<ChatItemViewModel>(Transcript());
             var first = new ChatTopics(items, store);
             first.Reset("feed");
@@ -194,6 +194,30 @@ public class ChatTopicsTests {
             topics.ToggleChange(one);
             await Assert.That(topics.All).IsEmpty();
             await Assert.That(topics.Any).IsFalse();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Removing_a_folded_topic_joins_its_rows_to_the_topic_before() {
+        await RunOnUiAsync(async () => {
+            var one   = new UserTurnItem("Point 1");
+            var done  = new AssistantTextItem("Done");
+            var two   = new UserTurnItem("Point 2");
+            var items = new AvaloniaList<ChatItemViewModel> { one, done, two };
+            var topics = new ChatTopics(items);
+            topics.ToggleChange(one);
+            topics.ToggleChange(two);
+            var first  = (ChatTopicItem)items[0];
+            var second = (ChatTopicItem)items[3];
+            first.ToggleCommand.Execute().Subscribe();
+            second.ToggleCommand.Execute().Subscribe();
+
+            topics.RemoveCommand.Execute(second).Subscribe();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { first, one, done, two }, CollectionOrdering.Matching);
+            await Assert.That(first.IsExpanded).IsTrue();
+            await Assert.That(two.Topic).IsSameReferenceAs(first);
+            await Assert.That(topics.All).IsEquivalentTo(new[] { first }, CollectionOrdering.Matching);
         });
     }
 }

@@ -6,12 +6,12 @@ namespace Capacitor.App.ViewModels;
 
 /// Topics split the chat at the messages the user marks as a change of topic. Each runs from its marked
 /// message to the next one, or to the end of the chat, and folds into the header above that message.
-/// View state only: nothing reaches the agent, and the marks outlive the tab only in <see cref="ChatTopicMarks"/>.
+/// View state only: nothing reaches the agent, and the marks outlive the tab only in <see cref="ChatMarks"/>.
 public sealed class ChatTopics : ReactiveObject {
     const int LabelLength = 72;
 
     readonly AvaloniaList<ChatItemViewModel> _items;
-    readonly ChatTopicMarks? _store;
+    readonly ChatMarks? _store;
     string? _feed;
     // Saved marks whose message has not been replayed yet.
     Dictionary<int, ChatTopicMark> _restoring = [];
@@ -22,11 +22,12 @@ public sealed class ChatTopics : ReactiveObject {
     // Until a topic exists, the list's changes need no laying out.
     bool _used;
 
-    public ChatTopics(AvaloniaList<ChatItemViewModel> items, ChatTopicMarks? store = null) {
+    public ChatTopics(AvaloniaList<ChatItemViewModel> items, ChatMarks? store = null) {
         _items = items;
         _store = store;
         ToggleChangeCommand = ReactiveCommand.Create<ChatItemViewModel>(ToggleChange);
         RevealCommand = ReactiveCommand.Create<ChatTopicItem>(Reveal);
+        RemoveCommand = ReactiveCommand.Create<ChatTopicItem>(Remove);
         _items.CollectionChanged += (_, _) => {
             if (_used && !_editing) Lay();
         };
@@ -37,12 +38,15 @@ public sealed class ChatTopics : ReactiveObject {
     /// Asks the chat to bring a topic's header into view.
     public ReactiveCommand<ChatTopicItem, Unit> RevealCommand { get; }
 
-    /// Raised when a topic is to be shown. The chat view is detached while another tab shows, so the
+    /// Takes a topic away, joining its rows to the topic before.
+    public ReactiveCommand<ChatTopicItem, Unit> RemoveCommand { get; }
+
+    /// Raised when a row is to be shown. The chat view is detached while another tab shows, so the
     /// request also waits in <see cref="TakeReveal"/> until a view takes it.
     public event Action? Revealing;
 
-    ChatTopicItem? _reveal;
-    public ChatTopicItem? TakeReveal() {
+    ChatItemViewModel? _reveal;
+    public ChatItemViewModel? TakeReveal() {
         var topic = _reveal;
         _reveal = null;
         return topic;
@@ -74,12 +78,8 @@ public sealed class ChatTopics : ReactiveObject {
     public void ToggleChange(ChatItemViewModel row) => Edit(() => {
         var index = _items.IndexOf(row);
         if (index < 0 || index >= TailStart() || row is ChatTopicItem) return;
-        if (index > 0 && _items[index - 1] is ChatTopicItem topic) {
-            if (TopicBefore(index - 1) is { IsExpanded: false } previous) Unfold(previous);
-            _items.Remove(topic);
-        } else {
-            _items.Insert(index, NewTopic());
-        }
+        if (index > 0 && _items[index - 1] is ChatTopicItem topic) Remove(topic);
+        else _items.Insert(index, NewTopic());
     });
 
     /// The feed is replaying from scratch: every topic is rebuilt from the marks saved for it, as
@@ -90,7 +90,7 @@ public sealed class ChatTopics : ReactiveObject {
         _folding.Clear();
         All.Clear();
         Any = false;
-        _restoring = feed is not null && _store is not null ? new(_store.Get(feed)) : [];
+        _restoring = feed is not null && _store is not null ? new(_store.Topics(feed)) : [];
     }
 
     /// Puts back the saved topics whose message has been replayed since the last call. Called once a
@@ -143,11 +143,37 @@ public sealed class ChatTopics : ReactiveObject {
 
     void Rename(ChatTopicItem topic, string? name) => Edit(() => topic.CustomName = name);
 
-    void Reveal(ChatTopicItem topic) {
-        if (!_items.Contains(topic)) return;
-        _reveal = topic;
+    /// Asks the chat to bring <paramref name="row"/> into view, unfolding the topic that holds it.
+    public void Reveal(ChatItemViewModel row) {
+        if (!_items.Contains(row)) {
+            if (_items.OfType<ChatTopicItem>().FirstOrDefault(topic => topic.Hidden.Contains(row)) is not { } folded) return;
+            Toggle(folded);
+        }
+        _reveal = row;
         Revealing?.Invoke();
     }
+
+    public void Remove(ChatTopicItem topic) => Edit(() => {
+        if (!_items.Contains(topic)) return;
+        if (!topic.IsExpanded) Unfold(topic);
+        var index = _items.IndexOf(topic);
+        if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
+        _folding.Remove(topic);
+        _items.Remove(topic);
+    });
+
+    /// The ordinal of a message among all the transcript's messages, folded ones included.
+    public int? OrdinalOf(ChatItemViewModel row) {
+        if (!IsMessage(row)) return null;
+        var ordinal = 0;
+        foreach (var each in Everything()) {
+            if (ReferenceEquals(each, row)) return ordinal;
+            if (IsMessage(each)) ordinal++;
+        }
+        return null;
+    }
+
+    public ChatItemViewModel? MessageAt(int ordinal) => Everything().Where(IsMessage).ElementAtOrDefault(ordinal);
 
     void Toggle(ChatTopicItem topic) => Edit(() => {
         _folding.Remove(topic);
@@ -216,7 +242,7 @@ public sealed class ChatTopics : ReactiveObject {
             }
             header = null;
         }
-        _store.Set(_feed, marks);
+        _store.SetTopics(_feed, marks);
     }
 
     static bool IsMessage(ChatItemViewModel row) => row is UserTurnItem or AssistantTextItem;

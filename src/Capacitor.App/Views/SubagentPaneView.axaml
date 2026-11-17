@@ -25,7 +25,7 @@
             </Grid>
         </Border>
         <!-- Hidden with the pane itself, so its chat is not announced as onscreen while another tab shows. -->
-        <views:ChatTabView x:Name="SubagentChat" DataContext="{Binding Chat}"
+        <views:ChatTabView x:Name="SubagentChat" DataContext="{Binding Chat}" CanBookmark="False"
                            IsVisible="{Binding $parent[views:SubagentPaneView].IsVisible}" />
     </DockPanel>
 </UserControl>

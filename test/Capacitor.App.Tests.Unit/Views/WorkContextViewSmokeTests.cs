@@ -1006,6 +1006,61 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// A bookmark is reordered by dragging its grip past the middle of another row, recoloured from the
+    /// swatches under its dot, and removed from its row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Bookmarks_reorder_by_dragging_their_grip_and_recolour_and_remove_from_their_row() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            var reply = new AssistantTextItem("Three points");
+            var bookmarks = new ChatBookmarks(new ChatTopics([reply]));
+            bookmarks.Add(["Lock order", "Retry jitter", "Logging"], reply);
+            host.Vm.Bookmarks = bookmarks;
+            await host.ShowAsync(KeyOnlyRead());
+            var list = host.Find<ItemsControl>("BookmarkList");
+            list.BringIntoView();
+            Settle();
+            Control Row(int i) => list.ContainerFromIndex(i)!;
+            Point At(Control control, double x, double y) => control.TranslatePoint(new Point(x, y), host.Window)!.Value;
+            T In<T>(Control row, string cls) where T : Control => row.GetVisualDescendants().OfType<T>().First(c => c.Classes.Contains(cls));
+
+            var grip = In<Border>(Row(0), "bookmarkGrip");
+            var start = At(grip, grip.Bounds.Width / 2, grip.Bounds.Height / 2);
+            host.Window.MouseMove(start);
+            host.Window.MouseDown(start, MouseButton.Left);
+            host.Window.MouseMove(At(Row(2), 40, Row(2).Bounds.Height * 0.75));
+            host.Window.MouseUp(At(Row(2), 40, Row(2).Bounds.Height * 0.75), MouseButton.Left);
+            Settle();
+            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Retry jitter", "Logging", "Lock order"]);
+
+            var dot = In<Button>(Row(0), "bookmarkColor");
+            Press(dot);
+            var pink = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkSwatch") && b.Tag is ChatBookmarkColor.Pink);
+            Press(pink);
+            await Assert.That(bookmarks.All[0].Color).IsEqualTo(ChatBookmarkColor.Pink);
+
+            Press(In<Button>(Row(1), "markRemove"));
+            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Retry jitter", "Lock order"]);
+
+            void Settle() {
+                Dispatcher.UIThread.RunJobs();
+                host.Window.UpdateLayout();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            void Press(Control target) {
+                Settle();
+                var point = At(target, target.Bounds.Width / 2, target.Bounds.Height / 2);
+                host.Window.MouseMove(point);
+                host.Window.MouseDown(point, MouseButton.Left);
+                host.Window.MouseUp(point, MouseButton.Left);
+                Settle();
+            }
+        });
+    }
+
     /// The repository and worktree rows show only their names, so a click has to copy the full path.
     [Test]
     [NotInParallel("AvaloniaSession")]

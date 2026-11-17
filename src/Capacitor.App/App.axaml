@@ -39,6 +39,11 @@
             <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
             <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
             <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
+            <!-- Bookmark colours: the user's own labels, so none of them is a status colour. -->
+            <SolidColorBrush x:Key="KcapBookmarkBlueBrush" Color="#7BA7F7" />
+            <SolidColorBrush x:Key="KcapBookmarkCyanBrush" Color="#5CC8E0" />
+            <SolidColorBrush x:Key="KcapBookmarkPinkBrush" Color="#F08CB8" />
+            <SolidColorBrush x:Key="KcapBookmarkSlateBrush" Color="#9AA3B2" />
             <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
             <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
             <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#3A66B8" />

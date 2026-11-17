@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
 using MarkView.Avalonia.SyntaxHighlighting;
@@ -122,7 +123,10 @@ public sealed class MarkdownView : ContentControl {
             if (_nonLeftRelease) return;
             if (OpenLink is { } open && open.CanExecute(e.Url)) open.Execute(e.Url);
         };
-        AddHandler(ContextRequestedEvent, (_, e) => ContextLinkUrl = LinkAt(e), RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(ContextRequestedEvent, (_, e) => {
+            ContextLinkUrl = LinkAt(e);
+            ContextListItems = ListAt(e);
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
@@ -202,6 +206,27 @@ public sealed class MarkdownView : ContentControl {
         e.TryGetPosition(_viewer, out var point)
             ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
             : _linkKeys.CurrentUrl;
+
+    /// The items of the list a context menu was opened on, if it was opened on one.
+    internal IReadOnlyList<string>? ContextListItems { get; private set; }
+
+    IReadOnlyList<string>? ListAt(ContextRequestedEventArgs e) =>
+        Content is MarkdownViewer && e.TryGetPosition(_viewer, out var point)
+            ? MarkdownLists.ItemsAround(Text, MarkViewSelection.TextAt(_viewer, point))
+            : null;
+
+    /// Where this text bookmarks to; null outside a chat that lists bookmarks.
+    internal ChatBookmarks? Bookmarks => _selectionHost?.BookmarksFor(this);
+
+    public void BookmarkSelection() {
+        var text = Content is SelectableTextBlock plain ? plain.SelectedText ?? "" : MarkViewSelection.SelectedText(_viewer);
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.Add([text], source);
+    }
+
+    public void BookmarkListItems() {
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source && ContextListItems is { } items)
+            bookmarks.Add(items, source);
+    }
 
     public async Task CopyLinkAsync() {
         if (ContextLinkUrl is not { } url || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
