@@ -33,6 +33,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill --dry-run")]
     [Arguments("printf '%s\\n' https://github.com/o/r/pull/1; gh pr create --repo o/r --fill >/dev/null 2>&1")]
     [Arguments("gh pr create --fill > out.txt")]
+    [Arguments("printf '%s\\n' https://github.com/o/r/pull/1; bash -c 'gh pr create --repo o/r --fill' >/dev/null")]
+    [Arguments("bash -c 'gh pr create --fill' 1>out.txt")]
     [Arguments("gh pr create --fill 1>>out.txt")]
     [Arguments("echo https://github.com/o/r/pull/1; url=$(gh pr create --fill)")]
     [Arguments("gh pr create --fill || gh pr view --json url --jq .url")]

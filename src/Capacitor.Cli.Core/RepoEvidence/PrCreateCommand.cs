@@ -70,7 +70,7 @@ public static partial class PrCreateCommand {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
                             && RunsUnconditionally(commands, k)
-                            && (wrapsShell && k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
+                            && (wrapsShell && k == commands.Count - 1 && !command.Words.Any(RedirectsStdout) || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
                 repo = nestedRepo;
