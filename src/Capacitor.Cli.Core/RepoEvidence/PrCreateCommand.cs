@@ -255,7 +255,9 @@ public static partial class PrCreateCommand {
                     i += heredoc.Length;
                     break;
                 case '>' or '<':
-                    if (c == '>' && (word.Length == 0 || word is ['1'])) stdoutRedirect = true;
+                    // A redirection needs no space before it: in --title=New>/dev/null the argument ends at the '>'.
+                    if (inWord && !word.ToString().All(char.IsAsciiDigit)) EndWord();
+                    if (c == '>' && word is [] or ['1']) stdoutRedirect = true;
                     word.Append(c);
                     inWord = true;
                     i++;
