@@ -1466,7 +1466,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         await Assert.That(Over(shim).IsAvailable()).IsFalse();
         await Assert.That(both.IsAvailable()).IsTrue();
-        await Assert.That(both.CliPath).IsEqualTo(Path.GetFullPath(cliPath));
+        await Assert.That(both.CliPath).IsEqualTo(BinaryProbe.Searching(Path.GetDirectoryName(cliPath)).Resolve("copilot"));
     }
 
     /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the
