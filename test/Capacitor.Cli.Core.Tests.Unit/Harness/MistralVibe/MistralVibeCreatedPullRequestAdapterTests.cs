@@ -19,8 +19,9 @@ public class MistralVibeCreatedPullRequestAdapterTests {
         "{\"role\":\"assistant\",\"content\":\"Opening the PR.\",\"tool_calls\":[{\"id\":\"" + id + "\",\"index\":0,\"function\":{\"name\":\"bash\",\"arguments\":"
       + Json("{\"command\":" + Json(command) + "}") + "},\"type\":\"function\"}]}";
 
-    static string LegacyResult(string id, string stdout, int returnCode) =>
-        "{\"role\":\"tool\",\"tool_call_id\":\"" + id + "\",\"name\":\"bash\",\"content\":" + Json("command: gh pr create --fill\nstdout: " + stdout + "\nstderr: \nreturncode: " + returnCode) + "}";
+    static string LegacyResult(string id, string stdout, int returnCode, bool truncated = false) =>
+        "{\"role\":\"tool\",\"tool_call_id\":\"" + id + "\",\"name\":\"bash\",\"content\":"
+      + Json("command: gh pr create --fill\nstdout: " + stdout + "\nstderr: \nreturncode: " + returnCode + "\nwas_truncated: " + (truncated ? "true" : "false")) + "}";
 
     static IReadOnlyList<FoundPullRequest> Observe(params string[] lines) {
         var evidence = new CreatedPullRequestEvidence();
@@ -81,7 +82,7 @@ public class MistralVibeCreatedPullRequestAdapterTests {
         var truncated = Effect("e1", "gh pr create --fill", Url, 0).Replace("\"was_truncated\":false", "\"was_truncated\":true");
 
         await Assert.That(Observe(truncated)).IsEmpty();
-        await Assert.That(Observe(LegacyCall("c1", "gh pr create --fill"), LegacyResult("c1", Url, 0).Replace("returncode: 0", "returncode: 0\\nwas_truncated: true"))).IsEmpty();
+        await Assert.That(Observe(LegacyCall("c1", "gh pr create --fill"), LegacyResult("c1", Url, 0, truncated: true))).IsEmpty();
     }
 
     // A subagent's store is read by a child watcher with this same adapter.
