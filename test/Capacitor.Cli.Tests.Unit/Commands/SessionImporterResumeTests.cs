@@ -64,6 +64,7 @@ public class SessionImporterResumeTests : IDisposable {
 
         var started = Bodies("/hooks/subagent-start").Select(b => b["agent_id"]!.GetValue<string>()).ToList();
         await Assert.That(started).IsEquivalentTo([Late]);
+        await Assert.That(Bodies("/hooks/subagent-start").Concat(Bodies("/hooks/subagent-stop")).All(b => b["strict"]?.GetValue<bool>() == true)).IsTrue();
 
         var parentLines = Bodies("/hooks/transcript")
             .Where(b => b["agent_id"] is null)

@@ -191,7 +191,7 @@ static class SessionImporter {
 
                 if (!await PostSubagentHookAsync(httpClient, baseUrl, "subagent-start",
                         SubagentHookPayloads.Start(sessionId, subAgentId, subType, sub.FilePath,
-                            CodexSubagentDiscovery.SpawnCallFor(codexSpawnCalls, sub.AgentPath)), time)) {
+                            CodexSubagentDiscovery.SpawnCallFor(codexSpawnCalls, sub.AgentPath), strict), time)) {
                     if (strict) throw new HttpRequestException($"subagent-start for {subAgentId} failed");
 
                     continue;
@@ -212,7 +212,7 @@ static class SessionImporter {
                 progress?.Report(new SubagentFinished(subAgentId, subLines));
 
                 if (!await PostSubagentHookAsync(httpClient, baseUrl, "subagent-stop",
-                        SubagentHookPayloads.Stop(sessionId, subAgentId, subType, sub.FilePath), time) && strict)
+                        SubagentHookPayloads.Stop(sessionId, subAgentId, subType, sub.FilePath, strict), time) && strict)
                     throw new HttpRequestException($"subagent-stop for {subAgentId} failed");
 
                 agentIds.Add(subAgentId);
@@ -300,6 +300,7 @@ static class SessionImporter {
         var toolUseTypes     = new Dictionary<string, string?>(StringComparer.Ordinal);
         var links            = new List<(string AgentId, string CallId)>();
         var referenceLines   = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var callResultLines  = new Dictionary<string, List<int>>(StringComparer.Ordinal);
 
         try {
             using var fs     = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -309,10 +310,8 @@ static class SessionImporter {
 
             while (reader.ReadLine() is { } line) {
                 if (!string.IsNullOrWhiteSpace(line)) {
-                    if (TryExtractAgentReference(line, lineIndex, firstLine, toolUsePositions, toolUseTypes, agentTypes, links) is { } referenced) {
-                        if (!referenceLines.TryGetValue(referenced, out var lines)) referenceLines[referenced] = lines = [];
-                        lines.Add(lineIndex);
-                    }
+                    if (TryExtractAgentReference(line, lineIndex, firstLine, toolUsePositions, toolUseTypes, agentTypes, links, callResultLines) is { } referenced)
+                        AddLine(referenceLines, referenced, lineIndex);
                 }
 
                 lineIndex++;
@@ -331,9 +330,17 @@ static class SessionImporter {
         foreach (var (agentId, callId) in spawnCalls) {
             firstLine.TryAdd(agentId, toolUsePositions[callId]);
             if (toolUseTypes.TryGetValue(callId, out var subagentType)) agentTypes.TryAdd(agentId, subagentType);
+
+            // A result that names only the call, not the agent, still references the agent the call spawned.
+            foreach (var line in callResultLines.GetValueOrDefault(callId) ?? []) AddLine(referenceLines, agentId, line);
         }
 
         return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, referenceLines);
+
+        static void AddLine(Dictionary<string, List<int>> lines, string key, int line) {
+            if (!lines.TryGetValue(key, out var list)) lines[key] = list = [];
+            list.Add(line);
+        }
     }
 
     /// <summary>
@@ -369,7 +376,8 @@ static class SessionImporter {
             Dictionary<string, int>     toolUsePositions,
             Dictionary<string, string?> toolUseTypes,
             Dictionary<string, string?> agentTypes,
-            List<(string AgentId, string CallId)> links
+            List<(string AgentId, string CallId)> links,
+            Dictionary<string, List<int>> callResultLines
         ) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -386,12 +394,28 @@ static class SessionImporter {
                 case "result":
                     return TryExtractFromAsyncLaunched(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links);
                 case "user":
+                    RecordAgentCallResults(root, lineIndex, toolUsePositions, callResultLines);
+
                     return TryExtractFromToolUseResult(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links);
             }
         } catch (JsonException) {
         }
 
         return null;
+    }
+
+    /// <summary>The lines holding a <c>tool_result</c> for an Agent/Task call, keyed by the call id.</summary>
+    static void RecordAgentCallResults(
+            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, List<int>> callResultLines) {
+        if (root.Obj("message")?.Arr("content") is not { } content) return;
+
+        foreach (var block in content.EnumerateArray()) {
+            if (block.Str("type") != "tool_result" || block.Str("tool_use_id") is not { } callId || !toolUsePositions.ContainsKey(callId))
+                continue;
+
+            if (!callResultLines.TryGetValue(callId, out var lines)) callResultLines[callId] = lines = [];
+            lines.Add(lineIndex);
+        }
     }
 
     /// <summary>
@@ -581,6 +605,8 @@ static class SessionImporter {
 
         // Names the call that started the agent, so the server can seat the start at it and link the two.
         if (spawnCallId is not null) agentStartHook["spawn_call_id"] = spawnCallId;
+        // Without it the server answers 200 for a lifecycle write it failed to record.
+        if (strict) agentStartHook["strict"] = true;
 
         if (!await PostSubagentHookAsync(httpClient, baseUrl, "subagent-start", agentStartHook, time) && strict)
             throw new HttpRequestException($"subagent-start for {agentId} failed");
@@ -601,6 +627,7 @@ static class SessionImporter {
             ["agent_transcript_path"]  = agentPath,
             ["last_assistant_message"] = ""
         };
+        if (strict) agentStopHook["strict"] = true;
 
         if (!await PostSubagentHookAsync(httpClient, baseUrl, "subagent-stop", agentStopHook, time) && strict)
             throw new HttpRequestException($"subagent-stop for {agentId} failed");

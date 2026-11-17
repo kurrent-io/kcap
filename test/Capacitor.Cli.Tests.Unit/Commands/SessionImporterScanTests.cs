@@ -109,6 +109,7 @@ public class SessionImporterScanTests {
         await Assert.That(scan.SpawnCallByAgent["a1"]).IsEqualTo("toolu_1");
         await Assert.That(scan.FirstLineByAgent["a1"]).IsEqualTo(1);
         await Assert.That(scan.AgentTypeByAgent["a1"]).IsEqualTo("Explore");
+        await Assert.That(scan.ReferenceLinesByAgent["a1"]).IsEquivalentTo([2]);
     }
 
     [Test]
