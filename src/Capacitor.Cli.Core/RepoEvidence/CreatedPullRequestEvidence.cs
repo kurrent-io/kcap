@@ -41,6 +41,17 @@ public sealed partial class CreatedPullRequestEvidence(int capacity = 16) {
         if (succeeded) Accept(callId, output, create.Repo, create.Filtered);
     }
 
+    /// <summary>A call that returned before its command finished: its result arrives later under
+    /// <paramref name="laterId"/>, such as the shell id a later read of that shell names.</summary>
+    public void Continue(string callId, string laterId) {
+        if (!_pending.Remove(callId, out var create)) return;
+
+        _order.Remove(callId);
+        _order.Remove(laterId);
+        _pending[laterId] = create;
+        _order.Add(laterId);
+    }
+
     /// <summary>A record that carries a command and its result together.</summary>
     public void Completed(string? callId, string command, string? output, bool succeeded) {
         if (succeeded && PrCreateCommand.TryMatch(command, out var repo, out var filtered)) Accept(callId, output, repo, filtered);

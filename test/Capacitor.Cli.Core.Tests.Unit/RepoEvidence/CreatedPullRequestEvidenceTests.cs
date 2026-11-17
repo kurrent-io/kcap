@@ -102,4 +102,17 @@ public class CreatedPullRequestEvidenceTests {
 
         await Assert.That(evidence.Drain().Select(f => f.CallId ?? "")).IsEquivalentTo(["ok", "bare"]);
     }
+
+    [Test]
+    public async Task A_continued_call_pairs_with_the_result_under_its_later_id() {
+        var evidence = new CreatedPullRequestEvidence();
+
+        evidence.Call("c1", "gh pr create --fill");
+        evidence.Continue("c1", "shell:3");
+        evidence.Result("c1", Url, succeeded: true);
+        evidence.Result("shell:3", Url, succeeded: true);
+
+        await Assert.That(evidence.Drain().Select(f => f.CallId ?? "")).IsEquivalentTo(["shell:3"]);
+        await Assert.That(evidence.HasPending).IsFalse();
+    }
 }
