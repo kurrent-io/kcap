@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
+using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.RepoEvidence;
@@ -11,6 +12,7 @@ public static class CreatedPullRequestAdapters {
         "claude"  => ClaudeCreatedPullRequestAdapter.Instance,
         "codex"   => CodexCreatedPullRequestAdapter.Instance,
         "copilot" => CopilotCreatedPullRequestAdapter.Instance,
+        "gemini"  => GeminiCreatedPullRequestAdapter.Instance,
         "pi"      => PiCreatedPullRequestAdapter.Instance,
         _         => null,
     };
