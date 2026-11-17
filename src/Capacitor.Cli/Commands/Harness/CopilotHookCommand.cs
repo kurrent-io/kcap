@@ -45,7 +45,7 @@ namespace Capacitor.Cli.Commands.Harness;
 ///                  (Copilot's payload already carries message / title /
 ///                  notification_type in the compatible shape).
 /// VS Code's Local harness runs these same hooks with snake_case fields and a transcript under
-/// <c>GitHub.copilot-chat/transcripts</c>. It fires no sessionEnd: its watcher ends it after going idle.
+/// <c>GitHub.copilot-chat/transcripts</c>. It fires no sessionEnd: its watcher ends it when VS Code quits, or after going idle.
 /// Copilot treats hook stdout as optional. This dispatcher emits nothing for every event except
 /// sessionStart, which writes a single {"additionalContext":"…"} document when — and only when —
 /// a team-memory fragment is available to inject.

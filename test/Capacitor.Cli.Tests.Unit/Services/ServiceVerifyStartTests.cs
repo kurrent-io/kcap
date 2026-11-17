@@ -471,7 +471,7 @@ public class ServiceVerifyStartTests {
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, Hello, TimeProvider.System,
             readPlist: _ => null,
             plistExists: _ => false,
-            gateEnv: k => k == "KCAP_CONSENT_SEED_DEFAULT" ? "prompt" : null);
+            gateEnv: k => k == "KCAP_CONSENT_SEED_DEFAULT" ? "prompt" : null) { LockWait = TimeSpan.FromMilliseconds(200) };
 
         using (var capture = ConsoleOutput.StartErrorCapture()) {
             await Assert.That(await sut.StartVerifiedAsync(Id)).IsEqualTo(VerifyExit.StartGate);

@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 
@@ -182,40 +181,4 @@ public static class CursorLiveSubagentLinker {
             // only caller sits behind a guard that never opens there.
         }
     }
-
-    /// <summary>
-    /// Mirrors the shape of <c>CursorImportSource.SendSubagentLifecycleAsync</c>'s
-    /// <c>subagent-start</c> POST (session_id=parent, agent_id=child) so live and import
-    /// converge on the same <c>AgentSubsession-{parent}-{child}</c> stream.
-    /// </summary>
-    internal static JsonObject BuildSubagentStartPayload(
-        string parentSessionId, string childSessionId, string subagentType, string transcriptPath
-    ) => new() {
-        ["hook_event_name"] = "subagent_start",
-        ["session_id"]      = parentSessionId,
-        ["agent_id"]        = childSessionId,
-        ["agent_type"]      = subagentType,
-        ["transcript_path"] = transcriptPath, // required by HookBase
-        ["cwd"]             = "",             // required by HookBase
-        ["strict"]          = true,           // fail-closed: 500 if SubagentStarted isn't persisted
-    };
-
-    /// <summary>
-    /// Mirrors the shape of <c>CursorImportSource.SendSubagentLifecycleAsync</c>'s
-    /// <c>subagent-stop</c> POST.
-    /// </summary>
-    internal static JsonObject BuildSubagentStopPayload(
-        string parentSessionId, string childSessionId, string subagentType, string transcriptPath
-    ) => new() {
-        ["hook_event_name"]        = "subagent_stop",
-        ["session_id"]             = parentSessionId,
-        ["agent_id"]               = childSessionId,
-        ["agent_type"]             = subagentType,
-        ["transcript_path"]        = transcriptPath, // required by HookBase
-        ["cwd"]                    = "",              // required by HookBase
-        ["stop_hook_active"]       = false,
-        ["agent_transcript_path"]  = transcriptPath,
-        ["last_assistant_message"] = "",
-        ["strict"]                 = true,            // fail-closed: 500 if SubagentCompleted isn't persisted
-    };
 }

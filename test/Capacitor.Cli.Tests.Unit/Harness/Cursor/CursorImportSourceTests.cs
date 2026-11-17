@@ -1459,6 +1459,12 @@ public class CursorImportSourceTests {
         await Assert.That(stopNode["agent_transcript_path"]!.GetValue<string>().EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)).IsTrue();
         await Assert.That(stopNode["last_assistant_message"]).IsNotNull();
         await Assert.That(stopNode["strict"]!.GetValue<bool>()).IsTrue();
+
+        var path = startNode["transcript_path"]!.ToJsonString();
+        await Assert.That(bodies.First(b => b.Path == "/hooks/subagent-start").Body).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_start","session_id":"{{parentId}}","agent_id":"{{childId}}","agent_type":"generalPurpose","transcript_path":{{path}},"cwd":"","strict":true}""");
+        await Assert.That(bodies.First(b => b.Path == "/hooks/subagent-stop").Body).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_stop","session_id":"{{parentId}}","agent_id":"{{childId}}","agent_type":"generalPurpose","transcript_path":{{path}},"cwd":"","stop_hook_active":false,"agent_transcript_path":{{path}},"last_assistant_message":"","strict":true}""");
     }
 
     [Test]

@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
@@ -36,17 +34,9 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
     public bool SupportsTitleGeneration => false; // the server computes a fallback title at session-end
     public bool AttachesChildContentOnReplay => false; // no subagent import yet
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try { return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
-        catch { return path.TrimEnd('/', '\\'); }
-    }
-
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } fc ? NormalizeForComparison(fc) : null;
+        var normalizedCwd = filters.FilterCwd is { } fc ? ImportPaths.NormalizeForComparison(fc) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -67,7 +57,7 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
                 if (sessionFilter is not null && !string.Equals(dashless, sessionFilter, StringComparison.Ordinal)) continue;
 
                 if (normalizedCwd is not null
-                 && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+                 && (cwd is null || !ImportPaths.NormalizeForComparison(cwd).Equals(normalizedCwd, ImportPaths.PathComparison))) continue;
 
                 if (sinceUtc is { } cutoff && firstTs is { } ts && ts < cutoff) continue;
 
@@ -104,22 +94,22 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
 
             IReadOnlyList<string> lines;
             try { lines = MaterializeLines(s.SourceMeta!); }
-            catch { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed")); continue; }
+            catch { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed")); continue; }
 
             var nonBlank = lines.Count(l => !string.IsNullOrWhiteSpace(l));
-            if (nonBlank == 0) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript")); continue; }
-            if (nonBlank < ctx.MinLines) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank)); continue; }
+            if (nonBlank == 0) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, 0, "empty transcript")); continue; }
+            if (nonBlank < ctx.MinLines) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.TooShort, nonBlank)); continue; }
 
             if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(Classify(s, meta, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
+             && await exclude(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.New, nonBlank)) is { } excluded) {
                 results.Add(excluded);
                 continue;
             }
 
             int? serverLastLine;
-            try { serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct); }
-            catch (SessionDeletedException) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank)); continue; }
-            catch { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, nonBlank, "watermark probe failed")); continue; }
+            try { serverLastLine = await Client(ctx.HttpClient, ctx.BaseUrl).FetchServerLastLineAsync(s.SessionId, ct); }
+            catch (SessionDeletedException) { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.Deleted, nonBlank)); continue; }
+            catch { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, nonBlank, "watermark probe failed")); continue; }
 
             var lastLineIndex = LastNonBlankIndex(lines);
             var status        = ImportCommand.ClassificationStatus.New;
@@ -154,7 +144,7 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
         // lifecycle POST would strand the session lifecycle-less. Re-runs are idempotent server-side.
         var startPayload = BuildSessionStartPayload(classification.SessionId, SessionDir(classification), classification.Meta.Cwd, classification.Meta.FirstTimestamp);
         if (ctx.VisibilityStampFor(classification.Status) is { } visibility) startPayload["default_visibility"] = visibility;
-        if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/mistral-vibe", startPayload, ct)) return ImportOutcome.Failed;
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-start/mistral-vibe", startPayload, ct)) return ImportOutcome.Failed;
 
         var startLine = classification.Status switch {
             ImportCommand.ClassificationStatus.Partial       => classification.ResumeFromLine,
@@ -179,7 +169,7 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
             if (isTemp) { try { File.Delete(filePath); } catch { /* best effort */ } }
         }
 
-        if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/mistral-vibe",
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-end/mistral-vibe",
                 BuildSessionEndPayload(classification.SessionId, SessionDir(classification), classification.Meta.Cwd, classification.Meta.LastTimestamp), ct)) return ImportOutcome.Failed;
 
         if (classification.SourceMeta![FormatKey] is "legacy")
@@ -280,30 +270,5 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
         return payload;
     }
 
-    async Task<bool> PostSyntheticHookAsync(HttpClient client, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
-
-    async Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, CancellationToken ct) {
-        using var resp = await http.GetWithRetryAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", time, ct: ct);
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.IsNumber ? ln.GetInt32() : null;
-    }
-
-    ImportCommand.SessionClassification Classify(
-            DiscoveredSession s, SessionMetadata meta, ImportCommand.ClassificationStatus status, int totalLines, string? probeErrorReason = null) => new() {
-        SessionId = s.SessionId, FilePath = "", EncodedCwd = "", Meta = meta, Status = status,
-        Vendor = Vendor, ProbeErrorReason = probeErrorReason, TotalLines = totalLines, SourceMeta = s.SourceMeta,
-    };
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, time, baseUrl);
 }

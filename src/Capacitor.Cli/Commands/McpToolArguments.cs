@@ -116,6 +116,48 @@ static class McpToolArguments {
         throw new ArgumentException($"'{key}' must be an integer.");
     }
 
+    /// <summary>Reads a numeric field as int, false when absent, JSON null, an object or array, or a non-numeric value.
+    /// A whole-valued number of any underlying type is accepted; a fractional one, or one outside int range, throws.
+    /// Looser than <see cref="TryReadInt"/>, which throws on every present non-integer.</summary>
+    internal static bool TryReadIntLenient(JsonObject? args, string key, out int value) {
+        value = 0;
+        var node = args?[key];
+
+        if (node is null) return false;
+
+        JsonValue v;
+
+        try {
+            v = node.AsValue();
+        } catch {
+            return false;
+        }
+
+        if (v.TryGetValue(out value)) return true;
+
+        if (v.TryGetValue<long>(out var lv)) {
+            if (lv is < int.MinValue or > int.MaxValue)
+                throw new ArgumentException($"'{key}' value {lv} is out of range for int.");
+
+            value = (int)lv;
+
+            return true;
+        }
+
+        if (v.TryGetValue<double>(out var dv)) {
+            var rounded = (long)dv;
+
+            if (rounded < int.MinValue || rounded > int.MaxValue || rounded != dv)
+                throw new ArgumentException($"'{key}' value {dv} is out of range or non-integer for int.");
+
+            value = (int)rounded;
+
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Reads a numeric field as long, false only when absent or JSON null. Besides a JSON
     /// integer it takes a canonical integer string (<c>^-?(0|[1-9]\d*)$</c>), the other shape the
     /// server's int64 fields are declared with, so a token copied verbatim from a response round-trips.

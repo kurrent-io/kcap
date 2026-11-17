@@ -366,7 +366,7 @@ public class PiHostedLaunchTests {
 
     /// <summary>Security regression: the child's captured stderr must stay DAEMON-LOCAL. Stderr can
     /// carry prompt fragments, paths, or auth detail — the same reason
-    /// <c>PiRpcProcess.DrainStderrAsync</c> never logs it either — and the thrown exception's
+    /// <c>PiRpcProcess</c> never logs it either — and the thrown exception's
     /// <c>Message</c> is exactly what <c>AgentOrchestrator</c> forwards, verbatim, off-host to the
     /// server via <c>LaunchFailedAsync</c>. So the message must carry only a generic, non-sensitive
     /// indicator, while the raw stderr text lands in the daemon's own log instead.</summary>

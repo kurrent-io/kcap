@@ -137,6 +137,28 @@ public class InlineDrainTests : IDisposable {
         await Assert.That(root.GetProperty("vendor").GetString()).IsEqualTo("codex");
     }
 
+    /// <summary>An unescaped id would split the query or lose its tail to a fragment, and the drain would read another stream's watermark.</summary>
+    [Test]
+    public async Task Probes_the_watermark_of_the_exact_agent_id() {
+        const string sessionId = "test-session-agent-drain";
+        const string agentId   = "child a&b=1#frag+plus";
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(204));
+
+        using var tmp      = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", "");
+
+        await Watchers.InlineDrainAsync(sessionId, transcriptPath, agentId);
+
+        var probes = _server.FindLogEntries(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet());
+        await Assert.That(probes.Count).IsEqualTo(1);
+
+        var query = System.Web.HttpUtility.ParseQueryString(probes[0].RequestMessage.RawQuery ?? "");
+        await Assert.That(query.Count).IsEqualTo(1);
+        await Assert.That(query["agentId"]).IsEqualTo(agentId);
+    }
+
     const string Line = """{"type":"user","message":{"content":"hello"}}""";
 
     // The first try of a line has started and has yet to end.

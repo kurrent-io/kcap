@@ -34,7 +34,7 @@ public static class AntigravityHooksInstaller {
         var root = LoadOrBackup(hooksPath);
         root[AntigravityHooks.BlockName] = AntigravityHooks.BuildKcapBlock();
         Write(hooksPath, root);
-        WriteMarker(hooksPath);
+        InstallMarker.Write(hooksPath, MarkerFileName);
     }
 
     public static void Remove(string hooksPath) {
@@ -68,8 +68,7 @@ public static class AntigravityHooksInstaller {
 
     /// <summary>Marker present, or the kcap block is detectable in the file.</summary>
     public static bool IsInstalled(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (!string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, MarkerFileName))) return true;
+        if (InstallMarker.Exists(hooksPath, MarkerFileName)) return true;
         if (!File.Exists(hooksPath)) return false;
 
         try {
@@ -79,13 +78,7 @@ public static class AntigravityHooksInstaller {
         return false;
     }
 
-    public static string? ReadMarker(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
+    public static string? ReadMarker(string hooksPath) => InstallMarker.Read(hooksPath, MarkerFileName);
 
     static JsonObject LoadOrBackup(string hooksPath) {
         if (!File.Exists(hooksPath)) return new JsonObject();
@@ -116,14 +109,4 @@ public static class AntigravityHooksInstaller {
         File.WriteAllText(Path.Combine(dir, PluginManifestFileName),
             AntigravityHooks.BuildPluginManifest().ToJsonString(WriteOptions));
     }
-
-    static void WriteMarker(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch { /* best effort */ }
-    }
-
 }

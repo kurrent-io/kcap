@@ -163,7 +163,7 @@ public class TokenServerBindingTests {
         await AuthFixtures.NewTokenStore(Config.Root).SaveAsync("default",
             Tokens(serverUrl: OtherServer) with { AccessToken = "rejected-token" });
 
-        var result = await AuthFixtures.NewTokenStore(Config.Root).ForceRefreshAsync(ProfileConfig.DefaultName, "rejected-token");
+        var result = await StoreWithShortRefreshBudget().ForceRefreshAsync(ProfileConfig.DefaultName, "rejected-token");
 
         await Assert.That(result).IsNull();
     }
@@ -316,7 +316,7 @@ public class TokenServerBindingTests {
         await AuthFixtures.NewTokenStore(Config.Root).SaveAsync("default",
             Tokens(serverUrl: OtherServer) with { AccessToken = "rejected-token" });
 
-        var recovered = await AuthFixtures.NewTokenStore(Config.Root).RecoverForServerAsync(ProfileConfig.DefaultName, OtherServer, "rejected-token");
+        var recovered = await StoreWithShortRefreshBudget().RecoverForServerAsync(ProfileConfig.DefaultName, OtherServer, "rejected-token");
 
         await Assert.That(recovered?.AccessToken).IsEqualTo("rejected-token");
     }
@@ -328,7 +328,7 @@ public class TokenServerBindingTests {
         await AuthFixtures.NewTokenStore(Config.Root).SaveAsync("default",
             Tokens(serverUrl: OtherServer, expiresIn: TimeSpan.FromMinutes(-5)) with { AccessToken = "rejected-token" });
 
-        var recovered = await AuthFixtures.NewTokenStore(Config.Root).RecoverForServerAsync(ProfileConfig.DefaultName, OtherServer, "rejected-token");
+        var recovered = await StoreWithShortRefreshBudget().RecoverForServerAsync(ProfileConfig.DefaultName, OtherServer, "rejected-token");
 
         await Assert.That(recovered?.AccessToken).IsEqualTo("rejected-token");
     }
@@ -353,6 +353,15 @@ public class TokenServerBindingTests {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // A rotation against the discard port is retried for the whole budget before it fails.
+    TokenStore StoreWithShortRefreshBudget() {
+        var factory = new PlainHttpClientFactory(null);
+
+        return new(Config.Root, ProfileOverrides.None, factory, new WorkOSClient(factory, TimeProvider.System), TimeProvider.System) {
+            RefreshRetryBudget = TimeSpan.FromMilliseconds(200)
+        };
+    }
 
     // Each read lands past the last, so a lock wait reaches its deadline on its second poll.
     sealed class LeapingClock(TimeSpan leap) : TimeProvider {

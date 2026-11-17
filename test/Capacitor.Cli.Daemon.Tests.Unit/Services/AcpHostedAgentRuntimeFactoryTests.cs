@@ -1445,6 +1445,30 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
     }
 
+    /// <summary>VS Code's Copilot launcher on the PATH is not a Copilot CLI to host, and one behind it is: that CLI is
+    /// the path the version probe and the update watcher read.</summary>
+    [Test]
+    public async Task Copilot_is_available_only_when_a_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var exe     = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+        var shim    = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", exe), ""))!;
+        var cliPath = tmp.CreateExecutable(Path.Combine("bin", exe), "");
+
+        static AcpHostedAgentRuntimeFactory Over(string searchPath) => new(
+            descriptor: AcpVendorDescriptors.Copilot,
+            config: new DaemonConfig { Binaries = BinaryProbe.Searching(searchPath) },
+            loggerFactory: NullLoggerFactory.Instance,
+            connection: new CaptureServerConnection(),
+            connectionSource: _ => throw new InvalidOperationException("Reading availability must not spawn a process."),
+            timeProvider: TimeProvider.System);
+
+        var both = Over(shim + Path.PathSeparator + Path.GetDirectoryName(cliPath));
+
+        await Assert.That(Over(shim).IsAvailable()).IsFalse();
+        await Assert.That(both.IsAvailable()).IsTrue();
+        await Assert.That(both.CliPath).IsEqualTo(BinaryProbe.Searching(Path.GetDirectoryName(cliPath)).Resolve("copilot"));
+    }
+
     /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the
     /// <c>vibe</c> TUI would never answer <c>initialize</c>.</summary>
     [Test]
@@ -2302,6 +2326,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         var seen = (LaunchIdentity?)null;
         var fake = new FakeAcpAgent();
+        // A bare fake never answers initialize, so the handshake is cut off as soon as the seam is reached.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Gemini,
             config: GeminiEnabledConfig(),
@@ -2309,20 +2335,15 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             connection: new CaptureServerConnection(),
             connectionSource: ctx => {
                 seen = ctx.LaunchIdentity;
+                cts.CancelAfter(TimeSpan.Zero);
                 return (fake.ClientWriteStream, fake.ClientReadStream, new FakeAcpProcess());
             },
-            // PINNED, and paired with an affirmed build in the config. Since the capability gate moved ahead
-            // of the connection source, StartAsync resolves a version before this seam is reached — so
-            // without both halves this test depends on which gemini happens to be installed: green on a dev
-            // machine, red on CI where the gate refuses as version-unresolved and `seen` stays null.
+            // Pinned and paired with an affirmed build in the config: the capability gate resolves a version
+            // before this seam, so an unpinned resolver makes the result depend on the installed gemini.
             resolveVendorVersion: _ => GeminiBuild, timeProvider: TimeProvider.System);
 
         var ctx = ReviewContext() with { Vendor = "gemini", LaunchIdentity = attacker };
 
-        // A bare FakeAcpAgent never answers `initialize`, so StartAsync would wait for a handshake that
-        // never arrives. The subject is what the SPAWN SEAM was handed, which is recorded before any frame is
-        // exchanged — so a short-lived token is enough and keeps the test from hanging the suite.
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         try { await factory.StartAsync(ctx, cts.Token); }
         catch { /* the handshake is not the subject; the seam recorded what it was handed either way */ }
 
@@ -2606,6 +2627,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     public async Task Gemini_AnEnabledDaemon_DoesReachTheConnectionSource() {
         var reached = 0;
         var fake    = new FakeAcpAgent();
+        // A bare fake never answers initialize, so the handshake is cut off as soon as the source is reached.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Gemini,
             config: GeminiEnabledConfig(),
@@ -2613,13 +2636,13 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             connection: new CaptureServerConnection(),
             connectionSource: _ => {
                 Interlocked.Increment(ref reached);
+                cts.CancelAfter(TimeSpan.Zero);
                 return (fake.ClientWriteStream, fake.ClientReadStream, new FakeAcpProcess());
             },
             resolveVendorVersion: _ => GeminiBuild, timeProvider: TimeProvider.System);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try { await factory.StartAsync(ReviewContext() with { Vendor = "gemini" }, cts.Token); }
-        catch { /* the handshake is not the subject — a bare fake never answers initialize */ }
+        catch { /* the handshake is not the subject */ }
 
         await Assert.That(Volatile.Read(ref reached)).IsEqualTo(1);
     }

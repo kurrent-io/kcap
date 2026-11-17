@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Telemetry;
@@ -24,82 +23,13 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         TelemetryStartup startup, GitProviderRouter router, WorkingDirectory workdir, TimeProvider time) {
     internal const string NotLoggedInMessage = AuthRejectionNotice.NotLoggedIn;
 
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
+    public Task<int> RunAsync() {
         var repository = new CwdRepository(config, workdir.Path, router, time);
-        var tools      = BuildToolsList();
+        var server     = new McpServerDescriptor("kcap-workitems", "workitems",
+            InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable)), BuildToolsList());
 
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting, and an absent property is a different value in a funnel
-        // from a false one — "could not tell" belongs with "not logged in", not with a gap.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command
-        // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command
-        // "mcp-server" is what lets per-tool-call events leave at all.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        // Validate the server_url shape once, locally (pure string check — no network, token,
-        // or stderr). Used to fail gracefully instead of hard-exiting mid-request (below).
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        // Guarded tool dispatch: never let the stdio JSON-RPC loop die on one bad request. An
-        // unexpected failure would otherwise bubble out of the loop and kill the server mid-protocol;
-        // return a JSON-RPC tool error instead so it keeps serving.
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, () => repository.GetHashAsync(client, baseUrl));
-            } catch (Exception ex) {
-                // Unexpected: log the detail to stderr (not to the client, which could leak local
-                // paths from IO errors) and return a generic tool error, keeping the loop alive.
-                await Console.Error.WriteLineAsync($"kcap mcp workitems: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-workitems", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request, InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable))),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "workitems");
-
-        return 0;
+        return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
+            (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, () => repository.GetHashAsync(client, baseUrl)));
     }
 
     // Claude Code keeps only the first 2,048 characters of an MCP server's instructions, so the
@@ -123,16 +53,6 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// <summary>A headless run's answer is its output, so it is not told to present next work.</summary>
     internal static string InstructionsFor(bool headless) => headless ? DeclarationInstructions : ServerInstructions;
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request, string instructions) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-workitems", "1.0.0"), instructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
     internal async Task<string> HandleToolCallAsync(
             JsonNode                 id,
             JsonObject               request,
@@ -145,7 +65,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         if (toolName == "get_next_work") return await HandleGetNextWorkAsync(id, arguments, client, baseUrl, cwdRepoHash);
@@ -219,17 +139,17 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             if (IsWorkItemEvalTool(toolName)) {
                 if (httpResponse.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
                 var bytes = await BoundedHttpContent.ReadAsync(httpResponse.Content, WorkItemEvalToolResults.MaxResponseBytes, evalToken);
-                if (bytes is null) return BuildToolResult(id, WorkItemEvalToolResults.TooLargeMessage, isError: true);
+                if (bytes is null) return McpResponses.ToolResult(id, WorkItemEvalToolResults.TooLargeMessage, isError: true);
                 var (text, isError) = WorkItemEvalToolResults.Render(toolName, httpResponse.StatusCode, Encoding.UTF8.GetString(bytes));
-                return BuildToolResult(id, text, isError);
+                return McpResponses.ToolResult(id, text, isError);
             }
 
             var body = await httpResponse.Content.ReadAsStringAsync();
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
             // dismiss/restore/list carry tracker- and session-authored label/because text the same
@@ -238,34 +158,34 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (IsNextWorkTargetTool(toolName)) return RenderNextWorkTargetResult(id, toolName, httpResponse.StatusCode, body, baseUrl);
             if (toolName is "claim_loose_end" or "release_loose_end") {
                 var (text, isError) = LooseEndClaimToolResults.Render((int)httpResponse.StatusCode, body);
-                return BuildToolResult(id, text, isError);
+                return McpResponses.ToolResult(id, text, isError);
             }
             if (toolName == "list_loose_ends") {
                 if (httpResponse.IsSuccessStatusCode && McpToolArguments.OptionalString(arguments, "claimed_session_id") is { } worker
                     && !LooseEndClaimToolResults.ConfirmsWorker(body, worker))
-                    return BuildToolResult(id, "Error: the server did not confirm the worker-filtered claim metadata. Check server support before treating these rows as owned work.", isError: true);
+                    return McpResponses.ToolResult(id, "Error: the server did not confirm the worker-filtered claim metadata. Check server support before treating these rows as owned work.", isError: true);
                 return RenderLooseEndListResult(id, httpResponse.StatusCode, body);
             }
             if (claimedClose is not null) {
                 var (text, isError) = LooseEndClaimToolResults.RenderCompletion((int)httpResponse.StatusCode, body,
                     claimedClose["claim_id"]!.GetValue<string>(), claimedClose["session_id"]!.GetValue<string>());
-                return BuildToolResult(id, text, isError);
+                return McpResponses.ToolResult(id, text, isError);
             }
             if (toolName is "close_loose_end" or "reopen_loose_end") return RenderLooseEndChangeResult(id, toolName, httpResponse.StatusCode, body);
 
             if (!httpResponse.IsSuccessStatusCode) {
-                return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
+                return McpResponses.ToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
 
-            if (toolName == "declare_loose_end") return BuildToolResult(id, FormatDeclareLooseEndResult(body));
+            if (toolName == "declare_loose_end") return McpResponses.ToolResult(id, FormatDeclareLooseEndResult(body));
 
-            return BuildToolResult(id, body);
+            return McpResponses.ToolResult(id, body);
         } catch (OperationCanceledException) when (IsWorkItemEvalTool(toolName)) {
-            return BuildToolResult(id, WorkItemEvalToolResults.DeadlineMessage, isError: true);
+            return McpResponses.ToolResult(id, WorkItemEvalToolResults.DeadlineMessage, isError: true);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -302,19 +222,19 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                 client, BuildNextWorkUrl(baseUrl, arguments, repoHash, sessionId), presenting: sessionId is not null, deadline.Token);
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
             var bytes = await BoundedHttpContent.ReadAsync(httpResponse.Content, NextWorkMaxResponseBytes, deadline.Token);
-            if (bytes is null) return BuildToolResult(id, NextWorkTooLargeMessage, isError: true);
+            if (bytes is null) return McpResponses.ToolResult(id, NextWorkTooLargeMessage, isError: true);
 
             return RenderNextWorkResult(id, httpResponse.StatusCode, Encoding.UTF8.GetString(bytes), baseUrl);
         } catch (OperationCanceledException) {
-            return BuildToolResult(id, NextWorkDeadlineMessage, isError: true);
+            return McpResponses.ToolResult(id, NextWorkDeadlineMessage, isError: true);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -346,21 +266,21 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     internal static string RenderNextWorkResult(JsonNode id, HttpStatusCode status, string body, string? serverUrl = null) {
         if (status == HttpStatusCode.NotFound && ErrorCode(body) == "next_work_unavailable")
-            return BuildToolResult(id, NextWorkUnavailableMessage);
+            return McpResponses.ToolResult(id, NextWorkUnavailableMessage);
 
         if (status == HttpStatusCode.ServiceUnavailable && ErrorCode(body) == "next_work_timeout")
-            return BuildToolResult(id, NextWorkTimeoutMessage, isError: true);
+            return McpResponses.ToolResult(id, NextWorkTimeoutMessage, isError: true);
 
         // Only a well-formed code survives from an error body: its prose is server or proxy text
         // that would reach the agent outside any data block.
         if ((int)status is < 200 or > 299)
-            return BuildToolResult(id,
+            return McpResponses.ToolResult(id,
                 ErrorCode(body) is { } code && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
         return RenderNextWorkFeed(body, serverUrl) is { } text
-            ? BuildToolResult(id, text)
-            : BuildToolResult(id, "Error: the server returned an unreadable next-work response.", isError: true);
+            ? McpResponses.ToolResult(id, text)
+            : McpResponses.ToolResult(id, "Error: the server returned an unreadable next-work response.", isError: true);
     }
 
     static string? ErrorCode(string body) {
@@ -534,32 +454,32 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         var code = NextWorkTargetErrorCode(body);
 
         if (IsLedgerUnavailable(status, body))
-            return BuildToolResult(id, NextWorkUnavailableMessage);
+            return McpResponses.ToolResult(id, NextWorkUnavailableMessage);
 
         if ((int)status is < 200 or > 299)
-            return BuildToolResult(id,
+            return McpResponses.ToolResult(id,
                 code is not null && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
         return RenderLooseEndList(body) is { } text
-            ? BuildToolResult(id, text)
-            : BuildToolResult(id, "Error: the server returned an unreadable response.", isError: true);
+            ? McpResponses.ToolResult(id, text)
+            : McpResponses.ToolResult(id, "Error: the server returned an unreadable response.", isError: true);
     }
 
     /// <summary>The success body is fixed prose around the id; an error keeps only a well-formed code,
     /// as for the list.</summary>
     internal static string RenderLooseEndChangeResult(JsonNode id, string toolName, HttpStatusCode status, string body) {
         if (IsLedgerUnavailable(status, body))
-            return BuildToolResult(id, NextWorkUnavailableMessage);
+            return McpResponses.ToolResult(id, NextWorkUnavailableMessage);
 
         if ((int)status is < 200 or > 299)
-            return BuildToolResult(id,
+            return McpResponses.ToolResult(id,
                 NextWorkTargetErrorCode(body) is { } code && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
         return RenderLooseEndChange(toolName, body) is { } text
-            ? BuildToolResult(id, text)
-            : BuildToolResult(id, "Error: the server returned an unreadable response.", isError: true);
+            ? McpResponses.ToolResult(id, text)
+            : McpResponses.ToolResult(id, "Error: the server returned an unreadable response.", isError: true);
     }
 
     internal static string? RenderLooseEndChange(string toolName, string body) {
@@ -651,13 +571,13 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// survives a non-2xx status; a 409 <c>not_presented</c> reaches the agent this way.</summary>
     internal static string RenderNextWorkTargetResult(JsonNode id, string toolName, HttpStatusCode status, string body, string? serverUrl = null) {
         if ((int)status is < 200 or > 299)
-            return BuildToolResult(id,
+            return McpResponses.ToolResult(id,
                 NextWorkTargetErrorCode(body) is { } code && NextWorkEmitter.IsCode(code) ? $"Error: HTTP {(int)status} — {code}" : $"Error: HTTP {(int)status}",
                 isError: true);
 
         return RenderNextWorkTargetBody(toolName, body, serverUrl) is { } text
-            ? BuildToolResult(id, text)
-            : BuildToolResult(id, "Error: the server returned an unreadable response.", isError: true);
+            ? McpResponses.ToolResult(id, text)
+            : McpResponses.ToolResult(id, "Error: the server returned an unreadable response.", isError: true);
     }
 
     /// <summary>A 404 coded <c>next_work_unavailable</c>, or one with no JSON body at all: a server
@@ -1001,29 +921,6 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         } catch {
             return null;
         }
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() => [

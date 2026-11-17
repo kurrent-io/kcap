@@ -1,0 +1,328 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "649ca20a-44e5-5303-bb52-67fd91756a17",
+        "timestamp": "2026-09-17T15:09:00.0000000\u002B02:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "0"
+        },
+        "payload": {
+          "content": "You have a skill named kcap-probe-6e3f16. Use it and reply with only the probe token it contains. Do not search the file system or guess where it might be: only a skill already listed for you counts, and reading that listed skill\u0027s own file is fine. If no such skill is listed for you, reply with exactly NO-SKILL.",
+          "messageId": "line:0",
+          "createdAt": "2026-09-17T13:09:00Z",
+          "timestamp": "2026-09-17T13:09:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "241434f8-47c1-534a-a40e-e36fa686b42c",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "content": "Reading the listed skill and returning only its probe token.",
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "0dadedcd-a6cf-5b8b-bbd0-822999f7f80a",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:1:1",
+              "toolName": "Read",
+              "arguments": {
+                "path": "/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-sd_fb338/repo/.cursor/skills/kcap-probe-6e3f16/SKILL.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "43a4ef08-8cfb-5078-ae1f-78df6cf50e31",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "content": "Retrying the listed skill path directly.",
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "2284c406-f721-545f-b874-87a0db0139c2",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:2:1",
+              "toolName": "Shell",
+              "arguments": {
+                "command": "cat \u0022/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-sd_fb338/repo/.cursor/skills/kcap-probe-6e3f16/SKILL.md\u0022",
+                "description": "Read listed kcap-probe skill file"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "48dce414-e69f-5e46-ae8a-4627486e74a1",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "3"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:3:0",
+              "toolName": "Read",
+              "arguments": {
+                "path": ".cursor/skills/kcap-probe-6e3f16/SKILL.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:3",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "1552ce2c-3453-5a59-968f-555139ead98a",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "4"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:4:0",
+              "toolName": "Shell",
+              "arguments": {
+                "command": "ls -la \u0022/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-sd_fb338/repo/.cursor/skills/kcap-probe-6e3f16\u0022 2\u003E\u00261; ls -la \u0022/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-sd_fb338/repo/.cursor\u0022 2\u003E\u00261",
+                "description": "List listed skill directory only"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "messageId": "line:4",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "5fa55447-d32d-5d0b-926f-a241ad618704",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "5"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:5:0",
+              "toolName": "Shell",
+              "arguments": {
+                "command": "ls -la \u0022/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-sd_fb338/repo/.cursor/skills\u0022",
+                "description": "List contents of skills directory"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "messageId": "line:5",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "49f86c0e-aca7-5845-aa4b-ad338ada757b",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "6"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:6:0",
+              "toolName": "Shell",
+              "arguments": {
+                "command": "pwd; ls -la; test -e .cursor/skills/kcap-probe-6e3f16/SKILL.md \u0026\u0026 echo EXISTS || echo MISSING",
+                "description": "Verify cwd and skill file existence"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "messageId": "line:6",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "d511cf08-aa4e-559e-aaf9-71b6ab296e86",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "7"
+        },
+        "payload": {
+          "content": "NO-SKILL",
+          "messageId": "line:7",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "66f6abef-040d-5219-9271-894dd9183ef6",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "8"
+        },
+        "payload": {
+          "content": "NO-SKILL",
+          "messageId": "line:8",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "c998e0d2-a768-5391-8cd7-08792abefd88",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "9"
+        },
+        "payload": {
+          "content": "NO-SKILL",
+          "messageId": "line:9",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]

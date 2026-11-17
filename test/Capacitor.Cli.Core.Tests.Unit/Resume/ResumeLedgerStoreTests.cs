@@ -396,7 +396,7 @@ public class ResumeLedgerStoreTests {
     [Test]
     public async Task MarkInterrupted_marks_the_rest_and_reports_an_entry_whose_lock_stays_held() {
         using var tmp   = new TempDaemonStore();
-        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        var       store = new ResumeLedgerStore(tmp.Store.ResumeDirectory("d1")) { MarkLockWait = TimeSpan.FromMilliseconds(100) };
         store.Write(Entry("held"));
         store.Write(Entry("free"));
         var before = store.TryRead("held")!.State;

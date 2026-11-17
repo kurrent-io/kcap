@@ -228,7 +228,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public HeldMessagesViewModel? Held { get; }
 
     readonly ObservableAsPropertyHelper<string?> _controlNote;
-    /// How the viewer's messages reach the agent and, when its keys are not theirs, why.
+    /// Input guidance, with turn-control limitations only while the agent is working.
     public string? ControlNote => _controlNote.Value;
     public ReadOnlyObservableCollection<PendingCardViewModel> PendingCards => Cards.PendingCards;
 
@@ -1050,7 +1050,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
             .DisposeWith(_disposables);
 
-        _controlNote = _input.WhenAnyValue(i => i.ControlNote)
+        _controlNote = Observable.CombineLatest(
+                _input.WhenAnyValue(i => i.ControlNote),
+                _input.WhenAnyValue(i => i.WorkingControlNote),
+                this.WhenAnyValue(x => x.AgentStatus, x => x.IsReadOnlyParticipant, x => x.HasTerminalMenu, x => x.ShowsInterrupt,
+                    (status, readOnly, menu, shows) => !shows && !readOnly && !menu
+                        && (status.Kind == AgentStatusKind.Working || status.IsRunningUnknownTurn)),
+                (note, workingNote, working) => note ?? (working ? workingNote : null))
             .ToProperty(this, x => x.ControlNote, initialValue: _input.ControlNote)
             .DisposeWith(_disposables);
 

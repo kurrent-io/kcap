@@ -146,7 +146,9 @@ public class RecorderHousekeepingTests {
 
     [Test]
     public async Task A_beat_that_throws_does_not_fail_housekeeping() {
-        var housekeeping = MuseHousekeeping(CreateParentLog(), vendor: "claude", beat: () => throw new InvalidOperationException("the beat is broken"));
+        // A refusal answers the title probe at once; an unreachable server would retry it out on the real clock.
+        using var server       = Answering("/hooks/harness-title", 400);
+        var       housekeeping = MuseHousekeeping(CreateParentLog(), server.Url!, vendor: "claude", beat: () => throw new InvalidOperationException("the beat is broken"));
         var state        = new WatchState();
 
         await housekeeping.BeforeDrainAsync(state, CancellationToken.None);

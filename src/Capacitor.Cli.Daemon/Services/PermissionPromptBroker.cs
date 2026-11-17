@@ -190,6 +190,10 @@ internal sealed class PermissionPromptBroker {
         }
     }
 
+    public bool HasPendingFor(string agentId) {
+        lock (_gate) return _pending.Values.Any(e => e.Dto.AgentId == agentId);
+    }
+
     public IReadOnlyList<PermissionPendingDto> PendingSnapshot() {
         lock (_gate) return _pending.Values.Select(e => e.Dto).ToList();
     }

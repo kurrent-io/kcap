@@ -122,6 +122,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     bool _recheckAfterLaunch;
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
+    // Seeded once: a later check must not move a chip the user has been looking at.
+    bool _choicesSeeded;
+    Task<ActivitySessionDto?>? _source;
     string? _checkout;
     ProbePlan? _plan;
     bool _originChecked;
@@ -209,6 +212,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 if (c) {
                     _features = null;
                     _context = null;
+                    if (!_choicesSeeded) _source = null;
                 }
                 Recheck();
             })
@@ -559,6 +563,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                     _ => ContextUnavailable,
                 });
             _context = fetched;
+        }
+        if (!_choicesSeeded) {
+            _source ??= ReadSourceAsync();
+            var source = await _source.WaitAsync(ct);
+            _choices.Seed(source?.Model, source?.Effort, source?.PermissionMode);
+            _choicesSeeded = true;
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
@@ -949,6 +959,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     static bool HasResume(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeInPlaceWire.Capability) == true;
+
+    async Task<ActivitySessionDto?> ReadSourceAsync() {
+        var summary = await _sessions.ReadSummaryAsync(_session.SessionId, _shutdown);
+        return summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source : null;
+    }
 
     /// A verified fork's head, or a head in the session's own repository; anything else, including a
     /// head the server could not classify, falls back to the recorded branch.

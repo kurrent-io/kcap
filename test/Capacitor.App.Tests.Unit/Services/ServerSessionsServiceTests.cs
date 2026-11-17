@@ -1037,21 +1037,27 @@ public class ServerSessionsServiceTests {
         await Assert.That(TitleIn(service.MineLive, "live-me")).IsEqualTo("Renamed");
     }
 
+    public static IEnumerable<Func<(string Read, Func<ServerSessionsService, Task<ServerReadOutcome>> Run)>> HandoffReads() {
+        yield return () => ("context", async s => (await s.ReadHandoffContextAsync("s1", CancellationToken.None)).Outcome);
+        yield return () => ("summary", async s => (await s.ReadSummaryAsync("s1", CancellationToken.None)).Outcome);
+    }
+
     [Test]
-    public async Task An_unauthorized_handoff_context_read_signs_the_lane_out() {
+    [MethodDataSource(nameof(HandoffReads))]
+    public async Task An_unauthorized_handoff_read_signs_the_lane_out(
+            (string Read, Func<ServerSessionsService, Task<ServerReadOutcome>> Run) read) {
         var lane = new FakeServerLane();
         var listing = new ScriptedListing();
         var parked = new List<int>();
         using var service = new ServerSessionsService(
             lane, listing.Fetch, _ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")), new FakeTimeProvider(),
             onUnauthorized: parked.Add,
+            fetchSummary: (_, _) => Task.FromResult(new SummaryFetch(ServerReadOutcome.Unauthorized, null)),
             fetchHandoffContext: (_, _) => Task.FromResult(new HandoffContextFetch(ServerReadOutcome.Unauthorized, null)));
         ScriptDefault(listing);
         Connect(lane, epoch: 6);
 
-        var read = await service.ReadHandoffContextAsync("s1", CancellationToken.None);
-
-        await Assert.That(read.Outcome).IsEqualTo(ServerReadOutcome.Unauthorized);
+        await Assert.That(await read.Run(service)).IsEqualTo(ServerReadOutcome.Unauthorized);
         await Assert.That(parked).IsEquivalentTo([6]);
     }
 

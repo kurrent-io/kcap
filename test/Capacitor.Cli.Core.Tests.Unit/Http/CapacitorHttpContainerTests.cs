@@ -97,6 +97,39 @@ public class CapacitorHttpContainerTests : IDisposable {
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
+    /// <summary>A lane that sends no <c>Accept-Encoding</c> gets every response at full size from a server that
+    /// would compress it, and one that sends it but does not decode hands its caller compressed bytes.</summary>
+    [Test]
+    [Arguments(CapacitorClients.Default)]
+    [Arguments(CapacitorClients.Hook)]
+    [Arguments(CapacitorClients.Memory)]
+    [Arguments(CapacitorClients.Anonymous)]
+    public async Task A_server_lane_asks_for_and_decodes_a_compressed_body(string lane) {
+        StubProvider(AuthProvider.None);
+
+        const string body = """{"sessions":["a","b","c"]}""";
+
+        using var gzipped = new MemoryStream();
+        await using (var gz = new System.IO.Compression.GZipStream(gzipped, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true)) {
+            await gz.WriteAsync(System.Text.Encoding.UTF8.GetBytes(body));
+        }
+
+        _server.Given(Request.Create().WithPath("/compressed").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithHeader("Content-Encoding", "gzip")
+                .WithBody(gzipped.ToArray()));
+
+        using var sp     = Container();
+        using var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(lane);
+
+        var text = await client.GetStringAsync($"{Url}/compressed");
+
+        await Assert.That(text).IsEqualTo(body);
+        await Assert.That(RequestTo("/compressed").RequestMessage.Headers!["Accept-Encoding"].Single())
+            .Contains("gzip").And.Contains("br");
+    }
+
     // ── Verb, path and body per call ───────────────────────────────────────────────────────────
 
     [Test]

@@ -59,14 +59,14 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
     /// <summary>The order the graceful-stop and terminate calls arrived in.</summary>
     public List<string> StopCalls { get; } = [];
 
-    /// <summary>When set, a graceful stop never returns and the process exits only when terminated,
-    /// like a child that has stopped reading its terminal.</summary>
+    /// <summary>When set, the process exits only when terminated or released through <see cref="ExitGate"/>, and a
+    /// graceful stop does not return before it exits, like a child that has stopped reading its terminal.</summary>
     public bool NeverExitsOnItsOwn { get; init; }
 
     public Task RequestGracefulStopAsync() {
         lock (StopCalls) StopCalls.Add("graceful");
 
-        return NeverExitsOnItsOwn ? new TaskCompletionSource().Task : Task.CompletedTask;
+        return NeverExitsOnItsOwn ? ExitGate.Task : Task.CompletedTask;
     }
 
     public async Task WaitForExitAsync(TimeSpan? timeout = null) {

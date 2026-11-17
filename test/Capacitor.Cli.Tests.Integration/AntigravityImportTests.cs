@@ -144,6 +144,13 @@ public class AntigravityImportTests : IDisposable {
         var startBody = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/subagent-start").RequestMessage.Body!;
         await Assert.That(startBody).Contains($"\"agent_id\":\"{Dashless(Child)}\"");
 
+        var path     = JsonNode.Parse(startBody)!["transcript_path"]!.ToJsonString();
+        var stopBody = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/subagent-stop").RequestMessage.Body!;
+        await Assert.That(startBody).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_start","session_id":"{{Dashless(Root)}}","agent_id":"{{Dashless(Child)}}","agent_type":"subagent","transcript_path":{{path}},"cwd":""}""");
+        await Assert.That(stopBody).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_stop","session_id":"{{Dashless(Root)}}","agent_id":"{{Dashless(Child)}}","agent_type":"subagent","transcript_path":{{path}},"cwd":"","stop_hook_active":false,"agent_transcript_path":{{path}},"last_assistant_message":""}""");
+
         // The child transcript batch is tagged vendor=antigravity and routed by the dashless agent_id.
         // Matched via "agent_id":"<Dashless(Child)>" rather than a bare Contains(Dashless(Child)),
         // because the root's own transcript batch also contains the Child id embedded in its
@@ -395,6 +402,12 @@ public class AntigravityImportTests : IDisposable {
         await Assert.That(stopBody).Contains("\"stop_hook_active\"");
         await Assert.That(stopBody).Contains("\"agent_transcript_path\"");
         await Assert.That(stopBody).Contains("\"last_assistant_message\"");
+
+        var path = JsonNode.Parse(startBody)!["transcript_path"]!.ToJsonString();
+        await Assert.That(startBody).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_start","session_id":"{{Dashless(Root)}}","agent_id":"{{Dashless(Child)}}","agent_type":"subagent","transcript_path":{{path}},"cwd":"","strict":true}""");
+        await Assert.That(stopBody).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_stop","session_id":"{{Dashless(Root)}}","agent_id":"{{Dashless(Child)}}","agent_type":"subagent","transcript_path":{{path}},"cwd":"","stop_hook_active":false,"agent_transcript_path":{{path}},"last_assistant_message":"","strict":true}""");
     }
 
     [Test]

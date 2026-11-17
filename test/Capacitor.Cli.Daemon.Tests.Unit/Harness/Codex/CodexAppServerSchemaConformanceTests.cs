@@ -41,6 +41,8 @@ public class CodexAppServerSchemaConformanceTests {
             "threadId", "input", "sandboxPolicy", "approvalPolicy", "approvalsReviewer", "model", "effort");
         await AssertProperties(combined, "ThreadStartParams",
             "cwd", "sandbox", "approvalPolicy", "approvalsReviewer", "model");
+        await AssertProperties(combined, "ThreadCompactStartParams", "threadId");
+        await AssertProperties(combined, "TurnStartedNotification", "threadId", "turn");
         await AssertProperties(combined, "ThreadTokenUsageUpdatedNotification",
             "threadId", "turnId", "tokenUsage");
         await AssertProperties(combined, "TokenUsageBreakdown",

@@ -36,12 +36,11 @@ public sealed class PermissionService : IPermissionService {
     readonly ILocalControlOps _ops;
     readonly Func<CancellationToken, IAsyncEnumerable<PermissionStreamEvent>> _subscribe;
     readonly TimeProvider _time;
-    readonly CancellationToken _shutdownToken;
     readonly PermissionResponder _respond;
     readonly IDisposable _statusSub;
     readonly IDisposable? _agentsSub;
+    readonly CancellableLoop _loop;
     IReadOnlyDictionary<string, string> _sessionAgents = FrozenDictionary<string, string>.Empty;
-    CancellationTokenSource? _loopCts;
     long _liveSequence;
     long _laneEpoch;
     bool _disposed;
@@ -52,7 +51,8 @@ public sealed class PermissionService : IPermissionService {
             TimeProvider time, CancellationToken shutdownToken,
             PermissionResponder? respond = null,
             IObservable<IReadOnlyDictionary<string, string>>? sessionAgents = null) {
-        _ops = ops; _subscribe = subscribe; _time = time; _shutdownToken = shutdownToken;
+        _ops = ops; _subscribe = subscribe; _time = time;
+        _loop = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _respond = respond ?? ((_, _, _, _) => Task.FromResult(new ServerRespondOutcome(ServerRespondKind.Unreachable, "not_signed_in")));
         _statusSub = service.Status.Subscribe(OnStatus);
         _agentsSub = sessionAgents?.Subscribe(OnSessionAgents);
@@ -185,62 +185,40 @@ public sealed class PermissionService : IPermissionService {
         }
         _statusSub.Dispose();
         _agentsSub?.Dispose();
-        StopLoop();
+        _loop.Stop();
         _cache.Dispose();
     }
 
     void OnStatus(AttachStatus status) {
         if (status is { State: AttachState.Connected, Capabilities: not null } && status.Capabilities.Contains(Capability)) {
-            StartLoop();
+            _loop.Start();
             return;
         }
-        StopLoop();
+        _loop.Stop();
         DropLocalLane();
     }
 
-    void StartLoop() {
-        CancellationTokenSource cts;
-        lock (_lock) {
-            if (_disposed || _loopCts is not null) return;
-            cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken);
-            _loopCts = cts;
-        }
-        _ = Task.Run(() => RunLoopAsync(cts));
-    }
-
-    void StopLoop() {
-        CancellationTokenSource? cts;
-        lock (_lock) { cts = _loopCts; _loopCts = null; }
-        if (cts is null) return;
-        try { cts.Cancel(); } catch (ObjectDisposedException) { }
-    }
-
-    async Task RunLoopAsync(CancellationTokenSource cts) {
-        var ct = cts.Token;
-        try {
-            while (!ct.IsCancellationRequested) {
-                try {
-                    await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
-                        ct.ThrowIfCancellationRequested();
-                        switch (evt) {
-                            case PermissionStreamEvent.Subscribed: DropLocalLane(); break;
-                            case PermissionStreamEvent.Pending p:  UpsertLocal(p.Request); break;
-                            case PermissionStreamEvent.Resolved r: ConcludeLocal(r.Settlement.RequestId); break;
-                        }
+    async Task RunLoopAsync(CancellationToken ct) {
+        while (!ct.IsCancellationRequested) {
+            try {
+                await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
+                    ct.ThrowIfCancellationRequested();
+                    switch (evt) {
+                        case PermissionStreamEvent.Subscribed: DropLocalLane(); break;
+                        case PermissionStreamEvent.Pending p:  UpsertLocal(p.Request); break;
+                        case PermissionStreamEvent.Resolved r: ConcludeLocal(r.Settlement.RequestId); break;
                     }
-                } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                    break;
-                } catch (Exception ex) {
-                    Console.Error.WriteLine($"kcap: permission subscription attempt failed: {ex.Message}");
                 }
-                // The attempt ended for a reason other than this loop's own cancellation, so the
-                // socket that could answer the local cards is gone before the next one replays.
-                DropLocalLane();
-                try { await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false); }
-                catch (OperationCanceledException) { break; }
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                break;
+            } catch (Exception ex) {
+                Console.Error.WriteLine($"kcap: permission subscription attempt failed: {ex.Message}");
             }
-        } finally {
-            cts.Dispose();
+            // The attempt ended for a reason other than this loop's own cancellation, so the
+            // socket that could answer the local cards is gone before the next one replays.
+            DropLocalLane();
+            try { await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
         }
     }
 

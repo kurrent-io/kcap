@@ -45,6 +45,17 @@ internal sealed class OpenCodeDb : IDisposable {
         _conn.Open();
     }
 
+    /// <summary>True for an OpenCode v2 database: its sessions live in <c>session_v2</c>, with no v1
+    /// <c>session</c> table for this reader to query.</summary>
+    public bool IsV2Only() {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session', 'session_v2')";
+        using var reader = cmd.ExecuteReader();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        while (reader.Read()) names.Add(reader.GetString(0));
+        return names.Contains("session_v2") && !names.Contains("session");
+    }
+
     public IReadOnlyList<OpenCodeSessionRow> QueryRoots() =>
         QuerySessions("(parent_id IS NULL OR parent_id = '')", parent: null).Rows;
 

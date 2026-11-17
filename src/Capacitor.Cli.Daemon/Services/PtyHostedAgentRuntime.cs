@@ -545,6 +545,20 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <exception cref="IOException">The agent was stopping or had exited before the message could be sent.</exception>
     public Task SendUserInputAsync(string text) => Enqueue(text).Write;
 
+    /// <summary>Types <c>/compact</c> for a vendor whose TUI takes it. Refused while a dialog shows rather than held
+    /// behind it like a message, decided under the same gate a dialog opens under.</summary>
+    public CompactionStart StartCompaction(Guid dispatchId) {
+        if (vendor is not ("claude" or "codex")) return CompactionStart.Unsupported;
+
+        lock (_dialogGate) {
+            if (_dialogGone is not null) return CompactionStart.PromptOpen;
+
+            _heldSends = WriteAfterAsync(_heldSends, "/compact");
+
+            return CompactionStart.Started(_heldSends, finished: null);
+        }
+    }
+
     // Every message joins one chain, so one sent while another waits on a dialog lands after it, not in its redraw.
     (Task Write, bool Held) Enqueue(string text) {
         lock (_dialogGate) {
@@ -722,13 +736,25 @@ internal sealed partial class PtyHostedAgentRuntime(
     public async Task RequestGracefulStopAsync() {
         if (DialogGone is not null) _stopRequestedDuringDialog = true;
         _stopRequested = true;
-        var holdsLane  = await _lane.WaitAsync(GracefulStopLaneWait, CancellationToken.None);
+        var holdsLane  = await TakeLaneWithinAsync(GracefulStopLaneWait);
 
         try {
             await pty.WriteAsync("/exit");
             await SubmitAsync();
         } finally {
             if (holdsLane) _lane.Release();
+        }
+    }
+
+    async Task<bool> TakeLaneWithinAsync(TimeSpan wait) {
+        using var expiry = new CancellationTokenSource(wait, time);
+
+        try {
+            await _lane.WaitAsync(expiry.Token);
+
+            return true;
+        } catch (OperationCanceledException) {
+            return false;
         }
     }
 

@@ -256,11 +256,8 @@ public sealed class FirstRunFlowClient(HttpClient http, TimeProvider time) : IFi
 
     static string Base(string serverUrl) => serverUrl.TrimEnd('/');
 
-    /// <summary>A cancel from the caller is not a blip: reported as status 0 it reads as a transport
-    /// failure, and the poll loop would run to its budget instead of stopping. HttpClient's own
-    /// timeout is the same exception type with the token unsignalled, and that one genuinely is a blip.</summary>
+    /// <summary>Narrower than <see cref="HttpReadFailures.IsTransient"/>: an <see cref="IOException"/>
+    /// propagates here instead of reading as status 0.</summary>
     static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException;
+        e is not IOException && HttpReadFailures.IsTransient(e, ct);
 }

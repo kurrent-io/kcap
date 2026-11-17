@@ -1,8 +1,5 @@
 using Capacitor.Cli.Core.LocalIpc;
-using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -11,114 +8,22 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// Client-side round trip for <see cref="LocalControlOps.PutConsentPolicyV2Async"/> against a
 /// REAL daemon stack (not a scripted stub) — the identity-mismatch behaviour under test lives in
 /// <see cref="LaunchConsentIpc.HandleRulesPutV2Async"/>, so a fake server that just echoes back an
-/// ack would prove nothing. Harness mirrors
-/// <see cref="ConsentRulesPutV2Tests"/> (per-test daemons
-/// directory, socket-file poll, Windows guard, minimal AgentOrchestrator) but drives the daemon
-/// through <see cref="LocalControlOps"/>, the Core client under test, instead of hand-rolled
-/// frames.
+/// ack would prove nothing. Drives the daemon through <see cref="LocalControlOps"/>, the Core
+/// client under test, instead of hand-rolled frames.
 /// </summary>
 [ExcludeOn(OS.Windows)] // Unix-domain socket path
 public class LocalControlOpsV2PutTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
 
-    sealed class NoopHostLifetime : IHostApplicationLifetime {
-        public CancellationToken ApplicationStarted  => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped  => CancellationToken.None;
-        public void StopApplication() { }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("LocalControlOpsV2PutTests never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
-    }
-
-    sealed class NoopRestartStrategy : IRestartStrategy {
-        public RestartOutcome Restart() => RestartOutcome.NoOp;
-    }
-
-    sealed record Harness(TempDaemonStore Daemons, LocalControlServer Server, AgentOrchestrator Orchestrator, ServerConnection Connection, DaemonConfig Config, string SockPath);
-
-    async Task<Harness> StartAsync(string daemonName, CancellationToken ct, string serverUrl = "http://127.0.0.1:1") {
-        var daemons     = new TempDaemonStore();
-        var stateRoot   = daemons.Store.StateDirectory(daemonName);
-        var store       = new LaunchConsentStore(stateRoot, NullLogger.Instance, TimeProvider.System);
-        var broker      = new LaunchConsentBroker();
-        var decisionLog = new LaunchConsentDecisionLog(stateRoot, NullLogger.Instance);
-        var gate        = new LaunchConsentGate(store, decisionLog, broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
-
-        var config = new DaemonConfig {
-            Name         = daemonName,
-            ServerUrl    = serverUrl,
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-        };
-        var consentIpc = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
-
-        var tokens           = AuthFixtures.NewTokenStore(Config.Root);
-        var connection       = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
-        var worktreeManager  = new WorktreeManager(config, NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
-        var repoMatcher      = new RepoMatcher(config, NullLogger<RepoMatcher>.Instance, TimeProvider.System);
-        var permissionBridge = new LocalPermissionBridge(connection, NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System);
-
-        var orchestrator = new AgentOrchestrator(
-            config, Config.Root, TestHarnesses.Under(Home), connection, worktreeManager, repoMatcher,
-            new NoopPtyProcessFactory(), new NoopHttpClientFactory(), new FixedCapacitorHttpClient(),
-            tokens,
-            permissionBridge, new Dictionary<string, IHostedAgentLauncher>(),
-            new Dictionary<string, IHostedAgentRuntimeFactory>(), new NoopHostLifetime(),
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System);
-
-        var permissionIpc = new PermissionIpc(new PermissionPromptBroker(), NullLogger<PermissionIpc>.Instance);
-        var notifier = new DaemonStatusNotifier();
-        var statusIpc = new DaemonStatusIpc(config, orchestrator, connection, notifier, TimeProvider.System);
-        var settingsIpc = new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance);
-        var restart = RestartCoordinator.ForTest(daemons.Store, daemonName, daemonName, new NoopRestartStrategy(), TimeProvider.System);
-        var server = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
-        await server.StartAsync(ct);
-
-        var sockPath = daemons.Store.SocketPath(daemonName);
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(sockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, ct);
-
-        return new Harness(daemons, server, orchestrator, connection, config, sockPath);
-    }
-
-    static async Task StopAsync(Harness h) {
-        await h.Orchestrator.DisposeAsync();
-        await h.Server.StopAsync(CancellationToken.None);
-        h.Server.Dispose();
-        await h.Connection.DisposeAsync();
-        h.Daemons.Dispose();
-    }
-
-    /// Wraps a test body with the harness lifecycle, mirroring
-    /// ConsentRulesPutV2Tests.RunAsync, and hands the body a LocalControlOps pointed at the same
-    /// daemon name so it can drive Put/Get through the real client under test.
-    async Task RunAsync(string daemonName, Func<Harness, LocalControlOps, CancellationToken, Task> body, string serverUrl = "http://127.0.0.1:1") {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-
-        Harness? h = null;
-        try {
-            h = await StartAsync(daemonName, cts.Token, serverUrl);
-            await Assert.That(File.Exists(h.SockPath)).IsTrue();
+    Task RunAsync(string daemonName, Func<OrchestratorFixture, LocalControlOps, CancellationToken, Task> body, string serverUrl = "http://127.0.0.1:1") =>
+        new OrchestratorFixture(Config, Home, daemonName, serverUrl).ServeAsync((h, ct) => {
             var ops = new LocalControlOps(h.Daemons.Store, daemonName, TimeProvider.System) {
                 ConnectTimeout = TimeSpan.FromSeconds(2),
-                ReplyTimeout = TimeSpan.FromSeconds(5),
+                ReplyTimeout   = TimeSpan.FromSeconds(5),
             };
-            await body(h, ops, cts.Token);
-        } finally {
-            if (h is not null) await StopAsync(h);
-        }
-    }
+            return body(h, ops, ct);
+        });
 
     [Test]
     public async Task Identity_match_applies_and_follow_up_get_sees_it() {

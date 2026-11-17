@@ -17,6 +17,13 @@ public static class OwnedFile {
         }
     }
 
+    /// <summary>The file, or its marker alone: a user who deleted the file but kept the directory still opted in.</summary>
+    public static bool IsInstalled(string path, string markerFileName) {
+        if (File.Exists(path)) return true;
+        var dir = Path.GetDirectoryName(path);
+        return dir is not null && File.Exists(Path.Combine(dir, markerFileName));
+    }
+
     static bool Holds(string path, string content) {
         try {
             return File.Exists(path) && File.ReadAllText(path) == content;
