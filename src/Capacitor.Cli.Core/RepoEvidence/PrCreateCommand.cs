@@ -8,15 +8,14 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
 /// describing it — does not match. A create must be the last command run: after
 /// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
-/// A substitution holding one must be its command's only substitution, and only an <c>echo</c> or <c>printf</c> joined by
-/// <c>&amp;&amp;</c> may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
+/// A substitution holding one must be its command's only one, and only an echo of the variable it was assigned to,
+/// joined by <c>&amp;&amp;</c>, may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
 /// </summary>
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
 
     static readonly HashSet<string> Prefixes = new(StringComparer.Ordinal) { "env", "command", "exec", "time", "nohup", "sudo", "{", "!" };
     static readonly HashSet<string> Shells   = new(StringComparer.Ordinal) { "sh", "bash", "zsh", "dash", "ksh" };
-    static readonly HashSet<string> Printers = new(StringComparer.Ordinal) { "echo", "printf" };
 
     static readonly HashSet<string> ValueFlags = new(StringComparer.Ordinal) {
         "--title", "-t", "--body", "-b", "--body-file", "-F", "--base", "-B", "--head", "-H", "--reviewer", "-r",
@@ -68,7 +67,9 @@ public static partial class PrCreateCommand {
 
             foreach (var script in command.Scripts) {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
-                if (command.Scripts.Count != 1 || !commands.Skip(k + 1).All(PrintsOnlyAfterSuccess)) return false;
+                var accepted = command.Scripts.Count == 1
+                            && (k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
+                if (!accepted) return false;
 
                 repo = nestedRepo;
                 return true;
@@ -78,15 +79,14 @@ public static partial class PrCreateCommand {
         return false;
     }
 
-    /// <summary>A plain echo or printf that runs only once what came before it succeeded. After <c>||</c>, <c>;</c>
-    /// or a newline, or with a substitution of its own, it can print a URL the create never did.</summary>
-    static bool PrintsOnlyAfterSuccess(ShellCommand command) =>
-        command is { Joiner: "&&", Scripts.Count: 0 } && Printers.Contains(Executable(command.Words) ?? "");
+    /// <summary><c>NAME=$(…) &amp;&amp; echo "$NAME"</c>: the echo prints the substitution's output and nothing else, and
+    /// only once it succeeded. After <c>||</c>, <c>;</c> or a newline, or echoing anything else, it can print a URL the
+    /// create never did.</summary>
+    static bool EchoesAssignment(ShellCommand assignment, ShellCommand echo) {
+        if (assignment.Words is not [var target] || !target.EndsWith('=') || !Assignment().IsMatch(target)) return false;
 
-    static string? Executable(List<string> words) {
-        var i = 0;
-        while (i < words.Count && (Prefixes.Contains(words[i]) || Assignment().IsMatch(words[i]))) i++;
-        return i < words.Count ? Path.GetFileName(words[i]) : null;
+        var name = target[..^1];
+        return echo is { Joiner: "&&", Scripts.Count: 0, Words: ["echo", var value] } && (value == "$" + name || value == "${" + name + "}");
     }
 
     static bool Inspect(List<string> words, out string? script, out string? repo) {
@@ -196,8 +196,10 @@ public static partial class PrCreateCommand {
                     break;
                 case '$' when i + 1 < text.Length && text[i + 1] == '{': {
                     var end = text.IndexOf('}', i + 2);
-                    i      = end < 0 ? text.Length : end + 1;
+                    end = end < 0 ? text.Length : end + 1;
+                    word.Append(text, i, end - i);
                     inWord = true;
+                    i      = end;
                     break;
                 }
                 case '`':

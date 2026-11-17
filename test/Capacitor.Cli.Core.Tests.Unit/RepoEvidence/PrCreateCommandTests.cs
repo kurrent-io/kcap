@@ -10,6 +10,8 @@ public class PrCreateCommandTests {
     [Arguments("GH_TOKEN=x /opt/homebrew/bin/gh pr create --fill")]
     [Arguments("bash -lc 'cd app && gh pr create --fill'")]
     [Arguments("url=$(gh pr create --fill) && echo \"$url\"")]
+    [Arguments("url=$(gh pr create --fill) && echo ${url}")]
+    [Arguments("echo \"$(gh pr create --fill)\"")]
     [Arguments("echo '<<EOF'\ngh pr create --fill")]
     [Arguments("# <<EOF\ngh pr create --fill")]
     [Arguments("gh pr create --title '--dry-run' --fill")]
@@ -33,6 +35,8 @@ public class PrCreateCommandTests {
     [Arguments("url=$(gh pr create --fill) || echo \"$(gh pr view --json url --jq .url)\"")]
     [Arguments("url=$(gh pr create --fill); echo \"$(gh pr view --json url --jq .url)\"")]
     [Arguments("url=$(gh pr create --fill); echo \"$existing\"")]
+    [Arguments("url=$(gh pr create --fill) && echo \"$existing\"")]
+    [Arguments("url=$(gh pr create --fill) && echo \"$url\" && echo \"$existing\"")]
     [Arguments("url=$(gh pr create --fill)\necho \"$existing\"")]
     [Arguments("echo \"$(gh pr create --fill)\" \"$(gh pr view --json url --jq .url)\"")]
     public async Task A_mention_or_another_command_does_not_match(string command) {
