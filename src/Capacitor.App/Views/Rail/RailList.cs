@@ -64,7 +64,9 @@ public sealed class RailList : ItemsControl {
             _root._tops[(Scope, key)] = row.Bounds.Y;
     }
 
+    // A group gaining or losing rows moves the groups below it, so the outer list settles too.
     void Pend() {
+        if (_root != this) _root.Pend();
         if (_pending) return;
         _pending = true;
         LayoutUpdated += Settle;
