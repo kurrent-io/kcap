@@ -8,6 +8,7 @@ public class PrCreateCommandTests {
     [Arguments("cd /work/app && gh pr create --title t --body b")]
     [Arguments("git push -u origin HEAD; gh pr create --fill 2>&1")]
     [Arguments("gh pr create --fill 2>/tmp/gh.err")]
+    [Arguments("gh pr create --fill 2>>errors.log")]
     [Arguments("bash -c 'gh pr create --title \"$1\" --fill' _ '>new feature'")]
     [Arguments("gh pr create --fill --title '>quoted'")]
     [Arguments("git push || true; gh pr create --fill")]

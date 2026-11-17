@@ -269,7 +269,7 @@ public static partial class PrCreateCommand {
                     word.Append(c);
                     inWord = true;
                     i++;
-                    while (i < text.Length && text[i] is '<' or '&') word.Append(text[i++]);
+                    while (i < text.Length && (text[i] is '&' || text[i] == c)) word.Append(text[i++]);
                     break;
                 default:
                     word.Append(c);
