@@ -153,12 +153,12 @@ public static partial class PrCreateCommand {
             return false;
         }
 
-        if (exe != "gh" || words.Count < i + 3 || words[i + 1] != "pr" || words[i + 2] != "create") return false;
+        if (exe != "gh" || words.Count < i + 3 || words[i + 1] != "pr" || words[i + 2] != "create" || command.StdoutRedirects.Count > 0) return false;
 
         for (var j = i + 3; j < words.Count; j++) {
             var arg = words[j];
 
-            if (arg == "--dry-run" || command.StdoutRedirects.Contains(j)) return false;
+            if (arg == "--dry-run") return false;
 
             if (arg is "--repo" or "-R") {
                 if (j + 1 < words.Count) repo = words[++j];
