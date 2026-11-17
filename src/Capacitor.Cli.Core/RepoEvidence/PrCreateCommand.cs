@@ -8,7 +8,8 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
 /// describing it — does not match. A create must be the last command run: after
 /// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
-/// Only an <c>echo</c> or <c>printf</c> may follow a substitution holding one (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
+/// A substitution holding one must be its command's only substitution, and only an <c>echo</c> or <c>printf</c> joined by
+/// <c>&amp;&amp;</c> may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
 /// </summary>
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
@@ -67,7 +68,7 @@ public static partial class PrCreateCommand {
 
             foreach (var script in command.Scripts) {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
-                if (!commands.Skip(k + 1).All(PrintsOnlyAfterSuccess)) return false;
+                if (command.Scripts.Count != 1 || !commands.Skip(k + 1).All(PrintsOnlyAfterSuccess)) return false;
 
                 repo = nestedRepo;
                 return true;
@@ -77,10 +78,10 @@ public static partial class PrCreateCommand {
         return false;
     }
 
-    /// <summary>A plain echo or printf that runs only once what came before it succeeded: after <c>||</c>, or with
-    /// a substitution of its own, it can print a URL the create never did.</summary>
+    /// <summary>A plain echo or printf that runs only once what came before it succeeded. After <c>||</c>, <c>;</c>
+    /// or a newline, or with a substitution of its own, it can print a URL the create never did.</summary>
     static bool PrintsOnlyAfterSuccess(ShellCommand command) =>
-        command.Joiner is "&&" or ";" or "\n" && command.Scripts.Count == 0 && Printers.Contains(Executable(command.Words) ?? "");
+        command is { Joiner: "&&", Scripts.Count: 0 } && Printers.Contains(Executable(command.Words) ?? "");
 
     static string? Executable(List<string> words) {
         var i = 0;
