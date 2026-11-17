@@ -138,6 +138,20 @@ public class WatchCreatedPullRequestTests {
         await Assert.That(CreatedPullRequestAdapters.For("no-such-vendor")).IsNull();
     }
 
+    // Pi pairs a bash toolCall with its toolResult; a restart between them must not lose the pair.
+    [Test]
+    public async Task A_pi_create_answered_after_a_restart_is_queued() {
+        var state = new WatchState();
+        var pi    = CreatedPullRequestAdapters.For("pi")!;
+
+        TranscriptRecorder.CreatedPullRequestsReplay(state, "pi", pi).OnLine(
+            """{"type":"message","id":"a1","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_pr","name":"bash","arguments":{"command":"gh pr create --fill"}}]}}""");
+        TranscriptRecorder.ObserveCreatedPullRequest(state, "pi", pi,
+            """{"type":"message","id":"r1","message":{"role":"toolResult","toolCallId":"call_pr","toolName":"bash","content":[{"type":"text","text":"https://github.com/kurrent-io/kcap-cli/pull/1917\n"}],"isError":false}}""");
+
+        await Assert.That(state.PendingCreatedPullRequests).IsEquivalentTo([Created(1917)]);
+    }
+
     sealed class SplitAdapter : ICreatedPullRequestAdapter {
         public static readonly SplitAdapter Instance = new();
 

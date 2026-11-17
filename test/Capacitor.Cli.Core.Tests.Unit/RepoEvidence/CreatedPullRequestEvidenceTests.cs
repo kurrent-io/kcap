@@ -89,4 +89,17 @@ public class CreatedPullRequestEvidenceTests {
 
         await Assert.That(evidence.Drain().Select(f => f.CallId ?? "")).IsEquivalentTo(["c3"]);
     }
+
+    // A pipe into tail reports tail's exit status, so gh's own refusal shows only in the output. gh run without a
+    // terminal prints the URL alone.
+    [Test]
+    public async Task A_filtered_create_counts_only_when_its_output_shows_it_succeeded() {
+        var evidence = new CreatedPullRequestEvidence();
+
+        evidence.Completed("ok", "gh pr create --fill 2>&1 | tail -5", CreateOutput, succeeded: true);
+        evidence.Completed("exists", "gh pr create --fill 2>&1 | tail -5", "a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url, succeeded: true);
+        evidence.Completed("bare", "gh pr create --fill 2>&1 | tail -5", Url, succeeded: true);
+
+        await Assert.That(evidence.Drain().Select(f => f.CallId ?? "")).IsEquivalentTo(["ok", "bare"]);
+    }
 }

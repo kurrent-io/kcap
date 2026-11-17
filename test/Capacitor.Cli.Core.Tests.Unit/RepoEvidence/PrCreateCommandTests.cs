@@ -59,7 +59,6 @@ public class PrCreateCommandTests {
     [Arguments("gh pr view --json url --jq .url || bash -c 'gh pr create --fill'")]
     [Arguments("gh pr view --json url --jq .url || url=$(gh pr create --fill) && echo \"$url\"")]
     [Arguments("gh pr create --fill; gh pr view --json url --jq .url")]
-    [Arguments("gh pr create --fill 2>&1 | tail -1")]
     [Arguments("url=$(gh pr create --fill || gh pr view --json url --jq .url) && echo \"$url\"")]
     [Arguments("url=$(gh pr create --fill) || gh pr view --json url --jq .url")]
     [Arguments("url=$(gh pr create --fill) || echo \"$(gh pr view --json url --jq .url)\"")]
@@ -105,6 +104,32 @@ public class PrCreateCommandTests {
     public async Task The_repo_flag_is_returned(string command, string? expected) {
         await Assert.That(PrCreateCommand.TryMatch(command, out var repo)).IsTrue();
         await Assert.That(repo).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("cd /work/app && gh pr create --fill 2>&1 | tail -5", true)]
+    [Arguments("gh pr create --fill 2>&1 | tail -n 3", true)]
+    [Arguments("gh pr create --fill | head -20", true)]
+    [Arguments("gh pr create --fill | tail", true)]
+    [Arguments("gh pr create --fill | tail --lines=2", true)]
+    [Arguments("gh pr create --fill | tail -n5", true)]
+    [Arguments("gh pr create --fill", false)]
+    public async Task A_create_piped_through_tail_or_head_is_filtered(string command, bool filtered) {
+        await Assert.That(PrCreateCommand.TryMatch(command, out _, out var isFiltered)).IsTrue();
+        await Assert.That(isFiltered).IsEqualTo(filtered);
+    }
+
+    [Test]
+    [Arguments("gh pr create --fill | tail -1 notes.txt")]
+    [Arguments("gh pr create --fill | grep http")]
+    [Arguments("gh pr create --fill 2>&1 | tail -1")]
+    [Arguments("gh pr create --fill 2>&1 | tail -n 1")]
+    [Arguments("gh pr create --fill | tail -c 60")]
+    [Arguments("gh pr create --fill | tail -n +2")]
+    [Arguments("gh pr create --fill | tail -1 | cat")]
+    [Arguments("gh pr create --fill | tail -1 > out.txt")]
+    public async Task Any_other_pipe_after_a_create_does_not_match(string command) {
+        await Assert.That(PrCreateCommand.TryMatch(command, out _)).IsFalse();
     }
 
     [Test]
