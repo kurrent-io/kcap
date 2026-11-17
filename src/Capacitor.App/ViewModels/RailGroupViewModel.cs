@@ -25,6 +25,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string Label { get => _label; private set => this.RaiseAndSetIfChanged(ref _label, value); }
     public bool ShowsHeader => Kind is not (RailGrouping.None or RailGrouping.WorkItem);
     public bool IsWorkItem => Kind == RailGrouping.WorkItem;
+    public string? WorkItemId { get; }
     int _partsDone;
     public int PartsDone { get => _partsDone; private set => this.RaiseAndSetIfChanged(ref _partsDone, value); }
     int _partsTotal;
@@ -80,6 +81,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             IObservable<bool>? endedListPartial = null, RailWorkItem? workItem = null) {
         Key = key;
         Kind = kind;
+        WorkItemId = workItem?.Id;
         _label = label;
         IsNoRepository = kind == RailGrouping.Repository && label == "No repository";
         _rootDisplay = kind == RailGrouping.Repository ? DisplayFor(Key, label) : label;

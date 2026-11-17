@@ -1414,6 +1414,8 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
+                workItemPages: sessionHttp is null || profiles is null || string.IsNullOrEmpty(profiles.Resolution.ServerUrl)
+                    ? null : new WorkItemPageApi(sessionHttp, profiles),
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2331,7 +2333,8 @@ public partial class App : Application {
             ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null,
             Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null,
-            Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null) {
+            Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
+            IWorkItemPageApi? workItemPages = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2442,6 +2445,17 @@ public partial class App : Application {
                 time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
                 openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
+        var flippedWorkItemGroups = new HashSet<string>(StringComparer.Ordinal);
+        Func<string, WorkItemPageViewModel>? workItemPageFactory = workItemPages is null || sessions is null ? null : id => new WorkItemPageViewModel(
+            id, workItemPages, resolvedDirectory, time, flippedWorkItemGroups,
+            needsYou: (agentsWithPending ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
+                .CombineLatest(agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty),
+                    (permissions, answers) => (IReadOnlySet<string>)permissions.Union(answers).ToFrozenSet(StringComparer.Ordinal)),
+            changed: sessions.Snapshots.Select(_ => Unit.Default),
+            openSession: sessionId => _ = vm?.OpenWorkItemSessionAsync(sessionId),
+            openUrl: openUrl,
+            openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
+                : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"));
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2449,7 +2463,7 @@ public partial class App : Application {
             laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            searchFactory: searchFactory, appServerUrl: appServerUrl,
+            searchFactory: searchFactory, appServerUrl: appServerUrl, workItemPageFactory: workItemPageFactory,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,
@@ -2460,7 +2474,10 @@ public partial class App : Application {
         };
         var window = adopt?.Window ?? new MainWindow();
         window.DataContext = vm;
-        window.Closed += (_, _) => vm.Search?.Dispose();
+        window.Closed += (_, _) => {
+            vm.Search?.Dispose();
+            vm.WorkItemPage?.Dispose();
+        };
         // An adopted window still holds the labels over the directory it was built with.
         window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();
         var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);

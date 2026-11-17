@@ -1,0 +1,280 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.WorkItemPageView"
+             x:DataType="vm:WorkItemPageViewModel">
+    <UserControl.Styles>
+        <Style Selector="Button.pageTab">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.pageTab /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.pageTab.active /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.linkChip">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="CornerRadius" Value="12" />
+        </Style>
+        <Style Selector="Button.addChip">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.addChip /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.menuRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="Button.sessionRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="18,0,0,0" />
+        </Style>
+        <Style Selector="Border.partCard">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="6,6,10,6" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBlock.partDetail">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="Margin" Value="34,0,0,2" />
+        </Style>
+        <Style Selector="TextBlock.partDetail.waiting">
+            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="SessionRow" x:DataType="vm:WorkItemPageSession">
+            <Button Classes="kcapGhost sessionRow"
+                    Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
+                    CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource KcapCanvasBrush}">
+        <DockPanel Margin="24,20,24,0">
+            <Grid x:Name="WorkItemHeader" DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,0,0,12">
+                <views:AppIcon Kind="Layers" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                <TextBlock x:Name="WorkItemTitle" Grid.Column="1" Text="{Binding Title}" FontSize="15" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Background="{StaticResource KcapSurfaceBrush}" CornerRadius="8" Padding="2">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <Button Classes="kcapGhost pageTab active" Content="Parts" Focusable="False" />
+                        <Button Classes="kcapGhost pageTab" Content="Graph" IsEnabled="False"
+                                ToolTip.Tip="The graph is in the web app" ToolTip.ShowOnDisabled="True" />
+                    </StackPanel>
+                </Border>
+                <Button x:Name="WorkItemOpenInWeb" Grid.Column="3" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
+                        ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
+                    <views:AppIcon Kind="ExternalLink" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                </Button>
+            </Grid>
+
+            <ScrollViewer>
+                <StackPanel MaxWidth="760" Spacing="14" Margin="0,0,0,24">
+                    <TextBlock x:Name="WorkItemGoal" Text="{Binding Goal}" TextWrapping="Wrap" FontSize="13"
+                               Foreground="{StaticResource KcapMutedBrush}"
+                               IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <WrapPanel x:Name="WorkItemLinks" ItemSpacing="6" LineSpacing="6">
+                        <ItemsControl ItemsSource="{Binding Links}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkItemPageLink">
+                                    <Button Classes="kcapChip linkChip" Content="{Binding Label}" ToolTip.Tip="{Binding Title}"
+                                            Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button x:Name="AddLinkButton" Classes="kcapChip addChip" AutomationProperties.Name="Add link">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <views:AppIcon Kind="Plus" Size="12" />
+                                <TextBlock Text="Link" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel">
+                                    <StackPanel Spacing="8" Margin="8" Width="260">
+                                        <TextBox Classes="kcapField" Text="{Binding NewLinkReference}" PlaceholderText="Issue key or PR"
+                                                 AutomationProperties.Name="Issue key or PR" />
+                                        <Button Classes="kcapChip" Content="Add link" HorizontalAlignment="Right"
+                                                Command="{Binding AddLinkCommand}" Click="OnFlyoutItemClick" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button x:Name="AddPartButton" Classes="kcapChip addChip" AutomationProperties.Name="Add part">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <views:AppIcon Kind="Plus" Size="12" />
+                                <TextBlock Text="Part" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel">
+                                    <StackPanel Spacing="8" Margin="8" Width="260">
+                                        <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Part title"
+                                                 AutomationProperties.Name="Part title" />
+                                        <Button Classes="kcapChip" Content="Add part" HorizontalAlignment="Right"
+                                                Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </WrapPanel>
+
+                    <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <ItemsControl ItemsSource="{Binding Progress}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Rows="1" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkStatus">
+                                    <Border Height="4" CornerRadius="2" Margin="1,0"
+                                            Background="{Binding Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="WorkItemProgress" Grid.Column="1" Text="{Binding ProgressText}" Classes="sectionMeta" />
+                    </Grid>
+
+                    <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:WorkItemPageGroupViewModel">
+                                <StackPanel Margin="0,0,0,8">
+                                    <Button Classes="sectionHeader expandable" Command="{Binding ToggleCommand}"
+                                            AutomationProperties.Name="{Binding Label}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Panel Width="12" Height="12">
+                                                <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding IsExpanded}" />
+                                                <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !IsExpanded}" />
+                                            </Panel>
+                                            <TextBlock Text="{Binding Heading}" Classes="eyebrow" />
+                                            <TextBlock Text="{Binding Count}" Classes="sectionMeta" />
+                                        </StackPanel>
+                                    </Button>
+                                    <StackPanel IsVisible="{Binding IsExpanded}">
+                                        <ItemsControl ItemsSource="{Binding Parts}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:WorkItemPagePart">
+                                                    <Border Classes="partCard">
+                                                        <StackPanel>
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                                                <Button Classes="kcapGhost kcapIcon" ToolTip.Tip="{Binding StatusLabel, StringFormat='{}{0}. Set the status by hand'}"
+                                                                        AutomationProperties.Name="{Binding StatusLabel, StringFormat='Status {0}'}">
+                                                                    <views:AppIcon Kind="{Binding Icon}" Size="14"
+                                                                                   Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                                                                    <Button.Flyout>
+                                                                        <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel">
+                                                                            <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                                                <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="in_progress" Click="OnFlyoutItemClick">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                        <views:AppIcon Kind="CircleDot" Size="14" Foreground="{StaticResource KcapPurpleBrush}" />
+                                                                                        <TextBlock Text="In progress" />
+                                                                                    </StackPanel>
+                                                                                </Button>
+                                                                                <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="in_review" Click="OnFlyoutItemClick">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                        <views:AppIcon Kind="Contrast" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
+                                                                                        <TextBlock Text="In review" />
+                                                                                    </StackPanel>
+                                                                                </Button>
+                                                                                <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="blocked" Click="OnFlyoutItemClick">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                        <views:AppIcon Kind="CircleSlash" Size="14" Foreground="{StaticResource KcapWarningBrush}" />
+                                                                                        <TextBlock Text="Blocked" />
+                                                                                    </StackPanel>
+                                                                                </Button>
+                                                                                <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="open" Click="OnFlyoutItemClick">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                        <views:AppIcon Kind="Circle" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                                                                        <TextBlock Text="Open" />
+                                                                                    </StackPanel>
+                                                                                </Button>
+                                                                                <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="done" Click="OnFlyoutItemClick">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                        <views:AppIcon Kind="CircleCheck" Size="14" Foreground="{StaticResource KcapSuccessBrush}" />
+                                                                                        <TextBlock Text="Done" />
+                                                                                    </StackPanel>
+                                                                                </Button>
+                                                                                <Border Height="1" Margin="4" Background="{StaticResource KcapBorderBrush}" />
+                                                                                <Button Classes="kcapGhost menuRow" Content="Work it out from links" Command="{Binding SetStatusCommand}"
+                                                                                        CommandParameter="" Click="OnFlyoutItemClick" />
+                                                                            </StackPanel>
+                                                                        </Flyout>
+                                                                    </Button.Flyout>
+                                                                </Button>
+                                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center" />
+                                                                <Border Grid.Column="2" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
+                                                                        VerticalAlignment="Center" IsVisible="{Binding NeedsYou}">
+                                                                    <TextBlock Text="Needs you" FontSize="11" Foreground="{StaticResource KcapWarningBrush}" />
+                                                                </Border>
+                                                                <TextBlock Grid.Column="3" Text="{Binding SessionCountText}" Classes="sectionMeta"
+                                                                           IsVisible="{Binding HasSessions}" />
+                                                            </Grid>
+                                                            <TextBlock Classes="partDetail" Classes.waiting="{Binding DetailIsWaiting}" Text="{Binding Detail}" />
+                                                            <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                                        <ItemsControl ItemsSource="{Binding LooseEnds}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:WorkItemPageLooseEnd">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="8,4,0,0">
+                                                        <views:AppIcon Kind="Diamond" Size="12" Foreground="{StaticResource KcapFaintBrush}" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Text}" FontSize="13" TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center" />
+                                                        <Button Grid.Column="2" Classes="kcapChip linkChip" Content="Make part"
+                                                                Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).MakePartCommand}"
+                                                                CommandParameter="{Binding}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

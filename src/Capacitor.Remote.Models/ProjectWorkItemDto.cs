@@ -10,5 +10,5 @@ public sealed record ProjectWorkItemDto {
     [JsonPropertyName("parts_done")]   public int PartsDone { get; init; }
     [JsonPropertyName("parts_total")]  public int PartsTotal { get; init; }
     [JsonPropertyName("sessions")]     public List<WorkItemSessionRefDto> Sessions { get; init; } = [];
-    [JsonPropertyName("parts")]        public List<WorkItemPartRefDto> Parts { get; init; } = [];
+    [JsonPropertyName("parts")]        public List<WorkItemRefDto> Parts { get; init; } = [];
 }

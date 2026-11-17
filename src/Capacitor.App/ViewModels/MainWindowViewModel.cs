@@ -248,6 +248,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> OpenSearchCommand { get; }
     public ReactiveCommand<Unit, Unit> DismissSearchCommand { get; }
 
+    /// A work item's page, drawn over the main area like the search page. Null while none is open.
+    public WorkItemPageViewModel? WorkItemPage {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public ReactiveCommand<string, Unit> OpenWorkItemCommand { get; }
+    readonly Func<string, WorkItemPageViewModel>? _workItemPageFactory;
+
     readonly Subject<Unit> _searchFocusRequests = new();
     /// The shortcut or the rail field while the page is already open: focus the query, keep its state.
     public IObservable<Unit> SearchFocusRequests => _searchFocusRequests;
@@ -422,7 +431,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             IObservable<bool>? movingToWindowsService = null,
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
-            IServerSessionsService? sessions = null, string? appServerUrl = null) {
+            IServerSessionsService? sessions = null, string? appServerUrl = null,
+            Func<string, WorkItemPageViewModel>? workItemPageFactory = null) {
         _service = service;
         _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
@@ -450,7 +460,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         Search?.Closed.Subscribe(_ => IsSearchOpen = false);
         if (Search is { } page) page.WhenAnyValue(x => x.ListState).Subscribe(_ => this.RaisePropertyChanged(nameof(SearchShowsSignIn)));
         OpenSearchCommand = ReactiveCommand.Create(OpenSearch);
-        DismissSearchCommand = ReactiveCommand.Create(CloseSearch);
+        DismissSearchCommand = ReactiveCommand.Create(ClosePages);
+        _workItemPageFactory = workItemPageFactory;
+        OpenWorkItemCommand = ReactiveCommand.Create<string>(OpenWorkItem);
         var canRefreshWork = Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(CanRefreshOpenWork))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -799,7 +811,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     bool Navigate(string agentId, AgentOrigin? origin, string? sessionId, bool record = true) {
         var from = Here();
         if (!OpenSessionCore(agentId, origin, revealInRail: true)) return false;
-        CloseSearch();
+        ClosePages();
         ReleasePinUnless(sessionId ?? SessionOfOpen());
         if (record) RecordLeaving(from);
         return true;
@@ -815,7 +827,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         }
         if (_navigation.ShutdownLatched) return;
         var from = Here();
-        CloseSearch();
+        ClosePages();
         CloseWorkspace();
         RecordLeaving(from);
         await home.SelectMachineAsync(_service.DaemonName, isLocal: true);
@@ -828,7 +840,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         var selected = !onLauncher && Rail?.SelectedSessionKey is { } key && _directory?.Rows.Lookup(key) is { HasValue: true } row
             ? row.Value : null;
         var from = Here();
-        CloseSearch();
+        ClosePages();
         CloseWorkspace();
         RecordLeaving(from);
         if (onLauncher) _launcherNudges.OnNext(Unit.Default);
@@ -840,14 +852,37 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _searchFocusRequests.OnNext(Unit.Default);
             return;
         }
+        CloseWorkItem();
         Search?.Reset();
         Search?.Refresh();
         IsSearchOpen = true;
         _navigation.Bump();
     }
 
-    /// A closed page keeps no query, so a reconnect or an access change has nothing to ask again.
-    void CloseSearch() {
+    /// The current workspace stays open beneath the page.
+    void OpenWorkItem(string workItemId) {
+        if (_workItemPageFactory is null || WorkItemPage?.WorkItemId == workItemId) return;
+        ClosePages();
+        WorkItemPage = _workItemPageFactory(workItemId);
+        _navigation.Bump();
+    }
+
+    void CloseWorkItem() {
+        var page = WorkItemPage;
+        WorkItemPage = null;
+        page?.Dispose();
+    }
+
+    /// Opens what a rail click on the session would, pinning a session the rail does not list.
+    public Task<SearchOpenOutcome> OpenWorkItemSessionAsync(string sessionId) {
+        var page = WorkItemPage;
+        return OpenServerSessionAsync(sessionId, new PinPresentation(null, null, null),
+            () => page is not null && WorkItemPage == page, CancellationToken.None);
+    }
+
+    /// A closed search page keeps no query, so a reconnect or an access change has nothing to ask again.
+    void ClosePages() {
+        CloseWorkItem();
         IsSearchOpen = false;
         Search?.Reset();
         if (CurrentWorkspace is null) ReleasePinUnless(null);
@@ -1082,7 +1117,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// lane lists any longer is found again by its session, pinning it when the rail no longer has it.
     async Task<bool> ReturnToAsync(NavigationEntry target, int generation) {
         if (target.IsLauncher) {
-            CloseSearch();
+            ClosePages();
             CloseWorkspace();
             return CurrentWorkspace is null;
         }

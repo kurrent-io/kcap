@@ -23,6 +23,8 @@ using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using WorkItemLinkDto = Capacitor.Cli.Core.WorkItems.WorkItemLinkDto;
+using WorkItemRefDto = Capacitor.Cli.Core.WorkItems.WorkItemRefDto;
 
 namespace Capacitor.App.Tests.Unit;
 

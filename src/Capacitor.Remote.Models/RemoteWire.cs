@@ -58,6 +58,9 @@ public static class ApiRoutes {
     public const string ModelOptions   = "api/agents/model-options";
     public const string Projects       = "api/projects";
     public static string ProjectWorkItems(string projectId) => $"api/work-items?project_id={Uri.EscapeDataString(projectId)}";
+    public static string WorkItem(string workItemId, string action) => $"api/work-items/{Uri.EscapeDataString(workItemId)}/{action}";
+    public static string LooseEndPart(string workItemId, string looseEndId) =>
+        $"api/work-items/{Uri.EscapeDataString(workItemId)}/loose-ends/{Uri.EscapeDataString(looseEndId)}/part";
     public const string SessionOwners  = "api/sessions/owners";
     public static string SessionListing(string state, string? owner, int limit, int offset) =>
         $"api/sessions/listing?state={state}&limit={limit}&offset={offset}"

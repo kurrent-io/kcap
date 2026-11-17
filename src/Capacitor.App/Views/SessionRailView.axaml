@@ -545,20 +545,27 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <StackPanel Classes="railGroup" Classes.workItem="{Binding IsWorkItem}">
-                                    <Button x:Name="RailWorkItemHeader" Classes="sectionHeader expandable" Command="{Binding ToggleCommand}" IsVisible="{Binding IsWorkItem}"
-                                            ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
-                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
+                                    <Grid x:Name="RailWorkItemHeader" ColumnDefinitions="Auto,*" IsVisible="{Binding IsWorkItem}">
+                                        <Button x:Name="RailWorkItemToggle" Classes="sectionHeader expandable" Command="{Binding ToggleCommand}"
+                                                Margin="-8,0,0,0" Padding="8,0,4,0" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                             <Panel Width="12" Height="12">
                                                 <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding IsExpanded}" />
                                                 <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !IsExpanded}" />
                                             </Panel>
-                                            <TextBlock x:Name="RailWorkItemTitle" Grid.Column="1" Text="{Binding Label}" FontSize="13"
-                                                       Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <ProgressBar Grid.Column="2" Width="32" Height="3" MinHeight="3" MinWidth="32" Minimum="0"
-                                                         Maximum="{Binding PartsTotal}" Value="{Binding PartsDone}" VerticalAlignment="Center" />
-                                            <TextBlock x:Name="RailWorkItemParts" Grid.Column="3" Text="{Binding PartsText}" Classes="sectionMeta" />
-                                        </Grid>
-                                    </Button>
+                                        </Button>
+                                        <Button x:Name="RailWorkItemOpen" Grid.Column="1" Classes="sectionHeader expandable" Margin="0,0,-8,0" Padding="2,0,8,0"
+                                                Command="{Binding $parent[views:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding WorkItemId}"
+                                                ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding Label, StringFormat='Open {0}'}">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                                                <TextBlock x:Name="RailWorkItemTitle" Text="{Binding Label}" FontSize="13"
+                                                           Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                <ProgressBar Grid.Column="1" Width="32" Height="3" MinHeight="3" MinWidth="32" Minimum="0"
+                                                             Maximum="{Binding PartsTotal}" Value="{Binding PartsDone}" VerticalAlignment="Center" />
+                                                <TextBlock x:Name="RailWorkItemParts" Grid.Column="2" Text="{Binding PartsText}" Classes="sectionMeta" />
+                                            </Grid>
+                                        </Button>
+                                    </Grid>
                                     <Button Classes="sectionHeader expandable railRepoHeader" Command="{Binding ToggleCommand}" IsVisible="{Binding ShowsHeader}"
                                             ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
