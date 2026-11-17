@@ -621,13 +621,16 @@ public static class OpenCodeExtensionInstaller {
         const V2_WAIT_MS = 10000
 
         // Bounded: most sessions end without a session.deleted, and the server process outlives them.
-        function v2Remember<V>(map: Map<string, V>, key: string, value: V, max = V2_MAX_SESSIONS) {
+        // Returns the id it evicted, if any.
+        function v2Remember<V>(map: Map<string, V>, key: string, value: V, max = V2_MAX_SESSIONS): string | undefined {
           map.delete(key)
+          let evicted: string | undefined
           if (map.size >= max) {
             const oldest = map.keys().next()
-            if (!oldest.done) map.delete(oldest.value)
+            if (!oldest.done) { evicted = oldest.value; map.delete(evicted) }
           }
           map.set(key, value)
+          return evicted
         }
 
         function v2Wait(pending: Promise<unknown>) {
@@ -668,7 +671,12 @@ public static class OpenCodeExtensionInstaller {
               if (where) args.push("--cwd", String(where))
               if (ctx.app?.version) args.push("--version", String(ctx.app.version))
               const fragment = (await runKcap(args)).trim()
-              if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) v2Remember(v2.memory, sid, fragment)
+              if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) {
+                // A session whose fragment is evicted is started again on its next request, and kcap
+                // serves the fragment to each start of the same session.
+                const evicted = v2Remember(v2.memory, sid, fragment)
+                if (evicted) v2.started.delete(evicted)
+              }
               return true
             })()
 

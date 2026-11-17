@@ -48,7 +48,7 @@ public class OpenCodePluginV2Tests {
         await Assert.That(gate).Contains("if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }");
         await Assert.That(gate).Contains("\"hook\", \"--opencode\", \"--event\", \"session-start\"");
         await Assert.That(gate).Contains("\"--memory-contract\", \"1\"");
-        await Assert.That(gate).Contains("if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid))");
+        await Assert.That(gate).Contains("if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) {");
         await Assert.That(V2).Contains("if (type === \"session.created\" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }");
     }
 
@@ -72,6 +72,14 @@ public class OpenCodePluginV2Tests {
         await Assert.That(Content).Contains("children: new Map<string, true>()");
         await Assert.That(V2).DoesNotContain("v2.started.add(");
         await Assert.That(V2).DoesNotContain("v2.children.add(");
+    }
+
+    /// <summary>A fragment evicted from the bounded cache must not leave its session reading as started,
+    /// or that session's later requests never get the index again.</summary>
+    [Test]
+    public async Task An_evicted_fragment_restarts_its_session() {
+        await Assert.That(V2).Contains("const evicted = v2Remember(v2.memory, sid, fragment)");
+        await Assert.That(V2).Contains("if (evicted) v2.started.delete(evicted)");
     }
 
     /// <summary>v2 transcripts are not captured yet: the session's file only ever gets title lines.</summary>
