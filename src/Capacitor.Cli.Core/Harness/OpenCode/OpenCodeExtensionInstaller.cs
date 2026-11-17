@@ -47,7 +47,8 @@ public static class OpenCodeExtensionInstaller {
         //
         // OpenCode v2 loads the default export's setup instead (see the v2 section at the end): it records
         // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript. Under a
-        // server shared across sessions it also keeps a heartbeat per session, which kcap ends on idle.
+        // server shared across sessions it also keeps a heartbeat per session, which kcap ends on idle, and starts
+        // again a session kcap marked ended.
         //
         // Dependency-free (only node: builtins) and fail-safe by default.
 
@@ -617,6 +618,7 @@ public static class OpenCodeExtensionInstaller {
           pendingTitle: new Map<string, { title: string; time?: number }>(),
           lastTitle: new Map<string, string>(),
           beatAt: new Map<string, number>(),
+          restartAt: new Map<string, number>(),
           tools: new Map<string, Set<string>>(),
         }
         const V2_MAX_SESSIONS = 64
@@ -673,33 +675,32 @@ public static class OpenCodeExtensionInstaller {
 
           // A server shared across sessions (the background service, `opencode serve`) outlives every one of them,
           // so its sessions have no end signal: the heartbeat beside the session's file says so, and kcap ends the
-          // session once it goes quiet, deleting the heartbeat. `--standalone` runs a private server over stdio,
+          // session once it goes quiet, leaving the end marker. `--standalone` runs a private server over stdio,
           // which exits with the run and ends the session that way.
           const shared = !process.argv.includes("--stdio")
           const heartbeat = (sid: string) => join(dir, sid + ".heartbeat")
+          const ended = (sid: string) => join(dir, sid + ".ended")
 
-          // The format kcap reads, written temp-then-rename so it never reads half a timestamp. Only a session whose
-          // heartbeat was written has a beatAt; one evicted from it is started again, and so written again.
+          // The format kcap reads, written temp-then-rename so it never reads half a timestamp.
           function writeHeartbeat(sid: string) {
             const tmp = heartbeat(sid) + "." + process.pid + ".tmp"
             writeFileSync(tmp, new Date().toISOString())
             renameSync(tmp, heartbeat(sid))
-            const evicted = v2Remember(v2.beatAt, sid, Date.now(), V2_MAX_IDS)
-            if (evicted) v2.started.delete(evicted)
+            v2Remember(v2.beatAt, sid, Date.now(), V2_MAX_IDS)
           }
 
-          // Throttled unless forced. A started session whose heartbeat is gone was ended on idle, so it is marked
-          // unstarted and the event's ensureStarted starts it again: that is how a resumed conversation comes back.
+          // The end marker stays until a recorder for the session is running again, so a start that found the old
+          // watcher still finishing is retried; every event checks it, and the session is marked unstarted at most
+          // once per V2_RETRY_MS so that event's ensureStarted starts it again. The heartbeat write is throttled.
           function beat(sid: string, force = false) {
-            const last = v2.beatAt.get(sid)
-            if (!shared || !v2.started.has(sid) || last === undefined) return
-            if (!force && Date.now() - last < V2_BEAT_MS) return
+            if (!shared || !v2.started.has(sid)) return
             try {
-              if (!existsSync(heartbeat(sid))) {
-                v2.beatAt.delete(sid)
+              if (existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {
+                v2Remember(v2.restartAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
                 v2.started.delete(sid)
-                return
               }
+              const last = v2.beatAt.get(sid)
+              if (!force && last !== undefined && Date.now() - last < V2_BEAT_MS) return
               writeHeartbeat(sid)
             } catch {}
           }
@@ -749,7 +750,10 @@ public static class OpenCodeExtensionInstaller {
               // run removes one a shared server left, or the session could end on idle while the run is open.
               try {
                 if (shared) writeHeartbeat(sid)
-                else rmSync(heartbeat(sid), { force: true })
+                else {
+                  rmSync(heartbeat(sid), { force: true })
+                  rmSync(ended(sid), { force: true })
+                }
               } catch {}
               const args = ["hook", "--opencode", "--event", "session-start", "--session", sid,
                             "--file", file(sid), "--memory-contract", "1"]
@@ -793,6 +797,7 @@ public static class OpenCodeExtensionInstaller {
               v2.pendingTitle.delete(sid)
               v2.lastTitle.delete(sid)
               v2.beatAt.delete(sid)
+              v2.restartAt.delete(sid)
               trackTools(type, sid, undefined)
               return
             }

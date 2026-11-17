@@ -194,6 +194,9 @@ public sealed class TranscriptRecorder(
 
         var idleTimeout = IdleEnd.ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
 
+        // The plugin keeps starting a session ended on idle until a recorder for it is running, which this says.
+        if (vendor == "opencode" && agentId is null) OpenCodeSessionHeartbeat.ClearEnded(TranscriptPath);
+
         await ConnectAndSeedAsync(stop);
 
         try {
@@ -270,7 +273,7 @@ public sealed class TranscriptRecorder(
                     log($"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
                     EndedIdle = true;
 
-                    if (vendor == "opencode") OpenCodeSessionHeartbeat.Delete(TranscriptPath);
+                    if (vendor == "opencode") OpenCodeSessionHeartbeat.MarkEnded(TranscriptPath, time.GetUtcNow());
                     _stop.Cancel();
 
                     break;

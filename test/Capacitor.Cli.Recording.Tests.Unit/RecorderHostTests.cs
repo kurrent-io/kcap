@@ -535,10 +535,10 @@ public class RecorderHostTests {
         await Assert.That(ended.SourceEnded).IsTrue();
     }
 
-    /// <summary>The plugin's heartbeat is what says a shared v2 server runs the session, and deleting it on the idle end
-    /// is what tells the plugin to start the session again on its next event.</summary>
+    /// <summary>The plugin's heartbeat is what says a shared v2 server runs the session, and the end marker is what
+    /// tells the plugin to start the session again on its next event.</summary>
     [Test]
-    public async Task An_opencode_session_with_a_plugin_heartbeat_ends_idle_without_a_turn_and_drops_the_heartbeat() {
+    public async Task An_opencode_session_with_a_plugin_heartbeat_ends_idle_without_a_turn_and_marks_the_end() {
         var source    = OpenCodeSource("ses_idle");
         var heartbeat = OpenCodeSessionHeartbeat.PathFor(source.TranscriptPath);
         WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
@@ -548,7 +548,21 @@ public class RecorderHostTests {
         await Eventually(() => host.ActiveKeys.Count == 0, "the idle end", TimeSpan.FromMinutes(5));
 
         await Assert.That(_ended.Single().EndedIdle).IsTrue();
-        await Assert.That(File.Exists(heartbeat)).IsFalse();
+        await Assert.That(File.Exists(OpenCodeSessionHeartbeat.EndedPathFor(source.TranscriptPath))).IsTrue();
+    }
+
+    /// <summary>A recorder running for the session is what ends the plugin's restarts, so it removes the marker.</summary>
+    [Test]
+    public async Task A_recorder_starting_for_an_opencode_session_clears_its_end_marker() {
+        var source = OpenCodeSource("ses_back");
+        var ended  = OpenCodeSessionHeartbeat.EndedPathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(ended, _time.GetUtcNow());
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => Ticks(source.Key) > 0, "the recorder's first drain");
+
+        await Assert.That(File.Exists(ended)).IsFalse();
     }
 
     [Test]

@@ -136,26 +136,32 @@ public class OpenCodePluginV2Tests {
 
         await Assert.That(V2).Contains("const shared = !process.argv.includes(\"--stdio\")");
         await Assert.That(gate).Contains("if (shared) writeHeartbeat(sid)");
-        await Assert.That(gate).Contains("else rmSync(heartbeat(sid), { force: true })");
+        await Assert.That(gate).Contains("rmSync(heartbeat(sid), { force: true })");
+        await Assert.That(gate).Contains("rmSync(ended(sid), { force: true })");
         await Assert.That(gate.IndexOf("if (shared) writeHeartbeat(sid)", StringComparison.Ordinal))
             .IsLessThan(gate.IndexOf("await v2RunKcap(shell, args)", StringComparison.Ordinal));
     }
 
-    /// <summary>kcap reads the heartbeat beside the session's file, in the round-trip format it writes its own.</summary>
+    /// <summary>kcap reads the heartbeat beside the session's file, in the round-trip format it writes its own, and
+    /// writes the end marker beside it.</summary>
     [Test]
-    public async Task The_heartbeat_is_where_and_how_kcap_reads_it() {
+    public async Task The_heartbeat_and_end_marker_are_where_kcap_expects_them() {
         await Assert.That(V2).Contains("const file = (sid: string) => join(dir, sid + \".jsonl\")");
         await Assert.That(V2).Contains("const heartbeat = (sid: string) => join(dir, sid + \".heartbeat\")");
+        await Assert.That(V2).Contains("const ended = (sid: string) => join(dir, sid + \".ended\")");
         await Assert.That(OpenCodeSessionHeartbeat.PathFor(Path.Combine("cache", "ses_a.jsonl")))
             .IsEqualTo(Path.Combine("cache", "ses_a.heartbeat"));
+        await Assert.That(OpenCodeSessionHeartbeat.EndedPathFor(Path.Combine("cache", "ses_a.jsonl")))
+            .IsEqualTo(Path.Combine("cache", "ses_a.ended"));
 
         var write = Between(V2, "function writeHeartbeat(", "function beat(");
         await Assert.That(write).Contains("writeFileSync(tmp, new Date().toISOString())");
         await Assert.That(write).Contains("renameSync(tmp, heartbeat(sid))");
     }
 
-    /// <summary>Every event of a top-level session beats, before the event's start check. A heartbeat that is gone
-    /// means kcap ended the session on idle, so the session is unmarked and that same check starts it again.</summary>
+    /// <summary>Every event of a top-level session beats, before the event's start check. While kcap's end marker
+    /// exists, every event looks for it, unthrottled, and unmarks the session at most once per retry gap, so that
+    /// event's start check starts it again until a recorder runs and removes the marker.</summary>
     [Test]
     public async Task Session_events_beat_and_a_session_ended_on_idle_starts_again() {
         var onEvent = Between(V2, "async function onEvent(", "function flushTitle(");
@@ -165,9 +171,10 @@ public class OpenCodePluginV2Tests {
             .IsGreaterThan(onEvent.IndexOf("if (v2.children.has(sid)) return", StringComparison.Ordinal));
         await Assert.That(onEvent.IndexOf("beat(sid)", StringComparison.Ordinal))
             .IsLessThan(onEvent.IndexOf("ensureStarted(sid", StringComparison.Ordinal));
-        await Assert.That(beat).Contains("if (!force && Date.now() - last < V2_BEAT_MS) return");
-        await Assert.That(beat).Contains("if (!existsSync(heartbeat(sid))) {");
+        await Assert.That(beat).Contains("if (existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {");
         await Assert.That(beat).Contains("v2.started.delete(sid)");
+        await Assert.That(beat.IndexOf("existsSync(ended(sid))", StringComparison.Ordinal))
+            .IsLessThan(beat.IndexOf("V2_BEAT_MS) return", StringComparison.Ordinal));
     }
 
     /// <summary>A long tool sends nothing between its call and its result, so the heartbeat is refreshed on a timer
