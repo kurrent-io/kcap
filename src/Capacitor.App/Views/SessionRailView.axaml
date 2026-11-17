@@ -373,6 +373,13 @@
                             </Panel>
                         </Button>
                     </Grid>
+                    <Button x:Name="RailRestoreRemovedButton" Classes="kcapGhost" HorizontalAlignment="Left" Padding="6,4" FontSize="12"
+                            Command="{Binding RestoreRemovedCommand}" IsVisible="{Binding HasRemoved}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <views:AppIcon Kind="Eye" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                            <TextBlock Text="{Binding RestoreRemovedText}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
@@ -607,6 +614,28 @@
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4"
                                                                 AutomationProperties.Name="{Binding SessionAccessibleName}"
                                                                 Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.attention="{Binding Status.IsWarning}">
+                                                            <Button.ContextFlyout>
+                                                                <Flyout Placement="Pointer" FlyoutPresenterClasses="kcapPanel" Opened="OnRowMenuOpened">
+                                                                    <StackPanel Spacing="2" Margin="6" MinWidth="188" KeyDown="OnRowMenuKeyDown">
+                                                                        <Button x:Name="RailRowStopButton" Classes="kcapGhost" Command="{Binding StopCommand}"
+                                                                                IsVisible="{Binding CanStop}" Click="OnRowMenuItemClick"
+                                                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
+                                                                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                                                                <views:AppIcon Kind="CircleStop" Size="14" />
+                                                                                <TextBlock Text="{Binding StopLabel}" VerticalAlignment="Center" />
+                                                                            </StackPanel>
+                                                                        </Button>
+                                                                        <Button x:Name="RailRowRemoveButton" Classes="kcapGhost" Command="{Binding RemoveCommand}"
+                                                                                IsVisible="{Binding CanRemove}" Click="OnRowMenuItemClick"
+                                                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
+                                                                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                                                                <views:AppIcon Kind="EyeOff" Size="14" />
+                                                                                <TextBlock Text="Remove from sidebar" VerticalAlignment="Center" />
+                                                                            </StackPanel>
+                                                                        </Button>
+                                                                    </StackPanel>
+                                                                </Flyout>
+                                                            </Button.ContextFlyout>
                                                             <ToolTip.Tip>
                                                                 <StackPanel Spacing="10" MaxWidth="320">
                                                                     <!-- The row trims its title; the tip carries it whole. -->

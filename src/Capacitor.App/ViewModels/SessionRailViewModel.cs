@@ -33,6 +33,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly TimeProvider _time;
     // Keep the user's folds when the directory empties/re-forms a group during refresh.
     HashSet<string> _collapsed;
+    HashSet<string> _removed;
+    readonly Action? _closeWorkspace;
     bool _applying;
 
     // SelectedSessionKey is fed to the nested VMs via this subject, not this.WhenAnyValue: that
@@ -222,13 +224,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public bool HasProjects => _projectOptions.Count > 0;
 
-    /// True when any of the five controls differs from the defaults, however the panel is collapsed. The
-    /// default grouping is Work item where it is offered, else Repository.
+    /// True when any of the five controls differs from the defaults, or sessions are removed, however the panel
+    /// is collapsed. The default grouping is Work item where it is offered, else Repository.
     public bool FiltersDiffer {
         get {
             var defaults = RailPreferences.Default;
             return _scope != defaults.Scope || _state != defaults.State || _effective != DefaultGrouping
-                || _sort != defaults.Sort || _descending != defaults.Descending;
+                || _sort != defaults.Sort || _descending != defaults.Descending || HasRemoved;
         }
     }
 
@@ -246,9 +248,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RailSort, Unit> SetSortCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
     public ReactiveCommand<RailProject?, Unit> SetProjectCommand { get; }
+    public ReactiveCommand<Unit, Unit> RestoreRemovedCommand { get; }
+
+    public bool HasRemoved => _removed.Count > 0;
+    public string RestoreRemovedText => $"Show {_removed.Count} removed session{(_removed.Count == 1 ? "" : "s")}";
 
     public RailPreferences Preferences =>
-        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)], Project);
+        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)], Project,
+            [.. _removed.Order(StringComparer.Ordinal)]);
 
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
@@ -291,8 +298,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             IObservable<IReadOnlyList<RailProject>>? projects = null,
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
             IObservable<Unit>? workItemsChanged = null,
-            IObservable<IReadOnlySet<string>>? suggestedSessions = null) {
+            IObservable<IReadOnlySet<string>>? suggestedSessions = null,
+            Action<AgentRow>? stopSession = null, Action? closeWorkspace = null) {
         _directory = directory;
+        _closeWorkspace = closeWorkspace;
         _sessions = sessions;
         _persist = persistPreferences;
         _time = time;
@@ -308,6 +317,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _workItemsOffered = readWorkItems is not null;
         _effective = Effective(_grouping, OffersWorkItem);
         _collapsed = new HashSet<string>(initial.Collapsed, StringComparer.Ordinal);
+        _removed = new HashSet<string>(initial.Removed ?? [], StringComparer.Ordinal);
         _today = LocalDay(_time.GetUtcNow());
         if (sessions is not null) sessions.Scope = _scope;
         SetScopeCommand = ReactiveCommand.Create<RailScope>(scope => Scope = scope).DisposeWith(_disposables);
@@ -320,6 +330,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Project = project;
         }).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
+        RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
@@ -441,7 +452,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         if (expanded) _collapsed.Remove(g.Key);
                         else _collapsed.Add(g.Key);
                         Persist();
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, suggested: suggested);
+                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, suggested: suggested,
+                    stop: stopSession, remove: Remove);
             });
         var workItemGroups = _workItems.Connect()
             .TransformWithInlineUpdate(item => {
@@ -455,7 +467,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                     prs, localOnAppServer, openPullRequest, _openWorkItems.Contains(key), expanded => {
                         if (expanded) _openWorkItems.Add(key);
                         else _openWorkItems.Remove(key);
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item);
+                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item,
+                    stop: stopSession, remove: Remove);
             }, (group, item) => group.UpdateWorkItem(item));
         groups.Or(workItemGroups)
             .DisposeMany()
@@ -501,6 +514,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Descending = preferences.Descending;
             Project = Current(preferences.Project);
             _collapsed = new HashSet<string>(preferences.Collapsed, StringComparer.Ordinal);
+            SetRemoved(preferences.Removed ?? [], persist: false);
             foreach (var group in Groups.Where(g => !g.IsWorkItem)) group.ApplyExpanded(!_collapsed.Contains(group.Key));
         } finally {
             _applying = false;
@@ -537,6 +551,23 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             return true;
         }
         return false;
+    }
+
+    /// Hides the session for this user, by its id, so it stays gone when its daemon row hands over to the server's.
+    internal void Remove(AgentRow row, bool selected) {
+        if (_disposables.IsDisposed || SessionIds.Canonical(row.SessionId) is not { } id || _removed.Contains(id)) return;
+        if (selected) _closeWorkspace?.Invoke();
+        SetRemoved([.. _removed, id], persist: true);
+    }
+
+    void SetRemoved(IEnumerable<string> ids, bool persist) {
+        if (_disposables.IsDisposed) return;
+        _removed = new HashSet<string>(ids, StringComparer.Ordinal);
+        _stateFilter.OnNext(StateFilter());
+        this.RaisePropertyChanged(nameof(HasRemoved));
+        this.RaisePropertyChanged(nameof(RestoreRemovedText));
+        this.RaisePropertyChanged(nameof(FiltersDiffer));
+        if (persist) Persist();
     }
 
     void Persist() {
@@ -577,7 +608,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var state = _state;
         var selected = _selectedSessionKey;
         var project = _project;
-        return row => StateAdmits(state, row, selected) && (project is null || row.Key == selected || project.Holds(row));
+        var removed = _removed.ToFrozenSet(StringComparer.Ordinal);
+        return row => row.Key == selected
+            || (!(SessionIds.Canonical(row.SessionId) is { } id && removed.Contains(id)) && StateAdmits(state, row, null) && (project is null || project.Holds(row)));
     }
 
     /// The listed copy of a remembered project, or all projects once a read no longer lists it.

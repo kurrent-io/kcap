@@ -80,7 +80,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             Action<string>? openServer, IObservable<RailGrouping> grouping,
             IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
             IObservable<bool>? endedListPartial = null, RailWorkItem? workItem = null,
-            IObservable<IReadOnlySet<string>>? suggested = null) {
+            IObservable<IReadOnlySet<string>>? suggested = null,
+            Action<AgentRow>? stop = null, Action<AgentRow, bool>? remove = null) {
         Key = key;
         Kind = kind;
         WorkItemId = workItem?.Id;
@@ -136,7 +137,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
                 openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningWork,
                 pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort,
                 workItem is null ? null : _workItem.Select(item => item!.PartBySession.GetValueOrDefault(row.SessionId ?? "", RailWorkItem.NoPart)).DistinctUntilChanged(),
-                workItem is null ? suggested : null),
+                workItem is null ? suggested : null, stop, remove),
                 (vm, row) => vm.Update(row))
             .DisposeMany()
             .SortAndBind(_sessionsSource, rowComparer)

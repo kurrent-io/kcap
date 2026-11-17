@@ -521,7 +521,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             var kind  = dto?.Kind ?? row?.Kind ?? UnresolvedKind;
             var label = dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.TerminalSession
                       : dto is not null ? $"{dto.Kind} · {dto.Vendor} · {RepoLabel.Leaf(dto.RepoPath)}"
-                      : row is not null ? $"{row.Kind} · {row.Vendor} · {RepoLabel.Leaf(row.RepoPath)}"
+                      : row is not null ? AgentActionService.StopLabel(row)
                       : agentId;
             actions.RequestStop(agentId, label, kind);
         }, canStop);

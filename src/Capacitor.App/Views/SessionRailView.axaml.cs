@@ -1,6 +1,7 @@
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
@@ -23,15 +24,39 @@ public partial class SessionRailView : UserControl {
     static void KeyboardDismissible(Button anchor) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
-        flyout.Opened += (_, _) => content.GetLogicalDescendants().OfType<Button>()
-            .FirstOrDefault(b => b.IsEffectivelyVisible && b.IsEffectivelyEnabled)?.Focus(NavigationMethod.Tab);
-        content.AddHandler(KeyDownEvent, (_, e) => {
-            if (e.Key != Key.Escape || e.Handled) return;
-            e.Handled = true;
-            flyout.Hide();
-            anchor.Focus(NavigationMethod.Tab);
-        }, RoutingStrategies.Bubble);
+        flyout.Opened += (_, _) => FocusFirstItem(content, NavigationMethod.Tab);
+        content.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(flyout, anchor, e, NavigationMethod.Tab), RoutingStrategies.Bubble);
     }
+
+    static void FocusFirstItem(Control content, NavigationMethod method) =>
+        content.GetLogicalDescendants().OfType<Button>()
+            .FirstOrDefault(b => b.IsEffectivelyVisible && b.IsEffectivelyEnabled)?.Focus(method);
+
+    static void DismissOnEscape(FlyoutBase flyout, Control anchor, KeyEventArgs e, NavigationMethod refocus) {
+        if (e.Key != Key.Escape || e.Handled) return;
+        e.Handled = true;
+        flyout.Hide();
+        anchor.Focus(refocus);
+    }
+
+    void OnRowMenuOpened(object? sender, EventArgs e) {
+        // Pointer-opened: take focus for Escape without drawing the keyboard focus ring.
+        if (sender is Flyout { Content: Control content }) FocusFirstItem(content, NavigationMethod.Pointer);
+    }
+
+    void OnRowMenuKeyDown(object? sender, KeyEventArgs e) {
+        if (sender is Control item && RowMenuOf(item) is ({ } row, { } flyout)) DismissOnEscape(flyout, row, e, NavigationMethod.Pointer);
+    }
+
+    void OnRowMenuItemClick(object? sender, RoutedEventArgs e) {
+        if (sender is not Button { Command: { } command } item || !command.CanExecute(null)) return;
+        if (RowMenuOf(item) is (_, { } flyout)) flyout.Hide();
+        command.Execute(null);
+        e.Handled = true;
+    }
+
+    static (Control? Row, FlyoutBase? Flyout) RowMenuOf(Control item) =>
+        item.FindLogicalAncestorOfType<Popup>()?.PlacementTarget is Control row ? (row, row.ContextFlyout) : (null, null);
 
     // The field shows the page's query while the page is up, and its placeholder otherwise.
     void BindSearchLabel() {

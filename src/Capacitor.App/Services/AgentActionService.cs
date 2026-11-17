@@ -87,6 +87,14 @@ public sealed class AgentActionService {
     /// agent is a dialogue, a flow participant is not, and an unrecognised kind fails safe as read-only.
     internal static bool AcceptsTypedInput(string kind) => kind is "agent" or "review";
 
+    public void RequestStop(AgentRow row) => RequestStop(row.Id, StopLabel(row), row.Kind, row.Origin);
+
+    /// How a stop names the agent in its confirm and its failure toasts.
+    public static string StopLabel(AgentRow row) =>
+        row.IsAttached ? ViewModels.AttachedAgentCopy.TerminalSession
+        : row.Origin == AgentOrigin.Remote ? $"{row.Vendor} · {row.RepoGroupLabel}"
+        : $"{row.Kind} · {row.Vendor} · {ViewModels.RepoLabel.Leaf(row.RepoPath)}";
+
     /// Per-agent gating: a second Stop for the same agent no-ops while one is pending — including
     /// while a protected kind's confirm-then-force dialog is still open, since the agent stays
     /// in-flight for the whole RunStopAsync call — other agents run concurrently.
