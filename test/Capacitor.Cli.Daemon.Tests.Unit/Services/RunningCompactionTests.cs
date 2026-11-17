@@ -9,6 +9,7 @@ public class RunningCompactionTests {
     static RunningCompaction Start(FakeTimeProvider time, Task written, Task? finished) =>
         new(CompactionStart.Started(written, finished), time.GetTimestamp(), time);
 
+    /// <summary>A runtime that reports the end holds until then, past the hold and past a SessionStart.</summary>
     [Test]
     public async Task A_runtime_that_reports_the_end_holds_until_then() {
         var time     = new FakeTimeProvider();
@@ -16,15 +17,28 @@ public class RunningCompactionTests {
         var running  = Start(time, Task.CompletedTask, finished.Task);
 
         running.NoteSessionStarted();
+        time.Advance(Hold);
         await Assert.That(running.IsOver(Hold)).IsFalse();
 
         finished.SetResult();
         await Assert.That(running.IsOver(Hold)).IsTrue();
     }
 
-    /// <summary>A SessionStart before the command was written is the agent's own start, not the compaction's end.</summary>
+    /// <summary>A queued compaction holds past the hold: the hold covers only a written one whose end is never heard.</summary>
     [Test]
-    public async Task A_terminal_compaction_ends_at_the_session_start_after_its_write() {
+    public async Task A_queued_compaction_holds_past_the_hold() {
+        var time     = new FakeTimeProvider();
+        var written  = new TaskCompletionSource();
+        var running  = Start(time, written.Task, new TaskCompletionSource().Task);
+
+        time.Advance(Hold);
+
+        await Assert.That(running.IsOver(Hold)).IsFalse();
+    }
+
+    /// <summary>A SessionStart that lands while the write is still settling still ends the compaction once it settles.</summary>
+    [Test]
+    public async Task A_terminal_compaction_ends_at_a_session_start_seen_before_its_write_settled() {
         var time    = new FakeTimeProvider();
         var written = new TaskCompletionSource();
         var running = Start(time, written.Task, finished: null);
@@ -33,7 +47,6 @@ public class RunningCompactionTests {
         await Assert.That(running.IsOver(Hold)).IsFalse();
 
         written.SetResult();
-        running.NoteSessionStarted();
         await Assert.That(running.IsOver(Hold)).IsTrue();
     }
 
@@ -48,7 +61,7 @@ public class RunningCompactionTests {
     }
 
     [Test]
-    public async Task An_end_never_heard_is_taken_past_the_hold() {
+    public async Task A_written_terminal_compaction_whose_end_is_never_heard_is_over_past_the_hold() {
         var time    = new FakeTimeProvider();
         var running = Start(time, Task.CompletedTask, finished: null);
 
