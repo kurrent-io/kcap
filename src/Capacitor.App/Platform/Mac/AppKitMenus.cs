@@ -32,6 +32,20 @@ public static partial class AppKitMenus {
         if (helpMenu != 0) SendVoid(app, Selector("setHelpMenu:"), helpMenu);
     }
 
+    /// Turns off the "Enter Full Screen" item AppKit adds to the Window menu, which the app's own
+    /// Toggle Full Screen duplicates and which piles up as windows take turns being key. Avalonia
+    /// turns it off only for a process outside a bundle, so the installed app needs this.
+    /// Registration-domain only: nothing is written to the user's preferences. Must run before
+    /// NSApplication starts.
+    public static void SuppressFullScreenItem() {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        var no = Send(GetClass("NSNumber"), Selector("numberWithBool:"), (nint)0);
+        var key = Send(GetClass("NSString"), Selector("stringWithUTF8String:"), "NSFullScreenMenuItemEverywhere");
+        var defaults = Send(GetClass("NSDictionary"), Selector("dictionaryWithObject:forKey:"), no, key);
+        SendVoid(Send(GetClass("NSUserDefaults"), Selector("standardUserDefaults")), Selector("registerDefaults:"), defaults);
+    }
+
     /// Filled from the bundle's Info.plist, so a build run outside a bundle shows no version.
     public static void ShowAboutPanel() {
         if (!OperatingSystem.IsMacOS()) return;
@@ -63,6 +77,9 @@ public static partial class AppKitMenus {
 
     [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
     private static partial nint Send(nint receiver, nint selector, nint argument);
+
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    private static partial nint Send(nint receiver, nint selector, nint first, nint second);
 
     [LibraryImport(ObjC, EntryPoint = "objc_msgSend", StringMarshalling = StringMarshalling.Utf8)]
     private static partial nint Send(nint receiver, nint selector, string argument);

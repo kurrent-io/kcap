@@ -9,11 +9,13 @@ namespace Capacitor.App.Platform.Mac;
 
 [SupportedOSPlatform("macos")]
 public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, SingleInstanceLock singleInstance) : DesktopHost(cliDirectory, updateRelaunch, singleInstance) {
-    public override AppBuilder ConfigureAvalonia(AppBuilder builder) =>
-        builder.With(new AvaloniaNativePlatformOptions {
+    public override AppBuilder ConfigureAvalonia(AppBuilder builder) {
+        AppKitMenus.SuppressFullScreenItem();
+        return builder.With(new AvaloniaNativePlatformOptions {
             RenderingMode = MacRenderingOrder.Resolve(Environment.GetEnvironmentVariable(MacRenderingOrder.EnvVar)),
             AvaloniaNativeLibraryPath = PatchedAvaloniaNative.Path,
         });
+    }
 
     public override void WaitUntilReady() =>
         ActiveDisplayGate.WaitAsync(CoreVideoDisplayLink.Probe, TimeProvider.System,
