@@ -5,7 +5,8 @@ namespace Capacitor.App.Tests.Unit.Services;
 
 public class RailPreferencesStoreTests {
     const string Url = "https://kurrent.kcap.ai/";
-    static readonly RailPreferences Teams = new(RailScope.Team, RailState.Ended, RailGrouping.Date, RailSort.Title, false, ["day:2026-10-23"]);
+    static readonly RailPreferences Teams = new(RailScope.Team, RailState.Ended, RailGrouping.Date, RailSort.Title, false, ["day:2026-10-23"],
+        new RailProject("p1", "kcap", ["0123456789abcdef"]));
 
     [Test]
     public async Task Unknown_profile_loads_defaults() {

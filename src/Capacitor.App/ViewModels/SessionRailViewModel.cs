@@ -168,6 +168,43 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public string DirectionLabel => _descending ? "Descending" : "Ascending";
 
+    public const string AllProjectsLabel = "All projects";
+
+    RailProject? _project;
+    /// Null shows every session.
+    public RailProject? Project {
+        get => _project;
+        set {
+            if (_disposables.IsDisposed) return;
+            if (Equals(_project, value)) return;
+            this.RaiseAndSetIfChanged(ref _project, value);
+            this.RaisePropertyChanged(nameof(ProjectLabel));
+            this.RaisePropertyChanged(nameof(ProjectInitial));
+            this.RaisePropertyChanged(nameof(IsAllProjects));
+            ProjectOptions = Options(_projects, value);
+            _stateFilter.OnNext(StateFilter());
+            Persist();
+        }
+    }
+
+    public string ProjectLabel => _project?.Name ?? AllProjectsLabel;
+    public string? ProjectInitial => _project?.Initial;
+    public bool IsAllProjects => _project is null;
+
+    // Null until the first read: a remembered project is kept as it was saved until then.
+    IReadOnlyList<RailProject>? _projects;
+
+    IReadOnlyList<RailProjectOption> _projectOptions = [];
+    public IReadOnlyList<RailProjectOption> ProjectOptions {
+        get => _projectOptions;
+        private set {
+            this.RaiseAndSetIfChanged(ref _projectOptions, value);
+            this.RaisePropertyChanged(nameof(HasProjects));
+        }
+    }
+
+    public bool HasProjects => _projectOptions.Count > 0;
+
     /// True when any of the five controls differs from the defaults, however the panel is collapsed.
     public bool FiltersDiffer {
         get {
@@ -190,9 +227,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RailGrouping, Unit> SetGroupingCommand { get; }
     public ReactiveCommand<RailSort, Unit> SetSortCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
+    public ReactiveCommand<RailProject?, Unit> SetProjectCommand { get; }
 
     public RailPreferences Preferences =>
-        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)]);
+        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)], Project);
 
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
@@ -231,7 +269,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<RailPreferences>? persistPreferences = null,
             bool scopeLocked = false,
             IObserver<Func<AgentRow, bool>>? shownRows = null,
-            Func<string, Task<RailPreferences>>? bindUserPreferences = null) {
+            Func<string, Task<RailPreferences>>? bindUserPreferences = null,
+            IObservable<IReadOnlyList<RailProject>>? projects = null) {
         _directory = directory;
         _sessions = sessions;
         _persist = persistPreferences;
@@ -243,6 +282,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _grouping = initial.Grouping;
         _sort = initial.Sort;
         _descending = initial.Descending;
+        _project = initial.Project;
         _collapsed = new HashSet<string>(initial.Collapsed, StringComparer.Ordinal);
         _today = LocalDay(_time.GetUtcNow());
         if (sessions is not null) sessions.Scope = _scope;
@@ -251,6 +291,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetGroupingCommand = ReactiveCommand.Create<RailGrouping>(grouping => Grouping = grouping).DisposeWith(_disposables);
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
+        SetProjectCommand = ReactiveCommand.Create<RailProject?>(project => Project = project).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
@@ -330,6 +371,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                 .Subscribe(ApplyPreferences)
                 .DisposeWith(_disposables);
 
+        projects?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(list => {
+            if (_disposables.IsDisposed) return;
+            _projects = list;
+            ProjectOptions = Options(list, _project);
+            Project = Current(_project);
+        }).DisposeWith(_disposables);
+
         Groups = new ReadOnlyObservableCollection<RailGroupViewModel>(_groupsSource);
         directory.Rows.Connect()
             .Filter(_stateFilter)
@@ -383,6 +431,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Grouping = preferences.Grouping;
             Sort = preferences.Sort;
             Descending = preferences.Descending;
+            Project = Current(preferences.Project);
             _collapsed = new HashSet<string>(preferences.Collapsed, StringComparer.Ordinal);
             foreach (var group in Groups) group.ApplyExpanded(!_collapsed.Contains(group.Key));
         } finally {
@@ -428,8 +477,16 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     Func<AgentRow, bool> StateFilter() {
         var state = _state;
         var selected = _selectedSessionKey;
-        return row => StateAdmits(state, row, selected);
+        var project = _project;
+        return row => StateAdmits(state, row, selected) && (project is null || row.Key == selected || project.Holds(row));
     }
+
+    /// The listed copy of a remembered project, or all projects once a read no longer lists it.
+    RailProject? Current(RailProject? project) =>
+        project is null || _projects is null ? project : _projects.FirstOrDefault(p => p.Id == project.Id);
+
+    static IReadOnlyList<RailProjectOption> Options(IReadOnlyList<RailProject>? projects, RailProject? current) =>
+        projects is null ? [] : [.. projects.Select(p => new RailProjectOption(p, p.Id == current?.Id))];
 
     /// A row the workspace is on is always shown, whatever the filter says.
     internal static bool StateAdmits(RailState state, AgentRow row, string? selectedKey) =>

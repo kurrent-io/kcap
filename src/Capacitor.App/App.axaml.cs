@@ -1412,6 +1412,7 @@ public partial class App : Application {
                     : null,
                 remoteWorkspaceFactory: BuildRemote, serverWorkspaceFactory: BuildServer,
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
+                readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2327,7 +2328,8 @@ public partial class App : Application {
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
             IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
-            Func<bool>? nextWorkEnabled = null) {
+            Func<bool>? nextWorkEnabled = null,
+            Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2420,7 +2422,13 @@ public partial class App : Application {
             pullRequests: pullRequestSummaries, openPullRequest: (agentId, origin, subject) => vm?.OpenSessionPullRequest(agentId, origin, subject),
             openServerSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server),
             sessions: sessions, preferences: initialRail, persistPreferences: persistRail,
-            scopeLocked: localServer?.IsLocalServer == true, shownRows: railShown, bindUserPreferences: bindRailUser);
+            scopeLocked: localServer?.IsLocalServer == true, shownRows: railShown, bindUserPreferences: bindRailUser,
+            projects: sessions is null || readProjects is null ? null : Observable.Switch(sessions.ViewerUserId
+                    .Where(id => id is { Length: > 0 })
+                    .DistinctUntilChanged()
+                    .Select(_ => Observable.FromAsync(readProjects).Catch(Observable.Empty<IReadOnlyList<RailProject>?>())))
+                .Where(list => list is not null)
+                .Select(list => list!));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(

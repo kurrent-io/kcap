@@ -56,7 +56,9 @@ public sealed record AgentRow(
         // Whether the hosted agent's terminal takes typed input from this viewer's hub.
         bool TerminalInput = false,
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
-        AgentViewerRightsDto? ViewerRights = null) {
+        AgentViewerRightsDto? ViewerRights = null,
+        // The listing's repository hash; null on a daemon row, whose repository is known by owner and name.
+        string? RepoHash = null) {
 
     /// A terminal session a daemon steers rather than hosts, from either lane.
     public bool IsAttached => Kind == AgentActionService.AttachedKind;
@@ -127,7 +129,8 @@ public sealed record AgentRow(
             OwnerAvatarUrl: dto.Owner?.AvatarUrl,
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
             IsStale: dto.Stale, IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
-            ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording);
+            ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording,
+            RepoHash: dto.Repo?.Hash ?? dto.PrimaryRepoHash);
     }
 
     /// The checkout a listing names for its session. The listing names only the cwd. A hosted agent's is its worktree,

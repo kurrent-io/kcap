@@ -70,6 +70,8 @@ public partial class SessionRailView : UserControl {
 
     void OnSortPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailSortButton, sender, e);
 
+    void OnProjectPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailProjectButton, sender, e);
+
     static void RunFlyoutItem(Button anchor, object? sender, RoutedEventArgs e) {
         if (sender is not Button { Command: { } command, CommandParameter: var parameter }
             || !command.CanExecute(parameter)) return;
