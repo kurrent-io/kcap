@@ -67,7 +67,7 @@ internal partial class AgentOrchestrator {
                 case CompactionStartKind.Unsupported: return SendInputDropReason.CompactionUnsupported;
             }
 
-            agent.Compaction = new RunningCompaction(start, _time.GetTimestamp(), _time);
+            agent.Compaction = new RunningCompaction(start, _time);
             written          = start.Written;
         }
 

@@ -553,9 +553,10 @@ internal sealed partial class PtyHostedAgentRuntime(
         lock (_dialogGate) {
             if (_dialogGone is not null) return CompactionStart.PromptOpen;
 
-            _heldSends = WriteAfterAsync(_heldSends, "/compact");
+            var begun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _heldSends = WriteAfterAsync(_heldSends, "/compact", begun);
 
-            return CompactionStart.Started(_heldSends, finished: null);
+            return CompactionStart.Started(_heldSends, finished: null, begun.Task);
         }
     }
 
@@ -569,13 +570,14 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    async Task WriteAfterAsync(Task previous, string text) {
+    async Task WriteAfterAsync(Task previous, string text, TaskCompletionSource? begun = null) {
         try {
             await previous;
         } catch (Exception) {
             // The message before reports its own loss; this one is still written.
         }
 
+        begun?.TrySetResult();
         await PasteAndSubmitAsync(text);
     }
 

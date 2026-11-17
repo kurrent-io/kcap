@@ -242,6 +242,10 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
                     ["threadId"] = ThreadId,
                     ["turn"]     = new JsonObject { ["id"] = turnId, ["status"] = "inProgress", ["items"] = new JsonArray() },
                 }, ct);
+                await NotifyAsync("item/started", new JsonObject {
+                    ["threadId"] = ThreadId, ["turnId"] = turnId,
+                    ["item"]     = new JsonObject { ["type"] = "contextCompaction", ["id"] = turnId + "-item" },
+                }, ct);
                 await NotifyAsync("turn/completed", new JsonObject {
                     ["threadId"] = ThreadId,
                     ["turn"]     = new JsonObject { ["id"] = turnId, ["status"] = "completed", ["items"] = new JsonArray() },

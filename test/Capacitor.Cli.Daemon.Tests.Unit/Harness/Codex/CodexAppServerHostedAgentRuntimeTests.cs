@@ -382,8 +382,8 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.DisposeAsync();
     }
 
-    /// <summary>The app server records no message for a compaction, so the runtime records the accepted request,
-    /// stamped with its dispatch, for the server to retire that dispatch by.</summary>
+    /// <summary>The app server records no message for a compaction, so the runtime records the request as its item
+    /// starts, stamped with its dispatch, for the server to retire that dispatch by.</summary>
     [Test]
     public async Task An_accepted_compaction_is_recorded_as_its_dispatchs_message() {
         var fake = new FakeCodexAppServer();
@@ -398,12 +398,11 @@ public class CodexAppServerHostedAgentRuntimeTests {
         AcpEventEnvelope? recorded = null;
         var deadline = DateTime.UtcNow + HangGuard;
         while (recorded is null && DateTime.UtcNow < deadline) {
-            recorded = DrainAvailable(runtime).FirstOrDefault(e => e.Kind == AcpEventKind.UserMessage);
+            recorded = DrainAvailable(runtime).FirstOrDefault(e => e.Kind == AcpEventKind.UserMessage && e.DispatchId == dispatch);
             if (recorded is null) await Task.Delay(10);
         }
 
         await Assert.That(recorded?.Text).IsEqualTo("/compact");
-        await Assert.That(recorded?.DispatchId).IsEqualTo(dispatch);
 
         await runtime.DisposeAsync();
     }

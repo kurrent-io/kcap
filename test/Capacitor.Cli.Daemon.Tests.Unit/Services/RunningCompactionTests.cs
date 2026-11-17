@@ -6,8 +6,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class RunningCompactionTests {
     static readonly TimeSpan Hold = TimeSpan.FromMinutes(5);
 
-    static RunningCompaction Start(FakeTimeProvider time, Task written, Task? finished) =>
-        new(CompactionStart.Started(written, finished), time.GetTimestamp(), time);
+    static RunningCompaction Start(FakeTimeProvider time, Task written, Task? finished, Task? begun = null) =>
+        new(CompactionStart.Started(written, finished, begun), time);
 
     /// <summary>A runtime that reports the end holds until then, past the hold and past a SessionStart.</summary>
     [Test]
@@ -24,24 +24,37 @@ public class RunningCompactionTests {
         await Assert.That(running.IsOver(Hold)).IsTrue();
     }
 
-    /// <summary>A queued compaction holds past the hold: the hold covers only a written one whose end is never heard.</summary>
     [Test]
     public async Task A_queued_compaction_holds_past_the_hold() {
-        var time     = new FakeTimeProvider();
-        var written  = new TaskCompletionSource();
-        var running  = Start(time, written.Task, new TaskCompletionSource().Task);
+        var time    = new FakeTimeProvider();
+        var running = Start(time, new TaskCompletionSource().Task, finished: null, begun: new TaskCompletionSource().Task);
 
         time.Advance(Hold);
 
         await Assert.That(running.IsOver(Hold)).IsFalse();
     }
 
-    /// <summary>A SessionStart that lands while the write is still settling still ends the compaction once it settles.</summary>
+    /// <summary>A SessionStart from input still ahead of the command is not the compaction's end.</summary>
     [Test]
-    public async Task A_terminal_compaction_ends_at_a_session_start_seen_before_its_write_settled() {
+    public async Task A_session_start_before_the_command_begins_is_not_its_end() {
+        var time    = new FakeTimeProvider();
+        var begun   = new TaskCompletionSource();
+        var written = new TaskCompletionSource();
+        var running = Start(time, written.Task, finished: null, begun.Task);
+
+        running.NoteSessionStarted();
+        begun.SetResult();
+        written.SetResult();
+
+        await Assert.That(running.IsOver(Hold)).IsFalse();
+    }
+
+    /// <summary>A SessionStart while the command is being written still ends the compaction once the write settles.</summary>
+    [Test]
+    public async Task A_session_start_while_the_command_is_written_ends_it_once_the_write_settles() {
         var time    = new FakeTimeProvider();
         var written = new TaskCompletionSource();
-        var running = Start(time, written.Task, finished: null);
+        var running = Start(time, written.Task, finished: null, begun: Task.CompletedTask);
 
         running.NoteSessionStarted();
         await Assert.That(running.IsOver(Hold)).IsFalse();
@@ -60,11 +73,15 @@ public class RunningCompactionTests {
         await Assert.That(running.IsOver(Hold)).IsTrue();
     }
 
+    /// <summary>The hold runs from the write, not from the request: a command queued for longer still holds after it.</summary>
     [Test]
-    public async Task A_written_terminal_compaction_whose_end_is_never_heard_is_over_past_the_hold() {
+    public async Task A_terminal_compaction_whose_end_is_never_heard_is_over_a_hold_after_its_write() {
         var time    = new FakeTimeProvider();
-        var running = Start(time, Task.CompletedTask, finished: null);
+        var written = new TaskCompletionSource();
+        var running = Start(time, written.Task, finished: null);
 
+        time.Advance(Hold * 2);
+        written.SetResult();
         time.Advance(Hold - TimeSpan.FromSeconds(1));
         await Assert.That(running.IsOver(Hold)).IsFalse();
 
