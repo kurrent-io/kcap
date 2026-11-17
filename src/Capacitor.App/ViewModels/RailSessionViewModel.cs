@@ -76,6 +76,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<bool> _showsRepo;
     /// The repository name moves onto the row when the groups no longer say it.
     public bool ShowsRepo => _showsRepo.Value;
+    string? _partLabel;
+    /// The part of the work item the row sits under, which takes the repository's place on the row.
+    public string? PartLabel { get => _partLabel; private set => this.RaiseAndSetIfChanged(ref _partLabel, value); }
     /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
     bool _isStarting;
     public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
@@ -119,7 +122,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             IObservable<bool>? localOnAppServer = null, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             IObservable<Unit>? ageTicks = null,
             Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
-            IObservable<RailSort>? sort = null) {
+            IObservable<RailSort>? sort = null, IObservable<string>? part = null) {
         _time = time;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
         Id = row.Id;
@@ -172,8 +175,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.IsStale, initialValue: false)
             .DisposeWith(_disposables);
 
+        part?.Subscribe(label => PartLabel = label).DisposeWith(_disposables);
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
-                mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } label && label != RepoIdentity.NoRepository.Label)
+                part is null && mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } label && label != RepoIdentity.NoRepository.Label)
             .ToProperty(this, x => x.ShowsRepo, initialValue: false)
             .DisposeWith(_disposables);
 

@@ -1413,6 +1413,7 @@ public partial class App : Application {
                 remoteWorkspaceFactory: BuildRemote, serverWorkspaceFactory: BuildServer,
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
+                readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2329,7 +2330,8 @@ public partial class App : Application {
             IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null,
-            Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null) {
+            Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null,
+            Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2428,7 +2430,9 @@ public partial class App : Application {
                     .DistinctUntilChanged()
                     .Select(_ => Observable.FromAsync(readProjects).Catch(Observable.Empty<IReadOnlyList<RailProject>?>())))
                 .Where(list => list is not null)
-                .Select(list => list!));
+                .Select(list => list!),
+            readWorkItems: sessions is null ? null : readWorkItems,
+            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(

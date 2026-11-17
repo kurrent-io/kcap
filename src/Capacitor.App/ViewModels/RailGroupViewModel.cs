@@ -12,8 +12,9 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One rail group and its sessions: a repository, a day, a status, or the single headerless group
-/// of an ungrouped rail. Streams arrive on the UI thread from the rail root.
+/// One rail group and its sessions: a repository, a day, a status, an open work item of the picked
+/// project, or the single headerless group of an ungrouped rail. Streams arrive on the UI thread from
+/// the rail root.
 public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string Key { get; }
     public RailGrouping Kind { get; }
@@ -22,7 +23,13 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string RootDisplay => Kind == RailGrouping.Repository ? _rootDisplay : Label;
     string _label;
     public string Label { get => _label; private set => this.RaiseAndSetIfChanged(ref _label, value); }
-    public bool ShowsHeader => Kind != RailGrouping.None;
+    public bool ShowsHeader => Kind is not (RailGrouping.None or RailGrouping.WorkItem);
+    public bool IsWorkItem => Kind == RailGrouping.WorkItem;
+    int _partsDone;
+    public int PartsDone { get => _partsDone; private set => this.RaiseAndSetIfChanged(ref _partsDone, value); }
+    int _partsTotal;
+    public int PartsTotal { get => _partsTotal; private set => this.RaiseAndSetIfChanged(ref _partsTotal, value); }
+    public string PartsText => $"{PartsDone}/{PartsTotal}";
     public bool IsNoRepository { get; }
     /// Grouped by its folder rather than by a repository's remote, so the header must not read as one.
     public bool IsFolder => Kind == RailGrouping.Repository && !IsNoRepository && !Key.StartsWith("repo:", StringComparison.Ordinal);
@@ -39,6 +46,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public bool ShowsHeaderBadge => _showsHeaderBadge.Value;
     public string Tooltip {
         get {
+            if (IsWorkItem) return $"{Label}\n{PartsDone} of {PartsTotal} parts done";
             var root = IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
             if (_countIsPartial) root += "\nCounts cover the ended sessions loaded so far";
             return HeaderStatus is { } status ? $"{root}\n\n{status.Tip}" : root;
@@ -54,10 +62,11 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<bool> _expanded;
+    readonly BehaviorSubject<RailWorkItem?> _workItem;
     readonly Action<bool> _setExpanded;
 
     public RailGroupViewModel(
-            IGroup<AgentRow, string, string> group, RailGrouping kind, string label,
+            string key, IObservable<IChangeSet<AgentRow, string>> rows, RailGrouping kind, string label,
             IObservable<string?> selectedSessionKey, IObservable<IReadOnlySet<string>> agentsWithPending,
             IObservable<bool> remoteStale,
             Action<string> openLocal, Action<string> openRemote, TimeProvider time,
@@ -68,8 +77,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             bool isExpanded, Action<bool> setExpanded, IObservable<Unit>? ageTicks,
             Action<string>? openServer, IObservable<RailGrouping> grouping,
             IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
-            IObservable<bool>? endedListPartial = null) {
-        Key = group.Key;
+            IObservable<bool>? endedListPartial = null, RailWorkItem? workItem = null) {
+        Key = key;
         Kind = kind;
         _label = label;
         IsNoRepository = kind == RailGrouping.Repository && label == "No repository";
@@ -78,8 +87,11 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         _setExpanded = setExpanded;
         _expanded = new BehaviorSubject<bool>(isExpanded).DisposeWith(_disposables);
         ToggleCommand = ReactiveCommand.Create(() => SetExpanded(!IsExpanded)).DisposeWith(_disposables);
+        _workItem = new BehaviorSubject<RailWorkItem?>(workItem);
+        if (workItem is not null) UpdateWorkItem(workItem);
 
-        var query = group.Cache.Connect().QueryWhenChanged().Replay(1).RefCount();
+        var group = rows.AsObservableCache().DisposeWith(_disposables);
+        var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
         var pendingHere = query.CombineLatest(agentsWithPending, (rows, pending) =>
                 rows.Items.Where(row => pending.Contains(row.Id)).Select(row => row.Id).ToHashSet(StringComparer.Ordinal))
             .DistinctUntilChanged(EqualityComparer<HashSet<string>>.Create((a, b) => a!.SetEquals(b!)));
@@ -115,14 +127,27 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         }).DisposeWith(_disposables);
 
         Sessions = new ReadOnlyObservableCollection<RailSessionViewModel>(_sessionsSource);
-        group.Cache.Connect()
+        group.Connect()
             .TransformWithInlineUpdate(row => new RailSessionViewModel(row, selectedSessionKey, agentsWithPending, remoteStale,
                 openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningWork,
-                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort), (vm, row) => vm.Update(row))
+                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort,
+                workItem is null ? null : _workItem.Select(item => item!.PartBySession.GetValueOrDefault(row.SessionId ?? "", RailWorkItem.NoPart)).DistinctUntilChanged()),
+                (vm, row) => vm.Update(row))
             .DisposeMany()
             .SortAndBind(_sessionsSource, rowComparer)
             .Subscribe()
             .DisposeWith(_disposables);
+        _workItem.DisposeWith(_disposables);
+    }
+
+    /// A later read of the same work item: its title, progress and the parts its sessions sit in.
+    internal void UpdateWorkItem(RailWorkItem item) {
+        Relabel(item.Title);
+        PartsDone = item.PartsDone;
+        PartsTotal = item.PartsTotal;
+        this.RaisePropertyChanged(nameof(PartsText));
+        this.RaisePropertyChanged(nameof(Tooltip));
+        _workItem.OnNext(item);
     }
 
     internal void Expand() => SetExpanded(true);

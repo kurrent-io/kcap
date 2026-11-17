@@ -25,6 +25,12 @@
             <Setter Property="ToolTip.ShowDelay" Value="1500" />
             <Setter Property="ToolTip.BetweenShowDelay" Value="-1" />
         </Style>
+        <Style Selector="StackPanel.railGroup">
+            <Setter Property="Margin" Value="8,10,8,0" />
+        </Style>
+        <Style Selector="StackPanel.railGroup.workItem">
+            <Setter Property="Margin" Value="8,2,8,0" />
+        </Style>
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="CornerRadius" Value="7" />
@@ -302,6 +308,9 @@
                             <Button.Flyout>
                                 <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
                                     <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                        <Button x:Name="RailGroupWorkItemButton" Classes="kcapGhost railPickerRow" Content="Work item" Click="OnGroupPickerItemClick"
+                                                IsVisible="{Binding OffersWorkItem}"
+                                                Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.WorkItem}" />
                                         <Button Classes="kcapGhost railPickerRow" Content="No grouping" Click="OnGroupPickerItemClick"
                                                 Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.None}" />
                                         <Button Classes="kcapGhost railPickerRow" Content="Repository" Click="OnGroupPickerItemClick"
@@ -527,10 +536,29 @@
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
+                    <Grid x:Name="RailWorkItemsHeader" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                          ColumnDefinitions="*,Auto" Margin="8,10,8,0" IsVisible="{Binding ShowsWorkItems, FallbackValue=False}">
+                        <TextBlock Text="WORK ITEMS" Classes="eyebrow" />
+                        <TextBlock x:Name="RailWorkItemsCount" Grid.Column="1" Text="{Binding WorkItemsCountText}" Classes="sectionMeta" />
+                    </Grid>
                     <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
-                                <StackPanel Margin="8,10,8,0">
+                                <StackPanel Classes="railGroup" Classes.workItem="{Binding IsWorkItem}">
+                                    <Button x:Name="RailWorkItemHeader" Classes="sectionHeader expandable" Command="{Binding ToggleCommand}" IsVisible="{Binding IsWorkItem}"
+                                            ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
+                                            <Panel Width="12" Height="12">
+                                                <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding IsExpanded}" />
+                                                <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !IsExpanded}" />
+                                            </Panel>
+                                            <TextBlock x:Name="RailWorkItemTitle" Grid.Column="1" Text="{Binding Label}" FontSize="13"
+                                                       Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <ProgressBar Grid.Column="2" Width="32" Height="3" MinHeight="3" MinWidth="32" Minimum="0"
+                                                         Maximum="{Binding PartsTotal}" Value="{Binding PartsDone}" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="RailWorkItemParts" Grid.Column="3" Text="{Binding PartsText}" Classes="sectionMeta" />
+                                        </Grid>
+                                    </Button>
                                     <Button Classes="sectionHeader expandable railRepoHeader" Command="{Binding ToggleCommand}" IsVisible="{Binding ShowsHeader}"
                                             ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
@@ -639,6 +667,9 @@
                                                                         <TextBlock Text="{Binding RepoLabel}" Classes="railMeta" MaxWidth="140" Margin="0,0,6,0"
                                                                                    IsVisible="{Binding ShowsRepo}" TextTrimming="CharacterEllipsis"
                                                                                    Foreground="{StaticResource KcapMutedBrush}" />
+                                                                        <TextBlock x:Name="SessionPartLabel" Text="{Binding PartLabel}" Classes="railMeta" MaxWidth="160" Margin="0,0,6,0"
+                                                                                   IsVisible="{Binding PartLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                                                   TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapMutedBrush}" />
                                                                     <TextBlock x:Name="SessionMeta" Text="{Binding Meta}" Classes="railMeta" MaxWidth="180"
                                                                                IsVisible="{Binding Meta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                                                TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"
