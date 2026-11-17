@@ -29,6 +29,16 @@ public class McpCaptureScopeTests {
         await Assert.That(await Scope(new Profile { AllowedPaths = [allowed] }).IsOutOfScopeAsync(allowed.PathTo("project"))).IsFalse();
     }
 
+    /// <summary>The hook's persisted verdict wins over a fresh probe, which could resolve a repo the hook's budget did not.</summary>
+    [Test]
+    public async Task A_session_the_hook_excluded_is_out_of_scope_whatever_the_profile_says() {
+        const string sessionId = "0f3c2a4e-1111-4222-8333-944455556666";
+        DisabledSessions.Exclude(sessionId, Config.Root);
+
+        await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("anything"), null, sessionId)).IsTrue();
+        await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("other"), "another-session")).IsFalse();
+    }
+
     [Test]
     public async Task A_profile_with_no_scope_lists_keeps_every_project_in_scope() =>
         await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("anything"))).IsFalse();
