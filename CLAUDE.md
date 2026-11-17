@@ -268,6 +268,19 @@ Applies to every file type: source, tests, config and build files, YAML, shell s
 
 The checker and its `.test.sh` need Python 3.10+ with `scripts/comment-rules-requirements.txt` installed in a virtual environment. It reads syntax-tree comments in C#, Bash and YAML, XML comments in XAML/MSBuild, and shell comments in literal (`run: |`) Bash/sh scripts in `.github/`. Other YAML scalar contents are data; embedded scripts with an unknown shell or runner are skipped. CI installs the pinned parsers through `.github/actions/setup-comment-rules`.
 
+## Duplication
+
+**Run `bash scripts/check-duplication.sh` before opening a PR that changes `src/`.** CI runs it too. It fails on a C#
+method that has near-identical copies in three or more files under `src/` (same name and parameter types, 90% alike)
+unless `scripts/check-duplication.baseline` lists that family. The first run builds its own Python environment, shared
+by every worktree; it needs a Python 3.10+ on `PATH`.
+
+- **A failure names the new family and every copy.** Extract the shared code. Copying one harness's implementation
+  into another is how these families grow. `--list` prints every family the scan finds.
+- **Add a line to the baseline only for copies that must stay apart**, and say why in the PR. Never add one just to
+  make the check pass.
+- **When it reports families gone, run `--update` in the same PR**, so the baseline only ever shrinks.
+
 ## Commit messages
 
 Subject: `one clause (#123)`, imperative, **at most 80 characters including the trailing reference**. No second clause, and no parenthetical other than that reference.

@@ -159,6 +159,7 @@ internal sealed class GeminiImportSource : IImportSource {
                 agentId:    null,
                 startLine:  startLine, time: _time,
                 vendor:     Vendor,
+                stopAtLoss: ctx.StopAtLoss,
                 progress:   ctx.Progress);
         } catch {
             return ImportOutcome.Failed;

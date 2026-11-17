@@ -84,10 +84,13 @@ sealed class OrchestratorFixture : IAsyncDisposable {
 
     /// <summary>Starts the control server and returns once it accepts a connection: Bind publishes the
     /// socket file before Listen, so the file alone does not mean a connect will succeed.</summary>
+    /// <param name="socket">A socket already bound by <paramref name="starting"/>, which the server takes over.</param>
     public async Task<LocalControlServer> StartServerAsync(
             CancellationToken           ct,
             IRestartStrategy?           restartStrategy   = null,
-            Action<RestartCoordinator>? configureRestart  = null
+            Action<RestartCoordinator>? configureRestart  = null,
+            LocalControlSocket?         socket            = null,
+            StartingLocalControl?       starting          = null
         ) {
         var restart = RestartCoordinator.ForTest(Daemons.Store, Config.Name, Config.Name, restartStrategy ?? new NoopRestartStrategy(), TimeProvider.System);
         configureRestart?.Invoke(restart);
@@ -99,7 +102,7 @@ sealed class OrchestratorFixture : IAsyncDisposable {
             StatusIpc,
             new DaemonSettingsIpc(Config, Orchestrator, Notifier, NullLogger<DaemonSettingsIpc>.Instance),
             TestFences.Ipc(Config, Orchestrator), TestShutdown.Ipc(Orchestrator, restart, Lifetime), TestAccountsIpc.Inert(),
-            TestSteering.Switch(Config), NullLogger<LocalControlServer>.Instance);
+            TestSteering.Switch(Config), NullLogger<LocalControlServer>.Instance, socket, starting);
         await Server.StartAsync(ct);
 
         var deadline = DateTime.UtcNow.AddSeconds(5);

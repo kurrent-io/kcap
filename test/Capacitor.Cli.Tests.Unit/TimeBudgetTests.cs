@@ -48,4 +48,21 @@ public class TimeBudgetTests {
             )
             .Throws<InvalidOperationException>();
     }
+
+    /// <summary>Work the cap stopped waiting for is handed back still running, so a caller can wait for it after doing
+    /// what could not wait; work that finished hands back nothing.</summary>
+    [Test]
+    public async Task RunCappedOrRemainAsync_hands_back_the_running_work_at_the_cap() {
+        var release = new TaskCompletionSource();
+
+        var remaining = await TimeBudget.RunCappedOrRemainAsync(() => release.Task, TimeSpan.FromMilliseconds(50), TimeProvider.System);
+
+        await Assert.That(remaining is { IsCompleted: false }).IsTrue();
+
+        release.SetResult();
+        await remaining!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var finished = await TimeBudget.RunCappedOrRemainAsync(() => Task.CompletedTask, TimeSpan.FromSeconds(30), TimeProvider.System);
+        await Assert.That(finished is null).IsTrue();
+    }
 }

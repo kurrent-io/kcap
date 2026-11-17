@@ -290,6 +290,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
+                stopAtLoss: ctx.StopAtLoss,
                 progress:   ctx.Progress,
                 lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
                     ? numbering as Func<int, int?>

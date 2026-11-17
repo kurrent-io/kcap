@@ -198,6 +198,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         }
         var received = false;
         await foreach (var envelope in _lane.TailStreamAsync(StreamNames.AgentSession(_sessionId), from, ct).ConfigureAwait(false)) {
+            // A re-tail after a reconnect can overlap a subscription the server still holds.
+            lock (_lock) if (_position is { } seen && (long)envelope.StreamPosition <= seen) continue;
             var line = Project(envelope.EventType, envelope.JsonPayload, null, envelope.JsonMetadata, (long)envelope.StreamPosition, envelope.Timestamp, scheduled);
             lock (_lock) {
                 if (_attempt != attempt) return received;

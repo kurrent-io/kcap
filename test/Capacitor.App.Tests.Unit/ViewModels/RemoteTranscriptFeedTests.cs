@@ -111,6 +111,22 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(prompt.SubmittedInputs).IsEmpty();
     }
 
+    /// A re-tail after a reconnect can overlap a subscription the server still holds, so an event at or before the
+    /// position already read is not a second row.
+    [Test]
+    public async Task An_event_at_a_position_already_read_adds_no_row() {
+        using var h = new Harness();
+        h.Access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+        h.Feed.ReadAppended();
+
+        h.Lane.PushStreamEvent(Envelope("s1", 1, CanonicalEventTypes.AssistantTextGenerated, """{"content":"again"}"""));
+        h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.AssistantToolCallsGenerated, LsCall));
+        await WaitUntilAsync(() => h.Feed.CurrentOffset == 3, what: "the live event");
+
+        await Assert.That(h.Feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(new long[] { 2 });
+    }
+
     [Test]
     public async Task An_event_the_chat_does_not_render_moves_the_position_without_a_row() {
         using var h = new Harness();

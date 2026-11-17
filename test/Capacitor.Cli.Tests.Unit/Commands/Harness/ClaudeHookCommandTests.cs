@@ -2111,7 +2111,106 @@ public class ClaudeHookCommandTests {
             stdout: stdout);
 
         await Assert.That(accepting.RouteOrder).Contains("session-end");
-        await Assert.That(rejecting.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(string.Concat(rejecting.SpoolFiles.Select(File.ReadAllText))).DoesNotContain("\"route\":\"session-end\"");
+    }
+
+    /// <summary>The host kills a Stop hook at its manifest timeout, so a post that outlives the hook's own
+    /// ceiling loses the turn's end and holds the agent for nothing; one bounded attempt spools it instead.</summary>
+    [Test]
+    public async Task stop_against_a_server_that_never_answers_returns_inside_its_ceiling_and_spools() {
+        using var fx = new Fixture(Config.Root) { HoldOnPost = TimeSpan.FromSeconds(60) };
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    [Test]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    public async Task stop_refused_with_a_retryable_status_is_spooled(HttpStatusCode status) {
+        using var fx = new Fixture(Config.Root, status);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
+    }
+
+    /// <summary>A notification fires per permission prompt and means nothing once its moment has passed, so
+    /// a failed one is dropped rather than replayed into a later turn.</summary>
+    [Test, NotInParallel]
+    public async Task notification_refused_with_a_retryable_status_is_dropped_with_one_line() {
+        using var fx      = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Notification","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(capture.GetCapturedError()).Contains("notification dropped (HTTP 503)");
+    }
+
+    /// <summary>A stop posted live while the session still has an undelivered start would reach the server
+    /// first, for a session it does not know yet.</summary>
+    [Test]
+    public async Task stop_behind_an_undrained_backlog_is_spooled_after_it() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("stop");
+
+        List<string> drained = [];
+        await fx.Spool.DrainAllAsync(null, (route, _) => {
+            drained.Add(route);
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(10), CancellationToken.None);
+
+        await Assert.That(drained).IsEquivalentTo(["session-start", "stop"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>A restarting server can stall the hook before it has a client at all; the turn's end is spooled on that
+    /// arm too, so it reaches the server once it is back.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_is_spooled() {
+        using var fx = new Fixture(Config.Root);
+
+        var exit = await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a stop spooled for want of a client still ends the turn's
+    /// pending asks here.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_still_clears_the_turns_asks() {
+        using var fx = new Fixture(Config.Root);
+        var dashless = Guid.NewGuid().ToString("N");
+        new PolicyDecisionJournal(Config.Root).RecordAsk(dashless, "toolu_1", "hash");
+
+        // Claude sends the id dashed; the journal is keyed by the dashless form.
+        await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Guid.ParseExact(dashless, "N")}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(new PolicyDecisionJournal(Config.Root).Consume(dashless, "toolu_1", "hash").PendingAsk).IsFalse();
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a subagent start spooled behind a backlog still starts the
+    /// child's recorder here, or the child would have no live transcript.</summary>
+    [Test]
+    public async Task subagent_start_spooled_behind_a_backlog_still_starts_its_recorder() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable) { Spawner = new FakeWatcherSpawner() };
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SubagentStart","session_id":"{{Sid}}","agent_id":"a1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("subagent-start");
+        await Assert.That(fx.Spawner!.Keys).Contains($"{Sid}-a1");
     }
 
     [Test]
@@ -2538,10 +2637,10 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
-    /// <summary>Regression guard on the arm this change must NOT touch: a real server fault keeps
-    /// its bare-status stderr line and its non-zero exit, so a 500 still reads as a failure.</summary>
+    /// <summary>A server fault is retryable: the stop waits in the spool for the server to recover, so the
+    /// hook exits cleanly rather than painting Claude's hook-error banner on every turn of an outage.</summary>
     [Test]
-    public async Task stop_on_500_still_exits_non_zero_without_a_notice() {
+    public async Task stop_on_500_spools_and_exits_zero_without_a_notice() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
         var stdout = new StringWriter { NewLine = "\n" };
 
@@ -2550,7 +2649,8 @@ public class ClaudeHookCommandTests {
                 $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","cwd":"/tmp"}"""),
             stdout: stdout);
 
-        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
@@ -2601,6 +2701,9 @@ public class ClaudeHookCommandTests {
 
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
+
+        /// <summary>Watches watcher spawns instead of launching them, when a test sets it.</summary>
+        public FakeWatcherSpawner? Spawner { get; set; }
 
         /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
         public ProcessIncarnation? EndingProcess { get; set; }
@@ -2662,7 +2765,11 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
+            var watchers = Spawner is { } spawner
+                ? TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient(), spawner)
+                : TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient());
+
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 

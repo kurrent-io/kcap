@@ -57,7 +57,7 @@ class WatchCommand(
                         context.Uri, context.Options.AccessTokenProvider, time, report => Log(time, report), ct);
                 }
             )
-            .WithAutomaticReconnect(new InfiniteRetryPolicy())
+            .WithAutomaticReconnect(new HubRetryPolicy())
             .AddJsonProtocol(options => {
                     options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, CapacitorJsonContext.Default);
                     options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
@@ -65,9 +65,7 @@ class WatchCommand(
             )
             .Build();
 
-        // Halve KeepAliveInterval (15s → 7s); see ServerConnection for rationale.
-        // ServerTimeout stays at the 30s default for rollout safety.
-        hubConnection.KeepAliveInterval = TimeSpan.FromSeconds(7);
+        hubConnection.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
 
         return hubConnection;
     }
@@ -992,19 +990,5 @@ class WatchCommand(
         } catch {
             return 0;
         }
-    }
-
-    /// <summary>
-    /// Retries SignalR reconnection indefinitely with exponential backoff capped at 30s.
-    /// The watcher is lightweight when idle — it should never give up while the session is active.
-    /// </summary>
-    sealed class InfiniteRetryPolicy : IRetryPolicy {
-        public TimeSpan? NextRetryDelay(RetryContext retryContext) =>
-            retryContext.PreviousRetryCount switch {
-                0 => TimeSpan.Zero,
-                1 => TimeSpan.FromSeconds(2),
-                2 => TimeSpan.FromSeconds(10),
-                _ => TimeSpan.FromSeconds(30),
-            };
     }
 }

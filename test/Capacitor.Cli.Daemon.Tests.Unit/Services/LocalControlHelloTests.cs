@@ -53,6 +53,80 @@ public class LocalControlHelloTests {
         return JsonSerializer.Deserialize(reply!.Text, HelloIpcJsonContext.Default.HelloReplyDto)!.Capabilities;
     }
 
+    static readonly string AcceptsStarting =
+        JsonSerializer.Serialize(new ClientHelloDto("kcap-app", "1.2.3", AcceptsStarting: true), HelloIpcJsonContext.Default.ClientHelloDto);
+
+    static HelloReplyDto Reply(LocalFrame? frame) => JsonSerializer.Deserialize(frame!.Text, HelloIpcJsonContext.Default.HelloReplyDto)!;
+
+    /// <summary>A daemon as it stands between binding its socket and finishing its vendor probes.</summary>
+    sealed record Starting(OrchestratorFixture Fixture, LocalControlSocket Socket, StartingLocalControl Listener);
+
+    Starting BindStarting(string daemonName, CancellationToken ct) {
+        var fixture = new OrchestratorFixture(Config, Home, daemonName, setConfigRoot: true);
+        fixture.Config.InstanceId = "instance-under-test";
+        var socket   = new LocalControlSocket(fixture.Config);
+        var listener = new StartingLocalControl(fixture.Config, NullLogger<StartingLocalControl>.Instance);
+        listener.Start(socket.Bind(), ct);
+
+        return new(fixture, socket, listener);
+    }
+
+    /// <summary>The socket is bound before the vendor probes, so a client that understands a starting daemon hears from
+    /// it at once; it is told nothing it could gate a feature on.</summary>
+    [Test]
+    public async Task A_starting_daemon_answers_a_hello_that_accepts_it_at_once_and_advertises_nothing() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("hello-starting", cts.Token);
+        await using var fixture = starting.Fixture;
+        using var socket  = starting.Socket;
+
+        var reply = Reply(await AskAsync(socket.Path, LocalFrame.HelloJson(FrameType.Hello, AcceptsStarting), cts.Token));
+
+        await Assert.That(reply.Starting == true).IsTrue();
+        await Assert.That(reply.Capabilities).IsEmpty();
+        await Assert.That(reply.DaemonName).IsEqualTo("hello-starting");
+        await Assert.That(reply.InstanceId).IsEqualTo("instance-under-test");
+    }
+
+    /// <summary>A launch held through a long probe would still start after its client gave up, and the retry would start
+    /// a second one, so a starting daemon refuses it for the client to send again.</summary>
+    [Test]
+    public async Task A_starting_daemon_refuses_a_launch_for_the_client_to_retry() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("spawn-starting", cts.Token);
+        await using var fixture = starting.Fixture;
+        using var socket  = starting.Socket;
+
+        var reply = await AskAsync(socket.Path, new LocalFrame(FrameType.Spawn), cts.Token);
+
+        await Assert.That(reply!.Type).IsEqualTo(FrameType.Error);
+        await Assert.That(reply.Text).IsEqualTo(StartingLocalControl.StartingRefusal);
+    }
+
+    /// <summary>Every client that reads capabilities sends a plain hello and gates on what comes back, so a starting
+    /// daemon holds it and the ready daemon answers it: the client never sees a starting daemon's empty list as final.
+    /// Once ready, a hello that accepts a starting daemon gets the ordinary reply.</summary>
+    [Test]
+    public async Task A_plain_hello_sent_while_starting_is_answered_by_the_ready_daemon() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var starting  = BindStarting("hello-held", cts.Token);
+        await using var fixture = starting.Fixture;
+
+        var held = AskAsync(starting.Socket.Path, new LocalFrame(FrameType.Hello), cts.Token);
+        await Task.Delay(200, cts.Token);
+        await Assert.That(held.IsCompleted).IsFalse();
+
+        await fixture.StartServerAsync(cts.Token, socket: starting.Socket, starting: starting.Listener);
+
+        var answered = Reply(await held.WaitAsync(TimeSpan.FromSeconds(5), cts.Token));
+        await Assert.That(answered.Starting).IsNull();
+        await Assert.That(answered.Capabilities).IsEquivalentTo(LocalControlCapabilities.Current);
+
+        var ready = Reply(await AskAsync(fixture.SockPath, LocalFrame.HelloJson(FrameType.Hello, AcceptsStarting), cts.Token));
+        await Assert.That(ready.Starting).IsNull();
+        await Assert.That(ready.Capabilities).IsEquivalentTo(LocalControlCapabilities.Current);
+    }
+
     [Test]
     public async Task Hello_with_client_info_gets_a_reply_naming_version_name_and_capabilities() {
         await RunAsync("hello-a", async (h, ct) => {

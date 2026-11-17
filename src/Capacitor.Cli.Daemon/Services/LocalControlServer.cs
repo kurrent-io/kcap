@@ -14,18 +14,17 @@ internal sealed partial class LocalControlServer(
         DaemonConfig config, AgentOrchestrator orchestrator,
         RestartCoordinator restart, LaunchConsentIpc consentIpc, PermissionIpc permissionIpc, DaemonStatusIpc statusIpc,
         DaemonSettingsIpc settingsIpc, AdmissionFenceIpc fenceIpc,
-        DaemonShutdownIpc shutdownIpc, AccountsIpc accountsIpc, SteeringSwitch steering, ILogger<LocalControlServer> logger
+        DaemonShutdownIpc shutdownIpc, AccountsIpc accountsIpc, SteeringSwitch steering, ILogger<LocalControlServer> logger,
+        LocalControlSocket? socket = null, StartingLocalControl? starting = null
     ) : BackgroundService {
-    protected override async Task ExecuteAsync(CancellationToken ct) {
-        var path = config.Store.SocketPath(config.Name);
-        try { if (File.Exists(path)) File.Delete(path); } catch { /* stale; bind fails loudly below */ }
+    readonly LocalControlSocket _socket = socket ?? new LocalControlSocket(config);
 
-        using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        listener.Bind(new UnixDomainSocketEndPoint(path));
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); // 0600
-        listener.Listen(16);
-        LogListening(path);
+    protected override async Task ExecuteAsync(CancellationToken ct) {
+        var listener = _socket.Bind();
+        LogListening(_socket.Path);
+
+        // Taken over from the starting listener on the same socket, so a client never meets a refused connect.
+        if (starting is not null) await starting.HandOverAsync(DispatchAsync);
 
         try {
             while (!ct.IsCancellationRequested) {
@@ -33,7 +32,7 @@ internal sealed partial class LocalControlServer(
                 _ = HandleConnectionAsync(conn, ct); // fire-and-forget; handler owns its lifetime
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* shutdown */ }
-        finally { try { File.Delete(path); } catch { /* best-effort */ } }
+        finally { _socket.Dispose(); }
     }
 
     async Task HandleConnectionAsync(Socket conn, CancellationToken ct) {
@@ -42,6 +41,15 @@ internal sealed partial class LocalControlServer(
         try {
             var first = await FrameCodec.ReadAsync(stream, ct);
             if (first is null) return;
+            await DispatchAsync(first, stream, ct);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            LogConnectionError(ex);
+        }
+    }
+
+    /// <summary>Routes a connection by its opening frame, already read.</summary>
+    async Task DispatchAsync(LocalFrame first, Stream stream, CancellationToken ct) {
+        try {
             switch (first.Type) {
                 case FrameType.Spawn:  await orchestrator.HandleLocalSpawnAsync(first, stream, ct); break;
                 case FrameType.Attach: await orchestrator.HandleLocalAttachAsync(first.Text, stream, ct); break;

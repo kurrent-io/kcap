@@ -421,10 +421,11 @@ sealed class CopilotHookCommand(
             , clock.Time);
 
             if (!drained) {
-                await Console.Error.WriteLineAsync(
-                    $"[kcap] copilot session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
-                  + $"Transcript tail may be incomplete — recoverable via: kcap import --copilot --session {sessionId}"
-                );
+                var handed = DetachedBacklogImport.Spawn("--copilot", sessionId, transcriptPath, null, config, profiles.Resolution, SystemProcessStarter.Instance);
+                await Console.Error.WriteLineAsync(handed
+                    ? $"[kcap] copilot session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
+                    : $"[kcap] copilot session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
+                    + $"Transcript tail may be incomplete — recoverable via: kcap import --copilot --session {sessionId}");
             }
         } catch (Exception ex) {
             Console.Error.WriteLine($"[kcap] copilot session-end pre-hook failed: {ex.Message}");

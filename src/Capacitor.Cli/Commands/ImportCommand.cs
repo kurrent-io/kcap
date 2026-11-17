@@ -1921,7 +1921,7 @@ class ImportCommand(
                                 },
                             };
 
-                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
 
                             // Insurance, not presentation: the frame is erased on the way out, and an
                             // erase that ever fails should strand idle rows rather than a session name.
@@ -1945,7 +1945,7 @@ class ImportCommand(
                     );
                 importResult = r!;
             } else {
-                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
             }
         } else {
             importResult = new(0, 0, 0);
@@ -1981,7 +1981,7 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger };
+            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -3491,7 +3491,8 @@ class ImportCommand(
             ChainWorkerEvents                 events,
             CancellationToken                 ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
         var loaded    = 0;
         var resumed   = 0;
@@ -3527,7 +3528,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility, stopAtLoss);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3588,7 +3589,8 @@ class ImportCommand(
             IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
         // Denominator for the per-slot progress bar: the number of parent-transcript
         // lines this import will POST. For a resume, only the lines past the server's
@@ -3806,7 +3808,8 @@ class ImportCommand(
                 time,
                 perSessionProgress,
                 session.Vendor,
-                canonical
+                canonical,
+                stopAtLoss
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;

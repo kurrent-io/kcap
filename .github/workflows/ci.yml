@@ -264,6 +264,10 @@ jobs:
         run: bash scripts/check-linear-ids.sh
       - name: No banned comment tokens
         run: bash scripts/check-comment-rules.sh
+      - name: No method families beyond the duplication baseline
+        run: bash scripts/check-duplication.sh
+      - name: Duplication checker tests
+        run: bash scripts/check-duplication.test.sh
 
   # One version for the daemon, the CLI, the app and the package, so the app's CLI floor assertion
   # and Velopack's SemVer check see the same value.

@@ -135,6 +135,14 @@ public class StatusJsonTests {
         await Assert.That(payload.Server.Reachable).IsNull();
     }
 
+    /// <summary>The JSON carries the same facts as the Daemon line, a daemon still probing its vendors among them.</summary>
+    [Test]
+    public async Task A_starting_daemon_is_marked_starting() {
+        var payload = Payload(daemons: [new StatusCommand.DaemonEntry("laptop", 42, true, "1.3.0-beta.7", Starting: true)]);
+
+        await Assert.That(payload.Daemon.Daemons).IsEquivalentTo([new StatusDaemonEntryJson("laptop", 42, "1.3.0-beta.7", Starting: true)]);
+    }
+
     // A marker with no usable PID is a file someone still has to clean up, so it counts as stale
     // without ever being listed as a daemon. A live daemon carries its version without build metadata.
     [Test]
