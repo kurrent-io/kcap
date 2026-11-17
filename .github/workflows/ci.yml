@@ -82,7 +82,9 @@ jobs:
           # analysis. Both lean on Linux and Windows-others compiling and analysing the whole solution;
           # nothing is compiled per OS, so a third full analysis on the metered macOS runner finds nothing new.
           - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4, build: all,       analyzers: true }
-          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4, build: selection, analyzers: false }
+          # `daemon-lane` gives the Daemon suite, the leg's critical path, one module slot from the start
+          # instead of whenever the scheduler reaches it.
+          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4, build: selection, analyzers: false, daemon-lane: true }
           # Narrower: at three-by-four this leg spent a 20s service-readiness budget and a 1s
           # memory-fetch budget inside the code under test with nothing actually slow.
           # Split in two because at two modules the Windows test step took the sum of every suite
@@ -102,13 +104,22 @@ jobs:
         env:
           PROJECTS: ${{ needs.changes.outputs.projects }}
           SHARD: ${{ matrix.shard }}
+          DAEMON_LANE: ${{ matrix.daemon-lane == true }}
           DAEMON: test/Capacitor.Cli.Daemon.Tests.Unit/Capacitor.Cli.Daemon.Tests.Unit.csproj
         run: |
           set -euo pipefail
           if [ "$PROJECTS" = all ]; then
-            if [ "$SHARD" = all ]; then echo "solution=Capacitor.slnx" >> "$GITHUB_OUTPUT"; exit 0; fi
+            if [ "$SHARD" = all ] && [ "$DAEMON_LANE" != true ]; then
+              echo "solution=Capacitor.slnx" >> "$GITHUB_OUTPUT"; exit 0
+            fi
             PROJECTS="$(sed -n 's|.*<Project Path="\([^"]*\)".*|\1|p' Capacitor.slnx | tr '\\' /)"
           fi
+          write_filter() {
+            local file="$1"; shift
+            local list; list="$(printf '"%s",' "$@")"
+            printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$file"
+            cat "$file"
+          }
           selected=()
           for p in $PROJECTS; do
             case "$SHARD" in
@@ -118,11 +129,17 @@ jobs:
             esac
           done
           if [ "${#selected[@]}" -eq 0 ]; then echo "solution=" >> "$GITHUB_OUTPUT"; exit 0; fi
-          solution=selected-tests.slnf
-          list="$(printf '"%s",' "${selected[@]}")"
-          printf '{"solution":{"path":"Capacitor.slnx","projects":[%s]}}\n' "${list%,}" > "$solution"
-          cat "$solution"
-          echo "solution=$solution" >> "$GITHUB_OUTPUT"
+          write_filter selected-tests.slnf "${selected[@]}"
+          echo "solution=selected-tests.slnf" >> "$GITHUB_OUTPUT"
+          if [ "$DAEMON_LANE" = true ]; then
+            others=()
+            for p in "${selected[@]}"; do [ "$p" = "$DAEMON" ] || others+=("$p"); done
+            if [ "${#others[@]}" -gt 0 ] && [ "${#others[@]}" -lt "${#selected[@]}" ]; then
+              write_filter others-tests.slnf "${others[@]}"
+              write_filter daemon-tests.slnf "$DAEMON"
+              echo "split=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       # GetMac VMs leave TMPDIR empty, and dotnet's named mutexes then fail on first run. The suite's
       # socket paths need a short, symlink-free root, so not runner.temp.
@@ -182,7 +199,7 @@ jobs:
       # The runner's default shell, not bash: on Windows, Git Bash puts its own usr/bin ahead of
       # System32 on PATH, and a test that runs `timeout` through cmd.exe then gets the GNU one.
       - name: Run tests
-        if: steps.tests.outputs.solution != ''
+        if: steps.tests.outputs.solution != '' && steps.tests.outputs.split != 'true'
         env:
           # The live launchd/systemd test loads a uniquely named unit; a disposable runner is the place for it.
           KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
@@ -198,6 +215,32 @@ jobs:
           --max-parallel-test-modules ${{ matrix.modules }}
           -- --maximum-parallel-tests ${{ matrix.tests }}
           --hangdump --hangdump-timeout 10m --hangdump-type Mini
+
+      # Two `dotnet test` runs side by side: the Daemon suite on one module slot, the rest on the
+      # others, so the leg still runs `modules` assemblies at once. Reports are named per assembly.
+      - name: Run tests (Daemon suite on its own lane)
+        if: steps.tests.outputs.split == 'true'
+        shell: bash
+        env:
+          KCAP_LOCAL_SERVICE_CHECK: ${{ runner.os != 'Windows' && '1' || '' }}
+          MODULES: ${{ matrix.modules }}
+          TESTS: ${{ matrix.tests }}
+        # No -e: both runs must finish and report before the step decides.
+        run: |
+          set +e -u
+          run() {
+            dotnet test --solution "$1" --no-build --max-parallel-test-modules "$2" \
+              -- --maximum-parallel-tests "$TESTS" --hangdump --hangdump-timeout 10m --hangdump-type Mini
+          }
+          run daemon-tests.slnf 1 > "$RUNNER_TEMP/daemon-tests.log" 2>&1 &
+          daemon=$!
+          run others-tests.slnf "$((MODULES - 1))"; others_status=$?
+          wait "$daemon"; daemon_status=$?
+          echo "::group::Daemon suite (exit $daemon_status)"
+          cat "$RUNNER_TEMP/daemon-tests.log"
+          echo "::endgroup::"
+          echo "Daemon suite exit $daemon_status, other suites exit $others_status"
+          [ "$daemon_status" -eq 0 ] && [ "$others_status" -eq 0 ]
 
       # Kept on success too: the console prints nothing between banner and summary, so these are the
       # only per-test timing record. File kinds and not the directory: upload-artifact roots the
