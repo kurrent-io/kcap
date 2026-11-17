@@ -4,15 +4,15 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A status group of a work item page, or the last group, On the work item, which holds the sessions on no part and
-/// the viewer's loose ends. <see cref="Status"/> is null on that last group.
+/// A collapsible group of a work item page: the item's links, the parts of one status, the viewer's loose ends, or the
+/// sessions on no part. <see cref="Status"/> is null except on a status group.
 public sealed class WorkItemPageGroupViewModel : ReactiveObject {
     public string Key { get; }
     public WorkStatus? Status { get; }
     public string Label { get; }
     public int Count { get; }
-    public string Heading => Label.ToUpperInvariant();
-    public LucideIconKind Icon => Status?.Icon() ?? LucideIconKind.CircleDashed;
+    public LucideIconKind Icon { get; }
+    public IReadOnlyList<WorkItemPageLink> Links { get; }
     public IReadOnlyList<WorkItemPagePart> Parts { get; }
     public IReadOnlyList<WorkItemPageSession> Sessions { get; }
     public IReadOnlyList<WorkItemPageLooseEnd> LooseEnds { get; }
@@ -21,16 +21,18 @@ public sealed class WorkItemPageGroupViewModel : ReactiveObject {
     bool _isExpanded;
     public bool IsExpanded { get => _isExpanded; private set => this.RaiseAndSetIfChanged(ref _isExpanded, value); }
 
-    public WorkItemPageGroupViewModel(string key, WorkStatus? status, string label, IReadOnlyList<WorkItemPagePart> parts,
-            IReadOnlyList<WorkItemPageSession> sessions, IReadOnlyList<WorkItemPageLooseEnd> looseEnds,
-            bool isExpanded, Action<bool> expandedChanged) {
+    public WorkItemPageGroupViewModel(string key, WorkStatus? status, string label, LucideIconKind icon,
+            IReadOnlyList<WorkItemPageLink> links, IReadOnlyList<WorkItemPagePart> parts, IReadOnlyList<WorkItemPageSession> sessions,
+            IReadOnlyList<WorkItemPageLooseEnd> looseEnds, bool isExpanded, Action<bool> expandedChanged) {
         Key = key;
         Status = status;
         Label = label;
+        Icon = icon;
+        Links = links;
         Parts = parts;
         Sessions = sessions;
         LooseEnds = looseEnds;
-        Count = parts.Count + sessions.Count + looseEnds.Count;
+        Count = links.Count + parts.Count + sessions.Count + looseEnds.Count;
         _isExpanded = isExpanded;
         ToggleCommand = ReactiveCommand.Create(() => {
             IsExpanded = !IsExpanded;

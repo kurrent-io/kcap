@@ -1,4 +1,10 @@
+using Lucide.Avalonia;
+
 namespace Capacitor.App.ViewModels;
 
-/// A link chip: its key with the tracker's state beside it, such as "AI-5190 In Progress".
-public sealed record WorkItemPageLink(string Label, string? Url, string? Title);
+/// A PR or issue row: its key, the tracker's title and state.
+public sealed record WorkItemPageLink(string ShortKey, string? Title, string? State, string? Url, bool IsPr) {
+    public bool IsMerged => string.Equals(State, "merged", StringComparison.OrdinalIgnoreCase);
+    public LucideIconKind Icon => !IsPr ? LucideIconKind.CircleDot : IsMerged ? LucideIconKind.GitMerge : LucideIconKind.GitPullRequest;
+    public string StateLabel => State is { Length: > 0 } state ? char.ToUpperInvariant(state[0]) + state[1..].Replace('_', ' ') : "Open";
+}

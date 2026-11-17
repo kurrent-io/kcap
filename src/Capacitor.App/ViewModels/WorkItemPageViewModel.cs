@@ -6,20 +6,23 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Remote.Models;
+using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A work item's page in the main area: its goal, links, progress and parts grouped by status. Statuses and progress
+/// A work item's page in the main area: its goal, links, progress and slices grouped by status. Statuses and progress
 /// are the server's, the same for every viewer; sessions and "Needs you" cover only what this viewer can see.
 public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
-    public const string NoLinks = "No links. Status set by hand";
+    const string LinksKey = "links";
+    const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
 
     readonly IWorkItemPageApi _api;
     readonly IAgentDirectory _directory;
     readonly TimeProvider _time;
     readonly ISet<string> _flippedGroups;
+    readonly HashSet<string> _foldedParts = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
     WorkItemPartsDto? _read;
@@ -31,11 +34,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
     string? _goal;
     public string? Goal { get => _goal; private set => this.RaiseAndSetIfChanged(ref _goal, value); }
-    IReadOnlyList<WorkItemPageLink> _links = [];
-    public IReadOnlyList<WorkItemPageLink> Links { get => _links; private set => this.RaiseAndSetIfChanged(ref _links, value); }
-    /// One status per part, done first, for the progress bar's segments.
-    IReadOnlyList<WorkStatus> _progress = [];
-    public IReadOnlyList<WorkStatus> Progress { get => _progress; private set => this.RaiseAndSetIfChanged(ref _progress, value); }
+    WorkItemPageGroupViewModel? _linksGroup;
+    public WorkItemPageGroupViewModel? LinksGroup { get => _linksGroup; private set => this.RaiseAndSetIfChanged(ref _linksGroup, value); }
+    /// The done share of the progress ring, in degrees.
+    double _progressSweep;
+    public double ProgressSweep { get => _progressSweep; private set => this.RaiseAndSetIfChanged(ref _progressSweep, value); }
     string _progressText = "";
     public string ProgressText { get => _progressText; private set => this.RaiseAndSetIfChanged(ref _progressText, value); }
     IReadOnlyList<WorkItemPageGroupViewModel> _groups = [];
@@ -74,9 +77,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
         OpenSessionCommand = ReactiveCommand.Create<WorkItemPageSession>(session => openSession?.Invoke(session.SessionId)).DisposeWith(_disposables);
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
-            ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a part from that loose end")).DisposeWith(_disposables);
+            ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a slice from that loose end")).DisposeWith(_disposables);
         AddPartCommand = ReactiveCommand.CreateFromTask(async () => {
-            if (await ChangeAsync(async ct => await _api.AddPartAsync(WorkItemId, NewPartTitle.Trim(), ct) is not null, "Couldn't add that part")) NewPartTitle = "";
+            if (await ChangeAsync(async ct => await _api.AddPartAsync(WorkItemId, NewPartTitle.Trim(), ct) is not null, "Couldn't add that slice")) NewPartTitle = "";
         }, this.WhenAnyValue(x => x.NewPartTitle, title => !string.IsNullOrWhiteSpace(title))).DisposeWith(_disposables);
         AddLinkCommand = ReactiveCommand.CreateFromTask(async () => {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
@@ -121,56 +124,70 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
         Title = read.WorkItem.Title;
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
-        Links = LinksOf(read.Links);
+        var links = LinksOf(read.Links);
+        LinksGroup = links.Count == 0 ? null : Group(LinksKey, null, "Links", LucideIconKind.CircleDot, links: links);
 
         var parts = read.Parts.Select(part => PartOf(part, rows)).ToList();
-        ProgressText = parts.Count == 0 ? "" : $"{parts.Count(part => part.Status == WorkStatus.Done)} of {parts.Count} parts done";
-        Progress = [.. parts.Select(part => part.Status).OrderBy(status => status == WorkStatus.Done ? -1 : (int)status)];
+        var done = parts.Count(part => part.Status == WorkStatus.Done);
+        ProgressText = parts.Count == 0 ? "" : $"{done}/{parts.Count}";
+        ProgressSweep = parts.Count == 0 ? 0 : 360.0 * done / parts.Count;
 
         var groups = new List<WorkItemPageGroupViewModel>();
-        foreach (var status in Enum.GetValues<WorkStatus>()) {
+        void AddStatus(WorkStatus status) {
             var inGroup = parts.Where(part => part.Status == status).ToList();
-            if (inGroup.Count > 0) groups.Add(Group(status.Wire(), status, status.Label(), inGroup, [], [], status != WorkStatus.Done));
+            if (inGroup.Count > 0) groups.Add(Group(status.Wire(), status, status.Label(), status.Icon(), parts: inGroup, expandedByDefault: status != WorkStatus.Done));
         }
-        var sessions = read.SessionIds.Select(id => SessionOf(id, rows)).ToList();
+        foreach (var status in Enum.GetValues<WorkStatus>().Where(status => status != WorkStatus.Done)) AddStatus(status);
         var looseEnds = read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text)).ToList();
-        if (sessions.Count + looseEnds.Count > 0) groups.Add(Group(OnWorkItemKey, null, "On the work item", [], sessions, looseEnds, true));
+        if (looseEnds.Count > 0) groups.Add(Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag, looseEnds: looseEnds));
+        AddStatus(WorkStatus.Done);
+        var sessions = read.SessionIds.Select(id => SessionOf(id, rows, read.Sessions)).ToList();
+        if (sessions.Count > 0) groups.Add(Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare, sessions: sessions));
         Groups = groups;
     }
 
-    WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, IReadOnlyList<WorkItemPagePart> parts,
-            IReadOnlyList<WorkItemPageSession> sessions, IReadOnlyList<WorkItemPageLooseEnd> looseEnds, bool expandedByDefault) =>
-        new(key, status, label, parts, sessions, looseEnds, expandedByDefault ^ _flippedGroups.Contains(key), expanded => {
+    WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, LucideIconKind icon,
+            IReadOnlyList<WorkItemPageLink>? links = null, IReadOnlyList<WorkItemPagePart>? parts = null,
+            IReadOnlyList<WorkItemPageSession>? sessions = null, IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null,
+            bool expandedByDefault = true) =>
+        new(key, status, label, icon, links ?? [], parts ?? [], sessions ?? [], looseEnds ?? [],
+            expandedByDefault ^ _flippedGroups.Contains(key), expanded => {
             if (expanded == expandedByDefault) _flippedGroups.Remove(key);
             else _flippedGroups.Add(key);
         });
 
     WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows) {
         var status = WorkStatusExtensions.ParseWorkStatus(part.Status);
-        var waiting = status == WorkStatus.Blocked && part.WaitsOn.Count > 0;
-        var links = LinksOf(part.Links);
-        var detail = waiting ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
-            : links.Count > 0 ? string.Join(" · ", links.Select(link => link.Label))
-            : NoLinks;
+        var tip = status == WorkStatus.Blocked && part.WaitsOn.Count > 0
+            ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
+            : null;
         var needsYou = part.SessionIds.Any(id => rows.TryGetValue(id, out var row) && _needsYou.Contains(row.Id));
         var setStatus = ReactiveCommand.CreateFromTask<string>(wire =>
             ChangeAsync(ct => _api.SetStatusAsync(part.WorkItemId, wire.Length == 0 ? null : wire, ct), "Couldn't set that status"));
-        return new WorkItemPagePart(part.WorkItemId, part.Title, status, detail, waiting, needsYou,
-            [.. part.SessionIds.Select(id => SessionOf(id, rows))], setStatus);
+        var id = part.WorkItemId;
+        return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
+            [.. part.SessionIds.Select(sessionId => SessionOf(sessionId, rows, part.Sessions))], !_foldedParts.Contains(id),
+            expanded => { if (expanded) _foldedParts.Remove(id); else _foldedParts.Add(id); }, setStatus);
     }
 
     static IReadOnlyList<WorkItemPageLink> LinksOf(IEnumerable<WorkItemLinkDto> links) =>
         [.. links.Where(link => link.LinkClass != "reference")
-            .Select(link => new WorkItemPageLink(link.State is { Length: > 0 } state ? $"{link.ShortKey} {state}" : link.ShortKey, link.Url, link.Title))];
+            .Select(link => new WorkItemPageLink(link.ShortKey, link.Title, link.State, link.Url, link.Kind == "pr"))];
 
-    WorkItemPageSession SessionOf(string sessionId, Dictionary<string, AgentRow> rows) {
-        if (!rows.TryGetValue(sessionId, out var row)) return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null);
+    WorkItemPageSession SessionOf(string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
+        if (!rows.TryGetValue(sessionId, out var row)) {
+            if (named.FirstOrDefault(session => session.SessionId == sessionId) is not { } known)
+                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null);
+            return new(sessionId, known.Title is { Length: > 0 } knownTitle ? knownTitle : "Untitled session",
+                known.LastActivityAt is { } moved ? Ago(moved) : null);
+        }
         var stamp = row.LastActivityAt ?? row.CreatedAt;
-        var at = new DateTimeOffset(stamp.Kind == DateTimeKind.Local ? stamp.ToUniversalTime() : DateTime.SpecifyKind(stamp, DateTimeKind.Utc));
-        var age = RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);
+        var age = Ago(new DateTimeOffset(stamp.Kind == DateTimeKind.Local ? stamp.ToUniversalTime() : DateTime.SpecifyKind(stamp, DateTimeKind.Utc)));
         return new(sessionId, row.Title is { Length: > 0 } title ? title : "Untitled session",
             row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age);
     }
+
+    string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);
 
     public void Dispose() => _disposables.Dispose();
 }

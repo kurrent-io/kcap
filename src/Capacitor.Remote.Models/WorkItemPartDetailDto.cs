@@ -9,4 +9,6 @@ public sealed record WorkItemPartDetailDto {
     [JsonPropertyName("waits_on")]     public List<WorkItemRefDto> WaitsOn { get; init; } = [];
     [JsonPropertyName("status")]       public string Status { get; init; } = "";
     [JsonPropertyName("session_ids")]  public List<string> SessionIds { get; init; } = [];
+    /// Titles for <see cref="SessionIds"/>; an older server sends none.
+    [JsonPropertyName("sessions")]     public List<WorkItemPartSessionDto> Sessions { get; init; } = [];
 }
