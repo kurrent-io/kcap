@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
+using Capacitor.Models.Transcripts.Harness.Claude;
 
 namespace Capacitor.Cli.Commands;
 
@@ -339,7 +340,7 @@ static class SessionImporter {
 
         static void AddLine(Dictionary<string, List<int>> lines, string key, int line) {
             if (!lines.TryGetValue(key, out var list)) lines[key] = list = [];
-            list.Add(line);
+            if (!list.Contains(line)) list.Add(line);
         }
     }
 
@@ -396,12 +397,29 @@ static class SessionImporter {
                 case "user":
                     RecordAgentCallResults(root, lineIndex, toolUsePositions, callResultLines);
 
-                    return TryExtractFromToolUseResult(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links);
+                    return TryExtractFromToolUseResult(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links)
+                        ?? NotifiedAgent(root, lineIndex, toolUsePositions, callResultLines);
             }
         } catch (JsonException) {
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The agent a <c>&lt;task-notification&gt;</c> reports on, the only reference a background agent's
+    /// finish leaves in the parent; the notice's call id also counts for an agent linked through its call.
+    /// </summary>
+    static string? NotifiedAgent(
+            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, List<int>> callResultLines) {
+        if (root.Obj("message")?.Str("content") is not { } text || !TaskNotificationParser.TryParse(text, out var notice)) return null;
+
+        if (notice.ToolUseId is { } callId && toolUsePositions.ContainsKey(callId)) {
+            if (!callResultLines.TryGetValue(callId, out var lines)) callResultLines[callId] = lines = [];
+            lines.Add(lineIndex);
+        }
+
+        return notice.TaskId;
     }
 
     /// <summary>The lines holding a <c>tool_result</c> for an Agent/Task call, keyed by the call id.</summary>

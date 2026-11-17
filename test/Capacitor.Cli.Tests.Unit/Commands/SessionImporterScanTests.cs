@@ -153,4 +153,22 @@ public class SessionImporterScanTests {
         await Assert.That(scan.SpawnCallByAgent).IsEmpty();
         await Assert.That(scan.FirstLineByAgent.ContainsKey("c1")).IsFalse();
     }
+
+    [Test]
+    public async Task ScanAgentLifecycle_CountsATaskNotificationAsAReferenceToTheBackgroundAgent() {
+        var transcript = """
+                         {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"Agent","input":{"subagent_type":"Explore","run_in_background":true}}]}}
+                         {"type":"result","tool_use_id":"toolu_9","tool_result":{"status":"async_launched","agentId":"bg1"}}
+                         {"type":"user","message":{"content":"go on"}}
+                         {"type":"user","message":{"content":"<task-notification>\n<task-id>bg1</task-id>\n<tool-use-id>toolu_9</tool-use-id>\n<status>completed</status>\n</task-notification>"}}
+                         """;
+
+        using var tmp = new TempDir();
+        var path = tmp.CreateFile("transcript.jsonl", transcript);
+
+        var scan = SessionImporter.ScanAgentLifecycle(path);
+
+        await Assert.That(scan.FirstLineByAgent["bg1"]).IsEqualTo(0);
+        await Assert.That(scan.ReferenceLinesByAgent["bg1"]).IsEquivalentTo([1, 3]);
+    }
 }
