@@ -115,13 +115,14 @@ public class AgentOrchestratorStopForResumeTests {
         var runtime = new FakeHostedAgentRuntime("cursor", emitsTerminalOutput: true) { NeverExitsOnItsOwn = true };
         Seed(orch, "keep-stuck", runtime: runtime);
         await Assert.That(orch.ShutdownStopGrace).IsEqualTo(TimeSpan.FromSeconds(5));
+        orch.ShutdownStopGrace = TimeSpan.FromMilliseconds(200);
 
         var elapsed = Stopwatch.StartNew();
         await orch.DisposeAsync();
         elapsed.Stop();
 
         await Assert.That(string.Join(",", runtime.StopCalls)).IsEqualTo("graceful,terminate");
-        await Assert.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
+        await Assert.That(elapsed.Elapsed).IsLessThan(orch.ShutdownStopGrace + TimeSpan.FromSeconds(3));
         await Assert.That(Ledger().TryRead("keep-stuck")!.State).IsEqualTo(ResumeState.Resuming);
     }
 
@@ -169,8 +170,12 @@ public class AgentOrchestratorStopForResumeTests {
         Seed(orch, "keep-slow", runtime: stuck);
         SeedResumableReviewer(orch, "park-early");
         string? interactiveAtPark = null;
+        // The stuck agent exits once the park is reported, so its grace ends there rather than running out.
         _ = parkEntered.Task.ContinueWith(
-            _ => { lock (stuck.StopCalls) interactiveAtPark = string.Join(",", stuck.StopCalls); },
+            _ => {
+                lock (stuck.StopCalls) interactiveAtPark = string.Join(",", stuck.StopCalls);
+                stuck.ExitGate.TrySetResult();
+            },
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
         await orch.DisposeAsync();

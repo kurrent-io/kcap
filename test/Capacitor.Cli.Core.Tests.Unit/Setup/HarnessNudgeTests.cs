@@ -66,4 +66,24 @@ public class HarnessNudgeTests {
         var ids = NudgeableIds([HarnessId.Gemini, HarnessId.Antigravity], wired: [HarnessId.Gemini]);
         await Assert.That(ids).IsEquivalentTo(new[] { HarnessId.Antigravity });
     }
+
+    /// <summary>Only a harness nobody has been asked about is new since setup: one setup or a nudge offered was
+    /// answered, even by leaving it off, and a dismissed one stays dismissed.</summary>
+    [Test]
+    [Arguments(false, false, false, true)]
+    [Arguments(true, false, false, false)]
+    [Arguments(false, true, false, false)]
+    [Arguments(false, false, true, false)]
+    public async Task A_harness_is_new_since_setup_only_when_detected_unwired_and_never_offered(
+            bool wired, bool offered, bool declined, bool expected) {
+        var ledger = LedgerWith(("antigravity", new HarnessOfferEntry {
+            LastOffered = offered ? Now.AddDays(-30) : null, Declined = declined, FirstSeen = Now.AddDays(-1),
+        }));
+
+        var ids = HarnessNudge.NeverOffered(
+                TestHarnesses.All([HarnessId.Antigravity], wired ? [HarnessId.Antigravity] : null), ledger)
+            .Select(h => h.Id);
+
+        await Assert.That(ids.Contains(HarnessId.Antigravity)).IsEqualTo(expected);
+    }
 }

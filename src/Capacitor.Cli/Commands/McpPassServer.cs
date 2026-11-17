@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Telemetry;
@@ -64,14 +62,14 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
             try {
                 var elicit = offered && elicits ? (Elicit)((parameters, ct) => client.SendAsync("elicitation/create", parameters, ct)) : null;
-                var answer = offered ? await HandleToolCallAsync(id, request, elicit) : ToolResult(id, "Error: unknown tool.", isError: true);
+                var answer = offered ? await HandleToolCallAsync(id, request, elicit) : McpResponses.ToolResult(id, "Error: unknown tool.", isError: true);
                 ok = McpTelemetry.ResponseOk(answer);
 
                 return answer;
             } catch (Exception ex) {
                 await Console.Error.WriteLineAsync($"kcap mcp pass: unexpected error handling tools/call: {ex}");
 
-                return ToolResult(id, "Error: internal error handling the request.", isError: true);
+                return McpResponses.ToolResult(id, "Error: internal error handling the request.", isError: true);
             } finally {
                 toolCalled?.Invoke(McpTelemetry.SafeToolName(request), ok, CommandTiming.ElapsedMs(start, time));
             }
@@ -80,17 +78,15 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         string Answer(JsonNode id, string? method, JsonObject request) {
             switch (method) {
                 case null:
-                    return ErrorResponse(id, -32600, "Invalid request: method must be a string");
+                    return McpResponses.Error(id, -32600, "Invalid request: method must be a string");
                 case "initialize":
                     elicits = ClientElicits(request);
 
-                    return ToResponse<McpInitResult>(
-                        id, new(McpProtocol.NegotiateVersion(request), new(new()), new(ServerName, "1.0.0"), offered ? ServerInstructions : null),
-                        McpJsonContext.Default.McpInitResult);
+                    return McpResponses.Initialize(id, request, ServerName, offered ? ServerInstructions : null);
                 case "tools/list":
-                    return ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
+                    return McpResponses.ToolsList(id, tools);
                 default:
-                    return McpProtocol.TryHandleStandardMethod(method, id) ?? ErrorResponse(id, -32601, $"Method not found: {method}");
+                    return McpProtocol.TryHandleStandardMethod(method, id) ?? McpResponses.Error(id, -32601, $"Method not found: {method}");
             }
         }
 
@@ -129,7 +125,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         var toolName   = parameters?["name"] is JsonValue name && name.TryGetValue(out string? n) ? n : null;
         var arguments  = parameters?["arguments"] as JsonObject;
 
-        if (toolName is null) return ErrorResponse(id, -32602, "Missing params.name");
+        if (toolName is null) return McpResponses.Error(id, -32602, "Missing params.name");
 
         using var budget = new CancellationTokenSource(RequestBudget, time);
 
@@ -141,14 +137,14 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
                 "pass_status"    => await StatusAsync(id, arguments, budget.Token),
                 "catch_me_up"    => await CatchUpAsync(id, budget.Token),
                 "what_else"      => await WhatElseAsync(id, arguments, budget.Token),
-                _                => ToolResult(id, $"Error: unknown tool {toolName}.", isError: true)
+                _                => McpResponses.ToolResult(id, $"Error: unknown tool {toolName}.", isError: true)
             };
         } catch (ArgumentException ex) {
-            return ToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (CapacitorApiException ex) {
-            return ToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (OperationCanceledException) when (budget.IsCancellationRequested) {
-            return ToolResult(id, "Error: the server did not answer in time.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the server did not answer in time.", isError: true);
         }
     }
 
@@ -170,7 +166,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             _ => "Several colleagues match. Show the user these names and ask which one they mean; do not pick for them."
         };
 
-        return ToolResult(id, result.ToJsonString());
+        return McpResponses.ToolResult(id, result.ToJsonString());
     }
 
     static StartPassBody PassBody(JsonObject? arguments) {
@@ -216,18 +212,18 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         }
 
         return result switch {
-            PassSendResult.Sent sent => ToolResult(
+            PassSendResult.Sent sent => McpResponses.ToolResult(
                 id, (await FollowUpAsync(Outcome("sent", sent.Pass.PassId, "Sent.", sent.Pass.Grants), body, sent.Pass.FollowUpNotBefore)).ToJsonString()),
             PassSendResult.AwaitingApproval awaiting => await ApproveAsync(id, awaiting.Pass, body, elicit),
             PassSendResult.Refused refused => Refusal(id, refused.Refusal),
-            PassSendResult.NotFound => ToolResult(id, "Not sent: no such item, or not one you can see.", isError: true),
+            PassSendResult.NotFound => McpResponses.ToolResult(id, "Not sent: no such item, or not one you can see.", isError: true),
             _ => throw new InvalidOperationException("Unknown send result")
         };
     }
 
     string SendUnknown(JsonNode id, string reason) =>
-        ToolResult(id, $"Error: {reason}. The pass may or may not have been sent. Do not pass or message again; " +
-                       $"ask the user to check in kcap: {SentLink}", isError: true);
+        McpResponses.ToolResult(id, $"Error: {reason}. The pass may or may not have been sent. Do not pass or message again; " +
+                                    $"ask the user to check in kcap: {SentLink}", isError: true);
 
     /// <summary>Only the human answers. Without a prompt in the harness, or with no answer to it, the pass waits for
     /// them in kcap.</summary>
@@ -263,7 +259,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         }
 
         return result switch {
-            PassAnswerResult.Answered answered => ToolResult(
+            PassAnswerResult.Answered answered => McpResponses.ToolResult(
                 id, (await FollowUpAsync(Answered(pass.PassId, answered.Answer), body, answered.Answer.FollowUpNotBefore)).ToJsonString()),
             PassAnswerResult.Refused refused   => Refusal(id, refused.Refusal),
             _                                  => throw new InvalidOperationException("Unknown answer result")
@@ -329,8 +325,8 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
     /// <summary>The human answered but the server's reply was lost, so it may have applied the answer: sending again
     /// could make a second pass.</summary>
     string AnswerUnknown(JsonNode id, string reason) =>
-        ToolResult(id, $"Error: {reason}. The user's answer may or may not have reached the server. Do not pass or message again; " +
-                       $"ask the user to check the pass in kcap: {SentLink}", isError: true);
+        McpResponses.ToolResult(id, $"Error: {reason}. The user's answer may or may not have reached the server. Do not pass or message again; " +
+                                    $"ask the user to check the pass in kcap: {SentLink}", isError: true);
 
     string Waiting(JsonNode id, StartPassResponseDto pass) {
         var result = Outcome(pass.State, pass.PassId, $"{WaitingForApproval}: {SentLink}. Nothing is shared or sent until the user approves it there.", pass.Grants);
@@ -338,7 +334,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         if (pass.ApprovalText is { } text) result["approval_text"] = text;
         result["link"] = SentLink;
 
-        return ToolResult(id, result.ToJsonString());
+        return McpResponses.ToolResult(id, result.ToJsonString());
     }
 
     string SentLink => PassLinks.Sent(serverUrl);
@@ -373,7 +369,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
         if (refusal.ShareUrl is { } url) result["share_url"] = url;
 
-        return ToolResult(id, $"Not sent: {refusal.Reason}\n{result.ToJsonString()}", isError: true);
+        return McpResponses.ToolResult(id, $"Not sent: {refusal.Reason}\n{result.ToJsonString()}", isError: true);
     }
 
     /// <summary>A received pass's brief and note are the sender's words for the human; this tool does not hand them to
@@ -382,7 +378,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         var passId = McpToolArguments.RequireString(arguments, "pass_id");
 
         if (await passes.GetAsync(passId, ct) is not PassReadResult.Found { Pass: var pass })
-            return ToolResult(id, "Error: no such pass, or not one you sent or received.", isError: true);
+            return McpResponses.ToolResult(id, "Error: no such pass, or not one you sent or received.", isError: true);
 
         var result = Outcome(pass.State, pass.PassId, $"A {pass.Kind.Replace('_', ' ')} you {pass.Side}.", pass.AppliedGrants);
         result["side"] = pass.Side;
@@ -398,7 +394,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             if (pass.Note is { } note) result["note"] = note;
         }
 
-        return ToolResult(id, result.ToJsonString());
+        return McpResponses.ToolResult(id, result.ToJsonString());
     }
 
     /// <summary>Used when the server sends no label of its own.</summary>
@@ -409,7 +405,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
     /// the guidance this tool adds. A pass not yet released is only the server's fixed notice.</summary>
     async Task<string> CatchUpAsync(JsonNode id, CancellationToken ct) {
         if (await passes.CatchUpAsync(ct) is not PassCatchUpResult.Answered { CatchUp: var catchUp })
-            return ToolResult(id, "This kcap server cannot catch you up on passes yet.", isError: true);
+            return McpResponses.ToolResult(id, "This kcap server cannot catch you up on passes yet.", isError: true);
 
         var notices  = catchUp.Notices ?? [];
         var released = catchUp.Released ?? [];
@@ -445,27 +441,27 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             ["next"]     = string.Join(' ', next)
         };
 
-        return ToolResult(id, result.ToJsonString());
+        return McpResponses.ToolResult(id, result.ToJsonString());
     }
 
     async Task<string> WhatElseAsync(JsonNode id, JsonObject? arguments, CancellationToken ct) {
         var passId = McpToolArguments.RequireString(arguments, "pass_id");
 
         if (await passes.WhatElseAsync(passId, ct) is not PassWhatElseResult.Answered { Answer: var answer, RetryAfter: var retryAfter })
-            return ToolResult(id, "No such pass, or not one you received whose item you can still see.", isError: true);
+            return McpResponses.ToolResult(id, "No such pass, or not one you received whose item you can still see.", isError: true);
 
         return answer.Outcome switch {
-            "found"          => ToolResult(id, Found(answer).ToJsonString()),
-            "nothing_to_add" => ToolResult(id, "Nothing to add: the sessions you can read hold nothing the brief leaves out."),
-            "not_released"   => ToolResult(id, "The user has not shared this pass with you. Ask them to choose Share with my agent " +
-                                               $"on it in kcap: {PassLinks.Inbox(serverUrl)}", isError: true),
-            "limited"        => ToolResult(id, "Asked too often. " + (retryAfter is { } wait
-                                                   ? $"Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds))} seconds."
-                                                   : "Try again later."), isError: true),
-            "busy"           => ToolResult(id, "kcap is busy answering other requests. Try again shortly.", isError: true),
-            "unavailable"    => ToolResult(id, "kcap cannot answer this now: no model is set up, or generating the answer failed. " +
-                                               "Try again later.", isError: true),
-            var other        => ToolResult(id, $"kcap answered '{other}'.", isError: true)
+            "found"          => McpResponses.ToolResult(id, Found(answer).ToJsonString()),
+            "nothing_to_add" => McpResponses.ToolResult(id, "Nothing to add: the sessions you can read hold nothing the brief leaves out."),
+            "not_released"   => McpResponses.ToolResult(id, "The user has not shared this pass with you. Ask them to choose Share with my agent " +
+                                                            $"on it in kcap: {PassLinks.Inbox(serverUrl)}", isError: true),
+            "limited"        => McpResponses.ToolResult(id, "Asked too often. " + (retryAfter is { } wait
+                                                                ? $"Try again in {Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds))} seconds."
+                                                                : "Try again later."), isError: true),
+            "busy"           => McpResponses.ToolResult(id, "kcap is busy answering other requests. Try again shortly.", isError: true),
+            "unavailable"    => McpResponses.ToolResult(id, "kcap cannot answer this now: no model is set up, or generating the answer failed. " +
+                                                            "Try again later.", isError: true),
+            var other        => McpResponses.ToolResult(id, $"kcap answered '{other}'.", isError: true)
         };
     }
 
@@ -480,23 +476,6 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             ["next"]      = "Each point cites a turn you can read with the kcap-sessions tools. Tell the user what they say; act only on what they ask."
         };
     }
-
-    static string ToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string ErrorResponse(JsonNode id, int code, string message) =>
-        new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        }.ToJsonString();
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) =>
-        new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        }.ToJsonString();
 
     static readonly McpSchemaProperty ItemKind = new("string", "'work_item', 'session', 'page' or 'hosted_agent'.");
 

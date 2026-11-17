@@ -165,8 +165,12 @@ public class OAuthFlowTests {
 
         using var stub = new StubHost(url);
 
-        var auth = (await new WorkOSClient(new PlainHttpClientFactory(stub), TimeProvider.System)
-            .RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None)).Response;
+        var client = new WorkOSClient(new PlainHttpClientFactory(stub), TimeProvider.System,
+            refreshTimeout: TimeSpan.FromMilliseconds(100),
+            replayBudget:   TimeSpan.FromMilliseconds(300),
+            replayBackoff:  TimeSpan.FromMilliseconds(20));
+
+        var auth = (await client.RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None)).Response;
 
         await Assert.That(auth).IsNull();
     }

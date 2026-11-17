@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Gemini;
 
@@ -349,34 +348,4 @@ public static class GeminiSubagentDiscovery {
     /// the dashless form the server routes/correlates on and canonicalizes defensively.
     /// </summary>
     public static string CanonicalAgentId(string dashedSubId) => dashedSubId.Replace("-", "");
-
-    // ── Hook payloads (the vendor-agnostic /hooks/subagent-start|stop wire shape) ──
-
-    /// <summary>
-    /// <c>/hooks/subagent-start</c> body. cwd is "" — Gemini carries no cwd for subagents
-    /// (same as the parent session); the server's HookBase requires the (non-null) field.
-    /// </summary>
-    public static JsonObject BuildStartPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = subagentTranscriptPath,
-            ["cwd"]             = "",
-        };
-
-    /// <summary><c>/hooks/subagent-stop</c> body.</summary>
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = subagentTranscriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = subagentTranscriptPath,
-            ["last_assistant_message"] = "",
-        };
 }

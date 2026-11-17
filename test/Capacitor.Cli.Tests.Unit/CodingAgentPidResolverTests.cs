@@ -56,6 +56,32 @@ public class CodingAgentPidResolverTests {
             (int pid, int ppid, string comm)[] table, int? expected) =>
         await Assert.That(ProcessHelpers.ResolveCopilotHostPid(90, ProcTable.Of(table))).IsEqualTo(expected);
 
+    /// <summary>The ancestries a VS Code Local hook can run under. Its chat lives as long as VS Code itself, so the hook
+    /// follows the topmost VS Code process, never a window's extension host that shares its name.</summary>
+    public static IEnumerable<Func<((int pid, int ppid, string comm)[] Table, int? Expected)>> VsCodeLocalAncestries() {
+        // Windows: the extension host and the main process are both Code.exe.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, @"C:\Users\x\AppData\Local\Programs\Microsoft VS Code\Code.exe"), (20, 5, "Code.exe"), (5, 1, "explorer.exe")], 20);
+        yield return () => ([(90, 50, "cmd.exe"), (50, 20, "Code - Insiders.exe"), (20, 5, "Code - Insiders.exe"), (5, 1, "explorer.exe")], 20);
+        // macOS: the extension host is a helper with a name of its own.
+        yield return () => ([(90, 50, "sh"), (50, 20, "Code Helper (Plugin)"), (20, 1, "/Applications/Visual Studio Code.app/Contents/MacOS/Code")], 20);
+        // Linux: every process is code.
+        yield return () => ([(90, 50, "sh"), (50, 20, "code"), (20, 10, "/usr/share/code/code"), (10, 1, "systemd")], 20);
+        // A VS Code started from another one's terminal: the session belongs to the inner one, whichever edition is outside.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, "Code - Insiders.exe"), (20, 15, "Code - Insiders.exe"), (15, 12, "pwsh.exe"), (12, 10, "Code.exe"), (10, 5, "Code.exe"), (5, 1, "explorer.exe")], 20);
+        yield return () => ([(90, 50, "sh"), (50, 20, "Code Helper (Plugin)"), (20, 15, "Code"), (15, 12, "-zsh"), (12, 10, "Code Helper"), (10, 1, "Code")], 20);
+        // VS Code started by a launcher that has since exited: the main process's parent cannot be read.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, "Code.exe"), (20, 7, "Code.exe")], 20);
+        // A remote extension host, or a chain that cannot be read past the shell.
+        yield return () => ([(90, 50, "sh"), (50, 20, "node"), (20, 1, "sshd")], null);
+        yield return () => ([(90, 50, "powershell.exe")], null);
+    }
+
+    [Test]
+    [MethodDataSource(nameof(VsCodeLocalAncestries))]
+    public async Task A_VS_Code_Local_hook_follows_VS_Code_itself(
+            (int pid, int ppid, string comm)[] table, int? expected) =>
+        await Assert.That(ProcessHelpers.ResolveVsCodeHostPid(90, ProcTable.Of(table))).IsEqualTo(expected);
+
     [Test]
     public async Task Resolves_claude_when_it_is_the_immediate_parent() {
         // hook(100) -> claude(50) -> zsh(20) -> init(1)

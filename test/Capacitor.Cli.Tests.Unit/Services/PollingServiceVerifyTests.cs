@@ -180,7 +180,9 @@ public class PollingServiceVerifyTests {
         var verify = new PollingServiceVerify(Daemons.Store, manager,
             _ => 777,
             (_, _) => Task.FromResult(new HelloProbeResult(false, null, null, null)),
-            TimeProvider.System, () => true, ShortBudget, endsManualOwner: true, endDaemon: (_, _) => Task.CompletedTask);
+            TimeProvider.System, () => true, ShortBudget, endsManualOwner: true, endDaemon: (_, _) => Task.CompletedTask) {
+            KillWait = TimeSpan.FromMilliseconds(100),
+        };
 
         var exit = await verify.InstallVerifiedAsync(Spec(), replace: true, expectedVersion: null);
 

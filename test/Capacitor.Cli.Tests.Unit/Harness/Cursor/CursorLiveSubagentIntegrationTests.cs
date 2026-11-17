@@ -88,8 +88,8 @@ public class CursorLiveSubagentIntegrationTests {
         var childId  = CursorImportSource.NormalizeCursorSessionId(childRaw);
         var parentId = CursorImportSource.NormalizeCursorSessionId(Guid.NewGuid().ToString());
 
-        var body = CursorLiveSubagentLinker.BuildSubagentStartPayload(
-            parentId, childId, "task", "/tmp/parity.jsonl");
+        var body = SubagentHookPayloads.Start(
+            parentId, childId, "task", "/tmp/parity.jsonl", strict: true);
 
         var liveAgentId = body["agent_id"]!.GetValue<string>();
         // Mirrors CursorImportSource.NormalizeCursorSessionId, the import path's own

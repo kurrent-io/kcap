@@ -38,16 +38,6 @@ public static class CursorHooksParser {
     /// True if every event in <paramref name="events"/> has at least one
     /// hooks.json entry referencing the kcap cursor command.
     /// </summary>
-    public static bool HasCapacitorHooksFor(JsonObject root, IEnumerable<string> events) {
-        if (root["hooks"] is not JsonObject hooks) return false;
-
-        foreach (var evt in events) {
-            if (hooks[evt] is not JsonArray entries) return false;
-
-            var any = entries.Any(EntryReferencesCapacitorCursorHook);
-
-            if (!any) return false;
-        }
-        return true;
-    }
+    public static bool HasCapacitorHooksFor(JsonObject root, IEnumerable<string> events) =>
+        HooksJson.HasCapacitorHooksFor(root, events, EntryReferencesCapacitorCursorHook);
 }

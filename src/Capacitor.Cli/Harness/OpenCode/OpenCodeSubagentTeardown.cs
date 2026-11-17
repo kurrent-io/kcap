@@ -1,6 +1,4 @@
-using System.Text;
 using Capacitor.Cli.Commands;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Harness.Gemini;
@@ -75,19 +73,11 @@ sealed class OpenCodeSubagentTeardown(ProfileContext profiles, ICapacitorHttpCli
             }
 
             // The critical SubagentCompleted — attempted for every child within the overall budget.
-            await CappedAsync(() => PostStopAsync(sessionId, agentId, agentType, subFile), TimeSpan.FromSeconds(2.5), time);
+            await CappedAsync(() => SubagentLifecycleHooks.PostStopAsync(profiles, http, time, sessionId, agentId, agentType, subFile), TimeSpan.FromSeconds(2.5), time);
             stopped++;
         }
 
         return subFiles.Count - stopped;
-    }
-
-    async Task PostStopAsync(string sessionId, string agentId, string agentType, string subFile) {
-        var       baseUrl = profiles.Resolution.ServerUrl!;
-        using var client  = await http.ForBackgroundAsync();
-        var       payload = OpenCodeSubagentDiscovery.BuildStopPayload(sessionId, agentId, agentType, subFile);
-        using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        await client.PostWithRetryAsync($"{baseUrl}/hooks/subagent-stop", content, time);
     }
 
     /// <summary>

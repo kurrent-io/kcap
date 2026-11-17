@@ -47,15 +47,6 @@ public static class KiroHooksParser {
     /// True if every event in <paramref name="events"/> has at least one entry
     /// referencing the kcap kiro command.
     /// </summary>
-    public static bool HasCapacitorHooksFor(JsonObject root, IEnumerable<string> events) {
-        if (root["hooks"] is not JsonObject hooks) return false;
-
-        foreach (var evt in events) {
-            if (hooks[evt] is not JsonArray entries) return false;
-
-            if (!entries.Any(EntryReferencesCapacitorKiroHook)) return false;
-        }
-
-        return true;
-    }
+    public static bool HasCapacitorHooksFor(JsonObject root, IEnumerable<string> events) =>
+        HooksJson.HasCapacitorHooksFor(root, events, EntryReferencesCapacitorKiroHook);
 }

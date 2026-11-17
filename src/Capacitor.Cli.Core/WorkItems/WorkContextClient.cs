@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Core.WorkItems;
 
@@ -44,7 +44,7 @@ public sealed class WorkContextClient(HttpClient http, string serverUrl) : IWork
             if (resp.IsSuccessStatusCode) return new(status, await ReadAsync(resp, typeInfo, ct), null);
 
             return new(status, null, await ReadAsync(resp, CapacitorJsonContext.Default.WorkItemErrorDto, ct));
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return new(0, null, null);
         }
     }
@@ -52,13 +52,8 @@ public sealed class WorkContextClient(HttpClient http, string serverUrl) : IWork
     static async Task<T?> ReadAsync<T>(HttpResponseMessage resp, JsonTypeInfo<T> typeInfo, CancellationToken ct) where T : class {
         try {
             return await resp.Content.ReadFromJsonAsync(typeInfo, ct);
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return null;
         }
     }
-
-    static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException or IOException;
 }

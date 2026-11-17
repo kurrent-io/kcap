@@ -3,6 +3,7 @@ using System.Net;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -106,9 +107,10 @@ public class WorkOSClientTests : IDisposable {
     /// </summary>
     [Test]
     public async Task A_timed_out_refresh_is_replayed_inside_the_grace_window() {
-        var workos = new SequencedHttpScript(Stall(), Reply(HttpStatusCode.OK, Rotation));
+        var clock  = NewClock();
+        var workos = new SequencedHttpScript(StallPastTheDeadline(clock), Reply(HttpStatusCode.OK, Rotation));
 
-        var result = await Client(workos).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
+        var result = await Client(workos, clock).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
 
         await Assert.That(result.Outcome).IsEqualTo(WorkOSRefreshOutcome.Rotated);
         await Assert.That(result.Response!.RefreshToken).IsEqualTo("rt2");
@@ -147,13 +149,17 @@ public class WorkOSClientTests : IDisposable {
     /// budget.</summary>
     [Test]
     public async Task Replays_stop_at_the_grace_budget_and_a_dead_endpoint_is_a_transport_failure() {
-        var workos = new SequencedHttpScript(Stall());
+        var clock  = NewClock();
+        var workos = new SequencedHttpScript(StallPastTheDeadline(clock));
+        var client = Client(workos, clock);
 
-        var started = Stopwatch.GetTimestamp();
-        var result  = await Client(workos).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
+        var started     = Stopwatch.GetTimestamp();
+        var clockBefore = clock.GetTimestamp();
+        var result      = await client.RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
 
         await Assert.That(result.Outcome).IsEqualTo(WorkOSRefreshOutcome.TransportFailed);
         await Assert.That(workos.Count).IsGreaterThan(1);
+        await Assert.That(clock.GetElapsedTime(clockBefore)).IsLessThanOrEqualTo(client.RefreshBudget);
         await Assert.That(Stopwatch.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(8));
     }
 
@@ -163,7 +169,7 @@ public class WorkOSClientTests : IDisposable {
     public async Task A_persistently_unreadable_success_is_rejected_once_replays_run_out() {
         var workos = new SequencedHttpScript(Reply(HttpStatusCode.OK, "not-json"));
 
-        var result = await Client(workos).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
+        var result = await Client(workos, NewClock()).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
 
         await Assert.That(result.Outcome).IsEqualTo(WorkOSRefreshOutcome.Rejected);
         await Assert.That(result.Response).IsNull();
@@ -176,7 +182,7 @@ public class WorkOSClientTests : IDisposable {
     public async Task An_unreadable_success_followed_by_outages_is_still_rejected() {
         var workos = new SequencedHttpScript(Reply(HttpStatusCode.OK, "not-json"), Reply(HttpStatusCode.ServiceUnavailable));
 
-        var result = await Client(workos).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
+        var result = await Client(workos, NewClock()).RefreshAsync(WorkOSClient.ApiBase, "client_d", "rt1", CancellationToken.None);
 
         await Assert.That(result.Outcome).IsEqualTo(WorkOSRefreshOutcome.Rejected);
         await Assert.That(workos.Count).IsGreaterThan(2);
@@ -206,4 +212,24 @@ public class WorkOSClientTests : IDisposable {
         refreshTimeout: TimeSpan.FromSeconds(2),
         replayBudget:   TimeSpan.FromSeconds(5),
         replayBackoff:  TimeSpan.FromMilliseconds(10));
+
+    // The same deadlines on a clock that moves only when it is read or a stalled step moves it, so
+    // the replay loop runs out without the test waiting and no answered attempt can time out. No
+    // backoff: nothing reads the clock while one is pending, so it would never end.
+    static WorkOSClient Client(SequencedHttpScript workos, FakeTimeProvider clock) => new(
+        new PlainHttpClientFactory(workos), clock,
+        refreshTimeout: FakeRefreshTimeout,
+        replayBudget:   TimeSpan.FromSeconds(5),
+        replayBackoff:  TimeSpan.Zero);
+
+    static readonly TimeSpan FakeRefreshTimeout = TimeSpan.FromSeconds(2);
+
+    static FakeTimeProvider NewClock() => new() { AutoAdvanceAmount = TimeSpan.FromMilliseconds(100) };
+
+    static Func<CancellationToken, Task<HttpResponseMessage>> StallPastTheDeadline(FakeTimeProvider clock) =>
+        ct => {
+            clock.Advance(FakeRefreshTimeout);
+
+            return Stall()(ct);
+        };
 }

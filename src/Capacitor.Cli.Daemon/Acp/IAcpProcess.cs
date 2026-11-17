@@ -20,7 +20,7 @@ internal interface IAcpProcess : IAsyncDisposable {
     /// <summary>Wait up to <paramref name="timeout"/> for the process to exit (returns silently on timeout).</summary>
     Task WaitForExitAsync(TimeSpan? timeout = null);
 
-    /// <summary>Terminate the process (SIGTERM then SIGKILL) within <paramref name="timeout"/>.</summary>
+    /// <summary>Kill the process tree, then wait up to <paramref name="timeout"/> for it to exit.</summary>
     Task TerminateAsync(TimeSpan? timeout = null);
 
     /// <summary>A bounded capture of whatever the child wrote to stderr, or null if it wrote nothing.

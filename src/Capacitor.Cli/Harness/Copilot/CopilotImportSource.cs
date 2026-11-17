@@ -1,5 +1,4 @@
 using System.Collections.Frozen;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -55,19 +54,6 @@ internal sealed class CopilotImportSource : IImportSource {
         _vsCodeWorkspaceStorageDirs = vsCodeWorkspaceStorageDirs;
     }
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try {
-            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        } catch {
-            return path.TrimEnd('/', '\\');
-        }
-    }
-
     public HarnessId Vendor => HarnessId.Copilot;
 
     public bool IsAvailable => _paths.SessionStateDirs.Any(Directory.Exists) || _vsCodeWorkspaceStorageDirs.Any(Directory.Exists);
@@ -79,7 +65,7 @@ internal sealed class CopilotImportSource : IImportSource {
 
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } cwd ? NormalizeForComparison(cwd) : null;
+        var normalizedCwd = filters.FilterCwd is { } cwd ? ImportPaths.NormalizeForComparison(cwd) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -112,7 +98,7 @@ internal sealed class CopilotImportSource : IImportSource {
 
                     if (normalizedCwd is not null
                      && (meta?.Cwd is null
-                      || !NormalizeForComparison(meta.Cwd).Equals(normalizedCwd, PathComparison))) {
+                      || !ImportPaths.NormalizeForComparison(meta.Cwd).Equals(normalizedCwd, ImportPaths.PathComparison))) {
                         continue;
                     }
 
@@ -173,7 +159,7 @@ internal sealed class CopilotImportSource : IImportSource {
                     if (!Directory.Exists(transcripts)) continue;
 
                     var cwd = VsCodeWorkspaceFolder(Path.Combine(workspace, "workspace.json"));
-                    if (normalizedCwd is not null && (cwd is null || !NormalizeForComparison(cwd).Equals(normalizedCwd, PathComparison))) continue;
+                    if (normalizedCwd is not null && (cwd is null || !ImportPaths.NormalizeForComparison(cwd).Equals(normalizedCwd, ImportPaths.PathComparison))) continue;
 
                     foreach (var jsonl in Directory.EnumerateFiles(transcripts, "*.jsonl")) {
                         var stem = Path.GetFileNameWithoutExtension(jsonl);
@@ -222,131 +208,41 @@ internal sealed class CopilotImportSource : IImportSource {
 
     static bool IsUnreadable(Exception ex) => ex is IOException or UnauthorizedAccessException;
 
-    public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
+    public Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions,
             ClassifyContext                  ctx,
             CancellationToken                ct
         ) {
-        var results = new List<ImportCommand.SessionClassification>(sessions.Count);
+        // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
+        // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
+        var renumbering = new TranscriptRenumbering(_config, ctx.BaseUrl);
 
+        return RoutedImportClassifier.ClassifyAsync(sessions, ctx, new RoutedClassifyOptions(
+            Vendor, _time, IsImportRelevantLine,
+            // workspace.yaml's updated_at is stamped near session start, when Copilot names the session. The end
+            // is the session.shutdown record, which IsImportRelevantLine skips, so it is read off the raw transcript.
+            path => EndedAtResolvers.CopilotShutdownTimestamp(path)
+                 ?? EndedAtResolvers.LastTimestampFromJsonl(path)
+                 ?? ImportPaths.TryGetLastWriteUtc(path)) {
+            ResolveWatermark = (s, srv, lastImportable) => ResolveWatermark(s, renumbering.Read(s.SessionId), srv, lastImportable),
+        }, ct);
+    }
 
-        foreach (var s in sessions) {
-            var transcriptPath = (string)s.SourceMeta!["TranscriptPath"]!;
+    static WatermarkResolution ResolveWatermark(DiscoveredSession s, TranscriptLineMap? numbering, int srv, int lastImportable) {
+        var resume = numbering?.ToFile(srv + 1) ?? srv + 1;
 
-            var meta = new SessionMetadata {
-                SessionId      = s.SessionId,
-                Cwd            = s.Cwd,
-                FirstTimestamp = s.FirstTimestamp,
-            };
-
-            int? lastNonBlankIndex;
-            int? lastRelevantIndex;
-            int  nonBlankCount;
-            try {
-                (lastNonBlankIndex, lastRelevantIndex, nonBlankCount) = await ReadTranscriptStatsAsync(transcriptPath, ct);
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "transcript read failed"));
-                continue;
-            }
-
-            if (lastNonBlankIndex is null) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "empty transcript"));
-                continue;
-            }
-
-            if (nonBlankCount < ctx.MinLines) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.TooShort, totalLines: nonBlankCount));
-                continue;
-            }
-
-            if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(MakeClassification(s, meta, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
-                results.Add(excluded);
-                continue;
-            }
-
-            int? serverLastLine;
-            try {
-                serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, _time, ctx.BaseUrl, s.SessionId, ct);
-            } catch (SessionDeletedException) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.Deleted, totalLines: nonBlankCount));
-                continue;
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: nonBlankCount,
-                                               probeErrorReason: "watermark probe failed"));
-                continue;
-            }
-
-            // workspace.yaml's updated_at is stamped when Copilot assigns the
-            // session name (near session START), not at session end. The
-            // truthful end time is the session-final `session.shutdown`
-            // record's own timestamp — read directly off the raw
-            // transcript, NOT through IsImportRelevantLine, which deliberately
-            // skips session.* records for a different purpose (watermark
-            // comparison against the server's normalized line count above).
-            // Fall back to a tail-scan of any timestamped record, then mtime.
-            meta.LastTimestamp = EndedAtResolvers.CopilotShutdownTimestamp(transcriptPath)
-                ?? EndedAtResolvers.LastTimestampFromJsonl(transcriptPath)
-                ?? TryGetLastWriteUtc(transcriptPath);
-
-
-
-            var status       = ImportCommand.ClassificationStatus.New;
-            var resumeFromLn = 0;
-
-            // Compare the server watermark against the last IMPORT-RELEVANT
-            // line, not the last raw line: the watermark is the max persisted
-            // canonical $lineNumber, and every Copilot transcript ENDS with
-            // lines the server normalizer intentionally skips
-            // (session.shutdown plus the hook.start/hook.end pair the
-            // sessionEnd hook itself writes). Compared against the raw tail, a
-            // fully-imported session would re-classify Partial on every run,
-            // forever re-sending noise lines that can never advance the
-            // watermark.
-            var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
-            var sourceMeta     = s.SourceMeta;
-
-            // A watcher that saw the transcript rewritten sent the lines from the rewrite on above their file
-            // numbers, so the watermark is compared, and the import resumes and numbers its lines, the same way.
-            var numbering = new TranscriptRenumbering(_config, ctx.BaseUrl).Read(s.SessionId);
-
-            if (serverLastLine is { } srv) {
-                var resume = numbering?.ToFile(srv + 1) ?? srv + 1;
-
-                // A copy the rewrite kept of a line the server holds is never sent, so it does not keep a session partial.
-                if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)
-                 || (numbering is not null && resume <= lastImportable
-                  && Enumerable.Range(resume, lastImportable - resume + 1).All(line => numbering.HeldBack(line, srv + 1)))) {
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                } else {
-                    status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = resume;
-                    if (numbering is not null) {
-                        Func<int, int?> sentAs = line => numbering.HeldBack(line, srv + 1) ? null : numbering.ToSent(line);
-                        sourceMeta = new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = sentAs };
-                    }
-                }
-            }
-
-            results.Add(new ImportCommand.SessionClassification {
-                SessionId       = s.SessionId,
-                // Empty FilePath keeps Copilot on the routed phase
-                // (ImportSessionAsync below) instead of the Claude/Codex chain
-                // worker — same contract as CursorImportSource.
-                FilePath        = "",
-                EncodedCwd      = "",
-                Meta            = meta,
-                Status          = status,
-                Vendor          = Vendor,
-                ResumeFromLine  = resumeFromLn,
-                TotalLines      = nonBlankCount,
-                SourceMeta      = sourceMeta,
-            });
+        // A copy the rewrite kept of a line the server holds is never sent, so it does not keep a session partial.
+        if (srv >= (numbering?.ToSent(lastImportable) ?? lastImportable)
+         || (numbering is not null && resume <= lastImportable
+          && Enumerable.Range(resume, lastImportable - resume + 1).All(line => numbering.HeldBack(line, srv + 1)))) {
+            return new(ImportCommand.ClassificationStatus.AlreadyLoaded, 0, s.SourceMeta);
         }
 
-        return results;
+        if (numbering is null) return new(ImportCommand.ClassificationStatus.Partial, resume, s.SourceMeta);
+
+        Func<int, int?> sentAs = line => numbering.HeldBack(line, srv + 1) ? null : numbering.ToSent(line);
+
+        return new(ImportCommand.ClassificationStatus.Partial, resume, new Dictionary<string, object?>(s.SourceMeta) { [NumberingKey] = sentAs });
     }
 
     public async Task<ImportSessionResult> ImportSessionAsync(
@@ -365,7 +261,8 @@ internal sealed class CopilotImportSource : IImportSource {
         // the watermark past a failed lifecycle POST would leave the session
         // permanently lifecycle-less. Re-runs are idempotent server-side
         // (deterministic lifecycle event ids).
-        var startPayload = BuildSessionStartPayload(classification.SessionId, cwd, classification.Meta.FirstTimestamp);
+        var client       = new RoutedImportClient(ctx.HttpClient, _time, ctx.BaseUrl);
+        var startPayload = SyntheticHookPayloads.SessionStart("sessionStart", classification.SessionId, cwd, classification.Meta.FirstTimestamp);
         if (await RepositoryNodeAsync(classification.SourceMeta, cwd) is { } repository) {
             startPayload["repository"] = repository;
         }
@@ -373,10 +270,7 @@ internal sealed class CopilotImportSource : IImportSource {
             startPayload["default_visibility"] = visibility;
         }
 
-        var startOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, _time, ctx.BaseUrl, "session-start/copilot",
-            startPayload,
-            ct);
+        var startOk = await client.PostSyntheticHookAsync("session-start/copilot", startPayload, ct);
         if (!startOk) return ImportOutcome.Failed;
 
         var startLine = classification.Status switch {
@@ -415,9 +309,9 @@ internal sealed class CopilotImportSource : IImportSource {
                 new CopilotWorkspaceTitle(workspaceYaml), ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId, ctx.Progress, ct);
         }
 
-        var endOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, _time, ctx.BaseUrl, "session-end/copilot",
-            BuildSessionEndPayload(classification.SessionId, cwd, classification.Meta.LastTimestamp),
+        var endOk = await client.PostSyntheticHookAsync(
+            "session-end/copilot",
+            SyntheticHookPayloads.SessionEnd("sessionEnd", classification.SessionId, "historical-import", cwd, classification.Meta.LastTimestamp),
             ct);
         if (!endOk || !usageOk) return ImportOutcome.Failed;
 
@@ -486,90 +380,6 @@ internal sealed class CopilotImportSource : IImportSource {
         });
     }
 
-    static JsonObject BuildSessionStartPayload(string sessionId, string? cwd, DateTimeOffset? startedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "sessionStart",
-            ["session_id"]      = sessionId,
-            ["source"]          = "startup",
-        };
-        if (cwd is not null) payload["cwd"] = cwd;
-        // fail-open git-root discovery, mirroring ImportChainsAsync
-        // so routed imports carry the same workspace_root the file-based path does.
-        if (cwd is not null && GitRepository.FindRoot(cwd) is { } workspaceRoot) payload["workspace_root"] = workspaceRoot;
-        if (startedAt is { } ts) payload["started_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    static JsonObject BuildSessionEndPayload(string sessionId, string? cwd, DateTimeOffset? endedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "sessionEnd",
-            ["session_id"]      = sessionId,
-            ["reason"]          = "historical-import",
-        };
-        if (cwd is not null) payload["cwd"] = cwd;
-        if (endedAt is { } ts) payload["ended_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    static async Task<bool> PostSyntheticHookAsync(
-        HttpClient client, TimeProvider time, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct
-    ) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
-
-    static DateTimeOffset? TryGetLastWriteUtc(string path) {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return null; }
-    }
-
-    static ImportCommand.SessionClassification MakeClassification(
-        DiscoveredSession                  s,
-        SessionMetadata                    meta,
-        ImportCommand.ClassificationStatus status,
-        int                                totalLines,
-        string?                            probeErrorReason = null
-    ) => new() {
-        SessionId        = s.SessionId,
-        FilePath         = "",
-        EncodedCwd       = "",
-        Meta             = meta,
-        Status           = status,
-        Vendor           = HarnessId.Copilot,
-        ProbeErrorReason = probeErrorReason,
-        TotalLines       = totalLines,
-        SourceMeta       = s.SourceMeta,
-    };
-
-    static async Task<(int? LastNonBlankIndex, int? LastRelevantIndex, int NonBlankCount)> ReadTranscriptStatsAsync(
-        string transcriptPath, CancellationToken ct
-    ) {
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var       reader = new StreamReader(stream);
-
-        int? lastIdx         = null;
-        int? lastRelevantIdx = null;
-        var  count           = 0;
-        var  lineIdx         = 0;
-
-        while (await reader.ReadLineAsync(ct) is { } line) {
-            if (!string.IsNullOrWhiteSpace(line)) {
-                lastIdx = lineIdx;
-                count++;
-
-                if (IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
-            }
-            lineIdx++;
-        }
-        return (lastIdx, lastRelevantIdx, count);
-    }
-
     /// <summary>
     /// True when the line maps to at least one canonical event under the
     /// server's CopilotTranscriptNormalizer — the contract this mirrors:
@@ -606,20 +416,5 @@ internal sealed class CopilotImportSource : IImportSource {
         } catch {
             return false;
         }
-    }
-
-    static async Task<int?> FetchServerLastLineAsync(HttpClient http, TimeProvider time, string baseUrl, string sessionId, CancellationToken ct) {
-        using var resp = await http.GetWithRetryAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", time, ct: ct);
-
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-
-        var       body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc  = JsonDocument.Parse(body);
-
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32()
-            : null;
     }
 }

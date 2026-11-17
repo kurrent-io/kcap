@@ -7,6 +7,7 @@ using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness.Claude;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -20,6 +21,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _catalog;
     readonly AccountChooser _accounts;
     readonly AppStateStore? _state;
+    readonly string? _sessionVendor;
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
     IReadOnlyDictionary<string, string>? _accountMemory;
     // Picks made before the stored memory loaded, replayed over it so the older read cannot win.
@@ -39,6 +41,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null,
             string? repoPath = null, AccountReadings? readings = null, AppStateStore? state = null) {
         _selectedVendor = string.IsNullOrWhiteSpace(sessionVendor) ? HomeViewModel.DefaultVendor : sessionVendor;
+        _sessionVendor = sessionVendor;
         RepoPath = repoPath ?? "";
         _state = state;
         _accounts = new AccountChooser(
@@ -69,7 +72,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         this.WhenAnyValue(x => x.EffectiveModelCatalog)
             .Scan((Prev: ServerVendorModelCatalog.Empty, Next: ServerVendorModelCatalog.Empty), (acc, next) => (acc.Next, next))
             .Subscribe(pair => {
-                if (HomeViewModel.ShouldClearSelection(SelectedVendor, SelectedModel, pair.Prev, pair.Next)) SelectedModel = "";
+                if (HomeViewModel.ShouldClearSelection(SelectedVendor, SelectedModel, pair.Prev, pair.Next)) SetModel("");
             })
             .DisposeWith(_disposables);
 
@@ -148,8 +151,14 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     string _selectedModel = "";
     public string SelectedModel {
         get => _selectedModel;
-        set => this.RaiseAndSetIfChanged(ref _selectedModel, value);
+        // A pick, Default included, settles the chip against the source session's model.
+        set {
+            _modelSettled = true;
+            SetModel(value);
+        }
     }
+
+    void SetModel(string model) => this.RaiseAndSetIfChanged(ref _selectedModel, model, nameof(SelectedModel));
 
     public IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>> EffectiveModelCatalog => _catalog.Value;
 
@@ -160,6 +169,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         EffectiveModelCatalog.TryGetValue(vendor, out var models) ? models : HostedHarnessCatalog.ModelChoicesFor(vendor);
 
     public Task ChooseHarnessAsync(string vendor) {
+        SettleAll();
         _restored = null;
         _picked = null;
         SetVendor(vendor);
@@ -169,14 +179,24 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     string? _selectedEffort;
     public string? SelectedEffort {
         get => _selectedEffort;
-        set => this.RaiseAndSetIfChanged(ref _selectedEffort, value);
+        set {
+            _effortSettled = true;
+            SetEffort(value);
+        }
     }
+
+    void SetEffort(string? effort) => this.RaiseAndSetIfChanged(ref _selectedEffort, effort, nameof(SelectedEffort));
 
     string _selectedPermissionMode = HomeViewModel.DefaultPermissionMode;
     public string SelectedPermissionMode {
         get => _selectedPermissionMode;
-        set => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, value);
+        set {
+            _permissionModeSettled = true;
+            SetPermissionMode(value);
+        }
     }
+
+    void SetPermissionMode(string mode) => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, mode, nameof(SelectedPermissionMode));
 
     public Task ChoosePermissionModeAsync(string mode) {
         SelectedPermissionMode = mode;
@@ -271,12 +291,36 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             _accounts.Restore(restored.Choice.Id);
     }
 
+    bool _modelSettled;
+    bool _effortSettled;
+    bool _permissionModeSettled;
+
+    void SettleAll() => _modelSettled = _effortSettled = _permissionModeSettled = true;
+
+    /// The ended session's own model, effort and permission mode, each offered once in place of its
+    /// default while the chips still show the session's agent, and only when that agent offers it. A
+    /// restored draft, a pick of agent, or a pick of that chip settles it first.
+    public void Seed(string? model, string? effort, string? permissionMode) {
+        if (string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase)) {
+            if (!_modelSettled && model is { Length: > 0 }
+             && ModelChoicesFor(SelectedVendor).FirstOrDefault(m => string.Equals(m.Slug, model, StringComparison.OrdinalIgnoreCase)) is { } listed)
+                SetModel(listed.Slug);
+            if (!_effortSettled && effort is not null && HostedHarnessCatalog.EffortLadder.Contains(effort, StringComparer.Ordinal))
+                SetEffort(effort);
+            if (!_permissionModeSettled && HostedHarnessCatalog.SupportsPermissionMode(SelectedVendor)
+             && permissionMode is not null && ClaudePermissionModes.IsOffered(permissionMode))
+                SetPermissionMode(permissionMode);
+        }
+        SettleAll();
+    }
+
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
     public void Restore(HandoffDraft draft) {
+        SettleAll();
         SetVendor(draft.Vendor);
         Revalidate(Harnesses);
         if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {
-            SelectedModel = draft.Model;
+            SetModel(draft.Model);
             if (draft.Account is { } account) {
                 _restored = (draft.Vendor, account);
                 ReapplyRestored();
@@ -316,7 +360,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     /// Model ids are vendor-specific, so a vendor change drops the model.
     void SetVendor(string vendor) {
         var changed = !string.Equals(vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase);
-        if (changed) SelectedModel = "";
+        if (changed) SetModel("");
         SelectedVendor = vendor;
         if (!changed) return;
         _picked = null;

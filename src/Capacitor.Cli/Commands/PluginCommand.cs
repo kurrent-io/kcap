@@ -1332,6 +1332,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                         ? $"OpenCode plugin refreshed ({pluginPath})"
                         : $"OpenCode plugin installed ({pluginPath})"
                 );
+
+                // Not on a refresh: that runs on every npm upgrade, where spawning the vendor is unwelcome.
+                if (!refreshOnly && OpenCodeVersionFloor.UpgradeNotice(env.OpenCodeVersion()) is { } upgrade)
+                    await env.Stderr.WriteLineAsync($"Warning: {upgrade}");
             } else if (!refreshOnly) {
                 // Fresh install: the plugin is the whole point — fail.
                 await env.Stderr.WriteLineAsync("Could not write the OpenCode plugin file.");

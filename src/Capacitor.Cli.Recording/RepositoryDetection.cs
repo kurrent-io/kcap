@@ -137,6 +137,9 @@ public static class RepositoryDetection {
                 : TimeSpan.FromSeconds(5);
 
             var cache = LoadCache(config, cwd, time);
+            // A checkout cached with no hosted remote can gain one within the cache's life; its config says so without git.
+            if (cache is { RemoteUrl: null } && (cache.Owner is null || LocalRepository.IsLocal(cache.Owner))
+             && GitUrlParser.ParseRemoteUrl(GitRepository.OriginUrl(cwd)) is ({ }, { })) cache = null;
 
             string? userName, userEmail, remoteUrl, owner, repoName, branch, host;
 

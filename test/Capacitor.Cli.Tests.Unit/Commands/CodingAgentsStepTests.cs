@@ -2489,6 +2489,27 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running opencode session"));
     }
 
+    /// <summary>The plugin is still written — it starts working once OpenCode is upgraded — but an
+    /// OpenCode v1 below the plugin's floor is told to upgrade rather than left silently unrecorded.</summary>
+    [Test]
+    [Arguments("1.18.21", true)]
+    [Arguments("1.18.29", false)]
+    [Arguments("2.3.0", false)]
+    [Arguments(null, false)]
+    public async Task OpenCode_below_the_plugin_floor_is_told_to_upgrade(string? version, bool warned) {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false, SkipOpenCode: false);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: false, OpenCode: true);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers() with { OpenCodeVersion = () => version },
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(result.OpenCodeExtensionInstalled).IsTrue();
+        await Assert.That(sink.Lines.Any(l => l.Contains("opencode upgrade"))).IsEqualTo(warned);
+    }
+
     [Test]
     public async Task OpenCode_installs_even_if_prompt_would_decline() {
         // The per-vendor prompt is gone — the OpenCode plugin installs regardless of what a (no

@@ -2083,7 +2083,8 @@ public class BrowserFirstRunFlowTests {
 
             fired = true;
 
-            h.Interrupts.Interrupt();
+            // The leg's send is on this stack, so the interrupt that lost the claim waits out its whole budget.
+            h.Interrupts.Interrupt(TimeSpan.FromMilliseconds(50));
         };
 
         if (!dismissed) h.Channel.Polls.Enqueue(new(200, Done()));

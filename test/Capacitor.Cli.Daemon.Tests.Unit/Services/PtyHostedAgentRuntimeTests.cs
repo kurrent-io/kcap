@@ -130,8 +130,9 @@ public class PtyHostedAgentRuntimeTests {
     /// before the next is pasted.</summary>
     [Test]
     public async Task A_dispatched_message_held_by_a_dialog_is_taken_at_once_and_written_once_it_closes() {
-        var pty = new RecordingScriptedPtyProcess();
-        await using var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        var time = new FakeTimeProvider();
+        var pty  = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
         _ = PumpAsync(runtime);
         pty.Emit("composer");
         await Task.Delay(100);
@@ -144,7 +145,8 @@ public class PtyHostedAgentRuntimeTests {
         await Assert.That((first.IsCompleted, second.IsCompleted, string.Join("|", pty.Writes))).IsEqualTo((false, false, "\r"));
 
         runtime.NoteTerminalDialog(false);
-        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+        await StepAsync(time, TimeSpan.FromSeconds(10), () => first.IsCompleted && second.IsCompleted);
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
 
         var enters = Enumerable.Repeat("\r", PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length).ToList();
         await Assert.That(pty.Writes).IsEquivalentTo(
@@ -227,8 +229,9 @@ public class PtyHostedAgentRuntimeTests {
     /// the redraw the held one waits out.</summary>
     [Test]
     public async Task Input_sent_while_a_message_is_held_lands_after_it() {
-        var pty = new RecordingScriptedPtyProcess();
-        await using var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        var time = new FakeTimeProvider();
+        var pty  = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
         _ = PumpAsync(runtime);
         pty.Emit("composer");
         await Task.Delay(100);
@@ -237,7 +240,8 @@ public class PtyHostedAgentRuntimeTests {
         var held  = await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
         var local = runtime.SendUserInputAsync("local");
         runtime.NoteTerminalDialog(false);
-        await Task.WhenAll(held, local).WaitAsync(TimeSpan.FromSeconds(10));
+        await StepAsync(time, TimeSpan.FromSeconds(10), () => held.IsCompleted && local.IsCompleted);
+        await Task.WhenAll(held, local).WaitAsync(TimeSpan.FromSeconds(5));
 
         await Assert.That(pty.Writes.Where(w => w.StartsWith("\x1b[200~", StringComparison.Ordinal)))
             .IsEquivalentTo(["\x1b[200~held\x1b[201~", "\x1b[200~local\x1b[201~"], CollectionOrdering.Matching);

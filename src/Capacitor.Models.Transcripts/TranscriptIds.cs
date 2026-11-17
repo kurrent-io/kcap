@@ -43,6 +43,31 @@ public static class TranscriptIds {
 
     public static Guid CodexRecord(string line) => Hash(Encoding.UTF8.GetBytes(line));
 
+    /// An Antigravity step carries only a per-conversation index, so its id is the hash of its line. Each part
+    /// a planner step emits is a <see cref="Sibling"/> of it, and so is the id it gives each tool call.
+    public static Guid AntigravityStep(string line) => Hash(Encoding.UTF8.GetBytes(line));
+
+    /// One per generation row in a stream, whatever line restates it: the recorder re-sends a row with its
+    /// tokens corrected or its model renamed, and the row's usage must count once.
+    public static Guid AntigravityUsage(string idScope, long genRow) =>
+        Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"antigravity-usage:{idScope}:{genRow}")));
+
+    /// A Copilot envelope's own <c>id</c> when it parses as a Guid, else the hash of its line. Every other event the
+    /// line emits is a <see cref="Sibling"/> of it, its suffix naming the part: <c>thinking</c>, <c>text</c>,
+    /// <c>tool:{callId}</c>, <c>usage:{model}</c>, <c>session-metrics</c>, or <c>att:{assetId}</c> for an attachment.
+    public static Guid CopilotRecord(string? id, string line) =>
+        id is not null && Guid.TryParse(id, out var parsed) ? parsed : Hash(Encoding.UTF8.GetBytes(line));
+
+    /// Cursor's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this namespace.
+    /// Changing it orphans every stored Cursor event.
+    static readonly Guid CursorNamespace = new("8b2e0c3a-b3d4-4f0a-9c0c-c43f59a5d5e1");
+
+    /// A Cursor transcript line names nothing stable, so a block's id is its place: the v5 UUID of
+    /// <c>{idScope}:line:{lineNumber}:{kind}:{blockIndex}:{eventType}</c>, the block index counting every block of
+    /// the line's content.
+    public static Guid CursorBlock(string idScope, int lineNumber, string kind, int blockIndex, string eventType) =>
+        Uuid5(CursorNamespace, string.Create(CultureInfo.InvariantCulture, $"{idScope}:line:{lineNumber}:{kind}:{blockIndex}:{eventType}"));
+
     /// A Gemini message record's own `id` when it parses as a Guid (dashed on an appended record,
     /// 32 hex on a seeded one), else the hash of its line. Each part the record emits is a
     /// <see cref="Sibling"/> of it.
@@ -63,10 +88,17 @@ public static class TranscriptIds {
     /// by a prefix so an id can never collide with another derivation's input.
     public static Guid VibeEntry(string entryId) => Hash(Encoding.UTF8.GetBytes("vibe-entry:" + entryId));
 
-    /// A Muse record is identified by its stream and its own record id; the prefix keeps the input from
-    /// colliding with another derivation's.
+    /// Muse's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this
+    /// namespace. Changing it orphans every stored Muse event.
+    static readonly Guid MuseNamespace = new("86cf603c-3ec6-4cfb-b36b-9ac1d57cd367");
+
+    /// The v5 UUID of <c>{streamId}:{recordId}</c>: a Muse record's own <c>stream.id</c> and <c>id</c>.
     public static Guid MuseRecord(string streamId, string recordId) =>
-        Hash(Encoding.UTF8.GetBytes("muse-record:" + streamId + ":" + recordId));
+        Uuid5(MuseNamespace, string.Concat(streamId, ":", recordId));
+
+    /// One result of a Muse tool-result batch: the record id suffixed with the call's index in the batch.
+    public static Guid MuseToolResult(string streamId, string recordId, long index) =>
+        MuseRecord(streamId, string.Create(CultureInfo.InvariantCulture, $"{recordId}:{index}"));
 
     /// Kiro's event ids, and its lifecycle hooks' on the server, are name-based (v5) UUIDs in this
     /// namespace. Changing it orphans every stored Kiro event.
@@ -81,6 +113,25 @@ public static class TranscriptIds {
 
     /// One per turn anchor in a stream, whatever line restates it, so a re-sent backfill dedups.
     public static Guid KiroUsage(string idScope, string messageId) => Hash(Encoding.UTF8.GetBytes($"kiro-usage:{idScope}:{messageId}"));
+
+    /// A Grok event: <c>grok:</c>, then its update's event id.
+    public static Guid Grok(string eventId) => Hash(Encoding.UTF8.GetBytes("grok:" + eventId));
+
+    /// One model's usage from a Grok <c>turn_completed</c> update, under that update's event id.
+    public static Guid GrokUsage(string eventId, string model) => Hash(Encoding.UTF8.GetBytes($"grok:{eventId}:usage:{model}"));
+
+    /// The event id of a Grok update that carries no <c>_meta.eventId</c>: the upper-case hex of the hash of
+    /// <c>{lineNumber}\n{line}</c>, which the other Grok ids then hash again.
+    public static string GrokLineEventId(int lineNumber, string line) =>
+        Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber}\n{line}"))));
+
+    /// Muse Assistant's item ids, and its lifecycle hooks' on the server, are v5 UUIDs in this namespace.
+    /// Changing it orphans every stored Muse Assistant event.
+    static readonly Guid MuseAssistantNamespace = new("3f9c2b7e-5d41-4a0b-9e6c-8b2f1d7a4c53");
+
+    /// One chat item: the v5 UUID of <c>{idScope}:{turnId}:{seq}</c>.
+    public static Guid MuseAssistantItem(string idScope, string turnId, long seq) =>
+        Uuid5(MuseAssistantNamespace, string.Create(CultureInfo.InvariantCulture, $"{idScope}:{turnId}:{seq}"));
 
     /// An OpenCode id hashes a key the record carries, unprefixed: a user message's own id (its text
     /// when it has none), or an assistant part's id.

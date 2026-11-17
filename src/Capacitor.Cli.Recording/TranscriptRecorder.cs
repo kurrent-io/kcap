@@ -516,7 +516,7 @@ public sealed class TranscriptRecorder(
         if (State.LinesProcessed > 0) {
             var replay = new List<TranscriptReplayConsumer>();
             if (State.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
-            if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(State));
+            if (CreatedPullRequestAdapters.For(vendor) is { } prAdapter) replay.Add(CreatedPullRequestsReplay(State, vendor, prAdapter, log));
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
@@ -680,18 +680,22 @@ public sealed class TranscriptRecorder(
             return roots.IsFull;
         });
 
-    internal static void ObserveCreatedPullRequest(WatchState state, string line) {
-        if (CreatedPullRequests.FromClaudeLine(line) is not { } pr) return;
-        if (state.LinkedPullRequests.Contains((pr.Owner, pr.RepoName, pr.Number)) || state.PendingCreatedPullRequests.Contains(pr)) return;
+    internal static void ObserveCreatedPullRequest(WatchState state, string vendor, ICreatedPullRequestAdapter adapter, string line, Action<string>? log = null) {
+        adapter.Observe(line, state.CreatedPullRequestEvidence);
 
-        state.PendingCreatedPullRequests.Add(pr);
+        foreach (var (pr, callId) in state.CreatedPullRequestEvidence.Drain()) {
+            if (state.LinkedPullRequests.Contains((pr.Owner, pr.RepoName, pr.Number)) || state.PendingCreatedPullRequests.Contains(pr)) continue;
+
+            state.PendingCreatedPullRequests.Add(pr);
+            log?.Invoke($"Created PR found: {pr.Url} ({vendor}{(callId is null ? "" : $" call {callId}")})");
+        }
     }
 
     /// <summary>A PR created before a restart: nothing records what was linked, and the server takes a PR it
-    /// already has as a no-op.</summary>
-    internal static TranscriptReplayConsumer CreatedPullRequestsReplay(WatchState state) =>
+    /// already has as a no-op. It also rebuilds the calls still waiting for a result.</summary>
+    internal static TranscriptReplayConsumer CreatedPullRequestsReplay(WatchState state, string vendor, ICreatedPullRequestAdapter adapter, Action<string>? log = null) =>
         new(WindowOnly: false, line => {
-            ObserveCreatedPullRequest(state, line);
+            ObserveCreatedPullRequest(state, vendor, adapter, line, log);
             return false;
         });
 
@@ -1119,8 +1123,8 @@ public sealed class TranscriptRecorder(
                 if (secondaryRoots.Roots.Count > knownRoots) log($"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
             }
 
-            if (vendor == "claude") {
-                foreach (var line in Progressing(drainRead.Lines)) ObserveCreatedPullRequest(state, line);
+            if (CreatedPullRequestAdapters.For(vendor) is { } prAdapter) {
+                foreach (var line in Progressing(drainRead.Lines)) ObserveCreatedPullRequest(state, vendor, prAdapter, line, log);
             }
 
             // A Codex collab child folds its own turn state, so it can post its stop once done and idle. Raw lines

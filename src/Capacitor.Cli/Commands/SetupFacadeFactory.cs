@@ -12,14 +12,18 @@ sealed class SetupFacadeFactory(
         GitHubOAuthClient github, WorkOSClient workos, IBrowserLauncher browser,
         CliTelemetry telemetry, AuthEndpoints endpoints, TimeProvider time,
         TenantProvisioningClient provisioning) : IOnboardingFacadeFactory {
+    /// <inheritdoc cref="OnboardingFacade.DevicePollDelay"/>
+    internal Func<TimeSpan, CancellationToken, Task>? DevicePollDelay { get; init; }
+
     public OnboardingFacade Create(
             ITenantProvisioner? provisioner, ITenantPicker? picker = null, RequestedWorkspace? requested = null,
             IAuthProgress? progress = null) =>
         new OnboardingFacade(config, store, httpFactory, proxy, github, workos, progress ?? SetupCommand.StepProgress, browser,
             picker ?? SetupCommand.DefaultPicker(browser, () => true, time), provisioner, telemetry, endpoints,
             time, SetupCommand.WorkspaceGuard(requested)) {
-            KeyWatcher     = ConsoleKeyWatcher.Instance,
-            ProbeWorkspace = ProbeWorkspaceAsync
+            KeyWatcher      = ConsoleKeyWatcher.Instance,
+            ProbeWorkspace  = ProbeWorkspaceAsync,
+            DevicePollDelay = DevicePollDelay
         };
 
     /// <summary>

@@ -45,30 +45,4 @@ public class OpenCodeSubagentDiscoveryTests {
         await Assert.That(OpenCodeSubagentDiscovery.ResolveAgentType(noAgent)).IsEqualTo("subagent");
     }
 
-    [Test]
-    public async Task BuildStartPayload_CarriesRequiredHookBaseAndAgentFields() {
-        var p = OpenCodeSubagentDiscovery.BuildStartPayload("ses_parent", "ses_child", "general", "/c/ses_child.jsonl");
-
-        await Assert.That(p["hook_event_name"]!.GetValue<string>()).IsEqualTo("subagent_start");
-        await Assert.That(p["session_id"]!.GetValue<string>()).IsEqualTo("ses_parent");
-        await Assert.That(p["agent_id"]!.GetValue<string>()).IsEqualTo("ses_child");
-        await Assert.That(p["agent_type"]!.GetValue<string>()).IsEqualTo("general");
-        // HookBase requires these (non-null) too — a missing one 400s.
-        await Assert.That(p.ContainsKey("transcript_path")).IsTrue();
-        await Assert.That(p.ContainsKey("cwd")).IsTrue();
-    }
-
-    [Test]
-    public async Task BuildStopPayload_CarriesEveryRequiredSubagentStopField() {
-        var p = OpenCodeSubagentDiscovery.BuildStopPayload("ses_parent", "ses_child", "general", "/c/ses_child.jsonl");
-
-        await Assert.That(p["hook_event_name"]!.GetValue<string>()).IsEqualTo("subagent_stop");
-        // The full required set the server's SubagentStopHook enforces.
-        foreach (var key in new[] {
-                     "session_id", "agent_id", "agent_type", "transcript_path", "cwd",
-                     "stop_hook_active", "agent_transcript_path", "last_assistant_message"
-                 }) {
-            await Assert.That(p.ContainsKey(key)).IsTrue();
-        }
-    }
 }

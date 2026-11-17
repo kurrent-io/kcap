@@ -51,6 +51,31 @@ public class PluginCommandKiroTests {
         await Assert.That(servers["my-tool"]!["autoApprove"]!.AsArray().Count).IsEqualTo(1); // its autoApprove preserved
     }
 
+    /// <summary>A same-version refresh leaves the agent, the default agent and the recorded previous default alone,
+    /// even though the marker carries the previous default on its second line.</summary>
+    [Test]
+    public async Task install_kiro_if_installed_at_current_version_is_a_noop() {
+        using var home   = new TempHome();
+        using var stdout = new StringWriter();
+        var env   = TestEnv(home.Path) with { Stdout = stdout };
+        var paths = env.Harnesses.Of<KiroHarness>().Paths;
+        SeedAgent(env);
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsFile)!);
+        await File.WriteAllTextAsync(paths.SettingsFile, """{"chat.defaultAgent":"my_agent"}""");
+        var agentBefore = await File.ReadAllTextAsync(paths.KcapAgentJson);
+        var agentMtime  = File.GetLastWriteTimeUtc(paths.KcapAgentJson);
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(
+            ["plugin", "install", "--kiro", "--if-installed", "--skip-kiro-mcp", "--skip-kiro-skills"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(stdout.ToString()).DoesNotContain("Kiro hooks refreshed");
+        await Assert.That(await File.ReadAllTextAsync(paths.KcapAgentJson)).IsEqualTo(agentBefore);
+        await Assert.That(File.GetLastWriteTimeUtc(paths.KcapAgentJson)).IsEqualTo(agentMtime);
+        await Assert.That(await File.ReadAllTextAsync(paths.SettingsFile)).IsEqualTo("""{"chat.defaultAgent":"my_agent"}""");
+        await Assert.That(KiroHooksInstaller.ReadPreviousDefault(paths.KcapAgentJson)).IsEqualTo("kiro_default");
+    }
+
     [Test]
     public async Task install_kiro_skip_mcp_flag_leaves_config_untouched() {
         using var home = new TempHome();

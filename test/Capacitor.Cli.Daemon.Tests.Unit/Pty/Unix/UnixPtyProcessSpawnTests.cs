@@ -8,6 +8,11 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 /// to end — resolves PATH in the parent, builds a plan via pty_preflight, spawns via the
 /// dedicated spawner thread, and surfaces the natively-captured StartIdentity.</summary>
 public class UnixPtyProcessSpawnTests {
+    /// <summary>Starts a helper in the leader's group that ignores SIGHUP and reports its pid as
+    /// <c>CHILD:pid:DONE</c>. It reports only once the trap is set: a leader killed before then would
+    /// take the helper down with the terminal's hangup. The ignore survives the exec.</summary>
+    const string HupIgnoringHelper = "/bin/sh -c 'trap \"\" HUP; echo CHILD:$$:DONE; exec /bin/sleep 300' &";
+
     [Test]
     public async Task Spawn_produces_a_running_process_with_a_captured_identity() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
@@ -55,12 +60,10 @@ public class UnixPtyProcessSpawnTests {
 
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
-        // The helper IGNORES SIGHUP (trap '' HUP survives the exec): a plain background sleep dies
-        // to the controlling terminal's leader-exit SIGHUP even under a leader-only kill, which let
-        // exactly that mutation pass this test — a helper that shrugs off HUP is also the shape
-        // that leaks in production. Only a signal to the GROUP reaches it.
+        // A helper that ignores SIGHUP outlives a leader-only kill, which is the shape that leaks in
+        // production; only a signal to the group reaches it.
         var proc = factory.Spawn(
-            "/bin/sh", ["-c", "(trap '' HUP; exec sleep 300) & echo \"CHILD:$!:DONE\"; wait"],
+            "/bin/sh", ["-c", HupIgnoringHelper + " wait"],
             AppContext.BaseDirectory);
         try {
             var childPid = await ReadReportedChildPidAsync(proc);
@@ -116,7 +119,7 @@ public class UnixPtyProcessSpawnTests {
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
         var proc = factory.Spawn(
-            "/bin/sh", ["-c", "(trap '' HUP; exec sleep 300) & echo \"CHILD:$!:DONE\"; sleep 1; exit 3"],
+            "/bin/sh", ["-c", HupIgnoringHelper + " sleep 1; exit 3"],
             AppContext.BaseDirectory);
         var helperPid      = -1;
         var helperIdentity = "";
@@ -174,7 +177,7 @@ public class UnixPtyProcessSpawnTests {
         using var spawner = new UnixSpawnerThread();
         var       factory = new UnixPtyProcessFactory(spawner, TimeProvider.System);
         var proc = factory.Spawn(
-            "/bin/sh", ["-c", "(trap '' HUP; exec sleep 300) & echo \"CHILD:$!:DONE\"; exec sleep 300"],
+            "/bin/sh", ["-c", HupIgnoringHelper + " exec sleep 300"],
             AppContext.BaseDirectory);
         var helperPid      = -1;
         var helperIdentity = "";
@@ -248,7 +251,7 @@ public class UnixPtyProcessSpawnTests {
         using var spawner = new UnixSpawnerThread();
 
         var rc = UnixPtyInterop.pty_preflight(
-            "/bin/sh", ["sh", "-c", "(trap '' HUP; exec /bin/sleep 300) & echo \"CHILD:$!:DONE\"; wait", null],
+            "/bin/sh", ["sh", "-c", HupIgnoringHelper + " wait", null],
             [null], UnixPtyInterop.pty_probe_execveat(), out var plan);
         await Assert.That(rc).IsEqualTo(0);
 

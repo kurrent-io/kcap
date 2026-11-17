@@ -1,0 +1,180 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "2afee4d1-6b77-4d9b-8262-c688f475dab0",
+        "timestamp": "2026-08-18T13:36:52.1890000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:36:52.189Z",
+        "payload": {
+          "timestamp": "2026-08-18T13:36:52.189Z",
+          "extensions": {
+            "copilot": {
+              "cwd": "/private/tmp/kcap-copilot-capture/work",
+              "git_root": "/private/tmp/kcap-copilot-capture/work",
+              "branch": "main",
+              "repository": "kurrent-io/kcap-copilot-scratch",
+              "repository_host": "github.com",
+              "host_type": "github",
+              "copilot_version": "1.0.78",
+              "producer": "copilot-agent",
+              "source": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "c35e814a-3cb6-4f25-98b6-f3388b8b67bb",
+        "timestamp": "2026-08-18T13:36:54.0270000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:36:54.027Z",
+        "payload": {
+          "content": "Two files are attached: an image and a PDF. For each, state its filename and one line about its content. What color is the image?",
+          "timestamp": "2026-08-18T13:36:54.027Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": [
+          {
+            "id": "ae7a9925-a70b-ed33-78a4-5d999b62b92a",
+            "fileName": "red.png",
+            "contentType": "image/png",
+            "sha256": "ca96adb50da6a5f6cbfe03c9c5eb8ad8f1a6c88f526b8a4b9d9d7d3b9ef90157"
+          },
+          {
+            "id": "f703b7d9-731c-0695-b346-5386f0485857",
+            "fileName": "doc.pdf",
+            "contentType": "application/pdf",
+            "sha256": "1ddc8299e0e4f3fa3338cada3029b5b64be709ab9d3d37f83ba8754809b6c7a4"
+          }
+        ]
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "7d626cc1-d567-14f7-949c-e041d6f66341",
+        "timestamp": "2026-08-18T13:37:02.1620000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:37:02.162Z",
+        "payload": {
+          "content": "Simple answer.",
+          "timestamp": "2026-08-18T13:37:02.162Z"
+        },
+        "usage": {
+          "output_tokens": "56",
+          "total_tokens": "56",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "fd15067d-1ce1-618f-0820-ace6477176eb",
+        "timestamp": "2026-08-18T13:37:02.1620001\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:37:02.162Z",
+        "payload": {
+          "content": "- **red.png** \u2014 A solid red square. The color is **red**.\n- **doc.pdf** \u2014 A single-page PDF containing the text \u0022kcap attachment capture PDF\u0022.",
+          "timestamp": "2026-08-18T13:37:02.162000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 17,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "d253fdd1-ee0c-40dd-a7d5-20fa7b565c27",
+        "timestamp": "2026-08-18T13:37:02.2960000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:37:02.296Z",
+        "payload": {
+          "total_nano_aiu": 3109455000,
+          "total_premium_requests": 1,
+          "run_marker": "2afee4d1-6b77-4d9b-8262-c688f475dab0",
+          "lines_added": null,
+          "lines_removed": null,
+          "files_modified_count": null,
+          "files_modified": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 18,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "8c8c2810-9c90-4021-bc7e-8f108766985b",
+        "timestamp": "2026-08-18T13:37:02.4570000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:37:02.457Z",
+        "payload": {
+          "model": "claude-sonnet-4.6",
+          "input_tokens": 10,
+          "output_tokens": 0,
+          "cache_read_tokens": 12136,
+          "cache_write_tokens": 7089,
+          "reasoning_tokens": 8,
+          "session_model": "claude-sonnet-4.6",
+          "request_count": 1,
+          "request_cost": 1,
+          "nano_aiu": 3109455000
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "c95eec34-4e6f-8b78-34fa-948a850551fc",
+        "timestamp": "2026-08-18T13:37:02.4570000\u002B00:00",
+        "recordTimestamp": "2026-08-18T13:37:02.457Z",
+        "payload": {
+          "total_nano_aiu": 3109455000,
+          "total_premium_requests": 1,
+          "run_marker": "2afee4d1-6b77-4d9b-8262-c688f475dab0",
+          "lines_added": 0,
+          "lines_removed": 0,
+          "files_modified_count": 0,
+          "files_modified": []
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  }
+]

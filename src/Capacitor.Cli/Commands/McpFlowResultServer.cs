@@ -1,10 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Telemetry;
@@ -101,7 +99,7 @@ sealed class McpFlowResultServer(
         // return a JSON-RPC tool error instead so it keeps serving.
         async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
             if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
+                return McpResponses.ToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
 
             try {
                 // Params extraction stays INSIDE the guard: a malformed tools/call (params
@@ -117,13 +115,13 @@ sealed class McpFlowResultServer(
                     toolName   = paramsNode?["name"]?.GetValue<string>();
                     arguments  = paramsNode?["arguments"]?.AsObject();
                 } catch (InvalidOperationException) {
-                    return BuildErrorResponse(callId, -32602, "Invalid params");
+                    return McpResponses.Error(callId, -32602, "Invalid params");
                 } catch (FormatException) {
-                    return BuildErrorResponse(callId, -32602, "Invalid params");
+                    return McpResponses.Error(callId, -32602, "Invalid params");
                 }
 
                 if (toolName is null)
-                    return BuildErrorResponse(callId, -32602, "Missing params.name");
+                    return McpResponses.Error(callId, -32602, "Missing params.name");
 
                 // Deliberately EXHAUSTIVE explicit cases (no catalog-driven dispatch): a future tool
                 // added to KcapMcpRegistry.ReservedResultChannelTools without a case here hits the
@@ -132,7 +130,7 @@ sealed class McpFlowResultServer(
                 // dispatch honest. Checked BEFORE creating the authenticated client so an unknown
                 // name never triggers auth setup.
                 if (toolName is not ("submit_review_result" or "send_flow_message"))
-                    return BuildToolResult(callId, $"Error: Unknown tool: {toolName}", isError: true);
+                    return McpResponses.ToolResult(callId, $"Error: Unknown tool: {toolName}", isError: true);
 
                 var client = await sessionClient.GetAsync();
 
@@ -146,12 +144,12 @@ sealed class McpFlowResultServer(
                     _                      => ($"Error: Unknown tool: {toolName}", true)
                 };
 
-                return BuildToolResult(callId, text, isError);
+                return McpResponses.ToolResult(callId, text, isError);
             } catch (Exception ex) {
                 // Unexpected: log the detail to stderr (not to the client, which could leak local
                 // paths from IO errors) and return a generic tool error, keeping the loop alive.
                 await Console.Error.WriteLineAsync($"kcap mcp flow-result: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
+                return McpResponses.ToolResult(callId, "Error: internal error handling the request.", isError: true);
             }
         }
 
@@ -179,10 +177,10 @@ sealed class McpFlowResultServer(
 
         // In arrival order: a message must not reach the server after the result that closes its round.
         await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
+            "initialize" => McpResponses.Initialize(id, request, "kcap-flow-result", null),
+            "tools/list" => McpResponses.ToolsList(id, tools),
             _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
+                            ?? McpResponses.Error(id, -32601, $"Method not found: {method}")
         }, "flow-result", McpStdioLoop.InArrivalOrder);
 
         return 0;
@@ -361,37 +359,6 @@ sealed class McpFlowResultServer(
             "server_catching_up" => ($"Error: {reply.Message}\n{McpFlowsServer.ServerCatchingUpGuidance}", true),
             _ => ($"Error: HTTP {(int)response.StatusCode} — {reply.Message}", true)
         };
-    }
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-flow-result", "1.0.0")),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-        return envelope.ToJsonString();
     }
 
     /// <summary>The advertised tool list. Contract-tested to match

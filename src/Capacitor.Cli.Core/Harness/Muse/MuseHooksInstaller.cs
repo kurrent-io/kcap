@@ -12,7 +12,7 @@ public static class MuseHooksInstaller {
     /// removed by hand read as opted out and a refresh does not put them back; the marker answers only
     /// for a file that is missing or unreadable.</summary>
     public static bool IsInstalled(string settingsPath) =>
-        ReadInstalledEvents(settingsPath) is { } events ? events.Count > 0 : HasMarker(settingsPath);
+        ReadInstalledEvents(settingsPath) is { } events ? events.Count > 0 : InstallMarker.Exists(settingsPath, MarkerFileName);
 
     /// <summary>Whether Muse will run kcap's hook for any event: the file alone, never the marker.</summary>
     public static bool IsWired(string settingsPath) => ReadInstalledEvents(settingsPath) is { Count: > 0 };
@@ -51,7 +51,7 @@ public static class MuseHooksInstaller {
             return changed;
         });
 
-        if (outcome is (SettingsEdit.Changed or SettingsEdit.Unchanged) && IsWired(settingsPath)) WriteMarker(settingsPath);
+        if (outcome is (SettingsEdit.Changed or SettingsEdit.Unchanged) && IsWired(settingsPath)) InstallMarker.Write(settingsPath, MarkerFileName);
         return outcome;
     }
 
@@ -75,7 +75,7 @@ public static class MuseHooksInstaller {
             return changed;
         }, createIfMissing: false);
 
-        if (outcome is SettingsEdit.Changed or SettingsEdit.Unchanged) DeleteMarker(settingsPath);
+        if (outcome is SettingsEdit.Changed or SettingsEdit.Unchanged) InstallMarker.Delete(settingsPath, MarkerFileName);
         return outcome;
     }
 
@@ -108,28 +108,5 @@ public static class MuseHooksInstaller {
         catch (UnauthorizedAccessException) { return null; }
     }
 
-    static bool HasMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        return !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, MarkerFileName));
-    }
-
-    public static string? ReadMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; } catch { return null; }
-    }
-
-    static void WriteMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try { Directory.CreateDirectory(dir); File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current()); } catch { }
-    }
-
-    static void DeleteMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { }
-    }
+    public static string? ReadMarker(string settingsPath) => InstallMarker.Read(settingsPath, MarkerFileName);
 }

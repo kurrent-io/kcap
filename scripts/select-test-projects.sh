@@ -10,8 +10,7 @@
 # directory covers: markdown is never a build input, so the declaring suites are all it can reach.
 # Anything that cannot be resolved here also selects all: a reference built from MSBuild
 # properties, an item whose Include is not on its opening line, a declared directory that does not
-# exist. Markdown outside kcap/ is skipped: the workflow trigger already treats it as unable to
-# affect a test.
+# exist. Markdown outside kcap/ is skipped: CI already treats it as unable to affect a test.
 #
 # Usage: select-test-projects.sh [repo-root] < changed-paths
 set -euo pipefail

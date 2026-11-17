@@ -24,7 +24,7 @@ public class SetupUnattendedSignInTests {
 
     sealed class SignInAttempted() : Exception("setup reached the person sign-in");
 
-    SetupCommand Command(MachineAuth machine) {
+    SetupCommand Command(MachineAuth machine, TimeSpan? probeTimeout = null) {
         var http = new PlainHttpClientFactory();
 
         return new SetupCommand(
@@ -38,7 +38,8 @@ public class SetupUnattendedSignInTests {
             router: new GitProviderRouter(), workdir: new WorkingDirectory(Config.Directory), TimeProvider.System,
             TestBinaries.None, TestAccounts.None, TestPluginEnvironment.For(Home, Home.PathTo("plugin")), NoLocalInstallation.Root,
             FakeLocalInstallerFactory.Unused) {
-            PickHandoffVendor = _ => "Skip"
+            PickHandoffVendor      = _ => "Skip",
+            UnattendedProbeTimeout = probeTimeout,
         };
     }
 
@@ -174,14 +175,15 @@ public class SetupUnattendedSignInTests {
 
     [Test]
     public async Task A_machine_credential_the_server_does_not_answer_for_fails() {
+        var probeTimeout = TimeSpan.FromMilliseconds(200);
         using var server = WorkOSServer(MachineToken);
         Mints(server, 200);
         server.Given(Request.Create().WithPath(WhoamiCommand.ProbePath).UsingGet())
             .AtPriority(0)
-            .RespondWith(Response.Create().WithStatusCode(200).WithDelay(UnattendedCredential.ProbeTimeout + TimeSpan.FromSeconds(1)));
+            .RespondWith(Response.Create().WithStatusCode(200).WithDelay(probeTimeout + TimeSpan.FromSeconds(1)));
         using var capture = ConsoleOutput.StartFullCapture("\n");
 
-        var exit = await Command(Machine(server)).HandleAsync(Args(server));
+        var exit = await Command(Machine(server), probeTimeout).HandleAsync(Args(server));
 
         await Assert.That(exit).IsEqualTo(SetupExit.Failed);
         await Assert.That(capture.GetCapturedError()).Contains("could not confirm");

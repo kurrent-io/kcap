@@ -50,6 +50,15 @@ public class ClaudeHookCommandTests {
         return clock;
     }
 
+    /// <summary>A hook clock <paramref name="elapsed"/> into its ceiling that keeps running in real time, so a
+    /// wait bounded by what is left of its budget comes due without sitting out the whole ceiling.</summary>
+    static HookClock Late(TimeSpan elapsed) {
+        var time  = new HeadStartTimeProvider();
+        var clock = new HookClock(time);
+        time.Skip(elapsed);
+        return clock;
+    }
+
     // The harness nudge fires unless an on-disk stamp throttles it, and a private root starts with
     // none — these tests assert on the memory fragment alone. Claim the window explicitly instead of
     // relying on whichever sibling test happened to claim it in the shared config dir first.
@@ -863,6 +872,31 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.MemoryIndexRequestCount).IsEqualTo(1); // NOT re-fetched
     }
 
+    /// <summary>A failed SessionStart POST answers without waiting for the memory lane, and the lane failing
+    /// afterwards writes nothing: a late line would land in whatever else shares the process's stderr.
+    /// Redirects the process-global Console.Error, so it runs alone.</summary>
+    [Test, NotInParallel]
+    public async Task memory_lane_failing_after_the_hook_answered_writes_nothing_to_stderr() {
+        using var absent = new TempDir();
+        // A malformed index fails the lane, and holding it lets the hook answer first.
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError) {
+            MemoryIndexBody = "[", MemoryIndexDelay = TimeSpan.FromMilliseconds(500)
+        };
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var sid = Guid.NewGuid().ToString("N");
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}""");
+        var answered = capture.GetCapturedError();
+        // A server logs a request once it has answered it.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!fx.MemoryIndexRequested && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        await Assert.That(fx.MemoryIndexRequested).IsTrue();
+        await Assert.That(answered).DoesNotContain("lane skipped");
+        await Assert.That(capture.GetCapturedError()).IsEqualTo(answered);
+    }
+
     [Test, NotInParallel]
     public async Task memory_index_get_timing_out_does_not_suppress_lessons_or_nudge() {
         // The memory-index GET runs in parallel with the POST and is joined ONLY within the
@@ -871,19 +905,22 @@ public class ClaudeHookCommandTests {
         // already carries.
         using var absent = new TempDir();
         using var fx = new Fixture(Config.Root);
-        // Past the ceiling, so only the budget can end the wait; teardown waits out this server delay.
-        fx.MemoryIndexDelay = ClaudeHookCommand.SessionStartCeiling + TimeSpan.FromSeconds(3);
+        // Enough left for the session-start POST that carries the lessons on a loaded runner.
+        var left = TimeSpan.FromSeconds(1.5);
+        // Past what is left of the budget, so only the budget can end the wait; teardown waits out this server delay.
+        fx.MemoryIndexDelay = left + TimeSpan.FromSeconds(1);
         fx.RespondJson = """{"top_clusters":[{"text":"seal secrets","category":"safety"}]}""";
 
         var sid = Guid.NewGuid().ToString("N");
         var sw  = System.Diagnostics.Stopwatch.StartNew();
         var (exit, stdout) = await RunCapturingStdoutAsync(() =>
             fx.HandleAsync(
-                $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}"""));
+                $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}""",
+                clock: Late(ClaudeHookCommand.SessionStartCeiling - HookBudget.Safety - left)));
         sw.Stop();
 
         await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(sw.Elapsed).IsLessThan(ClaudeHookCommand.SessionStartCeiling);
+        await Assert.That(sw.Elapsed).IsLessThan(fx.MemoryIndexDelay);
         await Assert.That(stdout).Contains("## Known patterns"); // lessons fragment still injected
         await Assert.That(stdout).DoesNotContain("Team memory"); // memory fragment never joined in time
     }
@@ -1945,14 +1982,14 @@ public class ClaudeHookCommandTests {
         fx.HoldOnPost = TimeSpan.FromSeconds(30); // server hangs past the bounded attempt
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var exit = await fx.HandleAsync(
-            $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+            $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""",
+            clock: Late(TimeSpan.FromSeconds(15) - HookBudget.Safety - TimeSpan.FromMilliseconds(400)));
         sw.Stop();
         await Assert.That(exit).IsEqualTo(0);
-        // Bounded well clear of the hook's own 15s budget rather than at it: the claim is that the
-        // attempt gave up instead of waiting the server's 30s hold, and a bound equal to the budget
-        // it is measuring has no headroom for a loaded runner (16.2s on a Windows leg, 14.2s alone
-        // on an idle machine).
-        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(20));
+        // 400ms of budget is left. The bound is short of the full 13.5s a fresh budget allows, so an
+        // attempt timed from the hook rather than from process entry fails too, and far short of the
+        // server's 30s hold.
+        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(8));
         await Assert.That(fx.SpoolFiles.Any()).IsTrue();
     }
 
@@ -2750,6 +2787,17 @@ public class ClaudeHookCommandTests {
             t_lastTimer = dueTime;
             return _inner.CreateTimer(callback, state, dueTime, period);
         }
+    }
+
+    /// <summary>The real clock, read later by whatever <see cref="Skip"/> added, so its timers still fire in real time.</summary>
+    sealed class HeadStartTimeProvider : TimeProvider {
+        long _skipped;
+
+        public void Skip(TimeSpan by) => _skipped += (long) (by.TotalSeconds * TimestampFrequency);
+
+        public override long GetTimestamp() => base.GetTimestamp() + _skipped;
+
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + TimeSpan.FromSeconds((double) _skipped / TimestampFrequency);
     }
 
     sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> impl) : HttpMessageHandler {

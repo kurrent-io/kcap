@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Harness.Copilot;
 
 namespace Capacitor.Cli.Recording.Harness.Copilot;
 
@@ -273,8 +274,10 @@ public static class CopilotPendingEnd {
         var token       = record["runtime_token"]?.GetValue<string>();
         var runtimeGone = pid is { } runtime && WatcherLiveness.IsGone(runtime, token ?? "");
 
-        // Without the runtime's identity, a live pid may be another process, so a transcript gone quiet stands in.
-        var quietUnidentified = (pid is null || token is null) && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
+        // Without the runtime's identity, a live pid may be another process, so a transcript gone quiet stands in. So it does
+        // for a VS Code Local session, whose runtime is VS Code itself and can outlive the chat by days.
+        var quietUnidentified = (pid is null || token is null || CopilotPaths.IsVsCodeLocalTranscript(transcript))
+                             && time.GetUtcNow() - Later(LastWrite(transcript, writtenAt), writtenAt) >= QuietPeriod;
 
         if (!shutdown && !runtimeGone && !quietUnidentified) return cleared ? new Outcome(Change.Save, record) : Outcome.Keep;
 

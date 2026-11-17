@@ -3,7 +3,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Continuation;
 using Capacitor.Cli.Core.Auth;
@@ -67,10 +66,10 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
 
         try {
             await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-                "initialize" => BuildInitializeResponse(id, request),
-                "tools/list" => BuildToolsListResponse(id, tools),
+                "initialize" => McpResponses.Initialize(id, request, "kcap-sessions", ServerInstructions),
+                "tools/list" => McpResponses.ToolsList(id, tools),
                 _            => McpProtocol.TryHandleStandardMethod(method, id)
-                                ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
+                                ?? McpResponses.Error(id, -32601, $"Method not found: {method}")
             }, "sessions");
         } finally {
             Dispose();
@@ -91,10 +90,10 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
     internal async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
         if (callRequest["params"] is JsonObject callParams && callParams["name"] is JsonValue name
          && name.TryGetValue(out string? toolName) && toolName == ConnectionTool.Name)
-            return BuildToolResult(callId, ConnectionTool.Result(profiles.Resolution.ServerUrl, profiles.Name).ToJsonString());
+            return McpResponses.ToolResult(callId, ConnectionTool.Result(profiles.Resolution.ServerUrl, profiles.Name).ToJsonString());
 
         if (!HttpClientExtensions.IsAcceptableUrl(BaseUrl))
-            return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
+            return McpResponses.ToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
 
         try {
             var client = await _client.GetAsync();
@@ -103,7 +102,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         } catch (Exception ex) {
             // The detail goes to stderr only: IO errors can carry local paths.
             await Console.Error.WriteLineAsync($"kcap mcp sessions: unexpected error handling tools/call: {ex}");
-            return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
+            return McpResponses.ToolResult(callId, "Error: internal error handling the request.", isError: true);
         }
     }
 
@@ -117,16 +116,6 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         "The server checks every read against the signed-in user's session permissions: a session the user " +
         "may not see is never returned, so these tools cannot expose another user's private session.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-sessions", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,
             JsonObject request,
@@ -139,7 +128,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         if (toolName == "search_sessions") {
@@ -178,26 +167,26 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             var body = await httpResponse.Content.ReadAsStringAsync();
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
             // That route answers 200 for a repository it has never seen, so a 404 is a server without it.
             if (toolName == "list_repo_plans" && httpResponse.StatusCode == HttpStatusCode.NotFound) {
-                return BuildToolResult(id, RepoPlansUnsupportedMessage, isError: true);
+                return McpResponses.ToolResult(id, RepoPlansUnsupportedMessage, isError: true);
             }
 
             // The repository route answers 200 for a repository it has never seen, and the listing
             // route takes no repository at all, so a 404 there is a server without the route.
             if (toolName == "list_repo_sessions" && httpResponse.StatusCode == HttpStatusCode.NotFound && IsAllRepositories(arguments)) {
-                return BuildToolResult(id, SessionListingUnsupportedMessage, isError: true);
+                return McpResponses.ToolResult(id, SessionListingUnsupportedMessage, isError: true);
             }
 
             if (!httpResponse.IsSuccessStatusCode) {
-                return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
+                return McpResponses.ToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
 
             if (toolName == "list_repo_sessions" && IsWindowed(arguments) && !EchoesWindow(body)) {
-                return BuildToolResult(id, TimeFilterUnsupportedMessage, isError: true);
+                return McpResponses.ToolResult(id, TimeFilterUnsupportedMessage, isError: true);
             }
 
             // get_declared_plans by plan_id: wrap the single-plan body so the tool always answers an array.
@@ -206,11 +195,11 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
                 _                                    => body
             };
 
-            return BuildToolResult(id, payload);
+            return McpResponses.ToolResult(id, payload);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -232,11 +221,11 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             var       body  = await first.Content.ReadAsStringAsync();
 
             if (first.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
             if (!first.IsSuccessStatusCode) {
-                return BuildToolResult(id, $"Error: HTTP {(int)first.StatusCode} — {body}", isError: true);
+                return McpResponses.ToolResult(id, $"Error: HTTP {(int)first.StatusCode} — {body}", isError: true);
             }
 
             if (ShouldWiden(arguments, cwdRepoHash, body, out var limit)) {
@@ -265,11 +254,11 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
                 }
             }
 
-            return BuildToolResult(id, body);
+            return McpResponses.ToolResult(id, body);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -294,23 +283,23 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
                 var       body  = await recap.Content.ReadAsStringAsync();
 
                 if (recap.StatusCode == HttpStatusCode.Unauthorized) {
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
                 }
 
                 if (!recap.IsSuccessStatusCode) {
-                    return BuildToolResult(id, $"Error: HTTP {(int)recap.StatusCode} — {body}", isError: true);
+                    return McpResponses.ToolResult(id, $"Error: HTTP {(int)recap.StatusCode} — {body}", isError: true);
                 }
 
-                return BuildToolResult(id, ProjectRecapToSummary(body, await plansTask, await itemsTask));
+                return McpResponses.ToolResult(id, ProjectRecapToSummary(body, await plansTask, await itemsTask));
             } finally {
                 lookupsCts.Cancel();   // a no-op once the lookups finished; otherwise ends them now, before the loop's next request
                 await plansTask;       // never throws: FetchBestEffortAsync catches everything, cancellation included
                 await itemsTask;
             }
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -320,10 +309,10 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             var result = await SessionEvalsTool.FetchAsync(client, baseUrl, ids, time);
 
             return result is null
-                ? BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true)
-                : BuildToolResult(id, result.ToJsonString());
+                ? McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true)
+                : McpResponses.ToolResult(id, result.ToJsonString());
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -337,27 +326,27 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
                 var repoHash = ResolveRepoHash(arguments, cwdRepoHash, RepoShapeMessage);
                 using var trends = await client.GetAsync(EvalReportTool.BuildTrendsUrl(baseUrl, repoHash, time));
                 if (trends.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
                 if (!trends.IsSuccessStatusCode)
-                    return BuildToolResult(id, $"Error: HTTP {(int)trends.StatusCode} reading the repository's evals", isError: true);
+                    return McpResponses.ToolResult(id, $"Error: HTTP {(int)trends.StatusCode} reading the repository's evals", isError: true);
                 if (EvalReportTool.Runs(await trends.Content.ReadAsStringAsync()).FirstOrDefault() is not { } latest)
-                    return BuildToolResult(id, "No session of this repository that you can see has a completed eval in the last year.");
+                    return McpResponses.ToolResult(id, "No session of this repository that you can see has a completed eval in the last year.");
                 sessionId = latest.SessionId;
             }
 
             using var progress = await client.GetAsync(EvalReportTool.BuildProgressUrl(baseUrl, sessionId));
             if (progress.StatusCode == HttpStatusCode.Unauthorized)
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
 
             var body             = progress.StatusCode == HttpStatusCode.OK ? await progress.Content.ReadAsStringAsync() : null;
             var (text, isError)  = EvalReportTool.Render(sessionId, progress.StatusCode, body);
-            return BuildToolResult(id, text, isError);
+            return McpResponses.ToolResult(id, text, isError);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (JsonException) {
-            return BuildToolResult(id, "Error: the repository's evals could not be read: the response was not valid JSON.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the repository's evals could not be read: the response was not valid JSON.", isError: true);
         }
     }
 
@@ -367,18 +356,18 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             var repoHash = ResolveRepoHash(arguments, cwdRepoHash, RepoShapeMessage);
             using var trends = await client.GetAsync(EvalReportTool.BuildTrendsUrl(baseUrl, repoHash, time));
             if (trends.StatusCode == HttpStatusCode.Unauthorized)
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             if (!trends.IsSuccessStatusCode)
-                return BuildToolResult(id, $"Error: HTTP {(int)trends.StatusCode} reading the repository's evals", isError: true);
+                return McpResponses.ToolResult(id, $"Error: HTTP {(int)trends.StatusCode} reading the repository's evals", isError: true);
 
             var runs = EvalReportTool.Runs(await trends.Content.ReadAsStringAsync());
-            return BuildToolResult(id, EvalReportTool.ProjectRuns(runs, limit).ToJsonString());
+            return McpResponses.ToolResult(id, EvalReportTool.ProjectRuns(runs, limit).ToJsonString());
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (JsonException) {
-            return BuildToolResult(id, "Error: the repository's evals could not be read: the response was not valid JSON.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the repository's evals could not be read: the response was not valid JSON.", isError: true);
         }
     }
 
@@ -447,7 +436,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             ? $"{baseUrl}/api/sessions/listing"
             : $"{baseUrl}/api/repositories/{ResolveRepoHash(args, cwdRepoHash, SessionsRepoShapeMessage)}/sessions";
 
-        var hasLimit = TryReadInt(args, "limit", out var limit);
+        var hasLimit = McpToolArguments.TryReadIntLenient(args, "limit", out var limit);
 
         if (ReadString(args, "cursor", "`cursor` must be a string.") is { } cursor && !string.IsNullOrWhiteSpace(cursor)) {
             var replaced = CursorReplaces.Where(key => Sent(args, key)).ToArray();
@@ -484,7 +473,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
 
         if (hasLimit) qs.Add($"limit={limit}");
 
-        if (TryReadInt(args, "offset", out var offset)) qs.Add($"offset={offset}");
+        if (McpToolArguments.TryReadIntLenient(args, "offset", out var offset)) qs.Add($"offset={offset}");
 
         return $"{route}?" + string.Join("&", qs);
     }
@@ -528,7 +517,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         if (ReadString(args, "owner", "`owner` must be a string.") is { Length: > 0 } owner)
             qs.Add($"owner={Uri.EscapeDataString(owner)}");
 
-        if (TryReadInt(args, "limit", out var limit)) qs.Add($"limit={limit}");
+        if (McpToolArguments.TryReadIntLenient(args, "limit", out var limit)) qs.Add($"limit={limit}");
 
         return $"{baseUrl}/api/repositories/{repoHash}/plans?" + string.Join("&", qs);
     }
@@ -615,11 +604,11 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             qs.Add($"repo={Uri.EscapeDataString(repo)}");
         }
 
-        if (TryReadInt(args, "limit", out var limit)) {
+        if (McpToolArguments.TryReadIntLenient(args, "limit", out var limit)) {
             qs.Add($"limit={limit}");
         }
 
-        if (TryReadInt(args, "offset", out var offset)) {
+        if (McpToolArguments.TryReadIntLenient(args, "offset", out var offset)) {
             qs.Add($"offset={offset}");
         }
 
@@ -635,7 +624,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
     /// </summary>
     internal static bool ShouldWiden(JsonObject? args, string? cwdRepoHash, string firstBody, out int limit) {
         limit = 10;
-        if (TryReadInt(args, "limit", out var requested)) limit = requested;
+        if (McpToolArguments.TryReadIntLenient(args, "limit", out var requested)) limit = requested;
 
         // Three-way repo check: absent (null) → proceed; string (blank or not) → if non-blank return false; else proceed; anything else → return false
         if (args?["repo"] is not null) {
@@ -653,7 +642,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         }
 
         if (cwdRepoHash is null) return false;
-        if (TryReadInt(args, "offset", out var offset) && offset > 0) return false;
+        if (McpToolArguments.TryReadIntLenient(args, "offset", out var offset) && offset > 0) return false;
 
         try {
             if (JsonNode.Parse(firstBody) is not JsonObject root) return false;
@@ -745,7 +734,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         var id = args?["session_id"]?.GetValue<string>()
          ?? throw new ArgumentException("Missing required argument: session_id");
 
-        if (!TryReadInt(args, "turn_index", out var turnIndex)) {
+        if (!McpToolArguments.TryReadIntLenient(args, "turn_index", out var turnIndex)) {
             throw new ArgumentException("Missing required argument: turn_index");
         }
 
@@ -766,7 +755,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         var url = $"{baseUrl}/api/sessions/{Uri.EscapeDataString(id)}/transcript";
         var qs  = new List<string>();
 
-        if (TryReadInt(args, "around_event", out var a)) {
+        if (McpToolArguments.TryReadIntLenient(args, "around_event", out var a)) {
             qs.Add($"around_event={a}");
         }
 
@@ -774,19 +763,19 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             qs.Add($"agent_id={Uri.EscapeDataString(aid)}");
         }
 
-        if (TryReadInt(args, "before", out var b)) {
+        if (McpToolArguments.TryReadIntLenient(args, "before", out var b)) {
             qs.Add($"before={b}");
         }
 
-        if (TryReadInt(args, "after", out var af)) {
+        if (McpToolArguments.TryReadIntLenient(args, "after", out var af)) {
             qs.Add($"after={af}");
         }
 
-        if (TryReadInt(args, "limit", out var l)) {
+        if (McpToolArguments.TryReadIntLenient(args, "limit", out var l)) {
             qs.Add($"limit={l}");
         }
 
-        if (TryReadInt(args, "offset", out var o)) {
+        if (McpToolArguments.TryReadIntLenient(args, "offset", out var o)) {
             qs.Add($"offset={o}");
         }
 
@@ -799,53 +788,6 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         }
 
         return qs.Count == 0 ? url : url + "?" + string.Join("&", qs);
-    }
-
-    /// <summary>
-    /// Reads a numeric field as int, tolerant of JsonValue holding any underlying numeric type
-    /// (int/long/double) — TryGetValue&lt;int&gt; on a JsonValue constructed from a long returns false.
-    /// Returns false when the key is missing or the value is the wrong shape (e.g., a string).
-    /// Throws <see cref="ArgumentException"/> when the value is numeric but out of range for int,
-    /// so the caller (via <see cref="HandleToolCallAsync"/>) surfaces it as a JSON-RPC validation error
-    /// rather than silently falling back to the default.
-    /// </summary>
-    internal static bool TryReadInt(JsonObject? args, string key, out int value) {
-        value = 0;
-        var node = args?[key];
-
-        if (node is null) return false;
-
-        JsonValue v;
-
-        try {
-            v = node.AsValue();
-        } catch {
-            return false; // wrong shape (object/array)
-        }
-
-        if (v.TryGetValue(out value)) return true;
-
-        if (v.TryGetValue<long>(out var lv)) {
-            if (lv is < int.MinValue or > int.MaxValue)
-                throw new ArgumentException($"'{key}' value {lv} is out of range for int.");
-
-            value = (int)lv;
-
-            return true;
-        }
-
-        if (v.TryGetValue<double>(out var dv)) {
-            var rounded = (long)dv;
-
-            if (rounded < int.MinValue || rounded > int.MaxValue || rounded != dv)
-                throw new ArgumentException($"'{key}' value {dv} is out of range or non-integer for int.");
-
-            value = (int)rounded;
-
-            return true;
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -1038,29 +980,6 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         sb.Append('"');
         sb.Append(JsonEncodedText.Encode(value));
         sb.Append('"');
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() => [
