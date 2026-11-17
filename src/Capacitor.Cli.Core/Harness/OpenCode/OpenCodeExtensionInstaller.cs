@@ -691,11 +691,12 @@ public static class OpenCodeExtensionInstaller {
 
           // The end marker stays until a recorder for the session is running again, so a start that found the old
           // watcher still finishing is retried; every event checks it, and the session is marked unstarted at most
-          // once per V2_RETRY_MS so that event's ensureStarted starts it again. The heartbeat write is throttled.
+          // once per V2_RETRY_MS so that event's ensureStarted starts it again. Never during a start, which marked the
+          // session started before it began and would not mark it again. The heartbeat write is throttled.
           function beat(sid: string, force = false) {
             if (!shared || !v2.started.has(sid)) return
             try {
-              if (existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {
+              if (!v2.pendingStart.has(sid) && existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {
                 v2Remember(v2.restartAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
                 v2.started.delete(sid)
               }

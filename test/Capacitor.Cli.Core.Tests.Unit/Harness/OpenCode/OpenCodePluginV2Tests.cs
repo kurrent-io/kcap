@@ -171,7 +171,8 @@ public class OpenCodePluginV2Tests {
             .IsGreaterThan(onEvent.IndexOf("if (v2.children.has(sid)) return", StringComparison.Ordinal));
         await Assert.That(onEvent.IndexOf("beat(sid)", StringComparison.Ordinal))
             .IsLessThan(onEvent.IndexOf("ensureStarted(sid", StringComparison.Ordinal));
-        await Assert.That(beat).Contains("if (existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {");
+        await Assert.That(beat).Contains(
+            "if (!v2.pendingStart.has(sid) && existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {");
         await Assert.That(beat).Contains("v2.started.delete(sid)");
         await Assert.That(beat.IndexOf("existsSync(ended(sid))", StringComparison.Ordinal))
             .IsLessThan(beat.IndexOf("V2_BEAT_MS) return", StringComparison.Ordinal));
