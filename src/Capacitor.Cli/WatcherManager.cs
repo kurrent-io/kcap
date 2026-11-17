@@ -773,7 +773,7 @@ public sealed partial class WatcherManager(
             int startLine;
 
             try {
-                var query = agentId is not null ? $"?agentId={agentId}" : "";
+                var query = agentId is not null ? $"?agentId={Uri.EscapeDataString(agentId)}" : "";
                 var resp  = await httpClient.GetWithRetryAsync($"{Url}/api/sessions/{sessionId}/last-line{query}", time);
 
                 if (resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NoContent) {

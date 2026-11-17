@@ -1,0 +1,608 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "551b3154-aef0-44dc-a043-412fbb97b8dd",
+        "timestamp": "2026-06-10T20:23:25.5620000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:25.562Z",
+        "payload": {
+          "timestamp": "2026-06-10T20:23:25.562Z",
+          "extensions": {
+            "copilot": {
+              "cwd": "/private/tmp/kcap-copilot-capture/work",
+              "git_root": "/private/tmp/kcap-copilot-capture/work",
+              "branch": "main",
+              "repository": "kurrent-io/kcap-copilot-scratch",
+              "repository_host": "github.com",
+              "host_type": "github",
+              "copilot_version": "1.0.61",
+              "producer": "copilot-agent",
+              "source": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "b7af451e-0217-4a42-8c68-1a0d7cd0ea3c",
+        "timestamp": "2026-06-10T20:23:27.3130000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:27.313Z",
+        "payload": {
+          "content": "Create a file hello.txt containing exactly \u0027hello world\u0027, then print its contents.",
+          "timestamp": "2026-06-10T20:23:27.313Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "b2a9d4ad-544d-e6c9-9f89-a7584b1ff82b",
+        "timestamp": "2026-06-10T20:23:30.9730000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:30.973Z",
+        "payload": {
+          "content": "Simple task - create hello.txt and print its contents.",
+          "timestamp": "2026-06-10T20:23:30.973Z"
+        },
+        "usage": {
+          "output_tokens": "156",
+          "total_tokens": "156",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "c90b38b6-3c05-b3bf-c4ae-80b814629305",
+        "timestamp": "2026-06-10T20:23:30.9730001\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:30.973Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_013U751Z8KeyMVAoENa9FcTC",
+              "tool_name": "report_intent",
+              "arguments": {
+                "intent": "Creating hello.txt"
+              },
+              "tool_kind": "other"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:30.973000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "a4db6ffa-d3ef-09ae-02a1-e84c6d5aef70",
+        "timestamp": "2026-06-10T20:23:30.9730002\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:30.973Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_018WG6wbmQBQxsU8fxaCKrsA",
+              "tool_name": "create",
+              "arguments": {
+                "path": "/private/tmp/kcap-copilot-capture/work/hello.txt",
+                "file_text": "hello world"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:30.973000200Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 17,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "a7013e9a-1481-4fb4-97c0-30f246f7051a",
+        "timestamp": "2026-06-10T20:23:31.0190000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:31.019Z",
+        "payload": {
+          "call_id": "toolu_013U751Z8KeyMVAoENa9FcTC",
+          "result": "Intent logged",
+          "timestamp": "2026-06-10T20:23:31.019Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "Creating hello.txt",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 21,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "36dd7ea2-8137-4c46-8f63-2a076aa6e6fb",
+        "timestamp": "2026-06-10T20:23:31.0370000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:31.037Z",
+        "payload": {
+          "call_id": "toolu_018WG6wbmQBQxsU8fxaCKrsA",
+          "result": "Created file /private/tmp/kcap-copilot-capture/work/hello.txt with 11 characters",
+          "timestamp": "2026-06-10T20:23:31.037Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "\ndiff --git a/private/tmp/kcap-copilot-capture/work/hello.txt b/private/tmp/kcap-copilot-capture/work/hello.txt\ncreate file mode 100644\nindex 0000000..0000000\n--- a/dev/null\n\u002B\u002B\u002B b/private/tmp/kcap-copilot-capture/work/hello.txt\n@@ -1,0 \u002B1,1 @@\n\u002Bhello world\n",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 24,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "7f974471-f102-25c1-b394-4baa7156bbaa",
+        "timestamp": "2026-06-10T20:23:34.2220000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:34.222Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01ENwYDTNamGDWoAbdjiAtct",
+              "tool_name": "view",
+              "arguments": {
+                "path": "/private/tmp/kcap-copilot-capture/work/hello.txt"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:34.222Z"
+        },
+        "usage": {
+          "output_tokens": "70",
+          "total_tokens": "70",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 30,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "1a1fccea-5882-4f48-806b-a146066732aa",
+        "timestamp": "2026-06-10T20:23:34.2420000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:34.242Z",
+        "payload": {
+          "call_id": "toolu_01ENwYDTNamGDWoAbdjiAtct",
+          "result": "1. hello world",
+          "timestamp": "2026-06-10T20:23:34.242Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "\ndiff --git a/private/tmp/kcap-copilot-capture/work/hello.txt b/private/tmp/kcap-copilot-capture/work/hello.txt\nindex 0000000..0000000 100644\n--- a/private/tmp/kcap-copilot-capture/work/hello.txt\n\u002B\u002B\u002B b/private/tmp/kcap-copilot-capture/work/hello.txt\n@@ -1,1 \u002B1,1 @@\n hello world\n",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 33,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "08ac1abe-7b86-fcba-a64e-208feb5983c0",
+        "timestamp": "2026-06-10T20:23:36.0980000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:36.098Z",
+        "payload": {
+          "content": "File created and contents: \u0060hello world\u0060",
+          "timestamp": "2026-06-10T20:23:36.098Z"
+        },
+        "usage": {
+          "output_tokens": "12",
+          "total_tokens": "12",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 39,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "7953fe39-a6af-483d-a04a-7e2f992f106a",
+        "timestamp": "2026-06-10T20:23:36.1580000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:36.158Z",
+        "payload": {
+          "model": "claude-sonnet-4.6",
+          "input_tokens": 5,
+          "output_tokens": 0,
+          "cache_read_tokens": 43538,
+          "cache_write_tokens": 7273,
+          "reasoning_tokens": 11,
+          "session_model": "claude-sonnet-4.6",
+          "request_count": 3,
+          "request_cost": 1,
+          "nano_aiu": 4392015000
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "e1f971e1-5bf6-717e-705c-31bc08d2de55",
+        "timestamp": "2026-06-10T20:23:36.1580000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:36.158Z",
+        "payload": {
+          "total_nano_aiu": 4392015000,
+          "total_premium_requests": 1,
+          "run_marker": "551b3154-aef0-44dc-a043-412fbb97b8dd",
+          "lines_added": 1,
+          "lines_removed": 0,
+          "files_modified_count": 1,
+          "files_modified": [
+            "/private/tmp/kcap-copilot-capture/work/hello.txt"
+          ]
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 45,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "e2f94d7e-3c5f-4013-8bb8-5cd64a5beaf0",
+        "timestamp": "2026-06-10T20:23:39.3760000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:39.376Z",
+        "payload": {
+          "content": "Append a line \u0027second line\u0027 to hello.txt and show the file.",
+          "timestamp": "2026-06-10T20:23:39.376Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 49,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "3011a017-f21d-c1f2-e074-f43b28756fdd",
+        "timestamp": "2026-06-10T20:23:43.5940000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:43.594Z",
+        "payload": {
+          "content": "Append \u0027second line\u0027 to hello.txt using the edit tool.",
+          "timestamp": "2026-06-10T20:23:43.594Z"
+        },
+        "usage": {
+          "output_tokens": "186",
+          "total_tokens": "186",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "468b90c2-cb06-9816-a52e-587d021dbd4f",
+        "timestamp": "2026-06-10T20:23:43.5940001\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:43.594Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01EVMxZ1dsEtHtobwthYQsZd",
+              "tool_name": "report_intent",
+              "arguments": {
+                "intent": "Appending to hello.txt"
+              },
+              "tool_kind": "other"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:43.594000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "b3a48979-eea1-23bf-537b-bb4064c28622",
+        "timestamp": "2026-06-10T20:23:43.5940002\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:43.594Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01Mvix5FFxvkQ9pubKrcTSiE",
+              "tool_name": "edit",
+              "arguments": {
+                "path": "/private/tmp/kcap-copilot-capture/work/hello.txt",
+                "old_str": "hello world",
+                "new_str": "hello world\nsecond line"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:43.594000200Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 57,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "b35632f3-a258-4612-ab31-321dd22ef725",
+        "timestamp": "2026-06-10T20:23:43.6320000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:43.632Z",
+        "payload": {
+          "call_id": "toolu_01EVMxZ1dsEtHtobwthYQsZd",
+          "result": "Intent logged",
+          "timestamp": "2026-06-10T20:23:43.632Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "Appending to hello.txt",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 61,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "bd3396a9-8bfb-44f5-a934-2334c5328870",
+        "timestamp": "2026-06-10T20:23:43.6440000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:43.644Z",
+        "payload": {
+          "call_id": "toolu_01Mvix5FFxvkQ9pubKrcTSiE",
+          "result": "File /private/tmp/kcap-copilot-capture/work/hello.txt updated with changes.",
+          "timestamp": "2026-06-10T20:23:43.644Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "\ndiff --git a/private/tmp/kcap-copilot-capture/work/hello.txt b/private/tmp/kcap-copilot-capture/work/hello.txt\nindex 0000000..0000000 100644\n--- a/private/tmp/kcap-copilot-capture/work/hello.txt\n\u002B\u002B\u002B b/private/tmp/kcap-copilot-capture/work/hello.txt\n@@ -1,1 \u002B1,2 @@\n hello world\n\u002Bsecond line\n",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 64,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "30628f99-49ba-24ec-87eb-fc4d278d54df",
+        "timestamp": "2026-06-10T20:23:45.6490000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:45.649Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_0126Mi8LtqQcKijieRwAVwNz",
+              "tool_name": "view",
+              "arguments": {
+                "path": "/private/tmp/kcap-copilot-capture/work/hello.txt"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-06-10T20:23:45.649Z"
+        },
+        "usage": {
+          "output_tokens": "70",
+          "total_tokens": "70",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 70,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "ade8e8b3-d4bc-4c12-b4b8-108f46f23fb8",
+        "timestamp": "2026-06-10T20:23:45.6790000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:45.679Z",
+        "payload": {
+          "call_id": "toolu_0126Mi8LtqQcKijieRwAVwNz",
+          "result": "1. hello world\n2. second line",
+          "timestamp": "2026-06-10T20:23:45.679Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": "\ndiff --git a/private/tmp/kcap-copilot-capture/work/hello.txt b/private/tmp/kcap-copilot-capture/work/hello.txt\nindex 0000000..0000000 100644\n--- a/private/tmp/kcap-copilot-capture/work/hello.txt\n\u002B\u002B\u002B b/private/tmp/kcap-copilot-capture/work/hello.txt\n@@ -1,2 \u002B1,2 @@\n hello world\n second line\n",
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 73,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "79d55514-f89b-9d45-fe57-7a2238bfcc57",
+        "timestamp": "2026-06-10T20:23:47.5330000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:47.533Z",
+        "payload": {
+          "content": "Done! \u0060hello.txt\u0060 now contains:\n\u0060\u0060\u0060\nhello world\nsecond line\n\u0060\u0060\u0060",
+          "timestamp": "2026-06-10T20:23:47.533Z"
+        },
+        "usage": {
+          "output_tokens": "23",
+          "total_tokens": "23",
+          "model": "claude-sonnet-4.6"
+        },
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 79,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "81084f97-f6c8-495e-aa8f-2fd819e0be71",
+        "timestamp": "2026-06-10T20:23:47.5750000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:47.575Z",
+        "payload": {
+          "model": "claude-sonnet-4.6",
+          "input_tokens": 5,
+          "output_tokens": 0,
+          "cache_read_tokens": 51310,
+          "cache_write_tokens": 769,
+          "reasoning_tokens": 13,
+          "session_model": "claude-sonnet-4.6",
+          "request_count": 3,
+          "request_cost": 1,
+          "nano_aiu": 2247675000
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "d92cb601-a144-6ce8-e519-cf472c0ae832",
+        "timestamp": "2026-06-10T20:23:47.5750000\u002B00:00",
+        "recordTimestamp": "2026-06-10T20:23:47.575Z",
+        "payload": {
+          "total_nano_aiu": 2247675000,
+          "total_premium_requests": 1,
+          "run_marker": "7d69f3f1-63e2-4281-9b78-911336db21bd",
+          "lines_added": 2,
+          "lines_removed": 0,
+          "files_modified_count": 1,
+          "files_modified": [
+            "/private/tmp/kcap-copilot-capture/work/hello.txt"
+          ]
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  }
+]

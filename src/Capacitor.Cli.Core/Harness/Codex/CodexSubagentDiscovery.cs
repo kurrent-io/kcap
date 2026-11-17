@@ -1,7 +1,6 @@
 using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Codex;
 
@@ -316,43 +315,6 @@ public static class CodexSubagentDiscovery {
 
         return output.Obj("output")?.Str("task_name");
     }
-
-    // ── Hook payloads (the vendor-agnostic /hooks/subagent-start|stop wire shape) ──
-
-    /// <summary><c>/hooks/subagent-start</c> body. cwd is "" — the child inherits the parent
-    /// session's cwd; the server's HookBase merely requires the (non-null) field
-    /// (same posture as Gemini/OpenCode subagents). <paramref name="spawnCallId"/> places the agent on the turn of
-    /// the parent's call that spawned it, wherever the start lands on the parent's stream</summary>
-    public static JsonObject BuildStartPayload(
-            string parentSessionId, string agentId, string agentType, string subagentTranscriptPath, string? spawnCallId = null
-        ) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = subagentTranscriptPath,
-            ["cwd"]             = "",
-        };
-
-        if (spawnCallId is not null) payload["spawn_call_id"] = spawnCallId;
-
-        return payload;
-    }
-
-    /// <summary><c>/hooks/subagent-stop</c> body.</summary>
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = subagentTranscriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = subagentTranscriptPath,
-            ["last_assistant_message"] = "",
-        };
 
     /// <summary>The <c>~/.codex/sessions</c> root above a <c>YYYY/MM/DD/rollout-*.jsonl</c> path
     /// (three levels up), or null when the path is too shallow to carry the day tree.</summary>

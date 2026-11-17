@@ -3,6 +3,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Kiro;
+using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -247,27 +248,8 @@ internal static class AntigravityReviewerHome {
     /// reaper — same accepted residual as <see cref="KiroReviewerHome.SweepStale"/>.</para>
     internal static void SweepStale(string stateDir, string currentEpoch, ILogger? log = null) {
         log ??= NullLogger.Instance;
-        var root = RootFor(stateDir);
-        if (!Directory.Exists(root)) return;
-
-        var live = $"{Prefix}{Sanitize(currentEpoch)}-";
-
-        IReadOnlyList<string> candidates;
-
-        try {
-            candidates = [.. Directory.EnumerateDirectories(root)];
-        } catch (Exception ex) {
-            log.LogWarning(ex, "Could not enumerate the Antigravity reviewer home root {Root}; skipping the sweep", root);
-            return;
-        }
-
-        foreach (var dir in candidates) {
-            var name = Path.GetFileName(dir);
-            if (!name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-            if (name.StartsWith(live,   StringComparison.Ordinal)) continue;
-
-            Delete(dir, stateDir, log);
-        }
+        ReviewerScratch.SweepStale(RootFor(stateDir), Prefix, $"{Prefix}{Sanitize(currentEpoch)}-",
+            "Antigravity reviewer home", log, dir => Delete(dir, stateDir, log));
     }
 
     /// <summary>

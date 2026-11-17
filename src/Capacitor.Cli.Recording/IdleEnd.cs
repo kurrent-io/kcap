@@ -129,9 +129,9 @@ internal static class IdleEnd {
         //                       leaks it for the life of the parent). Its SESSION watcher has a
         //                       working watchdog AND a sessionEnd hook, so a ceiling there could
         //                       end a live session out from under a thinking user.
-        //   copilot           — a SESSION with no end signal only: VS Code Local, which has neither a
-        //                       session-end hook nor a parent, or one whose host was not found. A session
-        //                       with both has the same ceiling-end risk as Claude's session watcher.
+        //   copilot           — a SESSION with no end signal only: VS Code Local, which has no
+        //                       session-end hook and whose VS Code can run for days, or one whose host was
+        //                       not found. A Copilot-harness session with both has the same ceiling-end risk as Claude's session watcher.
         var eligible = vendor switch {
             "codex" or "cursor" => true,
             "antigravity"       => isSessionWatcher,
@@ -144,8 +144,8 @@ internal static class IdleEnd {
 
         // A child watcher never buffers, so requiring ThresholdReached would make it permanently
         // ineligible. A session watcher keeps the gate: a session nobody has taken a turn in has not
-        // gone idle, and its end comes from the parent's exit instead. A Local session has no parent
-        // to end it, so idling is its end with or without a turn.
+        // gone idle, and its end comes from the parent's exit instead. A Local session follows VS Code, which
+        // can run for days, so idling ends it too, with or without a turn.
         if (isSessionWatcher && !thresholdReached && !noEndSignal) return false;
 
         return now - lastActivityAt - disconnectedSinceActivity > idleTimeout && !toolInFlight;

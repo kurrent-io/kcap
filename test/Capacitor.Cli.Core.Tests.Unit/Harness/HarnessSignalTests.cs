@@ -183,6 +183,57 @@ public class HarnessSignalTests {
         await Assert.That(found.HostApp).IsNull();
     }
 
+    /// <summary>VS Code's launcher earlier on the PATH than a Copilot CLI still reads as the CLI: the launcher runs it.</summary>
+    [Test]
+    public async Task A_copilot_cli_behind_vs_code_s_launcher_reads_as_the_cli() {
+        using var tmp = new TempDir();
+        var binaries = BinaryProbe.Searching(
+            CopilotBinaryIn(tmp, "Code", "copilot-shim") + Path.PathSeparator + CopilotBinaryIn(tmp, "bin"));
+
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+
+        await Assert.That(found.HostApp).IsNull();
+    }
+
+    /// <summary>VS Code's launcher is not a Copilot CLI: with no CLI behind it there is nothing to launch.</summary>
+    [Test]
+    public async Task The_copilot_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var shim = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var cli  = CopilotBinaryIn(tmp, "bin");
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim + Path.PathSeparator + cli), CopilotHarness.CliBinary))
+            .IsEqualTo(BinaryProbe.Searching(cli).Resolve(CopilotHarness.CliBinary));
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(cli), Path.Combine(shim, CopilotHarness.CliBinary))).IsNull();
+    }
+
+    /// <summary>A link to VS Code's launcher is the launcher, on the search path or named outright.</summary>
+    [Test]
+    public async Task A_link_to_vs_code_s_launcher_is_not_the_copilot_cli() {
+        Skip.When(OperatingSystem.IsWindows(), "creating a symbolic link needs a privilege Windows runners lack");
+        using var tmp = new TempDir();
+        var shim = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var link = Path.Combine(tmp.CreateDir("bin"), CopilotHarness.CliBinary);
+        File.CreateSymbolicLink(link, Path.Combine(shim, CopilotHarness.CliBinary));
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(Path.GetDirectoryName(link)), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(null), link)).IsNull();
+    }
+
+    /// <summary>A folder linked to VS Code's launcher folder holds the launcher, on the search path or named outright.</summary>
+    [Test]
+    public async Task A_folder_linked_to_vs_code_s_launcher_folder_is_not_the_copilot_cli() {
+        Skip.When(OperatingSystem.IsWindows(), "creating a symbolic link needs a privilege Windows runners lack");
+        using var tmp = new TempDir();
+        var shim  = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var alias = tmp.PathTo("copilot-bin");
+        Directory.CreateSymbolicLink(alias, shim);
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(alias), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(null), Path.Combine(alias, CopilotHarness.CliBinary))).IsNull();
+    }
+
     /// <summary>VS Code signs Copilot in through ide/ and keeps the extension's data in its own storage.</summary>
     [Test]
     public async Task Vs_code_copilot_with_no_cli_is_found_as_vs_code() {

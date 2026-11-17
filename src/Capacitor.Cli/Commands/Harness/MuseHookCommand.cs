@@ -322,8 +322,8 @@ sealed class MuseHookCommand(
         var childLog = MusePaths.ChildSessionLogPath(parentLog, childId);
 
         var payload = isStart
-            ? MuseSubagentDiscovery.BuildStartPayload(parentId, agentId, agentType, childLog)
-            : MuseSubagentDiscovery.BuildStopPayload(parentId, agentId, agentType, childLog);
+            ? SubagentHookPayloads.Start(parentId, agentId, agentType, childLog)
+            : SubagentHookPayloads.Stop(parentId, agentId, agentType, childLog);
 
         await PostInOrderAsync(isStart ? "subagent-start" : "subagent-stop", payload.ToJsonString(), parentId, budget);
     }

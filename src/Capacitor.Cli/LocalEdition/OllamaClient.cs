@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.LocalEdition;
 
@@ -31,7 +32,7 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
             var body = await response.Content.ReadFromJsonAsync(OllamaWire.Context.Default.VersionResponse, bounded.Token);
 
             return body?.Version is { Length: > 0 } version ? version : null;
-        } catch (Exception ex) when (Failed(ex, ct)) {
+        } catch (Exception ex) when (HttpReadFailures.IsTransient(ex, ct)) {
             return null;
         }
     }
@@ -49,7 +50,7 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
             var tagged = model.Contains(':') ? model : $"{model}:latest";
 
             return names.Any(n => n == model || n == tagged);
-        } catch (Exception ex) when (Failed(ex, ct)) {
+        } catch (Exception ex) when (HttpReadFailures.IsTransient(ex, ct)) {
             throw new OllamaException(ex.Message, ex);
         }
     }
@@ -96,7 +97,7 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
             throw new OllamaException(response.IsSuccessStatusCode
                 ? "the pull ended before Ollama reported success"
                 : $"the pull answered HTTP {(int)response.StatusCode}");
-        } catch (Exception ex) when (Failed(ex, ct)) {
+        } catch (Exception ex) when (HttpReadFailures.IsTransient(ex, ct)) {
             throw new OllamaException(ex is OperationCanceledException ? $"no progress for {PullIdleTimeout.TotalMinutes:0} minutes" : ex.Message, ex);
         }
     }
@@ -122,7 +123,7 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
             return answer?.Embeddings is [{ Length: > 0 } vector]
                 ? vector.Length
                 : throw new OllamaException("embedding returned no vector");
-        } catch (Exception ex) when (Failed(ex, ct)) {
+        } catch (Exception ex) when (HttpReadFailures.IsTransient(ex, ct)) {
             throw new OllamaException(ex is OperationCanceledException ? $"embedding took longer than {EmbedTimeout.TotalMinutes:0} minutes" : ex.Message, ex);
         }
     }
@@ -156,9 +157,4 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
             return null;
         }
     }
-
-    /// <summary>A failure of Ollama or the connection to it, as opposed to the caller's own cancellation.</summary>
-    static bool Failed(Exception ex, CancellationToken ct) =>
-        ex is HttpRequestException or JsonException or NotSupportedException or IOException
-     || ex is OperationCanceledException && !ct.IsCancellationRequested;
 }

@@ -125,6 +125,11 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
         return Task.CompletedTask;
     }
 
+    /// <summary>Starts compacting the agent's context, or says why it will not. Synchronous, so a caller can hold its
+    /// own guard across the decision and the start. A runtime that records the user messages it sends records the
+    /// request as one, stamped with <paramref name="dispatchId"/>.</summary>
+    CompactionStart StartCompaction(Guid dispatchId) => CompactionStart.Unsupported;
+
     /// <summary>Wait until any prior structured prompt turn has received its terminal response.
     /// PTY runtimes have no structured turn boundary and use the completed default.</summary>
     Task WaitForTurnIdleAsync(CancellationToken ct) => Task.CompletedTask;

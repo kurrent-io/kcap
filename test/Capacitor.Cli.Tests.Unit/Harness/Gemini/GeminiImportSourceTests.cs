@@ -2,6 +2,9 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Harness.Gemini;
 
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 namespace Capacitor.Cli.Tests.Unit.Harness.Gemini;
 
 /// <summary>
@@ -115,5 +118,31 @@ public class GeminiImportSourceTests {
         using var tmp = new TempDir();
         var source = new GeminiImportSource(tmp.PathTo("does-not-exist"), TimeProvider.System);
         await Assert.That(source.IsAvailable).IsFalse();
+    }
+
+    /// <summary>The lifecycle bodies go to the server as written, so their bytes, property order included, are pinned.</summary>
+    [Test]
+    public async Task import_posts_lifecycle_payloads_byte_for_byte() {
+        using var tmp = new TempDir();
+        WriteSession(tmp.Path, "proj", "session-2026-06-17T14-10-44444444.jsonl",
+            "44444444-4444-4444-4444-444444444444", BootstrapSeed(),
+            """{"id":"u1","timestamp":"2026-06-17T14:11:00.000Z","type":"user","content":[{"text":"hi"}]}""");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new GeminiImportSource(tmp.Path, TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: new(tmp.Path)), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        string Body(string path) => server.LogEntries.Single(e => e.RequestMessage.Path == path).RequestMessage.Body!;
+
+        await Assert.That(Body("/hooks/session-start/gemini")).IsEqualTo(
+            """{"hook_event_name":"SessionStart","session_id":"44444444444444444444444444444444","source":"startup","cwd":"/work/demo","started_at":"2026-06-17T14:10:03.4470000\u002B00:00","origin":"historical-import"}""");
+        await Assert.That(Body("/hooks/session-end/gemini")).IsEqualTo(
+            """{"hook_event_name":"SessionEnd","session_id":"44444444444444444444444444444444","reason":"gemini-import","ended_at":"2026-06-17T14:11:00.0000000\u002B00:00","origin":"historical-import"}""");
     }
 }

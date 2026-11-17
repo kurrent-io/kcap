@@ -1,7 +1,5 @@
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,11 +53,10 @@ static class McpReviewContextServer {
         await using var writer = new StreamWriter(stdout, new UTF8Encoding(false)) { AutoFlush = true };
 
         await McpStdioLoop.RunAsync(reader, writer, tools, (id, request) => DispatchToolCallAsync(client, validated!, id, request), (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => ToResponse(
-                id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult),
+            "initialize" => McpResponses.Initialize(id, request, KcapMcpRegistry.ReviewContextServerId, Instructions),
+            "tools/list" => McpResponses.ToolsList(id, tools),
             _ => McpProtocol.TryHandleStandardMethod(method, id)
-                 ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
+                 ?? McpResponses.Error(id, -32601, $"Method not found: {method}")
         }, "review");
         return 0;
     }
@@ -88,19 +85,19 @@ static class McpReviewContextServer {
         string? name;
         try { name = (request["params"] as JsonObject)?["name"]?.GetValue<string>(); }
         catch (Exception ex) when (ex is InvalidOperationException or FormatException) {
-            return BuildErrorResponse(id, -32602, "Invalid params");
+            return McpResponses.Error(id, -32602, "Invalid params");
         }
-        if (name is null) return BuildErrorResponse(id, -32602, "Missing params.name");
+        if (name is null) return McpResponses.Error(id, -32602, "Missing params.name");
         if (name != ToolName)
-            return BuildToolResult(id, $"Error: Unknown tool: {name}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: Unknown tool: {name}", isError: true);
         try {
             using var response = await client.GetAsync(capabilityUrl);
             var body = await response.Content.ReadAsStringAsync();
             return response.IsSuccessStatusCode
-                ? BuildToolResult(id, body)
-                : BuildToolResult(id, $"Error: review context unavailable (HTTP {(int)response.StatusCode}).", true);
+                ? McpResponses.ToolResult(id, body)
+                : McpResponses.ToolResult(id, $"Error: review context unavailable (HTTP {(int)response.StatusCode}).", true);
         } catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
-            return BuildToolResult(id, "Error: review context unavailable.", true);
+            return McpResponses.ToolResult(id, "Error: review context unavailable.", true);
         }
     }
 
@@ -117,30 +114,4 @@ static class McpReviewContextServer {
             McpToolAnnotations.Read)
     ];
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse(
-            id,
-            new McpInitResult(
-                McpProtocol.NegotiateVersion(request), new(new()),
-                new(KcapMcpRegistry.ReviewContextServerId, "1.0.0"), Instructions),
-            McpJsonContext.Default.McpInitResult);
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse(id, new McpToolCallResult([new("text", text)], isError ? true : null),
-            McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(),
-            ["error"] = JsonSerializer.SerializeToNode(
-                new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) =>
-        new JsonObject {
-            ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(),
-            ["result"] = JsonSerializer.SerializeToNode(result, typeInfo)
-        }.ToJsonString();
 }

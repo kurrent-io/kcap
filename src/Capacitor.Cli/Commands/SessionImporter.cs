@@ -157,7 +157,7 @@ static class SessionImporter {
                 var subAgentId = sub.ChildDashlessId;
 
                 if (!await PostSubagentHookAsync(httpClient, baseUrl, "subagent-start",
-                        CodexSubagentDiscovery.BuildStartPayload(sessionId, subAgentId, subType, sub.FilePath,
+                        SubagentHookPayloads.Start(sessionId, subAgentId, subType, sub.FilePath,
                             CodexSubagentDiscovery.SpawnCallFor(codexSpawnCalls, sub.AgentPath)), time)) {
                     continue;
                 }
@@ -177,7 +177,7 @@ static class SessionImporter {
                 progress?.Report(new SubagentFinished(subAgentId, subLines));
 
                 await PostSubagentHookAsync(httpClient, baseUrl, "subagent-stop",
-                    CodexSubagentDiscovery.BuildStopPayload(sessionId, subAgentId, subType, sub.FilePath), time);
+                    SubagentHookPayloads.Stop(sessionId, subAgentId, subType, sub.FilePath), time);
 
                 agentIds.Add(subAgentId);
             }

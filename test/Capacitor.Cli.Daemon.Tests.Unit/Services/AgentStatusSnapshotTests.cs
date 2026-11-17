@@ -1,9 +1,7 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
-using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Assertions.Enums;
 
@@ -14,72 +12,13 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// agent rows) and the three mutate-then-pulse helpers (<c>SetAgentStatus</c>/<c>PublishAgent</c>/
 /// <c>UnpublishAgent</c>) that are now the only writers of agent status and registry membership.
 /// No socket/<see cref="LocalControlServer"/> involved — these tests drive the orchestrator +
-/// <see cref="DaemonStatusNotifier"/> directly, mirroring <c>LocalControlHelloTests.StartAsync</c>'s
-/// bare-orchestrator construction without the socket plumbing.
+/// <see cref="DaemonStatusNotifier"/> directly.
 /// </summary>
 public class AgentStatusSnapshotTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
 
-    sealed class NoopHostLifetime : IHostApplicationLifetime {
-        public CancellationToken ApplicationStarted  => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped  => CancellationToken.None;
-        public void StopApplication() { }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("AgentStatusSnapshotTests never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
-    }
-
-    sealed record Fixture(AgentOrchestrator Orchestrator, DaemonStatusNotifier Notifier, TempDaemonStore Daemons) {
-        public async Task CleanupAsync() {
-            await Orchestrator.DisposeAsync();
-            Daemons.Dispose();
-        }
-    }
-
-    Fixture Build() {
-        var daemons = new TempDaemonStore();
-
-        var config = new DaemonConfig {
-            Name         = "status-snapshot-test",
-            ServerUrl    = "http://127.0.0.1:1",
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-        };
-
-        // The consent store and its decision log share this daemon's per-name state root, as DaemonRunner wires them.
-        var store       = new LaunchConsentStore(config.Store.StateDirectory(config.Name), NullLogger.Instance, TimeProvider.System);
-        var broker      = new LaunchConsentBroker();
-        var decisionLog = new LaunchConsentDecisionLog(config.Store.StateDirectory(config.Name), NullLogger.Instance);
-        var gate        = new LaunchConsentGate(store, decisionLog, broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
-
-        var tokens           = AuthFixtures.NewTokenStore(Config.Root);
-        var connection       = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
-        var worktreeManager  = new WorktreeManager(config, NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
-        var repoMatcher      = new RepoMatcher(config, NullLogger<RepoMatcher>.Instance, TimeProvider.System);
-        var permissionBridge = new LocalPermissionBridge(connection, NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System);
-        var notifier         = new DaemonStatusNotifier();
-
-        var orchestrator = new AgentOrchestrator(
-            config, Config.Root, TestHarnesses.Under(Home), connection, worktreeManager, repoMatcher,
-            new NoopPtyProcessFactory(), new NoopHttpClientFactory(), new FixedCapacitorHttpClient(),
-            tokens,
-            permissionBridge, new Dictionary<string, IHostedAgentLauncher>(),
-            new Dictionary<string, IHostedAgentRuntimeFactory>(), new NoopHostLifetime(),
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System, statusNotifier: notifier);
-
-        return new Fixture(orchestrator, notifier, daemons);
-    }
+    OrchestratorFixture Build() => new(Config, Home, "status-snapshot-test", notifyOrchestrator: true);
 
     [Test]
     public async Task Snapshot_orders_by_created_at_then_id_ordinal_and_includes_all_statuses() {
@@ -99,7 +38,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(agents.Select(a => a.Status)).IsEquivalentTo(
                 new[] { "Starting", "Completed", "Quarantined" }, CollectionOrdering.Matching);
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -131,7 +70,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(byId["d1"].RequesterDisplay).IsNull();
             await Assert.That(byId["d1"].FlowRunId).IsNull();
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -153,7 +92,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(byId["blank-model"].Model).IsNull();
             await Assert.That(byId["real-model"].Model).IsEqualTo("gpt-5-codex");
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -172,7 +111,7 @@ public class AgentStatusSnapshotTests {
 
             await Assert.That(orch.SnapshotAgentsForStatus().Single(a => a.Id == "codex-default").Model).IsEqualTo("gpt-5-codex");
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -202,7 +141,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(ptyJson).Contains("\"has_terminal\":true");
             await Assert.That(acpJson).Contains("\"has_terminal\":false");
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -230,7 +169,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(json).Contains("\"title\":\"Fix the flaky test\"");
             var jsonNone = JsonSerializer.Serialize(byId["t-none"], StatusIpcJsonContext.Default.AgentStatusDto);
             await Assert.That(jsonNone).Contains("\"title\":null");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     [Test]
@@ -252,7 +191,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(notifier.Version).IsGreaterThan(v2);
             await Assert.That(orch.SnapshotAgentsForStatus()).IsEmpty();
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -274,7 +213,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(agent.SessionId).IsEqualTo("0123456789abcdef0123456789abcdef");
             await Assert.That(fixture.Notifier.Version).IsGreaterThan(versionBefore);
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -292,7 +231,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(agent.SessionId).IsEqualTo("0a0a0a0a-1111-4111-8111-000000000001");
             await Assert.That(agent.TranscriptPath).IsEqualTo("/t.jsonl");
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -317,7 +256,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(agent.SessionId).IsEqualTo("pre-known");
             await Assert.That(agent.TranscriptPath).IsEqualTo("/own.jsonl");
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -335,7 +274,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(agent.TranscriptPath).IsEqualTo("/p.jsonl");
             await Assert.That(fixture.Notifier.Version).IsGreaterThan(versionBefore);
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -380,7 +319,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(byId["snapshot"].WorkLocation).IsEqualTo("borrowed");
             await Assert.That(byId["snapshot"].BorrowedFrom).IsEqualTo(worktree);
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -405,7 +344,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(dto.WorktreePath).IsEqualTo(repo);
             await Assert.That(dto.BorrowedFrom).IsEqualTo(repo);
         } finally {
-            await fixture.CleanupAsync();
+            await fixture.DisposeAsync();
         }
     }
 
@@ -428,7 +367,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(Json("pty-1")).Contains("\"session_id\":\"0123456789abcdef0123456789abcdef\"");
             await Assert.That(Json("acp-1")).Contains("\"session_id\":\"acp-sess-1\"");
             await Assert.That(Json("acp-2")).Contains("\"session_id\":\"discovered\"");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     /// The wire carries the clock's verdict only for a live agent: a Completed or Failed one has
@@ -449,7 +388,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(Json("run")).Contains("\"awaiting_input\":true");
             await Assert.That(Json("done")).Contains("\"awaiting_input\":false");
             await Assert.That(Json("busy")).Contains("\"awaiting_input\":false");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     /// A relayed submit can attest a turn while the wait is already clear, so the attestation
@@ -471,7 +410,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(fx.Notifier.Version).IsGreaterThan(v0);
             await Assert.That(Json("run")).Contains("\"turn_attested\":true");
             await Assert.That(Json("done")).Contains("\"turn_attested\":false");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     /// A turn ending is a status change the app must see without waiting for another mutation,
@@ -488,7 +427,7 @@ public class AgentStatusSnapshotTests {
 
             await Assert.That(fx.Notifier.Version).IsGreaterThan(v0);
             await Assert.That(fx.Orchestrator.SnapshotAgentsForStatus().Single().AwaitingInput).IsTrue();
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     [Test]
@@ -505,7 +444,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(byId["real-branch"].Branch).IsEqualTo("feature/sidebar");
             var json = JsonSerializer.Serialize(byId["real-branch"], StatusIpcJsonContext.Default.AgentStatusDto);
             await Assert.That(json).Contains("\"branch\":\"feature/sidebar\"");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     [Test]
@@ -527,7 +466,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(row.SessionId).IsEqualTo("8bc7255f24534efda7330af4b6ae9f20");
             await Assert.That(row.TranscriptPath).IsEqualTo(journal.Path);
             await journal.CompleteAsync();
-        } finally { await f.CleanupAsync(); }
+        } finally { await f.DisposeAsync(); }
     }
 
     [Test]
@@ -546,7 +485,7 @@ public class AgentStatusSnapshotTests {
             await Assert.That(row.TranscriptFormat).IsEqualTo(TranscriptFormats.Vendor);
             await Assert.That(row.TranscriptPath).IsNull();
             await Assert.That(row.SessionId).IsNull();
-        } finally { await f.CleanupAsync(); }
+        } finally { await f.DisposeAsync(); }
     }
 
     [Test]
@@ -560,6 +499,6 @@ public class AgentStatusSnapshotTests {
             LastOutputAt  = DateTime.UtcNow,
                 SessionId = SessionIds.Canonical(runtime.AcpSessionId) });
             await Assert.That(f.Orchestrator.SnapshotAgentsForStatus().Single().SessionId).IsEqualTo("sess-1");
-        } finally { await f.CleanupAsync(); }
+        } finally { await f.DisposeAsync(); }
     }
 }

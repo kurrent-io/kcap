@@ -33,7 +33,9 @@ public class WorkspaceProbeTests {
         reserved.ExclusiveAddressUse = true;
         reserved.Bind(new IPEndPoint(IPAddress.Loopback, 0));
         var url = $"http://127.0.0.1:{((IPEndPoint)reserved.LocalEndPoint!).Port}";
-        using var handler = new SocketsHttpHandler { UseProxy = false };
+        // macOS drops a SYN to a port bound without listening instead of refusing it, so the connect
+        // would otherwise run to the OS's own timeout.
+        using var handler = new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromMilliseconds(500) };
         using var client = new HttpClient(handler);
 
         await Assert.That(await WorkspaceProbe.AskAsync(client, url, TimeProvider.System)).IsEqualTo(WorkspaceAnswer.NoAnswer);

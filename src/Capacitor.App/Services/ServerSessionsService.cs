@@ -259,18 +259,26 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         if (unlisted) IssuePinRefresh();
     }
 
-    public async Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct) {
-        if (_fetchHandoffContext is null) return new(ServerReadOutcome.Failed, null);
+    public Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct) =>
+        ReadAsync(_fetchHandoffContext, sessionId, f => f.Outcome, new HandoffContextFetch(ServerReadOutcome.Failed, null), ct);
+
+    public Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct) =>
+        ReadAsync(_fetchSummary, sessionId, f => f.Outcome, new SummaryFetch(ServerReadOutcome.Failed, null), ct);
+
+    async Task<T> ReadAsync<T>(
+            Func<string, CancellationToken, Task<T>>? read, string sessionId, Func<T, ServerReadOutcome> outcome, T failed,
+            CancellationToken ct) {
+        if (read is null) return failed;
         int laneEpoch;
         lock (_lock) laneEpoch = _laneEpoch;
         try {
-            var fetch = await _fetchHandoffContext(sessionId, ct).ConfigureAwait(false);
-            if (fetch.Outcome == ServerReadOutcome.Unauthorized) _onUnauthorized?.Invoke(laneEpoch);
+            var fetch = await read(sessionId, ct).ConfigureAwait(false);
+            if (outcome(fetch) == ServerReadOutcome.Unauthorized) _onUnauthorized?.Invoke(laneEpoch);
             return fetch;
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch (Exception) {
-            return new(ServerReadOutcome.Failed, null);
+            return failed;
         }
     }
 

@@ -770,8 +770,8 @@ public sealed class CursorHookCommand(
         var route = isStart ? "subagent-start" : "subagent-stop";
         var body  = isLifecycle
             ? (isStart
-                ? CursorLiveSubagentLinker.BuildSubagentStartPayload(parentSessionId, childSessionId, subagentType, transcriptPath ?? "")
-                : CursorLiveSubagentLinker.BuildSubagentStopPayload(parentSessionId, childSessionId, subagentType, transcriptPath ?? "")
+                ? SubagentHookPayloads.Start(parentSessionId, childSessionId, subagentType, transcriptPath ?? "", strict: true)
+                : SubagentHookPayloads.Stop(parentSessionId, childSessionId, subagentType, transcriptPath ?? "", strict: true)
               ).ToJsonString()
             : null;
 
@@ -924,7 +924,7 @@ public sealed class CursorHookCommand(
     /// drain, which runs for every session BEFORE the <c>isSubagentChild</c> divert) has just
     /// delivered a previously-spooled <c>subagent-start</c> entry. Parses the parent/child/
     /// transcript-path triple back out of its own payload shape
-    /// (<see cref="CursorLiveSubagentLinker.BuildSubagentStartPayload"/>: <c>session_id</c> =
+    /// (<see cref="SubagentHookPayloads.Start"/>: <c>session_id</c> =
     /// parent, <c>agent_id</c> = child, <c>transcript_path</c> = the child's own file) and performs
     /// the spawn this deferred delivery unblocks. Fail-open: a malformed payload (should never
     /// happen — this method only ever spools its own generated JSON) just skips the spawn rather

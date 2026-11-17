@@ -2,9 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
@@ -27,78 +25,20 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
     /// <summary>The reserved plan id the server resolves to the session's most recently written plan.</summary>
     internal const string CurrentPlan = "current";
 
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
+    public Task<int> RunAsync() {
         // Resolved once, from the running harness rather than the inherited environment (see
         // HarnessRequesterContext): a relative document path is resolved against the directory the
         // harness is working in, and the repo root is what the path is keyed against.
-        var cwd       = HarnessRequesterContext.ProjectDir() ?? workdir.Path;
-        var repoRoot  = GitRepository.FindRoot(cwd);
-
-        var tools = BuildToolsList();
-
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command; the
-        // reportable pseudo-command "mcp-server" is what lets per-tool-call events leave.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, cwd, repoRoot);
-            } catch (Exception ex) {
-                // The detail goes to stderr, not the client, which could leak local paths.
-                await Console.Error.WriteLineAsync($"kcap mcp plans: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-plans", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
+        var cwd      = HarnessRequesterContext.ProjectDir() ?? workdir.Path;
+        var repoRoot = GitRepository.FindRoot(cwd);
 
         // In arrival order: a task call addresses the plan that the call before it declared.
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "plans", McpStdioLoop.InArrivalOrder);
+        var server = new McpServerDescriptor("kcap-plans", "plans", ServerInstructions, BuildToolsList()) {
+            OrderKey = McpStdioLoop.InArrivalOrder,
+        };
 
-        return 0;
+        return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
+            (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, cwd, repoRoot));
     }
 
     internal const string ServerInstructions =
@@ -107,16 +47,6 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         "discrete steps, declare them with set_plan_tasks and record every status change with " +
         "update_plan_task; after context compaction, get_plan returns the list with its ids. Keep whatever " +
         "ledger your own workflow asks for as well — these tools replace the harness's task list, not your notes.";
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-plans", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
 
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,
@@ -131,7 +61,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         try {
@@ -143,9 +73,9 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
                 _                             => throw new ArgumentException($"Unknown tool: {toolName}")
             };
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -161,7 +91,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         // newer refresh, so the agent is asked to retry instead.
         using var gate = await ledger.LockAsync(resolved.SessionId, resolved.Document.Path, DeclareLockWait);
         if (gate is null)
-            return BuildToolResult(id, $"Error: {resolved.WirePath} is being refreshed after an edit; call declare_plan_document again.", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {resolved.WirePath} is being refreshed after an edit; call declare_plan_document again.", isError: true);
 
         var declaration = BuildDeclaration(args, cwd, repoRoot);
 
@@ -193,7 +123,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
             using var current = await client.GetAsync(CurrentPlanUrl(baseUrl, sessionId));
 
             if (current.StatusCode == HttpStatusCode.NotFound)
-                return BuildToolResult(id, NoPlanMessage(sessionId), isError: true);
+                return McpResponses.ToolResult(id, NoPlanMessage(sessionId), isError: true);
 
             if (!current.IsSuccessStatusCode) return await RelayAsync(id, current, baseUrl);
 
@@ -224,7 +154,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         // A session on no plan is a valid answer, not a failure: the agent learns it has nothing
         // to recover and declares afresh.
         if (current.StatusCode == HttpStatusCode.NotFound)
-            return BuildToolResult(id, EmptyPlan(sessionId));
+            return McpResponses.ToolResult(id, EmptyPlan(sessionId));
 
         return await RelayAsync(id, current, baseUrl);
     }
@@ -233,12 +163,12 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         var body = await response.Content.ReadAsStringAsync();
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
-            return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+            return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
 
         if (!response.IsSuccessStatusCode)
-            return BuildToolResult(id, $"Error: HTTP {(int)response.StatusCode} — {body}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: HTTP {(int)response.StatusCode} — {body}", isError: true);
 
-        return BuildToolResult(id, shape is null ? body : shape(body));
+        return McpResponses.ToolResult(id, shape is null ? body : shape(body));
     }
 
     internal static string CurrentPlanUrl(string baseUrl, string sessionId) =>
@@ -546,29 +476,6 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         } catch {
             return null;
         }
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() => [

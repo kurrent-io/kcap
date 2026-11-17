@@ -157,6 +157,21 @@ public class CopilotImportSourceTests {
         await Assert.That(repository["remote_url"]?.GetValue<string>()).IsEqualTo(remoteUrl);
     }
 
+    /// <summary>Copilot records the repository root it ran in; with no cwd beside it, that root is the session's folder.</summary>
+    [Test]
+    public async Task discovery_falls_back_to_the_recorded_git_root_for_the_folder() {
+        using var tmp = new TempDir();
+        var paths = Layout(tmp);
+        WriteSession(paths.SessionStateDir, Sid1, cwd: null);
+        await File.AppendAllTextAsync(paths.WorkspaceYaml(paths.SessionStateDir, Sid1), "git_root: /work/copilot-demo\nbranch: main\n");
+
+        var source   = new CopilotImportSource(Config.Root, paths, [], router: new GitProviderRouter(), time: TimeProvider.System);
+        var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+
+        await Assert.That(sessions[0].Cwd).IsEqualTo("/work/copilot-demo");
+        await Assert.That(sessions[0].SourceMeta["Cwd"]).IsEqualTo("/work/copilot-demo");
+    }
+
     [Test]
     public async Task a_session_outside_any_repository_starts_without_one() {
         using var tmp = new TempDir();

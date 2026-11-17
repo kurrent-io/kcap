@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.OpenCode;
 
@@ -65,34 +64,4 @@ public static class OpenCodeSubagentDiscovery {
     /// carry no dashes, but canonicalize defensively to match the server's routing.
     /// </summary>
     public static string CanonicalAgentId(string childIdStem) => childIdStem.Replace("-", "");
-
-    // ── Hook payloads (the vendor-agnostic /hooks/subagent-{start,stop} wire shape) ──
-
-    /// <summary>
-    /// <c>/hooks/subagent-start</c> body. cwd is "" — the subagent shares the parent's cwd
-    /// and the server's HookBase only requires the (non-null) field.
-    /// </summary>
-    public static JsonObject BuildStartPayload(string parentSessionId, string agentId, string agentType, string childTranscriptPath) =>
-        new() {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = childTranscriptPath,
-            ["cwd"]             = "",
-        };
-
-    /// <summary><c>/hooks/subagent-stop</c> body.</summary>
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string childTranscriptPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = childTranscriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = childTranscriptPath,
-            ["last_assistant_message"] = "",
-        };
 }

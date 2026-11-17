@@ -50,19 +50,18 @@ public sealed class ConsentService : IConsentService {
     readonly SourceCache<PendingConsent, string> _cache = new(p => p.RequestId);
     readonly HashSet<string> _tombstones = [];
     readonly HashSet<string> _surfaced = [];
-    readonly Lock _lock = new();          // guards _tombstones, _surfaced, _inFlightPromptId, _loopCts, _disposed
+    readonly Lock _lock = new();          // guards _tombstones, _surfaced, _inFlightPromptId, _loop, _disposed
     readonly SemaphoreSlim _lane = new(1, 1); // one resolve in flight (PauseController discipline)
     readonly Subject<Unit> _entryAdded = new();
 
     readonly ILocalControlOps _ops;
     readonly Func<CancellationToken, IAsyncEnumerable<ConsentStreamEvent>> _subscribe;
     readonly TimeProvider _time;
-    readonly CancellationToken _shutdownToken;
     readonly IDisposable _statusSub;
     readonly IDisposable _tickSub;
 
     string? _inFlightPromptId;
-    CancellationTokenSource? _loopCts;
+    readonly CancellableLoop _loop;
     bool _disposed;
 
     public ConsentService(
@@ -72,7 +71,7 @@ public sealed class ConsentService : IConsentService {
         _ops           = ops;
         _subscribe     = subscribe;
         _time          = time;
-        _shutdownToken = shutdownToken;
+        _loop          = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _tickSub       = ticker.Ticks.Subscribe(_ => Prune());
         _statusSub     = service.Status.Subscribe(OnStatus);
     }
@@ -147,7 +146,7 @@ public sealed class ConsentService : IConsentService {
         }
         _statusSub.Dispose();
         _tickSub.Dispose();
-        StopLoop();
+        _loop.Stop();
         _entryAdded.OnCompleted();
         _entryAdded.Dispose();
         _cache.Dispose();
@@ -157,10 +156,10 @@ public sealed class ConsentService : IConsentService {
     void OnStatus(AttachStatus status) {
         if (status is { State: AttachState.Connected, Capabilities: not null } &&
             status.Capabilities.Contains(ConsentV2Capability)) {
-            StartLoop();
+            _loop.Start();
             return;
         }
-        StopLoop();
+        _loop.Stop();
         // A daemon that answers without consent/2 is a different incarnation than the one those
         // entries came from, and it would resolve without the identity check — they can never be
         // safely answered against it. Disconnected states retain instead: the daemon may still be
@@ -172,54 +171,29 @@ public sealed class ConsentService : IConsentService {
         if (status.State == AttachState.Connected) lock (_lock) _cache.Clear();
     }
 
-    void StartLoop() {
-        CancellationTokenSource cts;
-        lock (_lock) {
-            if (_disposed || _loopCts is not null) return;
-            cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken);
-            _loopCts = cts;
-        }
-        _ = Task.Run(() => RunLoopAsync(cts));
-    }
-
-    void StopLoop() {
-        CancellationTokenSource? cts;
-        lock (_lock) {
-            cts = _loopCts;
-            _loopCts = null;
-        }
-        if (cts is null) return;
-        try { cts.Cancel(); } catch (ObjectDisposedException) { } // already unwound and self-disposed
-    }
-
-    async Task RunLoopAsync(CancellationTokenSource cts) {
-        var ct = cts.Token;
-        try {
-            while (!ct.IsCancellationRequested) {
-                try {
-                    await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
-                        ct.ThrowIfCancellationRequested(); // a superseded loop never touches the cache
-                        switch (evt) {
-                            case ConsentStreamEvent.Subscribed:  _cache.Clear();  break;
-                            case ConsentStreamEvent.Pending p:   Upsert(p.Request); break;
-                        }
+    async Task RunLoopAsync(CancellationToken ct) {
+        while (!ct.IsCancellationRequested) {
+            try {
+                await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
+                    ct.ThrowIfCancellationRequested(); // a superseded loop never touches the cache
+                    switch (evt) {
+                        case ConsentStreamEvent.Subscribed:  _cache.Clear();  break;
+                        case ConsentStreamEvent.Pending p:   Upsert(p.Request); break;
                     }
-                } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                    break;
-                } catch (Exception ex) {
-                    // Never kill the loop: the enumeration ending badly is just "this attempt is
-                    // over" — the retry below is the whole recovery story.
-                    Console.Error.WriteLine($"kcap: consent subscription attempt failed: {ex.Message}");
                 }
-
-                try {
-                    await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false);
-                } catch (OperationCanceledException) {
-                    break;
-                }
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                break;
+            } catch (Exception ex) {
+                // Never kill the loop: the enumeration ending badly is just "this attempt is
+                // over" — the retry below is the whole recovery story.
+                Console.Error.WriteLine($"kcap: consent subscription attempt failed: {ex.Message}");
             }
-        } finally {
-            cts.Dispose();
+
+            try {
+                await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false);
+            } catch (OperationCanceledException) {
+                break;
+            }
         }
     }
 

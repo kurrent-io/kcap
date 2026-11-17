@@ -26,25 +26,6 @@ public class PermissionWiringTests {
     [TempHome] public required TempHome Home { get; init; }
     [TempDir] public required TempDir Tmp { get; init; }
 
-    sealed class NoopHostLifetime : IHostApplicationLifetime {
-        public CancellationToken ApplicationStarted  => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped  => CancellationToken.None;
-        public void StopApplication() { }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("PermissionWiringTests never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
-    }
-
     [Test]
     public async Task Permission_graph_resolved_via_DI_shares_the_one_registered_broker_and_decision_log() {
         using var daemons   = new TempDaemonStore();
@@ -71,13 +52,13 @@ public class PermissionWiringTests {
         services.AddSingleton<WorktreeManager>();
         services.AddSingleton<RepoMatcher>();
         services.AddSingleton<IPtyProcessFactory>(new NoopPtyProcessFactory());
-        services.AddSingleton<IHttpClientFactory>(new NoopHttpClientFactory());
+        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory());
         services.AddSingleton<ICapacitorHttpClient>(new FixedCapacitorHttpClient());
         services.AddSingleton<IReadOnlyDictionary<string, IHostedAgentLauncher>>(
             new Dictionary<string, IHostedAgentLauncher>());
         services.AddSingleton<IReadOnlyDictionary<string, IHostedAgentRuntimeFactory>>(
             new Dictionary<string, IHostedAgentRuntimeFactory>());
-        services.AddSingleton<IHostApplicationLifetime>(new NoopHostLifetime());
+        services.AddSingleton<IHostApplicationLifetime>(new AgentOrchestratorHarness.StubHostLifetime());
         services.AddSingleton(sp => new LaunchConsentGate(
             new LaunchConsentStore(daemons.Directory, NullLogger.Instance, TimeProvider.System),
             new LaunchConsentDecisionLog(daemons.Directory, NullLogger.Instance),

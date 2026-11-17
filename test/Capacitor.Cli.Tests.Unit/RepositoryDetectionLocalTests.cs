@@ -51,6 +51,23 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(found.Branch).IsNotNull();
     }
 
+    /// <summary>A local identity gives way at once to an origin added since, inside the cache's life, while a path
+    /// origin, which names no owner, keeps it.</summary>
+    [Test]
+    public async Task An_origin_added_since_replaces_the_cached_local_identity() {
+        using var repo = GitRepo.CreateWithCommit();
+        await Detect(repo.Path);
+
+        repo.Do("remote", "add", "origin", "/srv/git/widget.git");
+        await Assert.That(LocalRepository.IsLocal((await Detect(repo.Path))!.Owner)).IsTrue();
+
+        repo.Do("remote", "set-url", "origin", "git@github.invalid:acme/widget.git");
+        var found = await Detect(repo.Path);
+
+        await Assert.That(found!.Owner).IsEqualTo("acme");
+        await Assert.That(found.RepoName).IsEqualTo("widget");
+    }
+
     [Test]
     public async Task A_repository_with_no_origin_has_a_local_identity_and_its_branch() {
         using var repo = GitRepo.CreateWithCommit();

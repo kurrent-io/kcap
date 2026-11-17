@@ -205,6 +205,16 @@
             <Setter Property="Padding" Value="14,0,0,0" />
         </Style>
     </UserControl.Styles>
+    <UserControl.Resources>
+        <DataTemplate x:Key="ExpandChevron" x:DataType="vm:IExpandableItem">
+            <Panel Width="12" Height="12" VerticalAlignment="Center">
+                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+            </Panel>
+        </DataTemplate>
+    </UserControl.Resources>
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <!-- What the hand-off carried over from the previous session, in its own row above the transcript; absent for any other session or once dismissed. -->
         <Border x:Name="HandoffOutcomeCard" Grid.Row="0" Margin="22,14,22,0" Padding="13,10"
@@ -354,16 +364,8 @@
                                 Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                 AutomationProperties.Name="{Binding HeaderLabel}">
                             <views:ChatKindHeader Label="{Binding HeaderLabel}"
-                                                  IconKind="{x:Static views:ToolCategoryIcons.ThinkingIcon}">
-                                <views:ChatKindHeader.Status>
-                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                    </Panel>
-                                </views:ChatKindHeader.Status>
-                            </views:ChatKindHeader>
+                                                  IconKind="{x:Static views:ToolCategoryIcons.ThinkingIcon}"
+                                                  Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                         </Button>
                         <Border Classes="thinkingBody" IsVisible="{Binding IsExpanded}">
                             <views:MarkdownView Classes="thinking" Text="{Binding Text}"
@@ -408,16 +410,8 @@
                                 <Button Classes="toolSummary" IsVisible="{Binding IsCollapsible}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                         AutomationProperties.Name="{Binding ToggleAccessibleName}">
-                                    <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}">
-                                        <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
-                                        </views:ChatKindHeader.Status>
-                                    </views:ChatKindHeader>
+                                    <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}"
+                                                          Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                                 </Button>
                                 <views:MarkdownView Text="{Binding Text}" IsVisible="{Binding ShowsBody}"
                                                     FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -553,16 +547,8 @@
                                 <Button Classes="toolSummary" IsVisible="{Binding ShowsSummaryHeader}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                         AutomationProperties.Name="{Binding Summary}">
-                                    <views:ChatKindHeader Label="{Binding Summary}" IconKind="{Binding HeaderIconKind}">
-                                        <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
-                                        </views:ChatKindHeader.Status>
-                                    </views:ChatKindHeader>
+                                    <views:ChatKindHeader Label="{Binding Summary}" IconKind="{Binding HeaderIconKind}"
+                                                          Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                                 </Button>
                                 <ItemsControl ItemsSource="{Binding VisibleCalls}" IsVisible="{Binding HasVisibleCalls}" />
                             </StackPanel>

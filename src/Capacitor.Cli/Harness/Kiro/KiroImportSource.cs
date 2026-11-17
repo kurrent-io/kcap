@@ -1,7 +1,4 @@
-using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -42,19 +39,6 @@ internal sealed class KiroImportSource : IImportSource {
         _time         = time;
     }
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try {
-            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        } catch {
-            return path.TrimEnd('/', '\\');
-        }
-    }
-
     public HarnessId Vendor => HarnessId.Kiro;
 
     public bool IsAvailable => Directory.Exists(_sessionsDir);
@@ -69,7 +53,7 @@ internal sealed class KiroImportSource : IImportSource {
 
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } cwd ? NormalizeForComparison(cwd) : null;
+        var normalizedCwd = filters.FilterCwd is { } cwd ? ImportPaths.NormalizeForComparison(cwd) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -102,7 +86,7 @@ internal sealed class KiroImportSource : IImportSource {
             var meta = KiroSessionMeta.TryRead(Path.ChangeExtension(jsonl, ".json"));
 
             if (normalizedCwd is not null
-             && (meta?.Cwd is null || !NormalizeForComparison(meta.Cwd).Equals(normalizedCwd, PathComparison)))
+             && (meta?.Cwd is null || !ImportPaths.NormalizeForComparison(meta.Cwd).Equals(normalizedCwd, ImportPaths.PathComparison)))
                 continue;
 
             // Session-start proxy: the .json created_at, else the transcript's
@@ -132,98 +116,14 @@ internal sealed class KiroImportSource : IImportSource {
         return Task.FromResult<IReadOnlyList<DiscoveredSession>>(result);
     }
 
-    public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
+    public Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions,
             ClassifyContext                  ctx,
             CancellationToken                ct
-        ) {
-        var results     = new List<ImportCommand.SessionClassification>(sessions.Count);
-
-        foreach (var s in sessions) {
-            var transcriptPath = (string)s.SourceMeta!["TranscriptPath"]!;
-
-            var meta = new SessionMetadata {
-                SessionId      = s.SessionId,
-                Cwd            = s.Cwd,
-                FirstTimestamp = s.FirstTimestamp,
-                LastTimestamp  = s.SourceMeta!.TryGetValue("LastTimestamp", out var lt) ? lt as DateTimeOffset? : null,
-            };
-
-            int? lastNonBlankIndex;
-            int? lastRelevantIndex;
-            int  nonBlankCount;
-            try {
-                (lastNonBlankIndex, lastRelevantIndex, nonBlankCount) = await ReadTranscriptStatsAsync(transcriptPath, ct);
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "transcript read failed"));
-                continue;
-            }
-
-            if (lastNonBlankIndex is null) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: 0,
-                                               probeErrorReason: "empty transcript"));
-                continue;
-            }
-
-            if (nonBlankCount < ctx.MinLines) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.TooShort, totalLines: nonBlankCount));
-                continue;
-            }
-
-            if (ctx.ExcludeBeforeProbeAsync is { } exclude
-             && await exclude(MakeClassification(s, meta, ImportCommand.ClassificationStatus.New, nonBlankCount)) is { } excluded) {
-                results.Add(excluded);
-                continue;
-            }
-
-            int? serverLastLine;
-            try {
-                serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, _time, ctx.BaseUrl, s.SessionId, ct);
-            } catch (SessionDeletedException) {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.Deleted, totalLines: nonBlankCount));
-                continue;
-            } catch {
-                results.Add(MakeClassification(s, meta, ImportCommand.ClassificationStatus.ProbeError, totalLines: nonBlankCount,
-                                               probeErrorReason: "watermark probe failed"));
-                continue;
-            }
-
-            meta.LastTimestamp ??= TryGetLastWriteUtc(transcriptPath);
-
-
-
-            var status       = ImportCommand.ClassificationStatus.New;
-            var resumeFromLn = 0;
-
-            var lastImportable = lastRelevantIndex ?? lastNonBlankIndex.Value;
-
-            if (serverLastLine is { } srv) {
-                if (srv >= lastImportable) {
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                } else {
-                    status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
-                }
-            }
-
-            results.Add(new ImportCommand.SessionClassification {
-                SessionId       = s.SessionId,
-                // Empty FilePath keeps Kiro on the routed phase (ImportSessionAsync
-                // below) — same contract as Cursor/Copilot.
-                FilePath        = "",
-                EncodedCwd      = "",
-                Meta            = meta,
-                Status          = status,
-                Vendor          = Vendor,
-                ResumeFromLine  = resumeFromLn,
-                TotalLines      = nonBlankCount,
-                SourceMeta      = s.SourceMeta,
-            });
-        }
-
-        return results;
-    }
+        ) =>
+        RoutedImportClassifier.ClassifyAsync(sessions, ctx, new RoutedClassifyOptions(Vendor, _time, IsImportRelevantLine, ImportPaths.TryGetLastWriteUtc) {
+            RecordedEndedAt = s => s.SourceMeta.TryGetValue("LastTimestamp", out var lt) ? lt as DateTimeOffset? : null,
+        }, ct);
 
     public async Task<ImportSessionResult> ImportSessionAsync(
             ImportCommand.SessionClassification classification,
@@ -244,7 +144,8 @@ internal sealed class KiroImportSource : IImportSource {
         // would leave the session permanently lifecycle-less.
         var lifecycleId = dashed ?? classification.SessionId;
 
-        var startPayload = BuildSessionStartPayload(lifecycleId, cwd, model, classification.Meta.FirstTimestamp);
+        var client       = new RoutedImportClient(ctx.HttpClient, _time, ctx.BaseUrl);
+        var startPayload = SyntheticHookPayloads.SessionStart("agentSpawn", lifecycleId, cwd, classification.Meta.FirstTimestamp, source: null, model: model);
         // Sessions import in parallel, so each side of a sub-agent link names the other.
         _crewParents  ??= KiroCrewParentResolver.AllParents(_crew, _sessionsDir);
         _crewChildren ??= _crewParents.ToLookup(kv => Guid.Parse(kv.Value), kv => kv.Key);
@@ -266,17 +167,14 @@ internal sealed class KiroImportSource : IImportSource {
             startPayload["default_visibility"] = visibility;
         }
 
-        var startOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, _time, ctx.BaseUrl, "session-start/kiro",
-            startPayload,
-            ct);
+        var startOk = await client.PostSyntheticHookAsync("session-start/kiro", startPayload, ct);
         if (!startOk) return ImportOutcome.Failed;
 
         foreach (var batch in childBatches.Skip(1)) {
             var repeat = startPayload.DeepClone().AsObject();
             repeat["subagent_session_ids"] = KiroCrewParentResolver.SessionIdArray(batch);
 
-            if (!await PostSyntheticHookAsync(ctx.HttpClient, _time, ctx.BaseUrl, "session-start/kiro", repeat, ct))
+            if (!await client.PostSyntheticHookAsync("session-start/kiro", repeat, ct))
                 return ImportOutcome.Failed;
         }
 
@@ -333,9 +231,9 @@ internal sealed class KiroImportSource : IImportSource {
                 ctx.Progress, ct);
         }
 
-        var endOk = await PostSyntheticHookAsync(
-            ctx.HttpClient, _time, ctx.BaseUrl, "session-end/kiro",
-            BuildSessionEndPayload(lifecycleId, cwd, classification.Meta.LastTimestamp),
+        var endOk = await client.PostSyntheticHookAsync(
+            "session-end/kiro",
+            SyntheticHookPayloads.SessionEnd("sessionEnd", lifecycleId, "historical-import", cwd, classification.Meta.LastTimestamp),
             ct);
         if (!endOk) return ImportOutcome.Failed;
 
@@ -344,93 +242,9 @@ internal sealed class KiroImportSource : IImportSource {
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;
     }
 
-    static JsonObject BuildSessionStartPayload(string sessionId, string? cwd, string? model, DateTimeOffset? startedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "agentSpawn",
-            ["session_id"]      = sessionId,
-        };
-        if (cwd is not null) payload["cwd"] = cwd;
-        // fail-open git-root discovery, mirroring ImportChainsAsync
-        // so routed imports carry the same workspace_root the file-based path does.
-        if (cwd is not null && GitRepository.FindRoot(cwd) is { } workspaceRoot) payload["workspace_root"] = workspaceRoot;
-        if (model is not null) payload["model"] = model;
-        if (startedAt is { } ts) payload["started_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    static JsonObject BuildSessionEndPayload(string sessionId, string? cwd, DateTimeOffset? endedAt) {
-        var payload = new JsonObject {
-            ["hook_event_name"] = "sessionEnd",
-            ["session_id"]      = sessionId,
-            ["reason"]          = "historical-import",
-        };
-        if (cwd is not null) payload["cwd"] = cwd;
-        if (endedAt is { } ts) payload["ended_at"] = ts.ToString("O");
-        payload["origin"] = ImportOrigins.Historical;
-        return payload;
-    }
-
-    static async Task<bool> PostSyntheticHookAsync(
-        HttpClient client, TimeProvider time, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct
-    ) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
-
-    static DateTimeOffset? TryGetLastWriteUtc(string path) {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return null; }
-    }
-
     internal static string SafeReadText(string path) {
         try { return File.Exists(path) ? File.ReadAllTextShared(path) : ""; }
         catch { return ""; }
-    }
-
-    static ImportCommand.SessionClassification MakeClassification(
-        DiscoveredSession                  s,
-        SessionMetadata                    meta,
-        ImportCommand.ClassificationStatus status,
-        int                                totalLines,
-        string?                            probeErrorReason = null
-    ) => new() {
-        SessionId        = s.SessionId,
-        FilePath         = "",
-        EncodedCwd       = "",
-        Meta             = meta,
-        Status           = status,
-        Vendor           = HarnessId.Kiro,
-        ProbeErrorReason = probeErrorReason,
-        TotalLines       = totalLines,
-        SourceMeta       = s.SourceMeta,
-    };
-
-    static async Task<(int? LastNonBlankIndex, int? LastRelevantIndex, int NonBlankCount)> ReadTranscriptStatsAsync(
-        string transcriptPath, CancellationToken ct
-    ) {
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var       reader = new StreamReader(stream);
-
-        int? lastIdx         = null;
-        int? lastRelevantIdx = null;
-        var  count           = 0;
-        var  lineIdx         = 0;
-
-        while (await reader.ReadLineAsync(ct) is { } line) {
-            if (!string.IsNullOrWhiteSpace(line)) {
-                lastIdx = lineIdx;
-                count++;
-
-                if (IsImportRelevantLine(line)) lastRelevantIdx = lineIdx;
-            }
-            lineIdx++;
-        }
-        return (lastIdx, lastRelevantIdx, count);
     }
 
     /// <summary>
@@ -446,20 +260,5 @@ internal sealed class KiroImportSource : IImportSource {
         } catch {
             return false;
         }
-    }
-
-    static async Task<int?> FetchServerLastLineAsync(HttpClient http, TimeProvider time, string baseUrl, string sessionId, CancellationToken ct) {
-        using var resp = await http.GetWithRetryAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", time, ct: ct);
-
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-
-        var       body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc  = JsonDocument.Parse(body);
-
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32()
-            : null;
     }
 }

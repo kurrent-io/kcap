@@ -22,6 +22,9 @@ internal static class ClaudeTerminalDialogDetector {
     const string PanelEdge = "▔▔▔▔▔▔▔▔";
     // The viewport marker is padded apart from content; arrows inside text are not controls.
     const string ScrollMarker = "  ↓";
+    // Offers Claude opens on its own, mid-session, with unnumbered choices and no footer. Unnumbered
+    // rows ending the screen are too common in output to be read as a dialog under any other headline.
+    static readonly string[] OfferHeadlines = ["Make auto mode your default permission mode?"];
 
     /// <param name="cols">The width the screen was drawn at, which decides where a label wrapped.</param>
     internal static TerminalDialogDto? Parse(string screen, int cols) => Read(screen, cols).Dialog;
@@ -140,7 +143,7 @@ internal static class ClaudeTerminalDialogDetector {
     /// a solid rule, the cursor on one of them. Ordinary output never ends the screen that way, since the
     /// prompt box is drawn below it.
     static (TerminalDialogDto? Dialog, bool IncompleteRedraw) FooterlessMenu(string[] lines, int footer, int cols) {
-        if (LastOptionRow(lines, footer) is not { } last) return (null, false);
+        if (LastOptionRow(lines, footer) is not { } last) return Offer(lines, footer, cols);
 
         var border = Array.FindLastIndex(lines, last, line => IsRule(line) && line.Trim()[0] is '─' or '━');
         if (border < 0) return (null, false);
@@ -164,6 +167,32 @@ internal static class ClaudeTerminalDialogDetector {
         var paragraphs = Paragraphs(region[..firstRow].Select(l => l.Trim()));
 
         return (new TerminalDialogDto(paragraphs.FirstOrDefault() ?? "", string.Join('\n', paragraphs.Skip(1)), options, selected, shown), incomplete);
+    }
+
+    /// An offer from <see cref="OfferHeadlines"/>, its choices ending the screen. A rule between the headline
+    /// and the end is the prompt box drawn below it, so the headline is output, not an open offer.
+    static (TerminalDialogDto? Dialog, bool IncompleteRedraw) Offer(string[] lines, int footer, int cols) {
+        var top = Array.FindLastIndex(lines, footer, l => OfferHeadlines.Any(h => l.Trim().StartsWith(h, StringComparison.Ordinal)));
+        if (top < 0 || lines[(top + 1)..(footer + 1)].Any(IsRule)) return (null, false);
+
+        var region = lines[top..(footer + 1)];
+        var shown  = string.Join('\n', region.Select(l => l.TrimEnd())).Trim('\n');
+
+        var cursors = Enumerable.Range(0, region.Length).Where(i => region[i].TrimStart().StartsWith(Cursor)).ToList();
+        if (cursors.Count == 0) return (null, true);
+        if (cursors.Count > 1) return (ScreenOnly(region, cursors[0], shown), true);
+
+        var cursor = cursors[0];
+        var mark   = region[cursor].IndexOf(Cursor);
+        var column = mark + 1 + Indent(region[cursor][(mark + 1)..]);
+        if (!region[(cursor + 1)..].All(l => l.Trim().Length > 0 && Indent(l) >= column)) return (null, false);
+
+        var (options, selected, firstRow, incomplete) = ReadOptions(region, cols, asked: false);
+        if (options.Count == 0) return (ScreenOnly(region, firstRow, shown), incomplete);
+
+        var paragraphs = Paragraphs(region[..firstRow].Select(l => l.Trim()));
+
+        return (new TerminalDialogDto(paragraphs[0], string.Join('\n', paragraphs.Skip(1)), options, selected, shown), incomplete);
     }
 
     static TerminalDialogDto ScreenOnly(string[] region, int choicesAt, string shown) {

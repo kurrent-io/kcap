@@ -4,6 +4,9 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Harness.Kiro;
 using Capacitor.Cli.Recording.PrDetection;
 
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
 
 /// <summary>
@@ -70,5 +73,31 @@ public class KiroImportSourceTests {
         using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
 
         await Assert.That(KiroImportSource.SafeReadText(path)).IsEqualTo("""{"title":"live"}""");
+    }
+
+    /// <summary>The lifecycle bodies go to the server as written, so their bytes, property order included, are pinned.</summary>
+    [Test]
+    public async Task import_posts_lifecycle_payloads_byte_for_byte() {
+        Tmp.CreateFile($"{Dashed}.jsonl",
+            """{"version":"v1","kind":"Prompt","data":{"message_id":"m1","content":[{"kind":"text","data":"hi"}]}}""" + "\n");
+        Tmp.CreateFile($"{Dashed}.json",
+            """{"cwd":"/work","created_at":"2026-06-17T10:30:00Z","updated_at":"2026-06-17T10:45:00Z","session_state":{"rts_model_state":{"model_info":{"model_id":"auto"}}}}""");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new KiroImportSource(Config.Root, Tmp.Path, new KiroCrewPaths(Tmp.Path, null), router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: new(Tmp.Path)), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        string Body(string path) => server.LogEntries.Single(e => e.RequestMessage.Path == path).RequestMessage.Body!;
+
+        await Assert.That(Body("/hooks/session-start/kiro")).IsEqualTo(
+            """{"hook_event_name":"agentSpawn","session_id":"5f6c2b1a-9e3d-4a7c-bb12-1c2d3e4f5a6b","cwd":"/work","model":"auto","started_at":"2026-06-17T10:30:00.0000000\u002B00:00","origin":"historical-import"}""");
+        await Assert.That(Body("/hooks/session-end/kiro")).IsEqualTo(
+            """{"hook_event_name":"sessionEnd","session_id":"5f6c2b1a-9e3d-4a7c-bb12-1c2d3e4f5a6b","reason":"historical-import","cwd":"/work","ended_at":"2026-06-17T10:45:00.0000000\u002B00:00","origin":"historical-import"}""");
     }
 }

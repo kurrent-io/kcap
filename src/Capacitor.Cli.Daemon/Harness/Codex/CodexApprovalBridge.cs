@@ -24,6 +24,10 @@ internal sealed class CodexApprovalBridge {
     readonly TimeSpan _timeout;
     readonly TimeProvider _time;
     readonly CodexHostedPolicySeam? _policy;
+    int _awaitingPerson;
+
+    /// <summary>Requests waiting on a person's answer.</summary>
+    public int AwaitingPerson => Volatile.Read(ref _awaitingPerson);
 
     // The option ids ARE the codex decision strings, so a resolved SelectedOptionId maps straight to
     // {decision: id}; Kind drives the allow-once / allow-for-session affordances server-side.
@@ -100,7 +104,13 @@ internal sealed class CodexApprovalBridge {
             using var cap        = new CancellationTokenSource(_timeout, _time);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
 
-            var decision = await _requestInteraction(interaction, timeoutCts.Token).ConfigureAwait(false);
+            AcpInteractionDecision decision;
+            Interlocked.Increment(ref _awaitingPerson);
+            try {
+                decision = await _requestInteraction(interaction, timeoutCts.Token).ConfigureAwait(false);
+            } finally {
+                Interlocked.Decrement(ref _awaitingPerson);
+            }
 
             if (isPermissionsGrant) return MapPermissionsGrant(decision, request.Params);
 

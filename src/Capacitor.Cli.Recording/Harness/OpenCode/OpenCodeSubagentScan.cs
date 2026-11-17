@@ -62,7 +62,7 @@ internal static class OpenCodeSubagentScan {
     ) {
         try {
             using var client  = await context.Http.ForBackgroundAsync(ct);
-            var       payload = OpenCodeSubagentDiscovery.BuildStartPayload(sessionId, agentId, agentType, subFile);
+            var       payload = SubagentHookPayloads.Start(sessionId, agentId, agentType, subFile);
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await client.PostWithRetryAsync($"{context.Url}/hooks/subagent-start", content, context.Time, ct: ct);
 
