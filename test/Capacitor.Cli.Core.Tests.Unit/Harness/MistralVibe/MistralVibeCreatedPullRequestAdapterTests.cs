@@ -81,6 +81,7 @@ public class MistralVibeCreatedPullRequestAdapterTests {
         var truncated = Effect("e1", "gh pr create --fill", Url, 0).Replace("\"was_truncated\":false", "\"was_truncated\":true");
 
         await Assert.That(Observe(truncated)).IsEmpty();
+        await Assert.That(Observe(LegacyCall("c1", "gh pr create --fill"), LegacyResult("c1", Url, 0).Replace("returncode: 0", "returncode: 0\\nwas_truncated: true"))).IsEmpty();
     }
 
     // A subagent's store is read by a child watcher with this same adapter.

@@ -41,8 +41,8 @@ public sealed partial class MistralVibeCreatedPullRequestAdapter : ICreatedPullR
 
                     break;
                 case "tool" when root.Str("tool_call_id") is { Length: > 0 } callId:
-                    var (stdout, exitCode) = Fields(root.Str("content") ?? "");
-                    evidence.Result(callId, stdout, succeeded: exitCode == 0);
+                    var (stdout, exitCode, truncated) = Fields(root.Str("content") ?? "");
+                    evidence.Result(callId, stdout, succeeded: exitCode == 0 && !truncated);
                     break;
             }
         } catch (JsonException) {
@@ -74,11 +74,12 @@ public sealed partial class MistralVibeCreatedPullRequestAdapter : ICreatedPullR
         }
     }
 
-    /// <summary>The <c>stdout</c> block and the exit code out of a legacy result's <c>key: value</c> lines. A block runs
-    /// until the next known key.</summary>
-    static (string? Stdout, int? ExitCode) Fields(string content) {
-        string? stdout   = null;
-        int?    exitCode = null;
+    /// <summary>The <c>stdout</c> block, the exit code and whether output was truncated, out of a legacy result's
+    /// <c>key: value</c> lines. A block runs until the next known key.</summary>
+    static (string? Stdout, int? ExitCode, bool Truncated) Fields(string content) {
+        string? stdout    = null;
+        int?    exitCode  = null;
+        var     truncated = false;
         string? key      = null;
         var     block    = new List<string>();
 
@@ -90,13 +91,14 @@ public sealed partial class MistralVibeCreatedPullRequestAdapter : ICreatedPullR
 
             if (key == "stdout") stdout = string.Join('\n', block);
             if (key is "returncode" or "exit_code" && int.TryParse(string.Join('\n', block).Trim(), out var code)) exitCode = code;
+            if (key == "was_truncated") truncated = !string.Equals(string.Join('\n', block).Trim(), "false", StringComparison.OrdinalIgnoreCase);
 
             key = field.Groups["key"].Value;
             block.Clear();
             block.Add(field.Groups["value"].Value);
         }
 
-        return (stdout, exitCode);
+        return (stdout, exitCode, truncated);
     }
 
     [GeneratedRegex(@"^(?<key>command|shell|stdout|stderr|returncode|exit_code|was_truncated|end): ?(?<value>.*)$")]
