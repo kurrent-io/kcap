@@ -1450,8 +1450,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     [Test]
     public async Task Copilot_is_available_only_when_a_cli_resolves_past_vs_code_s_launcher() {
         using var tmp = new TempDir();
-        var shim    = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", Launchable("copilot")), ""))!;
-        var cliPath = tmp.CreateExecutable(Path.Combine("bin", Launchable("copilot")), "");
+        var exe     = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+        var shim    = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", exe), ""))!;
+        var cliPath = tmp.CreateExecutable(Path.Combine("bin", exe), "");
 
         static AcpHostedAgentRuntimeFactory Over(string searchPath) => new(
             descriptor: AcpVendorDescriptors.Copilot,
@@ -1466,8 +1467,6 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(Over(shim).IsAvailable()).IsFalse();
         await Assert.That(both.IsAvailable()).IsTrue();
         await Assert.That(both.CliPath).IsEqualTo(Path.GetFullPath(cliPath));
-
-        static string Launchable(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
     }
 
     /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the

@@ -35,11 +35,25 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
     ];
 
     // VS Code's own copilot shim sits on the user's PATH with no Copilot CLI behind it.
-    // A link to it is it too.
-    static bool IsVsCodeShim(string path) => InShimFolder(path) || LinkTarget(path) is { } target && InShimFolder(target);
+    // A link to it, or to its folder, is it too.
+    static bool IsVsCodeShim(string path) => InShimFolder(path) || InShimFolder(WithLinksResolved(path));
 
     static bool InShimFolder(string path) =>
         path.Split('/', '\\').Any(segment => segment.Equals("copilot-shim", StringComparison.OrdinalIgnoreCase));
+
+    // Component by component, because a link can stand for the file or for any folder above it.
+    static string WithLinksResolved(string path) {
+        var full     = Path.GetFullPath(path);
+        var root     = Path.GetPathRoot(full) ?? "";
+        var resolved = root;
+
+        foreach (var part in full[root.Length..].Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)) {
+            resolved = Path.Combine(resolved, part);
+            if (LinkTarget(resolved) is { } target) resolved = target;
+        }
+
+        return resolved;
+    }
 
     static string? LinkTarget(string path) {
         try {
