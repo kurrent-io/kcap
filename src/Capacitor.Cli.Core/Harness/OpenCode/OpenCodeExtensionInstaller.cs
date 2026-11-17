@@ -76,19 +76,28 @@ public static class OpenCodeExtensionInstaller {
         // `.quiet()` keeps the child's output off OpenCode's own stdio while still handing it back:
         // session-start uses stdout as a DATA channel for the team-memory fragment. Bounded so a hung
         // kcap can never stall OpenCode.
-        function kcapRunner($: any) {
-          return async (args: string[]): Promise<string> => {
+        // `ok` is false when kcap did not run to a zero exit in time (missing from PATH, crashed, hung).
+        function kcapCommand($: any) {
+          return async (args: string[]): Promise<{ ok: boolean; out: string }> => {
             try {
               const res: any = await Promise.race([
                 $`kcap ${args}`.quiet().nothrow(),
                 new Promise((res) => setTimeout(() => res(null), 10000)),
               ])
               const out = res?.stdout
-              return typeof out === "string" ? out : out ? out.toString() : ""
+              return {
+                ok: res?.exitCode === 0,
+                out: typeof out === "string" ? out : out ? out.toString() : "",
+              }
             } catch {
-              return ""
+              return { ok: false, out: "" }
             }
           }
+        }
+
+        function kcapRunner($: any) {
+          const run = kcapCommand($)
+          return async (args: string[]): Promise<string> => (await run(args)).out
         }
 
         export const KcapPlugin = async ({ client, $, directory }: any) => {
@@ -643,7 +652,7 @@ public static class OpenCodeExtensionInstaller {
           if (!shell) return
           api = "v2"
 
-          const runKcap = kcapRunner(shell)
+          const runKcap = kcapCommand(shell)
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
 
@@ -670,7 +679,14 @@ public static class OpenCodeExtensionInstaller {
               const where = info?.location?.directory ?? cwd ?? ctx.location?.directory
               if (where) args.push("--cwd", String(where))
               if (ctx.app?.version) args.push("--version", String(ctx.app.version))
-              const fragment = (await runKcap(args)).trim()
+              const result = await runKcap(args)
+              if (!result.ok) {
+                // Retried by a later event, like a failed lookup: the session must not read as recorded.
+                v2.started.delete(sid)
+                v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
+                return false
+              }
+              const fragment = result.out.trim()
               if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) {
                 // A session whose fragment is evicted is started again on its next request, and kcap
                 // serves the fragment to each start of the same session.

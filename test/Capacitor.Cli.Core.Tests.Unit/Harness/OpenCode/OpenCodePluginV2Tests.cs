@@ -74,6 +74,17 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).DoesNotContain("v2.children.add(");
     }
 
+    /// <summary>A start whose kcap did not exit cleanly (missing from PATH, crashed, hung) leaves the
+    /// session unrecorded, so it must not read as started: a later event retries it.</summary>
+    [Test]
+    public async Task A_failed_start_is_retried() {
+        var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
+
+        await Assert.That(Content).Contains("ok: res?.exitCode === 0,");
+        await Assert.That(gate).Contains("if (!result.ok) {");
+        await Assert.That(gate).Contains("v2.started.delete(sid)");
+    }
+
     /// <summary>A fragment evicted from the bounded cache must not leave its session reading as started,
     /// or that session's later requests never get the index again.</summary>
     [Test]
