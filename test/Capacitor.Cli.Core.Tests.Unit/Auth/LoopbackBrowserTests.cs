@@ -75,16 +75,16 @@ public class LoopbackBrowserTests {
         return (port, $"http://127.0.0.1:{port}/callback");
     }
 
-    // The loopback port is reachable by ANY local process, and a bare `/callback?code=junk` used to
-    // be answered with a page carrying the first-hop URL — join key and all. That made an
-    // unauthenticated request a key-disclosure oracle: read the key out of the HTML, then spend it on
+    // The loopback port is reachable by ANY local process, so answering a bare `/callback?code=junk`
+    // with a page carrying the first-hop URL — join key and all — would make an unauthenticated
+    // request a key-disclosure oracle: read the key out of the HTML, then spend it on
     // `/joined?j=<stolen>&w1=<attacker id>` before the real browser ever arrives, consuming the
     // one-shot and merging attacker-chosen ids into this run's telemetry. The downstream CSRF check
     // only makes AUTHENTICATION fail; it cannot un-disclose the key or un-merge the properties.
     //
     // So the redirect is gated on the callback echoing the state from the authorize URL, which an
-    // arbitrary local process cannot know. Ending the wait is deliberately NOT gated — that
-    // behaviour, and the local denial-of-service it allows, predate this feature and are unchanged.
+    // arbitrary local process cannot know. Ending the wait is deliberately NOT gated, despite the
+    // local denial-of-service that allows.
     [Test]
     [Arguments("?code=abc")]                     // no state at all
     [Arguments("?code=abc&state=")]              // empty state
@@ -501,7 +501,7 @@ public class LoopbackBrowserTests {
     //
     // Second: nothing is lost by arming late. A return hop that lands in the gap is queued by the
     // listener and collected when the drain starts. If that were false this test would fail, which
-    // is the point — the fix depends on it.
+    // is the point — arming late depends on it.
     //
     // Repeated, because the window is timing-dependent and a single pass proves little.
     [Test]

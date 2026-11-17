@@ -9,11 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Covers the vendor-routing logic in <c>AgentOrchestrator.HandleLaunchAgent</c>
-/// added in Task 14. Verifies that:
+/// Covers the vendor-routing logic in <c>AgentOrchestrator.HandleLaunchAgent</c>.
+/// Verifies that:
 ///   • Unknown vendors short-circuit with LaunchFailed before any worktree work.
 ///   • Claude/Codex commands route to the matching <see cref="IHostedAgentLauncher"/>.
-///   • Review launches for Codex are rejected (v1 limitation).
 ///   • <see cref="CodexHooksNotInstalledException"/> from Prepare surfaces as a
 ///     LaunchFailed with the exception's message and no PTY ever spawns.
 /// </summary>
@@ -744,7 +743,7 @@ public class AgentOrchestratorVendorTests {
 
     }
 
-    // Qodo review on #234: a null Vendor (SignalR boundary — non-null annotation not enforced) must
+    // A null Vendor (SignalR boundary — non-null annotation not enforced) must
     // emit LaunchFailed, NOT throw ArgumentNullException from the dictionary lookup (which SafeInvoke
     // would swallow, dropping the launch silently).
     [Test]
@@ -951,7 +950,7 @@ public class AgentOrchestratorVendorTests {
 
     }
 
-    // Task 10: a "cursor" launch must route to its registered IHostedAgentRuntimeFactory
+    // A "cursor" launch must route to its registered IHostedAgentRuntimeFactory
     // (the ACP seam) rather than falling through to a PTY launcher/factory. This is a pure unit
     // test — SpyHostedAgentRuntimeFactory never spawns a real cursor-agent process.
     [Test]
@@ -996,13 +995,11 @@ public class AgentOrchestratorVendorTests {
 
     }
 
-    // Fix B/E (PR #244 review, BLOCKER): a runtime whose ReadOutputAsync never yields a byte
+    // A runtime whose ReadOutputAsync never yields a byte
     // (ACP/cursor) must NOT wait for the orchestrator's on-first-chunk Starting→Running flip — that
     // flip lives in ReadAgentOutputAsync and only fires on an output CHUNK, which never arrives for
-    // such a runtime. Before the fix this left the agent stuck in "Starting" (eventually auto-
-    // stopped by the heartbeat's stuck-Starting timeout) and, worse, the runtime's ReadOutputAsync
-    // completing immediately made FinalizeAgentRunAsync run right after launch and misclassify the
-    // still-live agent as a startup failure. This test proves: (1) the agent flips to "Running"
+    // such a runtime, so the agent would sit in "Starting" until the heartbeat's stuck-Starting
+    // timeout stopped it. This test proves: (1) the agent flips to "Running"
     // synchronously within HandleLaunchAgent, before any output; (2) it is NOT finalized-as-Failed
     // while still live (the fake's ReadOutputAsync stays open exactly like the real ACP runtime).
     [Test]
@@ -1042,8 +1039,7 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(server.StatusChangedCalls).Contains(("agent-acp-live", "Running"));
 
         // Give the (fire-and-forget) read loop / finalize path a moment to run if it were
-        // (incorrectly) going to — before the fix, ReadOutputAsync completing immediately
-        // would have driven FinalizeAgentRunAsync to run right here and mark the agent Failed.
+        // (incorrectly) going to mark the agent Failed.
         await Task.Delay(200);
 
         await Assert.That(server.StatusChangedCalls).DoesNotContain(("agent-acp-live", "Failed"));
@@ -1101,9 +1097,8 @@ public class AgentOrchestratorVendorTests {
 
     [Test]
     public async Task Launch_review_kind_with_vendor_codex_is_accepted_and_reaches_review_validation() {
-        // A git repo with NO origin remote: a Codex review now passes the vendor
-        // gate (which used to reject it) and fails later at origin validation —
-        // the SAME point a Claude review would. Proves the gate is lifted.
+        // A git repo with NO origin remote: a Codex review passes the vendor
+        // gate and fails later at origin validation — the SAME point a Claude review would.
         using var repoPath = GitRepo.CreateWithCommit();
 
         var server     = new CaptureServerConnection();
@@ -1233,12 +1228,11 @@ public class AgentOrchestratorVendorTests {
 
     [Test]
     public async Task Stopping_an_agent_terminates_promptly_even_when_end_session_is_blocked() {
-        // Option B: EndAgentSession is the post-exit backstop and retries across SignalR
+        // EndAgentSession is the post-exit backstop and retries across SignalR
         // reconnects, so it can block while the connection recovers. A user-initiated stop
         // must NOT wait on it — HandleStopAgent terminates the process, and the read-loop's
         // finalize backstop ends the session afterwards. With EndAgentSession blocked,
-        // termination must still happen promptly (before the fix HandleStopAgent awaited
-        // its own EndAgentSession call and never reached TerminateAsync).
+        // termination must still happen promptly.
         using var repoPath = GitRepo.CreateWithCommit();
         using var endSessionBlock = new CancellationTokenSource();
 
@@ -1262,8 +1256,8 @@ public class AgentOrchestratorVendorTests {
                 Vendor: "claude"
             ));
 
-            // Fire-and-forget: before the fix, HandleStopAgent awaits the blocked
-            // EndAgentSession and never reaches termination, so we must not await it here.
+            // Fire-and-forget: a HandleStopAgent that awaited the blocked EndAgentSession would never
+            // reach termination, so we must not await it here.
             _ = orch.HandleStopAgentForTest("agent-stop");
 
             // The process must be terminated even though EndAgentSession is still blocked.
@@ -1275,7 +1269,7 @@ public class AgentOrchestratorVendorTests {
 
     [Test]
     public async Task Cleanup_runs_even_when_end_session_never_recovers() {
-        // Qodo: EndAgentSession now retries across reconnects, so it can block for a whole
+        // EndAgentSession retries across reconnects, so it can block for a whole
         // outage. FinalizeAgentRunAsync must not stall local cleanup on it — it waits only
         // up to EndAgentSessionBudget, then proceeds to CleanupAgentAsync (which unregisters
         // the agent) while the retry continues in the background. Here end-session never
@@ -1315,7 +1309,7 @@ public class AgentOrchestratorVendorTests {
         }
     }
 
-    // ══ Task 8: reviewer-model preflight RPC + explicit resolved-model report ══════════════
+    // ══ Reviewer-model preflight RPC + explicit resolved-model report ═════════════════════
 
     /// <summary>Builds an orchestrator whose only runtime factories are the given resolver-carrying spies
     /// (empty launchers, no git repo) — enough to drive the ResolveReviewerModel preflight handler in
@@ -1657,8 +1651,8 @@ public class AgentOrchestratorVendorTests {
 
     /// <summary>Paired positive: when the handshake CONFIRMS the applied model, the registration
     /// reports the confirmed id — for ACP that is the vendor's own (possibly parameterized) form,
-    /// not necessarily the requested string. Proves the fix forwards the confirmation rather than
-    /// blanking every ACP launch's model.</summary>
+    /// not necessarily the requested string. Proves the confirmation is forwarded rather than
+    /// every ACP launch's model being blanked.</summary>
     [Test]
     public async Task Acp_launch_whose_requested_model_resolved_registers_the_confirmed_id() {
         using var repoPath = GitRepo.CreateWithCommit();

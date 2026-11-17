@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 
 /// <summary>
-/// §7 — the manual, recorded release-gate certification that the shared SessionStart
+/// The manual, recorded release-gate certification that the shared SessionStart
 /// memory index actually reaches the model for Cursor's <c>cursor-agent</c> CLI. Everything else
 /// in this feature (routing, budget math, lifecycle, output bytes) is proven by the unit suite in
 /// <see cref="CursorHookCommandTests"/> against fakes; THIS file is the one place that asserts the

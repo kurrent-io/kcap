@@ -1,0 +1,6 @@
+#!/bin/sh
+# A `claude` that takes 20 s to answer --version, for timing how a daemon starts behind a slow vendor probe.
+# The daemon looks for `claude`, so link it under that name and put that directory first on the daemon's PATH:
+#   mkdir -p /tmp/slow-claude && ln -sf "$PWD/slow-claude" /tmp/slow-claude/claude
+if [ "$1" = "--version" ]; then sleep "${SLOW_CLAUDE_SECONDS:-20}"; echo "2.1.0 (Claude Code)"; exit 0; fi
+exit 1

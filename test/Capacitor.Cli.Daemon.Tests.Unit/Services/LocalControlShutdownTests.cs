@@ -1,9 +1,7 @@
 using System.Net.Sockets;
 using Capacitor.Cli.Core.LocalIpc;
-using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -31,18 +29,6 @@ public class LocalControlShutdownTests {
     sealed class SpyStrategy : IRestartStrategy {
         public int            Calls;
         public RestartOutcome Restart() { Calls++; return RestartOutcome.Initiated; }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
     }
 
     Task RunAsync(string name, Func<bool>? hardBusy, Func<AgentOrchestrator, SpyStrategy, CountingLifetime, Func<LocalFrame, Task<LocalFrame?>>, Task> body) =>
@@ -80,57 +66,12 @@ public class LocalControlShutdownTests {
             string name, Action<RestartCoordinator> configure,
             Func<AgentOrchestrator, SpyStrategy, CountingLifetime, string, CancellationToken, Task> body) {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        using var daemons = new TempDaemonStore();
+        var lifetime = new CountingLifetime();
+        var spy      = new SpyStrategy();
 
-        var stateRoot = daemons.Store.StateDirectory(name);
-        var store     = new LaunchConsentStore(stateRoot, NullLogger.Instance, TimeProvider.System);
-        var broker    = new LaunchConsentBroker();
-        var gate      = new LaunchConsentGate(store, new LaunchConsentDecisionLog(stateRoot, NullLogger.Instance), broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
-        var config    = new DaemonConfig {
-            Name         = name,
-            ServerUrl    = "http://127.0.0.1:1",
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-        };
-        var consentIpc = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
-
-        var tokens     = AuthFixtures.NewTokenStore(Config.Root);
-        var connection = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
-        var lifetime   = new CountingLifetime();
-        var orchestrator = new AgentOrchestrator(
-            config, Config.Root, TestHarnesses.Under(Home), connection,
-            new WorktreeManager(config, NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System),
-            new RepoMatcher(config, NullLogger<RepoMatcher>.Instance, TimeProvider.System),
-            new NoopPtyProcessFactory(), new NoopHttpClientFactory(), new FixedCapacitorHttpClient(), tokens,
-            new LocalPermissionBridge(connection, NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System),
-            new Dictionary<string, IHostedAgentLauncher>(), new Dictionary<string, IHostedAgentRuntimeFactory>(), lifetime,
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System);
-
-        var spy     = new SpyStrategy();
-        var restart = RestartCoordinator.ForTest(daemons.Store, name, name, spy, TimeProvider.System);
-        configure(restart);
-
-        var notifier = new DaemonStatusNotifier();
-        var server = new LocalControlServer(
-            config, orchestrator, restart, consentIpc,
-            new PermissionIpc(new PermissionPromptBroker(), NullLogger<PermissionIpc>.Instance),
-            new DaemonStatusIpc(config, orchestrator, connection, notifier, TimeProvider.System),
-            new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance),
-            TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart, lifetime), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
-        await server.StartAsync(cts.Token);
-
-        try {
-            var sockPath = daemons.Store.SocketPath(name);
-            var deadline = DateTime.UtcNow.AddSeconds(5);
-            while (!File.Exists(sockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, cts.Token);
-
-            await body(orchestrator, spy, lifetime, sockPath, cts.Token);
-        } finally {
-            await orchestrator.DisposeAsync();
-            await server.StopAsync(CancellationToken.None);
-            server.Dispose();
-            await connection.DisposeAsync();
-        }
+        await using var fx = new OrchestratorFixture(Config, Home, name, lifetime: lifetime);
+        await fx.StartServerAsync(cts.Token, spy, configure);
+        await body(fx.Orchestrator, spy, lifetime, fx.SockPath, cts.Token);
     }
 
     [Test]

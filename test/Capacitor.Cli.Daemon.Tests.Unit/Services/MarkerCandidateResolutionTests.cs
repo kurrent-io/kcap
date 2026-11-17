@@ -69,7 +69,7 @@ public class MarkerCandidateResolutionTests {
         await Assert.That(markers.ReadAll()).IsEmpty();
     }
 
-    // ── Marker-scan kill hook — crash both sides (parent §8; recordless→marker-candidate case). ──
+    // ── Marker-scan kill hook — crash both sides (recordless→marker-candidate case). ──
     [Test]
     public async Task Marker_kill_crash_before_append_re_derives_from_the_persisted_source() {
         if (!OperatingSystem.IsLinux()) return;
@@ -115,7 +115,7 @@ public class MarkerCandidateResolutionTests {
         await Assert.That(markers.ReadAll()).IsEmpty();
     }
 
-    // Phase B2-b (sequenced-settlement design): the env agentId on a marker candidate is UNTRUSTED for
+    // The env agentId on a marker candidate is UNTRUSTED for
     // role authority. A prior-epoch DESCENDANT that inherited a still-live leader X's KCAP_AGENT_ID env
     // triple (the descendant-outlives-leader residual) and is reaped under a DIFFERENT pid must NOT be
     // corroborated against X's still-on-disk leader record: matching on agentId ALONE would emit a FALSE
@@ -159,7 +159,7 @@ public class MarkerCandidateResolutionTests {
         await Assert.That(markers.ReadAll()).IsEmpty();
     }
 
-    // Phase B2-b (sequenced-settlement design §5.5): if a discovered recordless survivor's durable
+    // If a discovered recordless survivor's durable
     // marker-candidate source WRITE fails, the survivor is neither recorded (invisible to
     // BlockedCandidates) nor killed — so the scan must NOT report Complete this pass, or
     // StartupReapComplete could go true beside a live prior-epoch survivor and the server would launch a

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 
 /// <summary>
-/// On-disk executables for the L1-shim tests: shebang scripts and permission-bit variants of a real
+/// On-disk executables for the PTY shim tests: shebang scripts and permission-bit variants of a real
 /// binary, each built inside a <see cref="TempDir"/> the calling test owns.
 ///
 /// <para>Lives here rather than in Helpers because only the Unix Pty suites need it, and the
@@ -23,7 +23,7 @@ static partial class UnixExecFixtures {
     }
 
     /// <summary>A copy of a real binary that is executable but NOT readable (chmod 0111) —
-    /// exercises the "EXEC_PATH plans need no readable fd" §5 case.</summary>
+    /// exercises the "EXEC_PATH plans need no readable fd" case.</summary>
     public static string ExecuteOnlyCopyOf(this TempDir dir, string sourceAbsPath) =>
         CopyWithMode(dir.PathTo("exec-only"), sourceAbsPath, 0b001_001_001 /* 0111 */);
 

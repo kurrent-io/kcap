@@ -188,7 +188,7 @@ public class PathShimInstallerTests {
         await Assert.That(new FileInfo(tmp.PathTo(".local", "bin", "kcap")).LinkTarget).IsEqualTo(target);
     }
 
-    /// A fresh Mac: nothing on PATH is the user's to write, which is where the admin prompt used to be.
+    /// A fresh Mac: nothing on PATH is the user's to write, so the link goes to ~/.local/bin, not behind an admin prompt.
     [Test]
     public async Task InstallAsync_with_no_writable_path_folder_links_into_local_bin_and_adds_the_profile_line() {
         Skip.When(OperatingSystem.IsWindows(), "macOS lstat semantics");

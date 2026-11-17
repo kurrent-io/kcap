@@ -136,10 +136,9 @@ public class OpenCodeDbTests {
         await Assert.That(truncated).IsFalse();
     }
 
-    // the walker used to stop AT the boundary child (depth 9) and
-    // never look below it, so a chain continuing to depth 10 was still counted as ONE omitted
-    // descendant — undercounting the true size of the omitted subtree. The walk must now
-    // continue (never importing) below the cap to count the WHOLE subtree.
+    // A walker that stops AT the boundary child (depth 9) counts a chain continuing to depth 10
+    // as ONE omitted descendant, undercounting the omitted subtree. The walk must continue
+    // (never importing) below the cap to count the WHOLE subtree.
     [Test]
     public async Task QueryDescendants_depth_9_and_10_chain_reports_omitted_two_not_one() {
         using var tmp = new TempDir();
@@ -186,13 +185,12 @@ public class OpenCodeDbTests {
         await Assert.That(truncated).IsFalse();
     }
 
-    // ── MaxCountingNodes scope (D3 review fix #4) ───────────────────────────────────
+    // ── MaxCountingNodes scope ──────────────────────────────────────────────────────
     //
-    // The counting ceiling used to gate the WHOLE unified traversal via the shared visited-id
-    // set's total size, so a root with a wide IN-CAP fan-out (well within MaxDescendantDepth)
-    // could itself get silently truncated once 10,000 total ids had been discovered — corrupting
-    // the import set, not merely the below-cap counting walk. It must now apply ONLY to
-    // descendants already beyond the import cap.
+    // The counting ceiling applies ONLY to descendants already beyond the import cap. Gating the
+    // WHOLE traversal on the shared visited-id set's size would silently truncate a root with a
+    // wide IN-CAP fan-out (well within MaxDescendantDepth) once 10,000 total ids were discovered —
+    // corrupting the import set, not merely the below-cap counting walk.
 
     [Test]
     public async Task QueryDescendants_wide_in_cap_fanout_beyond_the_counting_ceiling_imports_every_child() {
@@ -200,10 +198,9 @@ public class OpenCodeDbTests {
         var db = BuildDb(tmp.Path);
         InsertSession(db, "ses_root", null, "/w", "Root", 100);
 
-        // MaxCountingNodes + 50 direct (depth-1, well within MaxDescendantDepth=8) children —
-        // before the fix, the old `visited.Count >= MaxCountingNodes` ceiling (which counted the
-        // root + every discovered id, in-cap or not) would silently stop importing after ~10,000
-        // total visited ids, dropping the tail of this real, in-cap import set.
+        // MaxCountingNodes + 50 direct (depth-1, well within MaxDescendantDepth=8) children: a
+        // ceiling on every visited id, in-cap or not, would silently stop importing after ~10,000
+        // ids, dropping the tail of this real, in-cap import set.
         const int childCount = OpenCodeDb.MaxCountingNodes + 50;
         InsertManyChildren(db, "ses_root", "ses_kid", childCount, baseTime: 200);
 
@@ -252,10 +249,9 @@ public class OpenCodeDbTests {
         await Assert.That(omittedIds.Count).IsEqualTo(OpenCodeDb.MaxCountingNodes);
     }
 
-    // the ceiling used to bound the RETURNED omitted count/ids, but
-    // not the actual WORK — every below-cap node already enqueued before the ceiling was hit
-    // (up to MaxCountingNodes of them) still got individually dequeued and queried afterward.
-    // Once truncation is established, the below-cap frontier must be abandoned outright rather
+    // The ceiling must bound the actual WORK, not only the RETURNED omitted count/ids: every
+    // below-cap node already enqueued before the ceiling is hit (up to MaxCountingNodes of them)
+    // would otherwise still be dequeued and queried. Once truncation is established, the below-cap frontier must be abandoned outright rather
     // than drained node-by-node, so QueryChildren is never called on any of those below-cap
     // nodes' own children.
     [Test]
@@ -293,10 +289,9 @@ public class OpenCodeDbTests {
         await Assert.That(ocdb.QueryChildrenCallCount).IsLessThanOrEqualTo(9);
     }
 
-    // a below-cap parent's single QueryChildren call used to
-    // materialize its ENTIRE child row set before CountTruncated could even be detected — a
-    // depth-8 parent with (say) a million depth-9 children would read/allocate all million rows
-    // in one call. The per-parent fetch must instead be capped to (remaining counting capacity +
+    // An unbounded QueryChildren call would materialize a below-cap parent's ENTIRE child row set
+    // before CountTruncated could be detected — a depth-8 parent with (say) a million depth-9
+    // children would read/allocate all million rows in one call. The per-parent fetch is capped to (remaining counting capacity +
     // 1 sentinel), regardless of how many children the parent truly has.
     [Test]
     public async Task QueryDescendants_below_cap_parent_never_materializes_more_than_the_counting_cap_in_a_single_fetch() {
@@ -330,10 +325,10 @@ public class OpenCodeDbTests {
 
     // a below-cap parent's bounded row fetch caps RAW SQL rows via
     // `LIMIT`, but QuerySessions's per-row try/catch skip of a malformed row happens AFTER that —
-    // so a malformed row landing inside the sentinel window used to silently consume the sole
+    // so a malformed row landing inside the sentinel window can silently consume the sole
     // sentinel slot, filling omittedIds to exactly MaxCountingNodes valid ids while CountTruncated
     // stayed false: a false "complete" report, even though the parent's true child count could be
-    // larger. QueryChildrenBounded must now report HitLimit from the RAW row count (regardless of
+    // larger. QueryChildrenBounded must report HitLimit from the RAW row count (regardless of
     // how many rows survived mapping), so this case is always caught.
     [Test]
     public async Task QueryDescendants_below_cap_boundary_plus_malformed_row_is_never_falsely_reported_complete() {

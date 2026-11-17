@@ -249,10 +249,13 @@ public class UpdateChannelQueryTests : IDisposable {
         _server.Given(Request.Create().WithPath($"/@kurrent/kcap/{channel}").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"version":"0.16.0"}"""));
 
-        await UpdateCommand.CheckForUpdateAsync(forceCheck: true, channel, Config.Root, Npm, time: TimeProvider.System);
+        // As in ReachedCheckAsync: on a starved runner the client's real-time 5 s cap can end a fetch before it is sent.
+        var request = Request.Create().WithPath($"/@kurrent/kcap/{channel}").UsingGet();
 
-        var sent = _server.FindLogEntries(Request.Create().WithPath($"/@kurrent/kcap/{channel}").UsingGet())
-            .Single().RequestMessage;
+        for (var attempt = 1; attempt <= 3 && _server.FindLogEntries(request).Count == 0; attempt++)
+            await UpdateCommand.CheckForUpdateAsync(forceCheck: true, channel, Config.Root, Npm, time: TimeProvider.System);
+
+        var sent = _server.FindLogEntries(request)[0].RequestMessage;
 
         await Assert.That(sent.Headers!["User-Agent"].Single()).IsEqualTo("kcap-cli");
     }

@@ -1,0 +1,64 @@
+name: Artifact Signing
+description: >-
+  Installs the pinned jsign, signs in to Azure as the code-signing app through GitHub OIDC and
+  returns an access token for scripts/sign-windows.sh. The job must run in the windows-signing
+  environment and hold id-token: write, because the app's federated credential trusts only that
+  environment's subject.
+
+inputs:
+  tenant-id:
+    required: true
+  client-id:
+    required: true
+  endpoint:
+    description: The signing account's regional endpoint, such as eus.codesigning.azure.net
+    required: true
+  account:
+    required: true
+  profile:
+    description: The certificate profile
+    required: true
+
+outputs:
+  token:
+    description: Pass it to scripts/sign-windows.sh as KCAP_SIGN_TOKEN. Masked, and valid for about an hour.
+    value: ${{ steps.token.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Fetch jsign
+      shell: bash
+      env:
+        ENDPOINT: ${{ inputs.endpoint }}
+        ACCOUNT: ${{ inputs.account }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -euo pipefail
+        jar="$(bash scripts/fetch-jsign.sh "$RUNNER_TEMP/jsign")"
+        {
+          echo "JSIGN_JAR=$jar"
+          echo "ARTIFACT_SIGNING_ENDPOINT=$ENDPOINT"
+          echo "ARTIFACT_SIGNING_ACCOUNT=$ACCOUNT"
+          echo "ARTIFACT_SIGNING_PROFILE=$PROFILE"
+        } >> "$GITHUB_ENV"
+
+    - uses: azure/login@v3
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        allow-no-subscriptions: true
+
+    - name: Get a signing token
+      id: token
+      shell: bash
+      run: |
+        set -euo pipefail
+        token="$(az account get-access-token --resource https://codesigning.azure.net --query accessToken -o tsv)"
+        echo "::add-mask::$token"
+        echo "token=$token" >> "$GITHUB_OUTPUT"

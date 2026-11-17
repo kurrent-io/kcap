@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Mcp;
 using static Capacitor.Cli.Commands.CodingAgentsStep;
 
@@ -21,15 +22,15 @@ public class CodingAgentsStepMuseTests {
 
     static Installers Wire(
             bool hooksOk, JsonMcpConfigWriter.Change mcp, List<string> hookCalls, List<string> mcpCalls, bool onPath = true) =>
-        new(InstallClaudePlugin: (_, _) => true,
-            InstallCodexHooks: _ => true,
-            InstallCursorHooks: _ => true,
-            InstallCopilotHooks: _ => true,
-            InstallGeminiHooks: _ => true,
+        new(InstallClaudePlugin: (_, _) => SettingsEdit.Changed,
+            InstallCodexHooks: _ => SettingsEdit.Changed,
+            InstallCursorHooks: _ => SettingsEdit.Changed,
+            InstallCopilotHooks: _ => SettingsEdit.Changed,
+            InstallGeminiHooks: _ => SettingsEdit.Changed,
             CapacitorOnPath: () => onPath,
             InstallAgentSkills: (_, _) => null,
             CleanLegacyCodexSkills: _ => false,
-            InstallMuseHooks: path => { hookCalls.Add(path); return hooksOk; },
+            InstallMuseHooks: path => { hookCalls.Add(path); return hooksOk ? SettingsEdit.Changed : SettingsEdit.Failed; },
             RegisterMuseMcp: () => { mcpCalls.Add(SettingsPath); return mcp; });
 
     [Test]

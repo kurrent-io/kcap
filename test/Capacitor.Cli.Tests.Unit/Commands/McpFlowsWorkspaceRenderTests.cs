@@ -110,10 +110,10 @@ public class McpFlowsWorkspaceRenderTests {
         await Assert.That(text).Contains("not included automatically");
     }
 
-    // Qodo (#380, finding 3). The caution must be true for EVERY reason, not just the common ones.
+    // The caution must be true for EVERY reason, not just the common ones.
     // context_only_requested means the reviewer read the SUBMITTED CONTEXT and no repository at all —
-    // the earlier wording ("read a checkout at the last commit") would have had a caller believe
-    // committed code was reviewed when none was. Special-casing the reason would fix that one case
+    // wording like "read a checkout at the last commit" would have a caller believe committed code
+    // was reviewed when none was. Special-casing the reason would fix that one case
     // and reintroduce the allowlist this feature exists without, so the claim is worded to hold
     // universally instead.
     [Test] public async Task A_context_only_fallback_does_not_claim_committed_code_was_reviewed() {

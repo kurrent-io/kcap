@@ -1,6 +1,5 @@
 using System.Collections.Frozen;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Muse;
 
@@ -134,29 +133,6 @@ public static class MuseSubagentDiscovery {
 
     /// <summary>A reminder observer is announced to hooks by name (<c>skill-reminder</c>), a worker by its Guid.</summary>
     public static bool IsReminderAgentId(string subagentId) => !Guid.TryParse(subagentId, out _);
-
-    public static JsonObject BuildStartPayload(string parentSessionId, string agentId, string agentType, string childLogPath) =>
-        new() {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = childLogPath,
-            ["cwd"]             = "",
-        };
-
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string childLogPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = childLogPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = childLogPath,
-            ["last_assistant_message"] = "",
-        };
 
     static MuseChildLabel Label(string dashedChildId, string agentType) =>
         new(dashedChildId, Guid.Parse(dashedChildId).ToString("N"), agentType);

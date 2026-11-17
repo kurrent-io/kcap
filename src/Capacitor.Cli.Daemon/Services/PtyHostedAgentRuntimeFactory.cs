@@ -127,7 +127,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             HostedLaunchMarkers.ApplyOverlay(env, ctx);
         }
 
-        // Phase B (D4 §6.4(3)): stamp the daemon-identity markers so a restarted daemon's
+        // Stamp the daemon-identity markers so a restarted daemon's
         // OrphanReaper env-marker scan can reap a recordless survivor of a PRIOR incarnation of THIS
         // daemon (same KCAP_DAEMON_ID, older KCAP_DAEMON_EPOCH) — and never touch another daemon's
         // child or a live agent of the current incarnation.

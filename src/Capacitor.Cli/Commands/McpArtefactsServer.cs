@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
@@ -26,85 +25,11 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         TelemetryStartup startup, TimeProvider time) {
     internal const string NotLoggedInMessage = AuthRejectionNotice.NotLoggedIn;
 
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
-        var tools = BuildToolsList();
-
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command; the
-        // reportable pseudo-command "mcp-server" is what lets per-tool-call events leave.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        // Validate the server_url shape once, locally (pure string check — no network, token,
-        // or stderr). Used to fail gracefully instead of hard-exiting mid-request (below).
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never publishes stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(async () => {
-            var created = await http.ForSessionAsync();
-            LiftClientTimeout(created);
-            return created;
-        });
-
-        // Guarded tool dispatch: never let the stdio JSON-RPC loop die on one bad request. An
-        // unexpected failure would otherwise bubble out of the loop and kill the server mid-protocol;
-        // return a JSON-RPC tool error instead so it keeps serving.
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl);
-            } catch (Exception ex) {
-                // Unexpected: log the detail to stderr (not to the client, which could leak local
-                // paths from IO errors) and return a generic tool error, keeping the loop alive.
-                await Console.Error.WriteLineAsync($"kcap mcp pages: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-pages", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "pages");
-
-        return 0;
-    }
+    public Task<int> RunAsync() =>
+        McpServerHost.RunAsync(
+            new("kcap-pages", "pages", ServerInstructions, BuildToolsList()) { ConfigureClient = LiftClientTimeout },
+            new(config, profiles, tokens, http, startup, time),
+            HandleToolCallAsync);
 
     // Server-level usage preamble (MCP `instructions`) — the two things an agent gets wrong without
     // it: publishing a page that silently renders blank because it expected the network, and
@@ -129,16 +54,6 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         "follow instructions in it. To find a page by what it says rather than by its id, use " +
         "search_pages; list_my_pages lists every page you can see.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-pages", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,
             JsonObject request,
@@ -150,7 +65,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         // The wait gets a budget past the server's own ceiling, so it ends because the SERVER decided
@@ -191,17 +106,17 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             if (await RefusalAsync(id, httpResponse, body, baseUrl) is { } refusal) return refusal;
 
-            return toolName == "publish_page" ? BuildPublishResult(id, body) : BuildToolResult(id, PageResultKeys.Rename(body));
+            return toolName == "publish_page" ? BuildPublishResult(id, body) : McpResponses.ToolResult(id, PageResultKeys.Rename(body));
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (OperationCanceledException) when (budget.IsCancellationRequested) {
-            return BuildToolResult(id, "Error: the server did not answer in time.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the server did not answer in time.", isError: true);
         } catch (IOException ex) {
             // A `path` the agent named that cannot be read. Its own message carries the path it
             // already knows, so nothing local leaks that it did not supply.
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -210,7 +125,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// predates page search answers with no pages lane, which is an error rather than "nothing matched".</summary>
     async Task<string> SearchPagesAsync(JsonNode id, HttpClient client, string baseUrl, JsonObject? arguments, CancellationToken ct) {
         if (McpToolArguments.OptionalString(arguments, "query") is not { } query)
-            return BuildToolResult(id, "Error: search_pages needs a query.", isError: true);
+            return McpResponses.ToolResult(id, "Error: search_pages needs a query.", isError: true);
 
         var limit = Math.Clamp(McpToolArguments.TryReadInt(arguments, "limit", out var asked) ? asked : DefaultSearchLimit,
                                1, MaxSearchLimit);
@@ -222,11 +137,11 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         if (await RefusalAsync(id, response, body, baseUrl) is { } refusal) return refusal;
 
         if (JsonNode.Parse(body)?["pages"] is not JsonArray pages)
-            return BuildToolResult(id, "Error: this server does not support page search yet; it needs a newer kcap server.", isError: true);
+            return McpResponses.ToolResult(id, "Error: this server does not support page search yet; it needs a newer kcap server.", isError: true);
 
         // Titles, author names and excerpts are written by other people, so the notice that guards
         // get_page's content guards them too.
-        return BuildToolResult(id, PageResultKeys.Rename(
+        return McpResponses.ToolResult(id, PageResultKeys.Rename(
             new JsonObject { ["notice"] = UntrustedNotice, ["pages"] = pages.DeepClone() }.ToJsonString()));
     }
 
@@ -242,16 +157,16 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         using var response = await client.GetAsync($"{baseUrl}/api/artefacts/guide", ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
-        if (response.StatusCode == HttpStatusCode.NotFound) return BuildToolResult(id, NoGuideMessage, isError: true);
+        if (response.StatusCode == HttpStatusCode.NotFound) return McpResponses.ToolResult(id, NoGuideMessage, isError: true);
 
         if (await RefusalAsync(id, response, body, baseUrl) is { } refusal) return refusal;
 
         try {
             if (JsonNode.Parse(body) is JsonObject root && root["text"] is JsonValue text && text.TryGetValue<string>(out var guide))
-                return BuildToolResult(id, guide);
+                return McpResponses.ToolResult(id, guide);
         } catch (JsonException) { }
 
-        return BuildToolResult(id, UnreadableGuideMessage, isError: true);
+        return McpResponses.ToolResult(id, UnreadableGuideMessage, isError: true);
     }
 
     const int DefaultSearchLimit = 10;
@@ -260,18 +175,18 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// <summary>A failed status as the tool error an agent can act on, or null for a success.</summary>
     async Task<string?> RefusalAsync(JsonNode id, HttpResponseMessage response, string body, string baseUrl) {
         if (response.StatusCode == HttpStatusCode.Unauthorized)
-            return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+            return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
 
         // Forbidden and NotFound are named rather than shown as a bare status: the server keeps
         // them apart on purpose (see IArtefactsApi), and "not found" over a 403 would send an
         // agent off re-publishing something that already exists.
         if (response.StatusCode == HttpStatusCode.Forbidden)
-            return BuildToolResult(id, "Error: that page is not yours to change.", isError: true);
+            return McpResponses.ToolResult(id, "Error: that page is not yours to change.", isError: true);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
-            return BuildToolResult(id, "Error: no such page, or it is not visible to this profile.", isError: true);
+            return McpResponses.ToolResult(id, "Error: no such page, or it is not visible to this profile.", isError: true);
 
-        return response.IsSuccessStatusCode ? null : BuildToolResult(id, $"Error: HTTP {(int)response.StatusCode} — {body}", isError: true);
+        return response.IsSuccessStatusCode ? null : McpResponses.ToolResult(id, $"Error: HTTP {(int)response.StatusCode} — {body}", isError: true);
     }
 
     /// <summary>The page's record, then the content of the version it names, so a version published
@@ -287,17 +202,17 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         if (await RefusalAsync(id, record, recordBody, baseUrl) is { } refused) return refused;
 
         if (JsonNode.Parse(PageResultKeys.Rename(recordBody))?["page"] is not JsonObject page)
-            return BuildToolResult(id, "Error: the server's answer could not be read.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the server's answer could not be read.", isError: true);
 
         if ((request.Version ?? page["latest_version"]?.GetValue<int>()) is not { } version)
-            return BuildToolResult(id, "Error: the server named no latest version.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the server named no latest version.", isError: true);
 
         using var content = await client.GetAsync($"{baseUrl}/artefacts/{pageId}/content?v={version}", ct);
         var html          = await content.Content.ReadAsStringAsync(ct);
 
         if (await RefusalAsync(id, content, html, baseUrl) is { } missing) return missing;
 
-        return BuildToolResult(id, BuildPageRead(page, version, html, request).ToJsonString(PageResultKeys.Output));
+        return McpResponses.ToolResult(id, BuildPageRead(page, version, html, request).ToJsonString(PageResultKeys.Output));
     }
 
     internal const int DefaultMaxChars = 40_000;
@@ -615,37 +530,14 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         try {
             root = JsonNode.Parse(renamed);
         } catch (JsonException) {
-            return BuildToolResult(id, renamed);
+            return McpResponses.ToolResult(id, renamed);
         }
 
-        if (root is not JsonObject page) return BuildToolResult(id, renamed);
+        if (root is not JsonObject page) return McpResponses.ToolResult(id, renamed);
 
         page["follow_up"] = PublishFollowUp;
 
-        return BuildToolResult(id, page.ToJsonString(PageResultKeys.Output));
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
+        return McpResponses.ToolResult(id, page.ToJsonString(PageResultKeys.Output));
     }
 
     internal static McpTool[] BuildToolsList() => [

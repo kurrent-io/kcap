@@ -309,20 +309,11 @@ public static class ClaudePluginInstaller {
         }
     }
 
-    public static string? ReadMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try {
-            return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null;
-        } catch {
-            return null;
-        }
-    }
+    public static string? ReadMarker(string settingsPath) => InstallMarker.Read(settingsPath, MarkerFileName);
 
-    public static void WriteMarker(string settingsPath) => WriteNamedMarker(settingsPath, MarkerFileName);
+    public static void WriteMarker(string settingsPath) => InstallMarker.Write(settingsPath, MarkerFileName);
 
-    public static void DeleteMarker(string settingsPath) => DeleteNamedMarker(settingsPath, MarkerFileName);
+    public static void DeleteMarker(string settingsPath) => InstallMarker.Delete(settingsPath, MarkerFileName);
 
     /// <summary>The steering mod's <c>enabledPlugins</c> flag, or null when the file has none or can't be read.</summary>
     public static bool? IsSteeringEnabled(string settingsPath) =>
@@ -338,29 +329,10 @@ public static class ClaudePluginInstaller {
     internal static bool RegistersKcapMarketplace(JsonObject root) =>
         root["extraKnownMarketplaces"] is JsonObject marketplaces && marketplaces["kcap"] is JsonObject;
 
-    public static bool HasInstalledSteering(string settingsPath) =>
-        Path.GetDirectoryName(settingsPath) is { Length: > 0 } dir && File.Exists(Path.Combine(dir, SteeringMarkerFileName));
+    public static bool HasInstalledSteering(string settingsPath) => InstallMarker.Exists(settingsPath, SteeringMarkerFileName);
 
     /// <summary>Best effort: without it the next <c>steering on</c> writes again, which still leaves a present entry alone.</summary>
-    public static void WriteSteeringMarker(string settingsPath) => WriteNamedMarker(settingsPath, SteeringMarkerFileName);
+    public static void WriteSteeringMarker(string settingsPath) => InstallMarker.Write(settingsPath, SteeringMarkerFileName);
 
-    public static void DeleteSteeringMarker(string settingsPath) => DeleteNamedMarker(settingsPath, SteeringMarkerFileName);
-
-    static void WriteNamedMarker(string settingsPath, string fileName) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, fileName), CapacitorVersion.Current());
-        } catch {
-            // Best effort: a missing marker only means the next install runs again.
-        }
-    }
-
-    static void DeleteNamedMarker(string settingsPath, string fileName) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, fileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { /* non-fatal */ }
-    }
+    public static void DeleteSteeringMarker(string settingsPath) => InstallMarker.Delete(settingsPath, SteeringMarkerFileName);
 }

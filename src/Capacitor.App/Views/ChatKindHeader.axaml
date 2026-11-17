@@ -12,7 +12,7 @@
         </Panel>
         <TextBlock Grid.Column="1" Classes="toolKindChip" Text="{Binding #Root.Label}"
                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-        <ContentPresenter Grid.Column="2" Content="{Binding #Root.Status}"
+        <ContentPresenter Grid.Column="2" Content="{Binding #Root.Status}" ContentTemplate="{Binding #Root.StatusTemplate}"
                           VerticalAlignment="Center"
                           IsVisible="{Binding #Root.Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
     </Grid>

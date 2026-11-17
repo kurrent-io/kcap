@@ -53,6 +53,8 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
     /// nor the child-content scope holds it, and the in-scope capture is the only thing left.
     /// </summary>
     sealed class ChildContentOutsidePrivateScopeSource : IImportSource {
+        public int ImportCalls { get; private set; }
+
         public HarnessId Vendor                   => ProbeVendor;
         public bool   IsAvailable                 => true;
         public bool   SupportsTitleGeneration     => false;
@@ -80,8 +82,10 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
             ]);
 
         public Task<ImportSessionResult> ImportSessionAsync(
-                ImportCommand.SessionClassification classification, ImportContext ctx, CancellationToken ct) =>
-            Task.FromResult(new ImportSessionResult(ImportOutcome.Skipped, SentChildContent: true));
+                ImportCommand.SessionClassification classification, ImportContext ctx, CancellationToken ct) {
+            ImportCalls++;
+            return Task.FromResult(new ImportSessionResult(ImportOutcome.Skipped, SentChildContent: true));
+        }
     }
 
     static async Task<string> CaptureStdoutAsync(Func<ImportConsole, Task> action) {
@@ -97,23 +101,30 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
     public async Task a_routed_replay_is_not_imported_when_it_could_not_be_made_private_first() {
         // The routed half of the fail-closed preflight. The probe is an existing session, so it is
         // narrowed before any content moves; when that write is lost it must be dropped from the run
-        // rather than replayed into while still carrying its old audience.
+        // rather than replayed into while still carrying its old audience. A status the retry policy
+        // does not retry reaches the same lost-write branch without waiting out its budget.
         _server.Given(Request.Create().WithPath("/api/sessions/*/visibility").UsingPut())
-            .RespondWith(Response.Create().WithStatusCode(500));
+            .RespondWith(Response.Create().WithStatusCode(403));
 
+        var source = new ChildContentOutsidePrivateScopeSource();
         var stdout = await CaptureStdoutAsync(async console => {
             await new ImportCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: console).HandleImport(
                 filterCwd: null,
                 minLines: 0,
-                sources: [new ChildContentOutsidePrivateScopeSource()],
+                sources: [source],
                 scope: new ImportScope.All(),
                 skipConfirmation: true,
                 forcePrivate: true
             );
         });
 
+        await Assert.That(_server.FindLogEntries(Request.Create()
+                .WithPath($"/api/sessions/{ProbeSessionId}/visibility").UsingPut()).Count)
+            .IsGreaterThan(0).Because("the privacy preflight must attempt to narrow this session");
+        await Assert.That(source.ImportCalls).IsEqualTo(0)
+            .Because("its import must not run at all once the floor could not be established");
         await Assert.That(stdout).DoesNotContain($"Loading {SessionIds.Display(ProbeSessionId)}")
-                    .Because("its import must not run at all once the floor could not be established");
+            .Because("a refused replay must not be reported as loading");
     }
 
     [Test]
@@ -121,12 +132,13 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/*/visibility").UsingPut())
             .RespondWith(Response.Create().WithStatusCode(200));
 
+        var source = new ChildContentOutsidePrivateScopeSource();
         var exitCode = 0;
         var stdout = await CaptureStdoutAsync(async console => {
             exitCode = await new ImportCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: console).HandleImport(
                 filterCwd: null,
                 minLines: 0,
-                sources: [new ChildContentOutsidePrivateScopeSource()],
+                sources: [source],
                 scope: new ImportScope.All(),
                 skipConfirmation: true,
                 forcePrivate: true
@@ -134,6 +146,7 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
         });
 
         await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(source.ImportCalls).IsEqualTo(1);
 
         // The override DID fire: the raw outcome is Skipped, yet the run counts it as Loaded and
         // prints the "Loading" line. Without this the zero-PUT assertion below would pass

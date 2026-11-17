@@ -1,37 +1,24 @@
 using System.Diagnostics;
-using Capacitor.Cli.Core;
+using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Acp;
 
 /// <summary>
-/// <see cref="IAcpProcess"/> over a real <see cref="Process"/> — the <c>cursor-agent acp</c> child
-/// spawned by <see cref="Services.AcpHostedAgentRuntimeFactory"/>. Mirrors the
-/// terminate/wait semantics of <c>Pty.Unix.UnixPtyProcess</c>/<c>WinPtyProcess</c> (SIGTERM-then-kill
-/// via <see cref="ProcessTree.Kill(Process)"/>, bounded waits that return silently on timeout) but owns no
-/// terminal I/O — stdin/stdout carry ACP JSON-RPC frames, consumed by <see cref="AcpConnection"/>.
-///
-/// Also owns a background drain of the child's redirected stderr. <c>cursor-agent</c> is spawned
-/// with <c>RedirectStandardError = true</c> (see <see cref="Services.AcpHostedAgentRuntimeFactory"/>),
-/// and nothing else ever reads that stream — if we didn't drain it here, the OS pipe buffer (~64KB)
-/// would eventually fill and cursor-agent would block on its next stderr write, deadlocking a long
-/// session. The drain loop reads lines until EOF (process exit) or cancellation and logs each line's
-/// LENGTH at Debug by default (stderr can carry paths/prompt fragments/error detail); the full line
-/// text is only logged when the operator opts in via <c>KCAP_ACP_DEBUG_FRAMES</c> (see
-/// <see cref="DaemonConfig.DebugFrames"/>).
+/// <see cref="IAcpProcess"/> over a real <see cref="Process"/>, the ACP child spawned by
+/// <see cref="Services.AcpHostedAgentRuntimeFactory"/>. Stdin and stdout carry JSON-RPC frames read by
+/// <see cref="AcpConnection"/>; this type owns the lifecycle and the stderr drain. Stderr is logged by
+/// length only unless <c>KCAP_ACP_DEBUG_FRAMES</c> (<see cref="DaemonConfig.DebugFrames"/>) is on: it
+/// can carry paths, prompt fragments and error detail.
 /// </summary>
 internal sealed partial class AcpChildProcess : IAcpProcess {
-    readonly Process                 _process;
-    readonly ILogger                 _logger;
-    readonly TimeProvider            _time;
-    readonly bool                    _debugFrames;
-    readonly string                  _vendor;
-    readonly CancellationTokenSource _stderrDrainCts = new();
-    readonly Task                    _stderrDrainTask;
-    readonly Lock                    _diagnosticsGate = new();
-    readonly Queue<string>           _diagnostics     = new();
+    readonly ILogger             _logger;
+    readonly bool                _debugFrames;
+    readonly string              _vendor;
+    readonly Lock                _diagnosticsGate = new();
+    readonly Queue<string>       _diagnostics     = new();
+    readonly ManagedChildProcess _child;
 
-    int _disposed;
     int _diagnosticsLength;
 
     /// <summary>Enough to carry a startup/auth error or a retry banner and the context around it, and
@@ -47,64 +34,25 @@ internal sealed partial class AcpChildProcess : IAcpProcess {
         get { lock (_diagnosticsGate) return _diagnostics.Count == 0 ? null : string.Join('\n', _diagnostics); }
     }
 
-    /// <param name="debugFrames">
-    /// <c>KCAP_ACP_DEBUG_FRAMES</c> (<see cref="DaemonConfig.DebugFrames"/>) — off by default. When
-    /// on, <see cref="DrainStderrAsync"/> logs full (length-capped) stderr line text at Debug instead
-    /// of just its length; cursor-agent stderr can carry paths/prompt fragments/error detail.
-    /// </param>
     public AcpChildProcess(
             Process process, ILogger logger, TimeProvider time, bool debugFrames = false,
             string vendor = "cursor") {
-        _process     = process;
         _logger      = logger;
-        _time        = time;
         _debugFrames = debugFrames;
         _vendor      = vendor;
-
-        // Fire-and-forget from the ctor's perspective — DisposeAsync cancels and (best-effort)
-        // awaits it. Never let this task fault unobserved; DrainStderrAsync swallows everything
-        // it can anticipate on shutdown.
-        _stderrDrainTask = DrainStderrAsync(_stderrDrainCts.Token);
+        _child       = new ManagedChildProcess(process, time, OnStderrLine);
     }
 
-    /// <summary>
-    /// Continuously reads <see cref="Process.StandardError"/> until EOF (the process exited and
-    /// closed the pipe) or <paramref name="ct"/> fires, logging each non-empty line at Debug. This
-    /// exists purely to keep the stderr pipe drained — see the type-level doc for why an undrained
-    /// stderr pipe can deadlock <c>cursor-agent</c>. Never throws: any exception here would become
-    /// an unobserved-task-exception on process teardown, and none of the failure modes below need
-    /// anything more than "stop draining".
-    /// </summary>
-    async Task DrainStderrAsync(CancellationToken ct) {
-        try {
-            while (!ct.IsCancellationRequested) {
-                var line = await _process.StandardError.ReadLineAsync(ct).ConfigureAwait(false);
+    void OnStderrLine(string line) {
+        // Retained whatever the log level does: a vendor that goes silent on the wire writes its
+        // whole diagnosis here — a rate-limit retry banner reaches stderr and nowhere else.
+        // Daemon-local; never forwarded.
+        Capture(line);
 
-                if (line is null) break; // EOF — process exited and closed the stream.
-
-                if (line.Length == 0) continue;
-
-                // Retained whatever the log level does: the operator opts into per-line logging, not
-                // into being able to explain a stall afterwards, and a vendor that goes silent on the
-                // wire writes its whole diagnosis here — a rate-limit retry banner reaches stderr and
-                // nowhere else. Daemon-local; never forwarded.
-                Capture(line);
-
-                // KCAP_ACP_DEBUG_FRAMES gate (Off by default) — stderr can carry paths, prompt
-                // fragments, or error detail, so it is only logged verbatim when explicitly opted in;
-                // otherwise only its length is logged.
-                if (_debugFrames)
-                    LogStderrLineFull(_vendor, AcpDebugFrameLog.Cap(line));
-                else
-                    LogStderrLineShape(_vendor, line.Length);
-            }
-        } catch (OperationCanceledException) {
-            // Disposal requested the drain stop — expected, not an error.
-        } catch (IOException) {
-            // Pipe torn down (process killed mid-read) — expected on teardown.
-        } catch (ObjectDisposedException) {
-            // Stream disposed out from under us (process.Dispose() raced the read) — expected.
-        }
+        if (_debugFrames)
+            LogStderrLineFull(_vendor, AcpDebugFrameLog.Cap(line));
+        else
+            LogStderrLineShape(_vendor, line.Length);
     }
 
     void Capture(string line) {
@@ -121,103 +69,18 @@ internal sealed partial class AcpChildProcess : IAcpProcess {
         }
     }
 
-    public int Pid {
-        get {
-            try {
-                return _process.HasExited ? 0 : _process.Id;
-            } catch {
-                // Process already disposed/exited under us — never let a PID read throw.
-                return 0;
-            }
-        }
-    }
+    /// <summary>Zero once the child has exited.</summary>
+    public int Pid => _child.HasExited ? 0 : _child.Pid;
 
-    public bool HasExited {
-        get {
-            try {
-                return _process.HasExited;
-            } catch {
-                return true;
-            }
-        }
-    }
+    public bool HasExited => _child.HasExited;
 
-    public int? ExitCode {
-        get {
-            try {
-                return _process.HasExited ? _process.ExitCode : null;
-            } catch {
-                return null;
-            }
-        }
-    }
+    public int? ExitCode => _child.ExitCode;
 
-    public async Task WaitForExitAsync(TimeSpan? timeout = null) {
-        try {
-            if (timeout is { } t) {
-                using var cts = new CancellationTokenSource(t, _time);
+    public Task WaitForExitAsync(TimeSpan? timeout = null) => _child.WaitForExitAsync(timeout);
 
-                try {
-                    await _process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
-                } catch (OperationCanceledException) {
-                    // Timed out — return silently, matching IPtyProcess's contract.
-                }
-            } else {
-                await _process.WaitForExitAsync().ConfigureAwait(false);
-            }
-        } catch {
-            // Process already exited/disposed — nothing to wait for.
-        }
-    }
+    public Task TerminateAsync(TimeSpan? timeout = null) => _child.TerminateAsync(timeout);
 
-    public async Task TerminateAsync(TimeSpan? timeout = null) {
-        try {
-            if (_process.HasExited) return;
-
-            ProcessTree.Kill(_process);
-        } catch {
-            // Already exited/disposed, or the kill raced the exit — either way there's
-            // nothing left to terminate.
-            return;
-        }
-
-        await WaitForExitAsync(timeout ?? TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-    }
-
-    public async ValueTask DisposeAsync() {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-
-        try {
-            if (!_process.HasExited)
-                ProcessTree.Kill(_process);
-        } catch {
-            // Best-effort — already exited or inaccessible.
-        }
-
-        // Stop the stderr drain. The process is being killed anyway, so this is a bounded,
-        // best-effort wait — never let a stuck drain hang dispose.
-        try {
-            await _stderrDrainCts.CancelAsync().ConfigureAwait(false);
-        } catch {
-            // Best-effort.
-        }
-
-        try {
-            await _stderrDrainTask.WaitAsync(TimeSpan.FromSeconds(2), _time).ConfigureAwait(false);
-        } catch {
-            // Timed out or faulted — DrainStderrAsync already swallows its expected exceptions,
-            // so this is just a safety net; never let dispose hang or throw on it.
-        }
-
-        _stderrDrainCts.Dispose();
-
-        try {
-            _process.Dispose();
-        } catch {
-            // Best-effort.
-        }
-    }
+    public ValueTask DisposeAsync() => _child.DisposeAsync();
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "{Vendor} stderr: {Line}")]
     partial void LogStderrLineFull(string vendor, string line);

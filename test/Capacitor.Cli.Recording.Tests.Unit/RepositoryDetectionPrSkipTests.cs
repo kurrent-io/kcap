@@ -51,6 +51,22 @@ public class RepositoryDetectionPrSkipTests {
         await Assert.That(detected!.Owner).IsEqualTo("acme");
     }
 
+    /// <summary>A checkout detected with no remote is detected again once it gains one, inside the cache's life.</summary>
+    [Test]
+    public async Task An_origin_added_since_the_last_detection_names_the_repository_at_once() {
+        using var repo = GitRepo.Create();
+
+        var before = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            repo.Path, TimeProvider.System, detectPullRequest: false);
+        repo.Do("remote", "add", "origin", "git@github.invalid:acme/widget.git");
+        var after = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            repo.Path, TimeProvider.System, detectPullRequest: false);
+
+        await Assert.That(before?.Owner).IsNull();
+        await Assert.That(after!.Owner).IsEqualTo("acme");
+        await Assert.That(after.RepoName).IsEqualTo("widget");
+    }
+
     [Test]
     public async Task Git_that_will_not_answer_outside_a_checkout_finds_no_repository() {
         using var cwd = new TempDir();

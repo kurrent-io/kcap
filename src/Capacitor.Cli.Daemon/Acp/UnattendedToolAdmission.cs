@@ -15,11 +15,10 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// the very call that delivers the result. <c>AutoApprove</c> is not the answer either: it does not
 /// inspect the tool, so it would approve exactly the request scoping exists to reject.</para>
 ///
-/// <para><b>The limitation, stated plainly because an earlier revision of this file got it wrong.</b>
+/// <para><b>The limitation.</b>
 /// Kiro's frame carries NO structured tool identity: <c>toolCall</c> is <c>{toolCallId, title}</c>,
-/// and title is presentation text. That earlier revision scanned the title for an admitted
-/// <c>@server/tool</c> token and argued the per-launch unguessable alias made this safe, since the
-/// reviewed repository cannot predict one. <b>That argument is wrong.</b> The MODEL knows its own
+/// and title is presentation text. Scanning the title for an admitted <c>@server/tool</c> token is
+/// unsafe even though the per-launch alias is unguessable to the reviewed repository: the MODEL knows its own
 /// alias — it is in the tool list Kiro gave it — so prompt-injected repository content does not need
 /// to predict the alias, only to get the model to echo it. Under a substring scan,
 /// <c>"Running: execute_bash echo @alias/submit_review_result"</c> was admitted.</para>

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Spec §3.3 (ONE execution domain), processor level: <c>SubmitUnsequenced</c>, cross-format ordering,
+/// ONE execution domain, processor level: <c>SubmitUnsequenced</c>, cross-format ordering,
 /// stop admission, coalescing + key lifecycle, the queued-stop hysteresis alarm, active-launch instance
 /// tracking, fault isolation, and the lane's shutdown order. These live here rather than in an
 /// orchestrator test because the lane is the thing under test — a raw processor lets a test drive exact

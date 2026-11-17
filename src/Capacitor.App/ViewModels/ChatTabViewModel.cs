@@ -9,10 +9,10 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
-using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -29,7 +29,7 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// Feed identity is part of the read generation: a distinct feed key clears the rows and installs a
 /// fresh feed in one UI-thread step, and any read still in flight for the old source completes
 /// under a stale generation and is discarded.
-public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
+public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     /// How long a send may go unechoed while the agent is not working before Enter is pressed once
     /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
@@ -228,7 +228,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public HeldMessagesViewModel? Held { get; }
 
     readonly ObservableAsPropertyHelper<string?> _controlNote;
-    /// How the viewer's messages reach the agent and, when its keys are not theirs, why.
+    /// Input guidance, with turn-control limitations only while the agent is working.
     public string? ControlNote => _controlNote.Value;
     public ReadOnlyObservableCollection<PendingCardViewModel> PendingCards => Cards.PendingCards;
 
@@ -373,9 +373,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     readonly HashSet<(long Offset, string Text)> _literalInputHistory = [];
     int _recallEdits = -1;
     /// Replaces the composer text with the next older prompt; false when nothing changed.
-    public bool RecallOlder() => Recall(_history.Older(Recallable(), Unechoed()));
+    public bool RecallOlder() => !BoxHoldsOwnSend() && Recall(_history.Older(Recallable(), Unechoed()));
     /// Replaces the composer text with the next newer prompt, or the draft past the newest.
-    public bool RecallNewer() => Recall(_history.Newer(Recallable(), Unechoed()));
+    public bool RecallNewer() => !BoxHoldsOwnSend() && Recall(_history.Newer(Recallable(), Unechoed()));
+
+    /// Recall leaves the box alone until its own send settles: the outcome decides whether the
+    /// text is cleared or stays as a draft, and a recall in between would take it from both.
+    /// The edit count, not the text, decides: retyping the same words is a new draft.
+    bool BoxHoldsOwnSend() => Tracked.Any(q => !q.IsForeign && !q.Acknowledged
+        && q.ComposerEdits == _composerEdits && string.Equals(q.Text, _composerText, StringComparison.Ordinal));
 
     List<string> Unechoed() {
         _unechoed.RemoveAll(q => q.Acknowledged);
@@ -489,6 +495,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// channel accepts the prompt. A reply answers the session's open questions, and no permission
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
+    public ComposerPicker? Picker { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;
@@ -854,7 +861,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, LocalTranscripts? transcripts = null,
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
-            IObservable<HandoffOutcomeDto?>? handoffOutcome = null, Action<string>? openLink = null,
+            IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
             IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
@@ -871,7 +878,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             IObservable<IReadOnlyList<QueuedInputItem>>? serverQueue = null, PlanActivity? planActivity = null,
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, IMessageSenderSource? senders = null,
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
-            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeDto?>? handoffOutcome = null,
+            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
         _tracksAccountReadings = accountReadings is not null;
@@ -882,12 +889,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _origin = origin;
         _agentId = agentId;
         _composerText = drafts?.Get(origin, agentId) ?? "";
+        _history.Stash(drafts?.TakeStash(origin, agentId) ?? "");
         drafts?.Watch(origin, agentId, OnStoredDraftChanged).DisposeWith(_disposables);
         _planActivity = planActivity;
         _openCard = openCard;
         // Null clears the card: the outcome belonged to a session the chat no longer shows.
-        handoffOutcome?.Select(outcome => outcome is null ? null : new HandoffOutcomeViewModel(outcome))
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
+        handoffOutcome?.ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(card => HandoffOutcome = card, ex => LogOnce($"hand-off outcome: {ex.Message}"))
             .DisposeWith(_disposables);
         _input = input;
@@ -1043,7 +1050,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
             .DisposeWith(_disposables);
 
-        _controlNote = _input.WhenAnyValue(i => i.ControlNote)
+        _controlNote = Observable.CombineLatest(
+                _input.WhenAnyValue(i => i.ControlNote),
+                _input.WhenAnyValue(i => i.WorkingControlNote),
+                this.WhenAnyValue(x => x.AgentStatus, x => x.IsReadOnlyParticipant, x => x.HasTerminalMenu, x => x.ShowsInterrupt,
+                    (status, readOnly, menu, shows) => !shows && !readOnly && !menu
+                        && (status.Kind == AgentStatusKind.Working || status.IsRunningUnknownTurn)),
+                (note, workingNote, working) => note ?? (working ? workingNote : null))
             .ToProperty(this, x => x.ControlNote, initialValue: _input.ControlNote)
             .DisposeWith(_disposables);
 
@@ -1453,7 +1466,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
         _items.Clear();
+        // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
+        var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;
         _history.Clear();
+        if (restore is not null) ComposerText = restore;
         _literalInputHistory.Clear();
         _unechoed.Clear();
         _superseded.Clear();
@@ -1495,7 +1511,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     void ClearSentDraft(QueuedChatMessage queued) {
-        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = "";
+        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = DraftAfterSending(queued.Text);
+    }
+
+    /// The stashed draft goes back in the box, unless it is the very text that went out.
+    string DraftAfterSending(string sent) {
+        var draft = _history.TakeDraft();
+        return string.Equals(draft, sent, StringComparison.Ordinal) ? "" : draft;
+    }
+
+    /// The history dies with the tab, so its stash goes to the store: as the draft itself when the
+    /// box only shows a recall, beside the draft when the box holds other text of the user's own.
+    /// Either write takes a new revision, so a send settling after teardown cannot clear it.
+    void PreserveStash() {
+        if (_drafts is null) return;
+        if (_history.IsShowing(Recallable())) _drafts.Set(_origin, _agentId, _history.TakeDraft());
+        else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1623,7 +1654,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                     !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
-                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = "";
+                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = DraftAfterSending(snapshot);
                 return null;
             }
         }
@@ -2262,6 +2293,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     public Task TeardownAsync() {
+        PreserveStash();
         Interlocked.Increment(ref _generation);
         var lease = _lease;
         _lease = null;

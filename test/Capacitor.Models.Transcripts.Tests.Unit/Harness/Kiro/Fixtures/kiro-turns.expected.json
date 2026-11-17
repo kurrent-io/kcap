@@ -1,0 +1,296 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "255364a5-0b0f-5fe1-8a7c-51e5eec361af",
+        "timestamp": "0001-01-01T00:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "causedBy": null,
+        "payload": {
+          "content": "Picked up before any prompt.",
+          "timestamp": "0001-01-01T00:00:00Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "batch": 1,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "0f47945c-6549-5eb3-bb6a-392c74f31483",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Read the README",
+          "timestamp": "2026-10-07T14:50:15Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "625189de-87c9-572f-8540-c8442e226e93",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "First.",
+          "timestamp": "2026-10-07T14:50:15Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "d28f1258-e00d-5340-833a-b48b7415efcf",
+        "timestamp": "2026-10-07T14:50:15.0000001\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "tu_1",
+              "toolName": "fs_read",
+              "arguments": {
+                "path": "README.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-10-07T14:50:15.000000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "b9a24923-d85b-5abb-ba56-17a1e2ab76be",
+        "timestamp": "2026-10-07T14:50:15.0000002\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Second.",
+          "timestamp": "2026-10-07T14:50:15.000000200Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "4fa53189-73b2-5f30-bb82-3cfd58ac3b92",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "tu_1",
+          "result": "# Title\nbody",
+          "timestamp": "2026-10-07T14:50:15Z",
+          "extensions": {
+            "kiro": {
+              "success": true,
+              "tool_name": null,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "ccd88749-379c-5c29-98ab-8bc57a6b21ee",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "tu_2",
+          "timestamp": "2026-10-07T14:50:15Z",
+          "extensions": {
+            "kiro": {
+              "success": false,
+              "tool_name": null,
+              "status": "error"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "b1dc069b-b265-5fed-b4a3-918a1145ffcf",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "tu_3",
+          "timestamp": "2026-10-07T14:50:15Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "af8865fe-4f3d-5f00-b27b-1fe22f6abcce",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "tu_4",
+              "toolName": "execute_bash",
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-10-07T14:50:15Z",
+          "extensions": {
+            "kiro": {
+              "credits": 0.33,
+              "context_usage_percentage": 6.1
+            }
+          }
+        },
+        "usage": {
+          "inputTokens": "1200",
+          "outputTokens": "340",
+          "totalTokens": "1540",
+          "model": "minimax-m2.5"
+        },
+        "usageIsEcho": false
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "18a39413-1c33-50a6-aa79-26538aacbc38",
+        "timestamp": "2026-10-07T14:50:15.0000001\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Ran it.",
+          "timestamp": "2026-10-07T14:50:15.000000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "06e8b57f-5ee9-8a15-9090-36fadf31676f",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "No message id.",
+          "timestamp": "2026-10-07T14:50:15Z",
+          "extensions": {
+            "kiro": {
+              "credits": 0.1,
+              "context_usage_percentage": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "KiroUsageBackfilled",
+        "id": "2fd7f097-77e4-9965-3964-20049527d149",
+        "timestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "recordTimestamp": "2026-10-07T14:50:15.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "credits": 0.5,
+          "context_usage_percentage": 7.25
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "batch": 2,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "batch": 2,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "batch": 2,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "batch": 2,
+    "rejected": true,
+    "events": [],
+    "amendments": 0
+  }
+]

@@ -435,9 +435,13 @@ class SkillsCommand(
     /// placement cannot enforce a vendor restriction for a tree several harnesses read.</summary>
     internal static string[] Exposure(SkillsTarget target) => [.. target.Readers.Select(r => r.VendorId)];
 
+    /// <summary>The wait for a lock held elsewhere when a call names none of its own; null is
+    /// <see cref="ConfigFileLock"/>'s default.</summary>
+    internal TimeSpan? LockWait { get; init; }
+
     IDisposable? TryAcquire(string name, TimeSpan? timeout = null) {
         try {
-            return config.AcquireLock(name, timeout);
+            return config.AcquireLock(name, timeout ?? LockWait);
         } catch (TimeoutException) {
             return null;
         }

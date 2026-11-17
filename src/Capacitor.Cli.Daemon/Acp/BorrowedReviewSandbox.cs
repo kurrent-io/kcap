@@ -84,11 +84,9 @@ internal static class BorrowedReviewSandbox {
         foreach (var p in runtimeReadPaths)   sb.Append(Subpath(p));
         // Literals, not subpaths: these are individual files whose directories hold adjacent secrets.
         //
-        // Deliberately NOT symlink-resolved. An earlier revision also emitted each file's resolved
-        // target so that Homebrew's cert.pem (a link into ca-certificates) would match — but these
-        // prefixes are user-writable, so pointing an allowlisted filename at ~/.ssh/id_ed25519 would
-        // have emitted THAT as a literal and handed it to the reviewer. The legitimate target is named
-        // in the allowlist in its own right instead, so resolution buys nothing and costs a bypass.
+        // Deliberately NOT symlink-resolved: these prefixes are user-writable, so resolving would let an
+        // allowlisted filename pointed at ~/.ssh/id_ed25519 hand THAT to the reviewer as a literal. A
+        // legitimate link target, such as Homebrew's cert.pem in ca-certificates, is allowlisted itself.
         foreach (var f in runtime.Files)      sb.Append(Literal(f));
         sb.Append(')');
 

@@ -120,50 +120,19 @@ public static class PiExtensionInstaller {
         }
         """;
 
-    /// <summary>
-    /// True when kcap.ts (or its marker) is present. Marker covers the case
-    /// where a user deleted kcap.ts but kept the dir.
-    /// </summary>
-    public static bool IsInstalled(string extensionPath) {
-        if (File.Exists(extensionPath)) return true;
-        var dir = Path.GetDirectoryName(extensionPath);
-        return dir is not null && File.Exists(Path.Combine(dir, MarkerFileName));
-    }
+    public static bool IsInstalled(string extensionPath) => OwnedFile.IsInstalled(extensionPath, MarkerFileName);
 
-    public static string? ReadMarker(string extensionPath) {
-        var dir = Path.GetDirectoryName(extensionPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
+    public static string? ReadMarker(string extensionPath) => InstallMarker.Read(extensionPath, MarkerFileName);
 
-    public static void WriteMarker(string extensionPath) {
-        var dir = Path.GetDirectoryName(extensionPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch { /* best effort */ }
-    }
+    public static void WriteMarker(string extensionPath) => InstallMarker.Write(extensionPath, MarkerFileName);
 
-    public static void DeleteMarker(string extensionPath) {
-        var dir = Path.GetDirectoryName(extensionPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { }
-    }
+    public static void DeleteMarker(string extensionPath) => InstallMarker.Delete(extensionPath, MarkerFileName);
 
-    public static bool Install(string extensionPath) {
-        try {
-            Directory.CreateDirectory(Path.GetDirectoryName(extensionPath)!);
-            File.WriteAllText(extensionPath, ExtensionContent);
-            WriteMarker(extensionPath);
-            return true;
-        } catch {
-            return false;
-        }
-    }
+    /// <summary>Leaves a current file and marker untouched and says so.</summary>
+    public static SettingsEdit Apply(string extensionPath) =>
+        OwnedFile.Write(extensionPath, ExtensionContent, ReadMarker(extensionPath), WriteMarker);
+
+    public static bool Install(string extensionPath) => Apply(extensionPath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
 
     /// <summary>Removes kcap.ts + marker. Returns true if kcap.ts existed.</summary>
     public static bool Remove(string extensionPath) {

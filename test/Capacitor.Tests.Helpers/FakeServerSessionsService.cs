@@ -67,6 +67,21 @@ public sealed class FakeServerSessionsService : IServerSessionsService, IDisposa
             ? new HandoffContextFetch(ServerReadOutcome.Ok, context)
             : new HandoffContextFetch(HandoffContextOutcome == ServerReadOutcome.Ok ? ServerReadOutcome.Failed : HandoffContextOutcome, null));
 
+    public ActivitySessionDto? Summary { get; set; }
+    public TaskCompletionSource? SummaryGate { get; set; }
+    public TaskCompletionSource SummaryHeld { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public int SummaryReads { get; private set; }
+    public async Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct) {
+        SummaryReads++;
+        if (SummaryGate is { } gate) {
+            SummaryHeld.TrySetResult();
+            await gate.Task;
+        }
+        return Summary is { } summary
+            ? new SummaryFetch(ServerReadOutcome.Ok, summary)
+            : new SummaryFetch(ServerReadOutcome.Failed, null);
+    }
+
     public void Unpin() {
         _pinRequest++;
         UnpinCalls++;

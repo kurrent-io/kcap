@@ -72,4 +72,7 @@ sealed record LocalSetupLine {
 
     /// <summary>On an upgrade's failure: whether the new version is selected.</summary>
     public bool? Switched { get; init; }
+
+    /// <summary>On <c>starting</c>: true when a re-run changed nothing and the server was already answering.</summary>
+    public bool? AlreadyRunning { get; init; }
 }

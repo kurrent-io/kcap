@@ -131,7 +131,7 @@ internal sealed class ImportDiscoveryAgeTests {
         "gemini"      => new GeminiImportSource(GeminiHarness.FromEnvironment(Home).Paths.TmpDir, TimeProvider.System),
         "kiro"        => new KiroImportSource(Config.Root, KiroHarness.FromEnvironment(Home).Paths.SessionsDir, KiroHarness.FromEnvironment(Home).Crew, router: new GitProviderRouter(), time: TimeProvider.System),
         "pi"          => new PiImportSource(Config.Root, PiHarness.FromEnvironment(Home).Paths.SessionsDir, router: new GitProviderRouter(), time: TimeProvider.System),
-        "copilot"     => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System),
+        "copilot"     => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System),
         "antigravity" => new AntigravityImportSource(AntigravityHarness.Over(GeminiHarness.FromEnvironment(Home)).Paths, TimeProvider.System),
         "opencode"    => new OpenCodeImportSource(
             Path.Combine(OpenCodeHarness.FromEnvironment(Home).Paths.DataDir, "opencode.db"),

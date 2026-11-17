@@ -45,7 +45,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         /// firing on the null call would (wrongly) complete this at construction, before the finalizer
         /// ever runs. The finalizer reaches this wait ONLY after passing (and skipping) the verdict
         /// arm, so it fires exactly when a finalizer read the verdict as null and moved on — the
-        /// finding-1 barrier's deterministic proof the pre-fix (unsynchronized) read happened.</summary>
+        /// deterministic proof an unsynchronized read happened.</summary>
         public readonly TaskCompletionSource WaitForExitEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Sets exit state AND releases the wait gate — the normal production coupling,
@@ -355,7 +355,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
     }
 
     // ── StopAgentCoreAsync must not walk a published verdict's Failed back to Completed ────────
-    // Design spec §3.3's "no non-failure AgentStatusChanged after a published verdict" guarantee
+    // The "no non-failure AgentStatusChanged after a published verdict" guarantee
     // has a second seam beyond the finalizer itself: StopAgentCoreAsync is the single funnel for
     // EVERY stop trigger (HandleStopAgent's own doc comment: server StopAgent, sequenced
     // StopAgentV2, and the heartbeat's own TTL/idle/stuck-Starting reap sweep — plus a
@@ -394,9 +394,9 @@ public class AgentOrchestratorFinalizerVerdictTests {
 
     [Test]
     public async Task Stop_without_a_published_verdict_still_transitions_to_completed_and_notifies() {
-        // Regression check: an ordinary stop (no verdict ever published — the overwhelmingly
-        // common case, e.g. every claude/codex PTY agent, and every ACP agent that never trips a
-        // containment tripwire) must still behave exactly as before this fix.
+        // An ordinary stop (no verdict ever published — the overwhelmingly common case, e.g. every
+        // claude/codex PTY agent, and every ACP agent that never trips a containment tripwire) still
+        // transitions to Completed and notifies.
         var server = new CaptureServerConnection();
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
@@ -411,12 +411,13 @@ public class AgentOrchestratorFinalizerVerdictTests {
     }
 
     /// <summary>A stop reports Completed only once the agent is gone. One whose process outlives the
-    /// terminate is reported Failed, here and on the server, so a live agent never reads as stopped.</summary>
+    /// terminate is reported Failed, here and on the server, so a live agent never reads as stopped. The
+    /// stop names this process, which launched the run and so holds it on the server.</summary>
     [Test]
     public async Task Stop_of_an_agent_that_never_exits_reports_failed_not_completed() {
         var server = new CaptureServerConnection();
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
-            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: c => c.InstanceId = "instance-now");
 
         var agent = orch.SeedAgentForTest("stop-stuck-1", status: "Running", pty: new RecordingPtyProcess());
 
@@ -426,7 +427,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
             .IsEquivalentTo(["Failed"]);
         await Assert.That(agent.Status).IsEqualTo("Failed");
         await Assert.That(server.RunEvents.Single(e => e.AgentId == "stop-stuck-1").Event)
-            .IsEqualTo(new AgentRunStopped("failed", null));
+            .IsEqualTo(new AgentRunStopped("failed", null, "instance-now"));
     }
 
     /// <summary>Overlapping stops of one agent report its ending once, after the last of them settles.</summary>
@@ -445,7 +446,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await Assert.That(agent.StopSettled.Task.IsCompleted).IsTrue();
     }
 
-    /// <summary>Part A final-review fix wave, item 2: the publish→report race. A same-tick
+    /// <summary>The publish→report race. A same-tick
     /// TTL/idle/stuck-Starting sweep can reach StopAgentCoreAsync in the instant AFTER
     /// TryStartReap has published the verdict but BEFORE the finalizer's CAS has set
     /// LaunchFailureVerdictReported — this seeds exactly that instant (verdict published, guard
@@ -477,12 +478,11 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await Assert.That(agent.Status).IsNotEqualTo("Completed");
     }
 
-    // ── Part A final-review fix wave, item 1: §3.5 wired into the general launch-failure catch ──
-    // MapLaunchFailureReason/DescribeLaunchFailure previously covered ONLY the finalizer's verdict
-    // arm; the orchestrator's general catch (HandleLaunchAgentCore, the site a reclassified
-    // AcpReviewerReapedException — and any other pre-StartAsync factory failure — actually lands
-    // on) still forwarded ex.Message raw, so a blank/whitespace message reached LaunchFailed
-    // unmapped. These two tests exercise that general catch directly (SpyHostedAgentRuntimeFactory
+    // ── The launch-failure reason fallback in the general launch-failure catch ─────────────────
+    // MapLaunchFailureReason/DescribeLaunchFailure must cover the orchestrator's general catch
+    // (HandleLaunchAgentCore, where a reclassified AcpReviewerReapedException — and any other
+    // pre-StartAsync factory failure — lands), not only the finalizer's verdict arm, or a
+    // blank/whitespace message reaches LaunchFailed unmapped. These two tests exercise that general catch directly (SpyHostedAgentRuntimeFactory
     // .StartThrow, no AgentInstance ever created — the same "pre-insert failure" landing zone
     // Report_sent_exactly_once_across_factory_and_finalizer's Part A already proved is the sole
     // reporter for this scenario).
@@ -545,7 +545,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
 
     }
 
-    // ── Finding 1: the finalizer's verdict observation must synchronise with the claim ──────────
+    // ── The finalizer's verdict observation must synchronise with the claim ─────────────────────
     // TryStartReap claims the slot, snapshots the window, runs the (connection-cancelling) starter,
     // and publishes the verdict — ALL inside one _reapLock critical section. The starter's
     // _cts.Cancel() can drive FinalizeAgentRunAsync onto another thread WHILE that section is still
@@ -555,8 +555,8 @@ public class AgentOrchestratorFinalizerVerdictTests {
 
     /// <summary>Holds the claimant INSIDE its starter (lock held, verdict not yet published), drives
     /// the finalizer concurrently, and asserts it still reports. WaitForExitEntered is deterministic
-    /// proof that a pre-fix (unsynchronised) finalizer already read null and moved past the verdict
-    /// arm — so pre-fix this test times out with zero reports; post-fix the finalizer blocks in
+    /// proof that an unsynchronised finalizer already read null and moved past the verdict arm — so
+    /// such a finalizer times this test out with zero reports; a synchronised one blocks in
     /// ReadVerdict() until the publish and reports. No deadlock: the starter returns the reap task
     /// WITHOUT awaiting termination, so the claimant releases _reapLock promptly (here the starter is
     /// a no-op returning a completed task) and never waits on the finalizer.</summary>
@@ -645,11 +645,11 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await Assert.That(agent.Status).IsEqualTo("Failed");
     }
 
-    // ── Finding 2: a concurrent status sender must not clear the just-reported failure ──────────
+    // ── A concurrent status sender must not clear the just-reported failure ─────────────────────
 
     /// <summary>The finalizer transitions the agent to Failed BEFORE awaiting the report, so a
     /// reconnect re-registration racing that await sees the failure state and cannot re-send the
-    /// (pre-fix still "Running") non-failure status — which would clear the FailureReason the report
+    /// (otherwise still "Running") non-failure status — which would clear the FailureReason the report
     /// is setting server-side.</summary>
     [Test]
     public async Task Reregistration_during_the_verdict_report_await_does_not_emit_a_non_failure_status() {
@@ -734,16 +734,16 @@ public class AgentOrchestratorFinalizerVerdictTests {
             c => c.AgentId == "stop-toctou-1" && c.Status == "Completed")).IsFalse();
     }
 
-    // ── Finding 1 refinement: the check and the send-initiation must be ATOMIC under _reapLock ─────
-    // Round-1's second VerdictForbidsNonFailureStatus check narrowed but did not CLOSE the window: a
-    // verdict published between the check and the send still permits a post-publication non-failure
-    // send. The fix holds the publication lock (_reapLock) across BOTH the check and the send's
-    // initiation, so publication cannot interleave there.
+    // ── The check and the send-initiation must be ATOMIC under _reapLock ──────────────────────────
+    // A VerdictForbidsNonFailureStatus check alone does not CLOSE the window: a verdict published
+    // between the check and the send still permits a post-publication non-failure send. Holding the
+    // publication lock (_reapLock) across BOTH the check and the send's initiation means publication
+    // cannot interleave there.
 
     /// <summary>Stop gate: publish the verdict between the gate's verdict check and its Completed
-    /// send-initiation (via the runtime's between-check-and-send hook, on ANOTHER thread). Post-fix
-    /// the gate holds _reapLock, so the publish blocks and the Completed is initiated with no verdict
-    /// published; pre-fix it publishes and the Completed is initiated after publication.</summary>
+    /// send-initiation (via the runtime's between-check-and-send hook, on ANOTHER thread). The gate
+    /// holds _reapLock, so the publish blocks and the Completed is initiated with no verdict
+    /// published; without the gate it would publish and the Completed would follow publication.</summary>
     [Test, NotInParallel] // the gate blocks the stop's pool thread on a Join up to the bound; keep it off peers
     public async Task Stop_gate_atomically_serializes_a_publish_against_the_completed_send() {
         var server = new CaptureServerConnection();
@@ -758,9 +758,9 @@ public class AgentOrchestratorFinalizerVerdictTests {
         server.VerdictCaptureRuntime = runtime;
 
         runtime.BeforeGatedSendHookForTest = () => {
-            // Dedicated thread (not the pool): the gate holds _reapLock, so TryStartReap blocks here
-            // post-fix — Join times out and the gate proceeds to send with no verdict published.
-            // Pre-fix (no gate) it publishes fast and Join returns, so the send follows publication.
+            // Dedicated thread (not the pool): the gate holds _reapLock, so TryStartReap blocks here —
+            // Join times out and the gate proceeds to send with no verdict published. Without the
+            // gate it would publish fast and Join would return, so the send would follow publication.
             var t = new Thread(() => runtime.TryStartReap(
                 "kiro_reviewer_mcp_surface_unexpected: violation", () => Task.CompletedTask)) { IsBackground = true };
             t.Start();
@@ -777,9 +777,8 @@ public class AgentOrchestratorFinalizerVerdictTests {
     }
 
     /// <summary>Re-registration: publish the verdict DURING the AgentRegistered await — the wider,
-    /// natural interleave round-1's single pre-loop check cannot cover. Post-fix the per-attempt gate
-    /// re-checks under _reapLock and suppresses the status send; pre-fix the status send proceeds after
-    /// publication.</summary>
+    /// natural interleave a single pre-loop check cannot cover. The per-attempt gate re-checks under
+    /// _reapLock and suppresses the status send.</summary>
     [Test]
     public async Task Reregistration_rechecks_a_verdict_published_during_the_agent_registered_await() {
         var registeredEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

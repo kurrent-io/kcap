@@ -23,7 +23,9 @@ public class SetupFacadeFactoryTests {
             new AuthProxyClient(http.CreateClient(CapacitorClients.Anonymous), TimeProvider.System),
             new GitHubOAuthClient(http), new WorkOSClient(http, TimeProvider.System), new RecordingBrowser(),
             NoTelemetry.Facade, AuthEndpoints.Defaults, TimeProvider.System,
-            new TenantProvisioningClient(http.CreateClient(CapacitorClients.Anonymous), ClientAgent.Cli));
+            new TenantProvisioningClient(http.CreateClient(CapacitorClients.Anonymous), ClientAgent.Cli)) {
+            DevicePollDelay = new RecordingDelay().DelayAsync
+        };
     }
 
     static AuthHttpScript TwoTenants() =>

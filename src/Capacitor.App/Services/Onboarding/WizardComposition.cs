@@ -232,18 +232,16 @@ internal static class WizardComposition {
         return new LocalInstallController(
             () => cli, options.LocalRoot, () => IsCommittedLocal(options), options.Bridges.Post,
             options.Bridges.Telemetry.Funnel, options.Prefetch,
-            rememberWindowsServiceDeclined: () => options.AppState.UpdateAsync(s => s with { WindowsServiceDeclined = true }),
             settlesUnpublished: options.ExplainsUnpublishedBundle ?? OperatingSystem.IsWindows());
     }
 
     /// <summary>A current service already running kcap takes the local server without being asked for, so the
-    /// option is left out; a declined administrator prompt leaves it unticked. An unknown status still offers it.</summary>
-    internal static async Task<WindowsServiceOffer> WindowsServiceOfferAsync(IAppStateStore state, IKcapCli cli, CancellationToken ct) {
-        if (await cli.ServiceStatusAsync(ct).ConfigureAwait(false) is { Supervisor: "windows_service", ServiceUpgradeAvailable: not true })
-            return WindowsServiceOffer.Hidden;
-
-        return (await state.LoadAsync().ConfigureAwait(false)).WindowsServiceDeclined ? WindowsServiceOffer.Off : WindowsServiceOffer.On;
-    }
+    /// option is left out. Otherwise it starts unticked: the service needs an administrator, and the default install
+    /// must not raise that prompt. An unknown status still offers it.</summary>
+    internal static async Task<WindowsServiceOffer> WindowsServiceOfferAsync(IKcapCli cli, CancellationToken ct) =>
+        await cli.ServiceStatusAsync(ct).ConfigureAwait(false) is { Supervisor: "windows_service", ServiceUpgradeAvailable: not true }
+            ? WindowsServiceOffer.Hidden
+            : WindowsServiceOffer.Off;
 
     static bool IsCommittedLocal(WizardGraphOptions options) =>
         !LocalSetupState.Pending(options.LocalRoot)
@@ -314,7 +312,7 @@ internal static class WizardComposition {
             time: options.Time,
             mailSupport: options.MailSupport is { } mail ? failures => mail(InstallSupportReport.Build(failures, root)) : null,
             resuming: Pending,
-            windowsServiceOffer: options.OffersWindowsService ? ct => WindowsServiceOfferAsync(options.AppState, cli, ct) : null,
+            windowsServiceOffer: options.OffersWindowsService ? ct => WindowsServiceOfferAsync(cli, ct) : null,
             bundleUnpublished: explainUnpublished ? BundleUnpublished : null);
         // The fetch can find the bundle missing while the edition page still leads with Local.
         void OnNotPublishedFound() => options.Bridges.Post(edition.RestateLocalAvailability);
@@ -401,7 +399,8 @@ internal static class WizardComposition {
                 local ? LocalEndpoints.Read(root).Active?.ServerUrl : null,
                 daemon.Busy,
                 options.Surface.AttentionText ?? options.Surface.StatusText,
-                harnesses.PathResolved);
+                harnesses.PathResolved,
+                recording.Any(r => r.Id == HarnessId.Copilot));
         }, options.UrlOpener, PrepareWorkspaceAsync, serviceChanged,
             // The same page Help and support → Set up kcap leads through to connect an agent.
             addAgent: () => shell?.TryGoTo(WizardStepId.Harnesses));

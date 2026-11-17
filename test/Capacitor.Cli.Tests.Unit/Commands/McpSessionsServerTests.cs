@@ -450,31 +450,6 @@ public class McpSessionsServerTests {
     }
 
     [Test]
-    public async Task TryReadInt_throws_on_long_overflow() {
-        var args = new JsonObject { ["limit"] = 5_000_000_000L };
-
-        Assert.Throws<ArgumentException>(() => McpSessionsServer.TryReadInt(args, "limit", out _));
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public async Task TryReadInt_returns_false_for_missing_key() {
-        var ok = McpSessionsServer.TryReadInt(new JsonObject(), "limit", out var value);
-
-        await Assert.That(ok).IsFalse();
-        await Assert.That(value).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task TryReadInt_returns_false_for_wrong_type() {
-        var args = new JsonObject { ["limit"] = "not-a-number" };
-
-        var ok = McpSessionsServer.TryReadInt(args, "limit", out _);
-
-        await Assert.That(ok).IsFalse();
-    }
-
-    [Test]
     public async Task BuildSearchUrl_fails_closed_when_no_repo_resolves_and_none_requested() {
         var args = new JsonObject { ["query"] = "hi" }; // no repo arg, cwdRepoHash null
         await Assert.That(() => McpSessionsServer.BuildSearchUrl("http://x", args, cwdRepoHash: null))

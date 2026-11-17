@@ -248,11 +248,10 @@ public class AcpHostedAgentRuntimeModelSelectionTests {
         await Assert.That(calls.Any(c => c.Method == "session/prompt")).IsTrue();
     }
 
-    // ── Test-plan item 10: explicit non-fatal (RPC error) vs fatal (cancellation) contrast ──────
+    // ── Explicit non-fatal (RPC error) vs fatal (cancellation) contrast ─────────────────────────
 
     /// <summary>
-    /// Test-plan item 10: makes explicit, in ONE place, the contrast this refactor's selector
-    /// abstraction must preserve (see <see cref="IAcpModelSelector"/>'s cancellation-contract
+    /// Makes explicit, in ONE place, the contrast the selector abstraction must preserve (see <see cref="IAcpModelSelector"/>'s cancellation-contract
     /// remarks) — a JSON-RPC ERROR response to <c>session/set_config_option</c> is a best-effort
     /// RESOLUTION failure (non-fatal: <c>StartAsync</c> completes normally and the turn's
     /// <c>session/prompt</c> still fires), while a CANCELED <c>ct</c> observed during that same

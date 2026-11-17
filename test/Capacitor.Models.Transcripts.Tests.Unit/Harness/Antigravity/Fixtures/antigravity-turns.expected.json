@@ -1,0 +1,418 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "e6d292ef-6896-dc1d-c98f-48b4eece56dd",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:00.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:00Z",
+        "payload": {
+          "content": "Run the checks and read the notes.",
+          "timestamp": "2026-11-15T09:00:00Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 1,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "800d9a6c-e09a-bd95-427b-c3473ae7051a",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:01.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:01Z",
+        "payload": {
+          "content": "**Checking**\n\nRun them, then read the notes.",
+          "timestamp": "2026-11-15T09:00:01Z"
+        }
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "bf57465c-d565-3712-ae4b-2ba2f1fdad2a",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:01.0000001\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:01Z",
+        "payload": {
+          "content": "Running the checks.",
+          "timestamp": "2026-11-15T09:00:01.000000100Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "b8598748-a26f-e4e5-f7fb-2322149e4c9e",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:01.0000002\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:01Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "83c7860728325c36aa44fa5832e14211",
+              "toolName": "run_command",
+              "arguments": {
+                "CommandLine": "make check",
+                "Cwd": "/work",
+                "WaitMsBeforeAsync": 3000
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:01.000000200Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "49481723-5d57-870f-2f72-4ba438dfb0f2",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:01.0000003\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:01Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "1591c1222f2314bdee198461f58fe23c",
+              "toolName": "view_file",
+              "arguments": {
+                "AbsolutePath": "/work/NOTES.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:01.000000300Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 3,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "b85e8611-41a8-5b78-6a8a-a6c7400f9c0b",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:02.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:02Z",
+        "payload": {
+          "callId": "83c7860728325c36aa44fa5832e14211",
+          "result": "\n\t\t\t\tThe command failed with exit code: 1\n\t\t\t\tOutput:\n\t\t\t\tFAIL lint\n",
+          "timestamp": "2026-11-15T09:00:02Z",
+          "extensions": {
+            "antigravity": {
+              "is_error": true
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 2,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "cb83d1a3-72f5-7583-70a7-cd105b10725d",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:03Z",
+        "payload": {
+          "callId": "1591c1222f2314bdee198461f58fe23c",
+          "result": "1: The command failed with exit code: 9 is what the old script printed.\n",
+          "timestamp": "2026-11-15T09:00:03Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 4,
+    "batch": 1,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 5,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "d1a6d936-6c6b-e5f5-92fe-583a94872c09",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:04.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "57deb1b082757fc17941602b53f8c825",
+              "toolName": "view_file",
+              "arguments": {
+                "AbsolutePath": "/work/CHANGELOG.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:04Z"
+        }
+      },
+      {
+        "type": "InterruptIssued",
+        "id": "8d2e1737-0f69-38db-4a83-64e6ec7688aa",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:04.0000001\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04Z",
+        "payload": {
+          "requestId": "219c930cb2b192e9c6db6954ee711fa0",
+          "kind": "permission",
+          "toolName": "git",
+          "timestamp": "2026-11-15T09:00:04.000000100Z",
+          "extensions": {
+            "claude_code": {
+              "permission": {
+                "tool_name": "git",
+                "tool_input": {
+                  "Action": "command",
+                  "Reason": "To push the fix",
+                  "Target": "git"
+                },
+                "rule_id": null,
+                "suggestion_type": null,
+                "behavior": null,
+                "updated_tool_input": null,
+                "options": null
+              }
+            },
+            "antigravity": {
+              "native_name": "ask_permission"
+            }
+          }
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "601c668d-d80d-f206-98a9-957dd2fa7236",
+        "lineNumber": 4,
+        "timestamp": "2026-11-15T09:00:05.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:05Z",
+        "payload": {
+          "callId": "57deb1b082757fc17941602b53f8c825",
+          "result": "1: # Changelog\n",
+          "timestamp": "2026-11-15T09:00:05Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 7,
+    "batch": 2,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 9,
+    "batch": 2,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 6,
+    "batch": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AntigravityUsageBackfilled",
+        "id": "244f4ef1-da41-43c2-e1b9-c151b1f0961e",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:06.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:06Z",
+        "payload": {
+          "model": "gemini-3.5-flash-medium",
+          "input_tokens": 1200,
+          "output_tokens": 120,
+          "cache_read_tokens": 900,
+          "cache_write_tokens": 12
+        }
+      }
+    ]
+  },
+  {
+    "line": 8,
+    "batch": 2,
+    "rejected": true,
+    "events": []
+  },
+  {
+    "line": 10,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "d1a6d936-6c6b-e5f5-92fe-583a94872c09",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:04.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04Z",
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "57deb1b082757fc17941602b53f8c825",
+              "toolName": "view_file",
+              "arguments": {
+                "AbsolutePath": "/work/CHANGELOG.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-11-15T09:00:04Z"
+        }
+      },
+      {
+        "type": "InterruptIssued",
+        "id": "8d2e1737-0f69-38db-4a83-64e6ec7688aa",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:04.0000001\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:04Z",
+        "payload": {
+          "requestId": "219c930cb2b192e9c6db6954ee711fa0",
+          "kind": "permission",
+          "toolName": "git",
+          "timestamp": "2026-11-15T09:00:04.000000100Z",
+          "extensions": {
+            "claude_code": {
+              "permission": {
+                "tool_name": "git",
+                "tool_input": {
+                  "Action": "command",
+                  "Reason": "To push the fix",
+                  "Target": "git"
+                },
+                "rule_id": null,
+                "suggestion_type": null,
+                "behavior": null,
+                "updated_tool_input": null,
+                "options": null
+              }
+            },
+            "antigravity": {
+              "native_name": "ask_permission"
+            }
+          }
+        }
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "601c668d-d80d-f206-98a9-957dd2fa7236",
+        "lineNumber": 4,
+        "timestamp": "2026-11-15T09:00:05.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:05Z",
+        "payload": {
+          "callId": "57deb1b082757fc17941602b53f8c825",
+          "result": "1: # Changelog\n",
+          "timestamp": "2026-11-15T09:00:05Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 12,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "b483dcdc-b042-8dad-bfff-63712e18c1dc",
+        "lineNumber": null,
+        "timestamp": "0001-01-01T00:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "payload": {
+          "content": "A step written without a time.",
+          "timestamp": "0001-01-01T00:00:00Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 13,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "InterruptIssued",
+        "id": "bdd79ebb-5636-d32a-0744-3eb2a6c72a4d",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "payload": {
+          "requestId": "6d4cc0a148e1afb120cbb450567863f5",
+          "kind": "input",
+          "toolName": "AskUserQuestion",
+          "prompt": "Push now?",
+          "timestamp": "2026-11-15T10:00:00Z",
+          "extensions": {
+            "claude_code": {
+              "elicitation": {
+                "options": [
+                  {
+                    "label": "Yes",
+                    "description": null,
+                    "option_id": null,
+                    "kind": null
+                  },
+                  {
+                    "label": "No",
+                    "description": null,
+                    "option_id": null,
+                    "kind": null
+                  }
+                ],
+                "is_multi_select": false,
+                "selected_index": null,
+                "selected_option_ids": null,
+                "selected_option_labels": null,
+                "min_selections": null,
+                "max_selections": null
+              }
+            },
+            "antigravity": {
+              "native_name": "ask_question"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 14,
+    "batch": 3,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 11,
+    "batch": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AntigravityUsageBackfilled",
+        "id": "244f4ef1-da41-43c2-e1b9-c151b1f0961e",
+        "lineNumber": null,
+        "timestamp": "2026-11-15T09:00:07.0000000\u002B00:00",
+        "recordTimestamp": "2026-11-15T09:00:07Z",
+        "payload": {
+          "model": "gemini-3.5-flash",
+          "input_tokens": 1250,
+          "output_tokens": 120,
+          "cache_read_tokens": 900,
+          "cache_write_tokens": 12
+        }
+      }
+    ]
+  }
+]

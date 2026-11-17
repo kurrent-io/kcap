@@ -15,7 +15,81 @@ public class CodexTurnInputDispatcherTests {
     static readonly TimeSpan Guard = TimeSpan.FromSeconds(5);
 
     static CodexTurnInputDispatcher Dispatcher(FakeTurnSink sink) =>
-        new(sink.Start, sink.Steer, NullLogger.Instance, CancellationToken.None);
+        new(sink.Start, sink.Steer, NullLogger.Instance, CancellationToken.None, compact: sink.Compact);
+
+    [Test]
+    public async Task Idle_compaction_dispatches_and_holds_input_until_its_turn_completes() {
+        var sink = new FakeTurnSink();
+        var d    = Dispatcher(sink);
+
+        var (written, finished) = d.EnqueueCompaction();
+        var compact = await sink.NextCompact();
+        await Assert.That(d.TurnInFlight).IsTrue();
+
+        compact.Accepted();
+        await written.WaitAsync(Guard);
+        await Assert.That(d.OnTurnStarted("compact-turn")).IsTrue();
+
+        var ack = d.EnqueueAsync("after");
+        await Assert.That(sink.StartCount + sink.SteerCount).IsEqualTo(0);
+        await Assert.That(finished.IsCompleted).IsFalse();
+
+        d.OnTurnCompleted("compact-turn");
+        await finished.WaitAsync(Guard);
+
+        var start = await sink.NextStart();
+        await Assert.That(start.Text).IsEqualTo("after");
+        start.Started("turn-2");
+        await ack.WaitAsync(Guard);
+    }
+
+    [Test]
+    public async Task Compaction_waits_for_the_active_turn_and_is_never_a_steer() {
+        var sink = new FakeTurnSink();
+        var d    = Dispatcher(sink);
+
+        var ack = d.EnqueueAsync("a");
+        (await sink.NextStart()).Started("turn-1");
+        await ack.WaitAsync(Guard);
+
+        var (written, _) = d.EnqueueCompaction();
+        await Assert.That(sink.CompactCount).IsEqualTo(0);
+        await Assert.That(sink.SteerCount).IsEqualTo(0);
+        await Assert.That(d.OnTurnStarted("turn-1")).IsFalse();
+
+        d.OnTurnCompleted("turn-1");
+        (await sink.NextCompact()).Accepted();
+        await written.WaitAsync(Guard);
+    }
+
+    [Test]
+    public async Task A_compaction_turn_that_completes_before_the_response_leaves_the_dispatcher_idle() {
+        var sink = new FakeTurnSink();
+        var d    = Dispatcher(sink);
+
+        var (written, finished) = d.EnqueueCompaction();
+        var compact = await sink.NextCompact();
+        d.OnTurnStarted("compact-turn");
+        d.OnTurnCompleted("compact-turn");
+        compact.Accepted();
+
+        await written.WaitAsync(Guard);
+        await finished.WaitAsync(Guard);
+        await d.WaitForSettledAsync().WaitAsync(Guard);
+    }
+
+    [Test]
+    public async Task A_refused_compaction_faults_its_write_and_ends() {
+        var sink = new FakeTurnSink();
+        var d    = Dispatcher(sink);
+
+        var (written, finished) = d.EnqueueCompaction();
+        (await sink.NextCompact()).Error(new CodexAppServerRpcException(-32603, "no"));
+
+        await Assert.That(async () => await written.WaitAsync(Guard)).Throws<CodexAppServerRpcException>();
+        await finished.WaitAsync(Guard);
+        await d.WaitForSettledAsync().WaitAsync(Guard);
+    }
 
     [Test]
     public async Task Idle_input_dispatches_as_turn_start() {
@@ -346,6 +420,19 @@ public class CodexTurnInputDispatcherTests {
             return call.Response.Task;
         }
 
+        readonly Channel<CompactCall> _compacts = Channel.CreateUnbounded<CompactCall>();
+        int _compactCount;
+        public int CompactCount => Volatile.Read(ref _compactCount);
+
+        public Task Compact(CancellationToken ct) {
+            Interlocked.Increment(ref _compactCount);
+            var call = new CompactCall();
+            ct.Register(() => call.Response.TrySetCanceled(ct));
+            _compacts.Writer.TryWrite(call);
+            return call.Response.Task;
+        }
+
+        public async Task<CompactCall> NextCompact() => await _compacts.Reader.ReadAsync().AsTask().WaitAsync(Guard);
         public async Task<StartCall> NextStart() => await _starts.Reader.ReadAsync().AsTask().WaitAsync(Guard);
         public async Task<SteerCall> NextSteer() => await _steers.Reader.ReadAsync().AsTask().WaitAsync(Guard);
     }
@@ -363,5 +450,11 @@ public class CodexTurnInputDispatcherTests {
         public TaskCompletionSource Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public void Accepted() => Response.TrySetResult();
         public void Missed()   => Response.TrySetException(new CodexAppServerRpcException(-32600, "no active turn to steer"));
+    }
+
+    sealed class CompactCall {
+        public TaskCompletionSource Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Accepted() => Response.TrySetResult();
+        public void Error(Exception ex) => Response.TrySetException(ex);
     }
 }

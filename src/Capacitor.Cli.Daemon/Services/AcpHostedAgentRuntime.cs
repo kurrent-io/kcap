@@ -45,15 +45,14 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <c>system_note</c>. The full protocol — incarnation identity, the two-transition send-admission
 /// section, corpse retirement, the activation latch, incident chaining, and the interaction
 /// router — is the design spec at
-/// <c>docs/superpowers/specs/2026-08-04-ai1325-acp-reconnect-resume-design.md</c>; the region
-/// comments below reference its section numbers.
+/// <c>docs/superpowers/specs/2026-08-04-ai1325-acp-reconnect-resume-design.md</c>.
 /// </summary>
 internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscriptSource, ITerminationVerdictSource {
     static readonly AcpMcpServerSpec[] NoMcpServers = [];
 
     /// <summary>
     /// One spawned connection/process pair — the original launch or a reconnect candidate — with
-    /// its unique, never-reused incarnation id (reconnect spec §5.1). The runtime serves exactly
+    /// its unique, never-reused incarnation id. The runtime serves exactly
     /// one INSTALLED incarnation at a time (<see cref="_installed"/>); crash signals are stamped
     /// with their source incarnation's id and are live only while that id is installed, which is
     /// what makes a disposed candidate's delayed callback structurally inert.
@@ -69,7 +68,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// <summary>Runtime lifecycle phase, mutated only under <see cref="_reconnectLock"/>.</summary>
     enum RuntimePhase { Running, Reconnecting, Terminal }
 
-    /// <summary>The §5.3 in-flight registration: the one turn past pre-gate admission, its
+    /// <summary>The in-flight registration: the one turn past pre-gate admission, its
     /// write-state advanced by the write path (`not-started` → `entered` → `written`).</summary>
     sealed class InFlightTurn(PendingTurn turn, long incarnationId) {
         public const int NotStarted = 0, Entered = 1, Written = 2;
@@ -79,7 +78,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         public int         WriteState;
     }
 
-    /// <summary>A registered pending interaction (reconnect spec §5.4): the sweep's bookkeeping
+    /// <summary>A registered pending interaction: the sweep's bookkeeping
     /// signal (<see cref="CancelledSignal"/>, completed BEFORE the token — no foreign code) is what
     /// the router races against the bridge, so a blocked cancellation callback can never strand the
     /// response or the entry's removal; <see cref="Cts"/> is signalled last, as the best-effort
@@ -104,8 +103,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>The runtime phase with acquire semantics — the backing field is written only under
     /// <see cref="_reconnectLock"/>, but several readers (`HasExited`/`ExitCode`, the graceful-stop
-    /// catch filter) run lock-free, and a plain enum field gives them no visibility guarantee
-    /// (Qodo review #2). Backed by an int because <c>volatile</c>/<see cref="Volatile"/>
+    /// catch filter) run lock-free, and a plain enum field gives them no visibility guarantee.
+    /// Backed by an int because <c>volatile</c>/<see cref="Volatile"/>
     /// don't apply to enum fields. Reads under the lock use this too — uniform and harmless.</summary>
     RuntimePhase Phase => (RuntimePhase)Volatile.Read(ref _phase);
     volatile bool _suppressNotifications;
@@ -126,7 +125,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     TaskCompletionSource _gateOpen = CompletedGate();
 
     /// <summary>Completed when the runtime is logically terminal — the re-keyed signal
-    /// <see cref="ReadOutputAsync"/> waits on instead of "this process exited" (spec §5.4), so the
+    /// <see cref="ReadOutputAsync"/> waits on instead of "this process exited", so the
     /// orchestrator's finalize trigger never fires for a crash reconnect will absorb.</summary>
     readonly TaskCompletionSource _runtimeTerminal = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -136,7 +135,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return tcs;
     }
 
-    /// <summary>Liveness-supervision spec §0/§1: the per-agent activity clock, assigned by
+    /// <summary>The per-agent activity clock, assigned by
     /// <see cref="AgentOrchestrator"/> right after this runtime is obtained — before any envelope or
     /// turn activity can occur, and before the owning <c>AgentInstance</c> even exists. Null for every
     /// construction that bypasses that launch path (unit tests, the resume-candidate constructor
@@ -145,7 +144,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     internal AgentActivityClock? ActivityClock { get; set; }
 
     /// <summary>
-    /// Liveness-supervision spec (Task 13): the fixed per-stage cap for the ACP launch handshake
+    /// The fixed per-stage cap for the ACP launch handshake
     /// (<c>initialize</c> → <c>session/new</c> → model selection). A deliberate FIXED wall-clock
     /// bound, not an evidence-based one — the design's one considered exception to that thesis: each
     /// stage is a single RPC with empirically sub-second-to-seconds latency, there is no
@@ -367,8 +366,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     int _sawFirstUpdate;
 
     /// <summary>Completes when the first turn ends, however it ends — the other way to disarm the
-    /// first-output watchdog. Also the launch-window marker <see cref="TryStartReap"/> snapshots
-    /// (design spec §3.3): the window is open from spawn until this settles. An empty/absent initial
+    /// first-output watchdog. Also the launch-window marker <see cref="TryStartReap"/> snapshots:
+    /// the window is open from spawn until this settles. An empty/absent initial
     /// prompt settles it directly at <see cref="StartAsync"/>'s completion (see that method's tail)
     /// — a deterministic backstop, since no turn ever runs to settle it otherwise.</summary>
     readonly TaskCompletionSource _firstTurnSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -380,19 +379,19 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>Test-only: the runtime's shutdown token, so a test can register a THROWING
     /// cancellation callback and fault <see cref="DisposeAsync"/>'s early cancellation phase
-    /// (<c>_cts.CancelAsync()</c>) — proving the guaranteed-teardown path still disposes the child
-    /// (finding 2). Never touched by production code.</summary>
+    /// (<c>_cts.CancelAsync()</c>) — proving the guaranteed-teardown path still disposes the child.
+    /// Never touched by production code.</summary>
     internal CancellationToken RuntimeShutdownTokenForTest => _cts.Token;
 
     /// <summary>Test-only: invoked in <see cref="DisposeAsync"/> IMMEDIATELY before it takes
-    /// <see cref="_reconnectLock"/> — the exact window a round-2 pre-lock incarnation read left open —
+    /// <see cref="_reconnectLock"/> — the window a pre-lock incarnation read would leave open —
     /// so a test can commit a reconnect successor there and prove the guaranteed teardown disposes the
-    /// SUCCESSOR (finding 2, round 3), not a stale predecessor. Null in production.</summary>
+    /// SUCCESSOR, not a stale predecessor. Null in production.</summary>
     internal Action? BeforeReconnectLockOnDisposeForTest;
 
     /// <summary>Test-only: the logical-terminal signal, so a test can assert it fired even when the
-    /// early cancellation phase faulted (parked read/finalizer waiters must not be stranded — finding
-    /// 2, round 3). Never touched by production code.</summary>
+    /// early cancellation phase faulted (parked read/finalizer waiters must not be stranded). Never
+    /// touched by production code.</summary>
     internal Task RuntimeTerminalForTest => _runtimeTerminal.Task;
 
     /// <summary>Text buffered in the open chunk run, so a test can see a chunk the journal has not
@@ -403,7 +402,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>Test-only: the turn-worker task, so a test can assert DisposeAsync always SIGNALS the
     /// worker to exit (channels completed / token cancelled) even when the early cancellation phase
-    /// faults — otherwise it parks forever while teardown disposes its resources (Bug 1). Never touched
+    /// faults — otherwise it parks forever while teardown disposes its resources. Never touched
     /// by production code.</summary>
     internal Task TurnWorkerTaskForTest => _turnWorkerTask;
 
@@ -449,10 +448,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>
     /// The initialize/session-new wrapper's failure, carrying the sanitized transport cause as a
-    /// SEPARATE property from the composed, hint-decorated <see cref="Exception.Message"/> (design
-    /// spec §3.2). <see cref="Exception.Message"/> is composed exactly as the plain
-    /// <see cref="InvalidOperationException"/> this replaces always was — byte-identical for the
-    /// no-verdict path — but <see cref="TransportMessage"/> lets a caller (the factory's
+    /// SEPARATE property from the composed, hint-decorated <see cref="Exception.Message"/>.
+    /// <see cref="TransportMessage"/> lets a caller (the factory's
     /// launch-failure reclassification) quote just the transport cause, so a reclassified suffix can
     /// never smuggle the auth hint back in. <c>internal</c> (not the sibling exceptions' default
     /// private) because the factory, in a different class, needs to pattern-match on it.
@@ -488,18 +485,13 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// connection's default JSON-RPC "Method not found" response. When provided, it is forwarded
     /// into a new <see cref="AcpInteractionBridge"/> and wired as <see cref="AcpConnection.OnServerRequest"/>.
     ///
-    /// <b>Qodo daemon-review Q2:</b> this wiring no longer closes over this runtime's
-    /// <see cref="_sessionId"/> — <see cref="AcpInteractionBridge.HandleAsync"/> now sources the ACP
-    /// session id solely from the inbound request's OWN params. The prior shape passed
-    /// <c>_sessionId ?? ""</c>, which was correct ONLY because a permission/elicitation request can
-    /// normally arrive no earlier than a <c>session/prompt</c> turn, by which point
-    /// <see cref="StartAsync"/>'s <c>session/new</c> has already resolved <see cref="_sessionId"/> —
-    /// but <see cref="AcpConnection"/>'s read loop is started (via <see cref="RunIncarnationLoopAsync"/>)
-    /// BEFORE that handshake completes, so a server request arriving out of turn (a buggy or
-    /// malicious agent) would have forwarded an <see cref="AcpInteractionRequest"/> with
-    /// <c>AcpSessionId == ""</c>, silently breaking server-side correlation instead of failing loud
-    /// or safe. Trusting the request's own params removes this whole class of bug and this runtime
-    /// no longer needs to expose <see cref="_sessionId"/> to the bridge at all.
+    /// This wiring does not close over this runtime's <see cref="_sessionId"/>:
+    /// <see cref="AcpInteractionBridge.HandleAsync"/> sources the ACP session id solely from the
+    /// inbound request's OWN params. <see cref="AcpConnection"/>'s read loop starts (via
+    /// <see cref="RunIncarnationLoopAsync"/>) BEFORE <c>session/new</c> resolves <see cref="_sessionId"/>,
+    /// so a server request arriving out of turn (a buggy or malicious agent) would otherwise forward an
+    /// <see cref="AcpInteractionRequest"/> with <c>AcpSessionId == ""</c>, silently breaking
+    /// server-side correlation.
     /// </summary>
     public AcpHostedAgentRuntime(
             AcpConnection                                                                  connection,
@@ -553,9 +545,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _agentId       = agentId;
         _debugFrames   = debugFrames;
         _vendor        = vendor;
-        // LEGACY/COMPAT default (spec-review Finding 3a): null here means
-        // ConfigOptionModelSelector.Instance, NOT NoOpModelSelector — every existing call site
-        // that constructs this runtime directly (without a descriptor) keeps today's exact Cursor
+        // Null here means ConfigOptionModelSelector.Instance, NOT NoOpModelSelector — a call site
+        // that constructs this runtime directly (without a descriptor) gets Cursor's
         // model-selection behavior. The generalized path (AcpHostedAgentRuntimeFactory.StartAsync)
         // always passes descriptor.ModelSelector explicitly and never relies on this default.
         _modelSelector = modelSelector ?? ConfigOptionModelSelector.Instance;
@@ -616,10 +607,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// Wires one spawned incarnation exactly once, at spawn (reconnect spec §6.2 steps 2–4):
+    /// Wires one spawned incarnation exactly once, at spawn:
     /// notifications into the (suppression-aware) shared handler, the transport-ended pre-fault
     /// hook stamped with THIS incarnation's id — safe arbitrarily early because an uninstalled
-    /// stamp is structurally inert (§5.1), and required arbitrarily early so a death at any
+    /// stamp is structurally inert, and required arbitrarily early so a death at any
     /// instant after commit is reportable with no wiring gap — and the state-derived interaction
     /// router (never the bridge directly; the router declines while this incarnation is
     /// uninstalled or the runtime is not `Running`).
@@ -650,7 +641,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             return;
     }
 
-    /// <summary>Wired as the bridge's reason-bearing reap callback (design spec §3.1) — <paramref
+    /// <summary>Wired as the bridge's reason-bearing reap callback — <paramref
     /// name="reason"/> arrives ALREADY CODED (<c>unattended_frame_unadmittable: …</c> or
     /// <c>unattended_interaction_forbidden:{method}</c>; see <c>AcpInteractionBridge</c>'s
     /// <c>unexpectedUnattendedInteraction</c> doc), so it forwards verbatim — same shape as <see
@@ -674,8 +665,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         try {
             await _installed.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         } catch (Exception ex) {
-            // Bug 4: callers now pass the full coded reap reason / monitor violation, not a bare
-            // JSON-RPC method — label it {Reason}. Bug A: SANITIZED (single-line, length-bounded,
+            // Callers pass the full coded reap reason / monitor violation, not a bare
+            // JSON-RPC method — label it {Reason}. SANITIZED (single-line, length-bounded,
             // surrogate-safe) because a coded reason embeds variable, agent-influenced content (MCP
             // server names, a monitor's 'why' string) that can carry line breaks or run long and
             // bloat this log line — the same normalization the forwarded verdict already uses.
@@ -687,7 +678,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>The CURRENT (installed) child's pid — changes at a reconnect commit, so consumers
     /// reading it live (registry displays, spawn logs) track the serving incarnation. The durable
-    /// PID record is updated separately, at candidate spawn (reconnect spec §6.2 step 1).</summary>
+    /// PID record is updated separately, at candidate spawn.</summary>
     public int    Pid                 => _installed.Process.Pid;
 
     // Vendor-aware handshake/auth diagnostic labels. `_vendor` is the vendor KEY (e.g. "cursor"),
@@ -749,7 +740,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
       + "service unit, not your shell profile), then re-run `kcap daemon service install` and restart "
       + "the daemon";
 
-    /// <summary>LOGICAL liveness (reconnect spec §5.4): while `Reconnecting` the agent is alive by
+    /// <summary>LOGICAL liveness: while `Reconnecting` the agent is alive by
     /// contract — a dead child mid-swap must not read as agent death to the orchestrator — so this
     /// reports <see langword="false"/> until the runtime is Running (current process's view) or
     /// Terminal (<see langword="true"/>).</summary>
@@ -810,18 +801,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// <summary>Convenience projection of <see cref="NegotiatedCapabilities"/>'s <c>loadSession</c> flag — false before <see cref="StartAsync"/> resolves, or if the agent didn't advertise it.</summary>
     public bool SupportsLoadSession => _negotiatedCapabilities?.LoadSession ?? false;
 
-    /// <summary>Non-null exactly when this launch may attempt reconnect (reconnect spec §4). The
+    /// <summary>Non-null exactly when this launch may attempt reconnect. The
     /// orchestrator wires the PID-record callbacks onto it after agent registration — the record
     /// store and the agent's identity fields are orchestrator-owned, so the runtime can only carry
     /// the seam.</summary>
     internal AcpReconnectSupport? ReconnectSupport => _reconnect;
 
     /// <summary>Test-only: invoked by the reconnect owner immediately after a successful commit,
-    /// before the settlement wait — the instant a successor death is a CHAINED crash (§5.2).
+    /// before the settlement wait — the instant a successor death is a CHAINED crash.
     /// Never set in production.</summary>
     internal Action? TestHookAfterCommit { get; set; }
 
-    /// <summary>Test-only observable for the §5.2 chained-crash marker, so a test injecting a
+    /// <summary>Test-only observable for the chained-crash marker, so a test injecting a
     /// post-commit successor death can wait for the signal to be OBSERVED before letting the owner
     /// proceed — pinning the chained arm deterministically instead of racing the EOF propagation
     /// (both interleavings are legal in production; the test wants exactly one).</summary>
@@ -859,7 +850,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _cwd            = cwd;
         _requestedModel = requestedModel;
         // Captured for session/load: a resume must hand the agent the SAME server list the
-        // original launch carried (reconnect spec §6.2 step 6).
+        // original launch carried.
         _mcpServersForResume = mcpServers?.ToArray() ?? NoMcpServers;
 
         var connection = _installed.Connection;
@@ -874,7 +865,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _installed.LoopTask = RunIncarnationLoopAsync(_installed);
         _turnWorkerTask     = RunTurnWorkerAsync(_cts.Token);
 
-        // Liveness-supervision spec §0/§1 (Task 13): the child process already exists by the time
+        // The child process already exists by the time
         // this method runs — the factory spawns it and constructs this runtime before ever calling
         // StartAsync — so "spawned" is stamped immediately, with no cap of its own: there is nothing
         // left to bound (the OS spawn already completed synchronously) and no timeout on it could
@@ -995,7 +986,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // Select the requested model (if any) BEFORE the first prompt fires. Awaited, but never
         // fatal for a resolution failure — see IAcpModelSelector's cancellation-contract remarks
         // for why a canceled ct is the one exception to that (it propagates, aborting StartAsync).
-        // Liveness-supervision spec (Task 13): also capped and stage-stamped like the two RPCs
+        // Also capped and stage-stamped like the two RPCs
         // above — a selector with no model to apply returns near-instantly (TrySelectAsync's
         // no-request-or-no-match paths never touch the wire), so this stage only ever actually
         // WAITS when a model was requested and the vendor's selector RPC hangs.
@@ -1057,7 +1048,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             catch (InputNotAdmittedException ex) { _logger.LogDebug(ex, "ACP: initial prompt not queued — the runtime is already being torn down."); }
             ArmFirstOutputWatchdog();
         } else {
-            // Deterministic backstop (design spec §3.3): no turn will ever run to settle the marker
+            // Deterministic backstop: no turn will ever run to settle the marker
             // via ProcessAdmittedTurnAsync when the launch carries no initial prompt — reviewer
             // launches always carry one, but the window still needs a defined close for any launch
             // that doesn't, or a later reap would misclassify as still inside it forever.
@@ -1066,8 +1057,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// Wraps one ACP handshake step in its own <see cref="AcpLaunchStageTimeout"/> (liveness-
-    /// supervision spec §5). A FRESH <see cref="CancellationTokenSource"/> per call is what makes each
+    /// Wraps one ACP handshake step in its own <see cref="AcpLaunchStageTimeout"/>. A FRESH
+    /// <see cref="CancellationTokenSource"/> per call is what makes each
     /// stage's budget independent, and it runs off <see cref="_timeProvider"/> — monotonic, so a
     /// wall-clock jump can never fail a healthy handshake. On success, stamps
     /// <see cref="AgentActivityClock.SetLaunchStage"/>, the evidence the out-of-cycle status report
@@ -1348,7 +1339,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             Volatile.Write(ref _turnHadAssistantOutput, 0);
             Volatile.Write(ref _turnPermissionCancelled, 0);
 
-            // Liveness-supervision spec §0/§1: the turn gate is genuinely held from here — a parked
+            // The turn gate is genuinely held from here — a parked
             // (not-yet-entered) turn above never reaches this line, so TurnInFlight never flips true
             // for a turn that isn't really in flight yet.
             ActivityClock?.SetTurnInFlight(true);
@@ -1375,14 +1366,13 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             } catch (Exception ex) when (ex is not OperationCanceledException) {
                 // Only reachable once write entry succeeded: faulting the ack is correct for
                 // `entered` and a structural no-op for `written` (the TCS already resolved at
-                // onWritten; TrySetException against a resolved TCS does nothing — normative per
-                // reconnect spec §5.3).
+                // onWritten; TrySetException against a resolved TCS does nothing).
                 turn.Written?.TrySetException(ex);
                 _logger.LogDebug(ex, "ACP: session/prompt turn faulted; flushing this turn's partial buffer.");
 
                 if (ex is AcpRpcException rpc) promptError = rpc.Message;
             } finally {
-                // C4 inverted (reconnect spec §5.4): the flush is KEPT on the crash path — under
+                // The flush is KEPT on the crash path — under
                 // skip-whole-replay nothing is ever re-emitted from replay, so the flushed partial
                 // run cannot be duplicated; it is the only copy of what the agent said before dying.
                 FlushOpenRun();
@@ -1410,7 +1400,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 Interlocked.Exchange(ref _sawFirstUpdate, 1);
                 _firstTurnSettled.TrySetResult();
 
-                // Liveness-supervision spec §0/§1: the turn ends here regardless of how it ended
+                // The turn ends here regardless of how it ended
                 // (stopReason, fault, or cancellation) — this finally always runs for a turn that
                 // reached the entered state above, so the true/false pair is exactly bracketed.
                 ActivityClock?.SetTurnInFlight(false);
@@ -1438,7 +1428,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// terminal path — a candidate's loop ending is inert here (uninstalled stamp), and completing
     /// <see cref="_updates"/> is centralized in the terminal dispositions rather than done
     /// unconditionally, so a crash that reconnect will absorb never signals terminal to the
-    /// orchestrator (reconnect spec §5.4).
+    /// orchestrator.
     /// </summary>
     async Task RunIncarnationLoopAsync(Incarnation incarnation) {
         try {
@@ -1483,11 +1473,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// signals it uses for PTY runtimes.
     /// </summary>
     public async IAsyncEnumerable<byte[]> ReadOutputAsync([EnumeratorCancellation] CancellationToken ct = default) {
-        // Re-keyed from "this process exited" to "the runtime went logically terminal" (reconnect
-        // spec §5.4): the orchestrator treats this enumerable ending as the finalize trigger, so it
+        // Keyed on "the runtime went logically terminal", not "this process exited": the
+        // orchestrator treats this enumerable ending as the finalize trigger, so it
         // must NOT fire for a crash that reconnect will absorb. _runtimeTerminal completes on an
-        // ineligible crash (same moment the process-exit wait used to fire, via
-        // HandleTransportEnded), on reconnect exhaustion, and on intentional stop/dispose — never
+        // ineligible crash (via HandleTransportEnded), on reconnect exhaustion, and on intentional
+        // stop/dispose — never
         // during an incident being absorbed.
         var ctTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1539,7 +1529,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             "session/prompt", promptParams, ct, () => {
                 turn.Written?.TrySetResult();
 
-                // Advance the §5.3 write-state to `written` — from here on, a crash's disposition
+                // Advance the write-state to `written` — from here on, a crash's disposition
                 // for this turn is "surfaced, ack already resolved", never a re-send.
                 lock (_reconnectLock) {
                     if (_inFlight is { } inFlight && ReferenceEquals(inFlight.Turn, turn))
@@ -1619,7 +1609,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// The hard stop: marks intentional stop FIRST (under the reconnect lock — from here on every
     /// crash signal is a no-op, no swap and no held-turn delivery can happen, and an in-flight
     /// reconnect owner's next checkpoint unwinds it), sweeps pending interactions, then terminates
-    /// the current child. C7's lock-scope rule holds: the lock guards only the flag flips and the
+    /// the current child. The lock guards only the flag flips and the
     /// owner-CTS cancellation; the process termination and the interaction tokens run outside it.
     /// </summary>
     public Task TerminateAsync(TimeSpan? timeout = null) {
@@ -1664,11 +1654,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             return;
         }
 
-        // Notification suppression (reconnect spec §5.4): while an incident is in flight, every
+        // Notification suppression: while an incident is in flight, every
         // session/update — the dying connection's last gasps and the candidate's entire replay —
         // is dropped before it can reach _updates or aggregation. A volatile read, never a lock:
         // this runs synchronously on a connection read loop, which must never contend with
-        // admission (§5.1). Scope is deliberately notifications-only — the turn worker's flush
+        // admission. Scope is deliberately notifications-only — the turn worker's flush
         // path and the owner's own emissions are not suppressed.
         if (_suppressNotifications) {
             Interlocked.Increment(ref _suppressedUpdates);
@@ -2043,7 +2033,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// write and a drop-and-evict write under this FullMode — it cannot distinguish the two.
     /// </summary>
     void EmitEnvelope(AcpEventEnvelope envelope, bool advanceActivity = true) {
-        // Liveness-supervision spec §1: advance BEFORE the channel write below, never after — a
+        // Advance BEFORE the channel write below, never after — a
         // reader blocked on Envelopes.ReadAsync can wake and run the instant TryWrite makes the item
         // visible, on another thread, with no ordering relationship to whatever this thread does
         // next. Sequencing Advance() first (same-thread, so it is guaranteed complete before the
@@ -2119,7 +2109,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         BeforeReconnectLockOnDisposeForTest?.Invoke();
 
         // Capture the CURRENT incarnation + owner AND publish the terminal/gate signals BEFORE any
-        // throwing cancellation callback (finding 2, round 3). A fault in the owner-cancel below must
+        // throwing cancellation callback. A fault in the owner-cancel below must
         // neither (a) select a STALE incarnation — leaking a reconnect successor committed since (a
         // successor can no longer be committed once _intentionalStop is set here: TryCommit throws
         // under this SAME lock) — nor (b) skip _gateOpen / the interaction sweep / _runtimeTerminal,
@@ -2127,7 +2117,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // (never a pre-lock read that a Cancel throw could strand), and every signal fires before the
         // cancel.
         //
-        // Intentional stop is marked FIRST (reconnect spec §9): a concurrent crash cannot resurrect a
+        // Intentional stop is marked FIRST: a concurrent crash cannot resurrect a
         // disposing runtime, an in-flight owner's next checkpoint unwinds, and the send gate opens into
         // the terminal path so a parked worker never waits on a gate nobody will reopen.
         Incarnation installed;
@@ -2147,15 +2137,15 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _runtimeTerminal.TrySetResult();
         installed.Connection.OnNotification -= HandleNotification;
 
-        // ── Early cancellation/drain phase ── CONTAINED (finding 2). The owner cancel and
+        // ── Early cancellation/drain phase ── CONTAINED. The owner cancel and
         // _cts.CancelAsync() run cancellation callbacks that can throw; a fault must not skip the
         // guaranteed teardown below (the child/streams would leak with the _disposed latch set). The
         // owner is cancelled here — OUTSIDE _reconnectLock and AFTER the terminal/gate signals — so a
         // throwing owner callback can neither run under the lock nor strand waiters, and teardown still
         // runs against the successor-consistent `installed` captured above.
         try {
-            // INDEPENDENTLY guarded (Bug 1): the owner cancel and _cts.CancelAsync() each run a
-            // cancellation callback that can throw (the whole reason finding 2 exists). Their faults
+            // INDEPENDENTLY guarded: the owner cancel and _cts.CancelAsync() each run a
+            // cancellation callback that can throw. Their faults
             // must not skip the worker-unblock below — cancelling _cts AND completing _pendingTurns are
             // exactly the two signals RunTurnWorkerAsync exits on (it parks on
             // _pendingTurns.WaitToReadAsync(_cts.Token)); skipping them would leave the worker parked
@@ -2212,11 +2202,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _cts.Dispose();
         } catch (Exception ex) {
             // The early cancellation/drain phase faulted — proceed to the guaranteed teardown below
-            // regardless, so the child and its streams are still disposed (finding 2).
+            // regardless, so the child and its streams are still disposed.
             _logger.LogDebug(ex, "ACP: dispose early phase faulted; proceeding to guaranteed teardown for agent {AgentId}.", _agentId);
         }
 
-        // ── Guaranteed teardown: ALWAYS reached, even when the early phase above faulted (finding 2).
+        // ── Guaranteed teardown: ALWAYS reached, even when the early phase above faulted.
         // In a finally-equivalent position because _disposed is latched at the top: if connection or
         // process disposal faults, a retry returns immediately and the callback would never run at
         // all. For the Kiro reviewer that callback deletes the transcript-bearing home, so skipping it
@@ -2227,9 +2217,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // needs the reap's TASK to have settled before any caller (the factory's launch-failure
         // catch) treats disposal as done — otherwise a no-hook (cursor-shaped) runtime could return
         // from DisposeAsync while an in-flight reap is still tearing down the same process disposal
-        // is about to touch below. Design spec §3.2: this was previously gated on _onDisposed is not
-        // null, which is a Kiro/OpenCode-only concern (the isolated-home cleanup hook) that has
-        // nothing to do with whether a reap needs awaiting.
+        // is about to touch below. Not gated on _onDisposed: that is a Kiro/OpenCode-only concern (the
+        // isolated-home cleanup hook) with nothing to do with whether a reap needs awaiting.
         if (TakeReap() is { } reap) {
             try {
                 // Bounded defensively, same rationale and value as the exit-confirmation wait below:
@@ -2308,7 +2297,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
      && _resumeCount < _reconnect.MaxResumesPerSession;
 
     /// <summary>
-    /// The single crash entry point (reconnect spec §5.2) — invoked by the connection's pre-fault
+    /// The single crash entry point — invoked by the connection's pre-fault
     /// hook (stamped via closure), the process-exit watcher, and the read-loop wrapper's finally;
     /// synchronous and non-blocking (takes only the reconnect lock). Four-arm dispatch: stale
     /// stamp / intentional stop → no-op; Running + eligible → open the incident (close the gate,
@@ -2331,7 +2320,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 // this method mid-retirement (code-review r3). Inert.
                 return;
             } else if (incarnationId != _installed.Id) {
-                // A candidate's or disposed incarnation's signal — structurally inert (§5.1), and
+                // A candidate's or disposed incarnation's signal — structurally inert, and
                 // deliberately checked BEFORE any stop handling (code-review r2): a delayed stale
                 // callback arriving after a stop of the healthy successor must not become a
                 // premature finalize trigger while that successor's own termination is still in
@@ -2351,7 +2340,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     return; // the owner's unwind owns completion
 
                 // A committed successor died during the settlement/note/reopen window: chain it
-                // into the SAME incident — never a second owner, never a discarded crash (r3 B1).
+                // into the SAME incident — never a second owner, never a discarded crash.
                 _crashedAgainIncarnation = incarnationId;
                 LogCrashedAgain(_agentId, incarnationId);
                 return;
@@ -2359,9 +2348,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 // Phase == Running: no owner exists, so this arm owns the disposition.
                 if (_intentionalStop) {
                     // The INSTALLED child's transport ended under an intentional stop: fire the
-                    // terminal signals (code-review r1: TerminateAsync from Running otherwise left
-                    // ReadOutputAsync waiting forever — the finalize trigger the old process-exit
-                    // wait used to fire). Only valid in Running — in Reconnecting the owner
+                    // terminal signals (otherwise TerminateAsync from Running leaves
+                    // ReadOutputAsync, the finalize trigger, waiting forever). Only valid in Running — in Reconnecting the owner
                     // completes (above), and its cleanup must not be overtaken.
                     terminal = true;
                 }
@@ -2381,7 +2369,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     _suppressedUpdates     = 0;
                     _suppressNotifications = true;
                     _gateOpen              = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    // The C8 snapshot (§5.3/§7): entered/written ⇒ the surfaced cases ⇒ the note's
+                    // Snapshot: entered/written ⇒ the surfaced cases ⇒ the note's
                     // resend sentence. A not-started registration will park at write entry and be
                     // delivered automatically — no sentence.
                     _incidentResendSentence = _inFlight is { WriteState: >= InFlightTurn.Entered };
@@ -2401,9 +2389,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         ScheduleInteractionSweep(swept);
 
         if (terminal) {
-            // Today's behavior, byte-for-byte in effect: the transport is gone and no reconnect
-            // will absorb it, so the re-keyed terminal signal fires here — the same moment the old
-            // process-exit wait used to. TryComplete/TrySetResult are idempotent against the
+            // The transport is gone and no reconnect will absorb it, so the terminal signal fires
+            // here. TryComplete/TrySetResult are idempotent against the
             // dispose/terminalize paths.
             _updates.Writer.TryComplete();
             _runtimeTerminal.TrySetResult();
@@ -2416,7 +2403,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     /// <summary>
     /// The reconnect owner — exactly one per incident (chained successor crashes fold back into
-    /// this same loop, reconnect spec §5.2/§6.4). Up to 3 candidate spawns at t=0/+1s/+4s; a
+    /// this same loop). Up to 3 candidate spawns at t=0/+1s/+4s; a
     /// `session/load` refusal, protocol downgrade, withdrawn `loadSession`, unconfirmed corpse
     /// retirement, or settlement timeout is terminal for the incident without further attempts.
     /// Every step runs under the owner's stop-cancellable token and re-checks the chained-crash
@@ -2442,7 +2429,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 ownerCt.ThrowIfCancellationRequested();
                 ConsumeChainMarker();
 
-                // Step 0 (§6.1): retire the corpse — confirmed exit is a precondition for every
+                // Step 0: retire the corpse — confirmed exit is a precondition for every
                 // candidate handshake; an unconfirmed old tree is terminal, never shrugged past.
                 if (!await RetireInstalledAsync(support).ConfigureAwait(false))
                     throw new AcpReconnectTerminalException("retirement_unconfirmed",
@@ -2460,7 +2447,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 try {
                     candidate = SpawnCandidate(support);
 
-                    // §6.2 step 1: the durable PID record precedes ANY handshake — a spawned child
+                    // The durable PID record precedes ANY handshake — a spawned child
                     // the daemon cannot durably record must not proceed (leak containment: if the
                     // daemon dies mid-attempt, restart reclamation kills the recorded candidate).
                     // A throw here lands in the attempt-failure catch below, which disposes the
@@ -2486,11 +2473,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     candidate = null; // installed — ownership transferred to the runtime
 
                     // Deterministic seam for the chained-crash tests: fires at the exact
-                    // post-commit, pre-settlement instant a successor death takes the §5.2
+                    // post-commit, pre-settlement instant a successor death takes the
                     // chained arm. Production never sets it.
                     TestHookAfterCommit?.Invoke();
 
-                    // Settlement (§6.4): the faulted incident turn — including its retained
+                    // Settlement: the faulted incident turn — including its retained
                     // partial flush — must complete before the note, so transcript order is
                     // deterministic: partial flush → note → held turn → queued turns. Bounded via
                     // a cancelled WAIT (never an abandoned one — a timed-out-but-still-pending
@@ -2550,7 +2537,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         lock (_reconnectLock) return _crashedAgainIncarnation != -1;
     }
 
-    /// <summary>Records a chained successor crash as handled (spec §5.2): the marker's id becomes
+    /// <summary>Records a chained successor crash as handled: the marker's id becomes
     /// <see cref="_lastHandledCrashIncarnation"/>, so that dead successor's duplicate signals
     /// no-op from here on, and the marker clears for the next successor.</summary>
     void ConsumeChainMarker() {
@@ -2564,7 +2551,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// Step 0 (§6.1): retire the installed corpse — cancel its read loop, dispose its connection,
+    /// Step 0: retire the installed corpse — cancel its read loop, dispose its connection,
     /// terminate its process TREE, and CONFIRM exit within the bounded wait. Idempotent (a second
     /// entry finds the work done); runs entirely outside the reconnect lock. Returns false when
     /// exit cannot be confirmed — terminal for the incident, because `session/load` must never race
@@ -2590,7 +2577,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// §6.2 steps 2–4: invoke the pure spawn closure, assign the next never-reused incarnation id,
+    /// Invoke the pure spawn closure, assign the next never-reused incarnation id,
     /// and wire the candidate exactly like the original launch (hook stamped with its own id —
     /// inert until installed; suppressed notifications; the state-derived interaction router). The
     /// candidate's read loop starts here so its handshake responses can resolve. The durable PID
@@ -2654,7 +2641,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         try {
             _lastLoadResult = await candidate.Connection.RequestAsync("session/load", loadParams, ct).ConfigureAwait(false);
         } catch (AcpRpcException ex) {
-            // A JSON-RPC refusal is terminal for the incident (§6): both measured refusal classes
+            // A JSON-RPC refusal is terminal for the incident: both measured refusal classes
             // (Kiro's durable stale-owner lock, Gemini's unpersisted session) do not clear with
             // retries — a session the vendor refuses to load will not become loadable seconds later.
             throw new AcpReconnectTerminalException("load_refused",
@@ -2668,7 +2655,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// resolution source (it carries the same modes/models shape as `session/new`). Owner-only.</summary>
     JsonElement _lastLoadResult;
 
-    /// <summary>Best-effort model re-application (§6.2 step 7): the load RESPONSE carries the same
+    /// <summary>Best-effort model re-application: the load RESPONSE carries the same
     /// modes/models shape as `session/new` (probe-verified for Cursor), so the vendor's own
     /// selector resolves against it; failure falls back to the loaded session's current model,
     /// exactly like launch. A no-op for `NoOpModelSelector` vendors or when no model was
@@ -2679,9 +2666,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             .ConfigureAwait(false) ?? _resolvedModel;
 
     /// <summary>
-    /// Commit (§6.3), under the reconnect lock: stop re-check, candidate liveness via the
+    /// Commit, under the reconnect lock: stop re-check, candidate liveness via the
     /// TRANSPORT-ENDED LATCH (set strictly before any hook fires, so a death whose only hook
-    /// invocation was discarded as uninstalled is still visible here — r4 B2) plus process exit,
+    /// invocation was discarded as uninstalled is still visible here) plus process exit,
     /// then swap, unwire the corpse's notifications, and install the candidate's id. Returns false
     /// when the liveness check fails (the attempt fails normally). A death after the install fires
     /// the candidate's already-wired hook with the installed stamp and takes the chained-crash arm.
@@ -2830,7 +2817,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             Text: "The tool call was not permitted; the turn ended.",
             TimestampIso: NowIso()));
 
-    /// <summary>The §8 surfacing envelope — emitted after commit and settlement, before reopen,
+    /// <summary>The surfacing envelope — emitted after commit and settlement, before reopen,
     /// while the worker is still parked, so it deterministically precedes every resumed envelope.
     /// The resend sentence appears exactly for the incident's surfaced cases (a turn whose
     /// write-state reached `entered`/`written` at snapshot time).</summary>
@@ -2847,7 +2834,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// The atomic reopen transition (§6.4, r4 B3): ONE lock-linearized operation that re-checks
+    /// The atomic reopen transition: ONE lock-linearized operation that re-checks
     /// stop and the chained-crash marker and — only if clean — sets Running, ends suppression,
     /// counts the resume (the success linearization point: cap + metric + log increment here and
     /// only here), and opens the gate before releasing the lock. A crash callback serializing
@@ -2911,7 +2898,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>
-    /// The incident's terminal path (§6.4): gate opens INTO terminal (the parked worker observes
+    /// The incident's terminal path: gate opens INTO terminal (the parked worker observes
     /// Terminal and exits, faulting a held turn's ack honestly), any leftover candidate is
     /// disposed and its record cleared, and the re-keyed terminal signal finally fires so the
     /// orchestrator finalizes exactly as an ineligible crash does today — once.
@@ -2985,7 +2972,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _runtimeTerminal.TrySetResult();
     }
 
-    // ── Pending-interaction registry + state-derived router (§5.4) ──────────────────────────────
+    // ── Pending-interaction registry + state-derived router ──────────────────────────────
 
     /// <summary>
     /// The state-derived interaction router — one per incarnation, installed at spawn, never
@@ -3043,11 +3030,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             lock (_reconnectLock) claimedByBridge = !entry.Cancelled && ReferenceEquals(winner, bridgeTask);
 
             if (!claimedByBridge)
-                return DeclineFor(request); // the sweep owns the outcome (terminal-claim rule, §5.4)
+                return DeclineFor(request); // the sweep owns the outcome (terminal-claim rule)
 
             return await bridgeTask.ConfigureAwait(false);
         } finally {
-            // Terminal bookkeeping is claim-winner-independent and callback-independent (r8 I1):
+            // Terminal bookkeeping is claim-winner-independent and callback-independent:
             // the entry leaves the registry here, always. The entry's own CTS is deliberately NOT
             // disposed — the sweep's tail may still need to signal it, and a per-interaction CTS
             // left to the GC is the documented cost of never severing that path.
@@ -3100,7 +3087,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
     }
 
-    /// <summary>Step one of the three-step sweep (§5.4): mark every live entry cancelled — plain
+    /// <summary>Step one of the three-step sweep: mark every live entry cancelled — plain
     /// field writes, no token signalled, no callback can run. Caller holds the reconnect lock;
     /// returns the marked set for the off-stack step two, or null when there was nothing to
     /// sweep.</summary>
@@ -3122,11 +3109,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     }
 
     /// <summary>Steps two of the sweep, dispatched as separately supervised fire-and-forget work
-    /// (never awaited by the owner or the pre-fault hook — r6 B1/r7 I2): per entry, the
+    /// (never awaited by the owner or the pre-fault hook): per entry, the
     /// BOOKKEEPING signal first (a TCS completion with async continuations — no foreign code; this
     /// is what resolves the router's race and thus the response + entry removal), then the token —
     /// the one step that executes foreign callbacks — as a best-effort tail a blocked callback can
-    /// strand without consequence (r8 I1).</summary>
+    /// strand without consequence.</summary>
     void ScheduleInteractionSweep(List<PendingInteraction>? marked) {
         if (marked is null)
             return;

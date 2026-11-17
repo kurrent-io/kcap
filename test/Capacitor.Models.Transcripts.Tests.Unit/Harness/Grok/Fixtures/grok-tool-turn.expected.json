@@ -1,0 +1,285 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "e4716418-6ac0-af2d-7410-ba5d12a6f87b",
+        "timestamp": "2026-10-13T14:15:41.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:41.3910000\u002B00:00",
+        "payload": {
+          "content": "Summarize the repository",
+          "timestamp": "2026-10-13T14:15:41.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "435ffb24-0739-8a63-741a-c16004bd139e",
+        "timestamp": "2026-10-13T14:15:43.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:43.3910000\u002B00:00",
+        "payload": {
+          "content": "Looking at the layout first.",
+          "encrypted": false,
+          "timestamp": "2026-10-13T14:15:43.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "f148672d-7e32-d7a4-93cf-09aee9c50f5c",
+        "timestamp": "2026-10-13T14:15:44.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:44.3910000\u002B00:00",
+        "payload": {
+          "content": "I\u0027ll list the files.",
+          "timestamp": "2026-10-13T14:15:44.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "8f42b814-6d13-5ed5-ffe0-3dbcf07abc02",
+        "timestamp": "2026-10-13T14:15:45.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:45.3910000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call-a-0",
+              "tool_name": "list_dir",
+              "arguments": {
+                "target_directory": "/repo"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:45.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "35c413ac-bc9e-b4cb-edce-2928d80d0610",
+        "timestamp": "2026-10-13T14:15:45.4910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:45.4910000\u002B00:00",
+        "payload": {
+          "call_id": "call-a-0",
+          "result": "README.md\nsrc/",
+          "timestamp": "2026-10-13T14:15:45.491Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4291e3b4-21b9-b14a-3653-260c1c4e6e03",
+        "timestamp": "2026-10-13T14:15:46.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:46.3910000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call-a-1",
+              "tool_name": "run_terminal_command",
+              "arguments": {
+                "command": "head -1 README.md",
+                "description": "Read the title"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:46.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "a8b254aa-bc8f-4240-67b6-4c35e9144d7c",
+        "timestamp": "2026-10-13T14:15:46.5910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:46.5910000\u002B00:00",
+        "payload": {
+          "call_id": "call-a-1",
+          "result": "# Demo repository",
+          "timestamp": "2026-10-13T14:15:46.591Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "b27bc5fe-cade-f236-a430-3af052585f4b",
+        "timestamp": "2026-10-13T14:15:47.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:47.3910000\u002B00:00",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call-a-2",
+              "tool_name": "use_tool",
+              "arguments": {
+                "server": "notes",
+                "tool": "save_note",
+                "arguments": {
+                  "text": "demo"
+                }
+              },
+              "tool_kind": "other"
+            }
+          ],
+          "timestamp": "2026-10-13T14:15:47.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "2cbb0f22-611e-1393-c586-9ab2056ab96c",
+        "timestamp": "2026-10-13T14:15:47.4910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:47.4910000\u002B00:00",
+        "payload": {
+          "call_id": "call-a-2",
+          "result": "Error: notes server is not connected",
+          "timestamp": "2026-10-13T14:15:47.491Z",
+          "extensions": {
+            "acp": {
+              "is_error": true
+            }
+          }
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "f0c2f842-286a-ef3e-b106-11e6a4d10aad",
+        "timestamp": "2026-10-13T14:15:50.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:50.3910000\u002B00:00",
+        "payload": {
+          "content": "The repository holds one demo application.",
+          "timestamp": "2026-10-13T14:15:50.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CodexUsageBackfilled",
+        "id": "8244c93c-0493-0974-18e2-d60601031101",
+        "timestamp": "2026-10-13T14:15:50.9910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:50.9910000\u002B00:00",
+        "payload": {
+          "model": "grok-4.5-build",
+          "input_tokens": 35608,
+          "output_tokens": 1368,
+          "cache_read_tokens": 56960,
+          "reasoning_tokens": 203,
+          "cache_write_tokens": null,
+          "model_context_window": null,
+          "occupancy_tokens": 43691,
+          "targets": [
+            {
+              "event_id": "f0c2f842-286a-ef3e-b106-11e6a4d10aad",
+              "event_type": "AssistantTextGenerated",
+              "tool_name": null,
+              "is_echo": false
+            }
+          ]
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]

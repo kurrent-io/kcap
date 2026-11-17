@@ -16,8 +16,8 @@ public class DaemonCommandsServiceUninstallUnderTests {
 
     const string Unreadable = RecordingServiceManager.Unreadable;
 
-    DaemonServiceCommands Commands(IServiceManager manager, string id = "unused") =>
-        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System);
+    DaemonServiceCommands Commands(IServiceManager manager, string id = "unused", TimeSpan? lockWait = null) =>
+        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System) { LockWait = lockWait };
 
     [Test]
     public async Task Removes_only_units_whose_daemon_is_inside_the_folder() {
@@ -145,7 +145,7 @@ public class DaemonCommandsServiceUninstallUnderTests {
         using var held = await ServiceTxnLock.TryAcquireAsync(Daemons.Store, "laptop", TimeSpan.Zero, TimeProvider.System);
         using var console = ConsoleOutput.StartFullCapture();
 
-        var exit = await Commands(manager).UninstallUnder(app);
+        var exit = await Commands(manager, lockWait: TimeSpan.FromMilliseconds(100)).UninstallUnder(app);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(manager.Uninstalled).IsEmpty();

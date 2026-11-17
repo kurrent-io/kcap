@@ -117,7 +117,8 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
         return results;
     }
 
-    static readonly TimeSpan MarkLockWait = TimeSpan.FromSeconds(5);
+    /// <summary>How long <see cref="MarkInterrupted"/> waits out another holder of each entry's lock.</summary>
+    internal TimeSpan MarkLockWait { get; init; } = TimeSpan.FromSeconds(5);
 
     public int MarkInterrupted(string reason, Func<ResumeLedgerEntry, bool>? where = null) {
         var changed = 0;

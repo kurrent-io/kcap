@@ -74,7 +74,7 @@ internal static class CodexSubagentScan {
     ) {
         try {
             using var client  = await context.Http.ForBackgroundAsync(ct);
-            var       payload = CodexSubagentDiscovery.BuildStartPayload(sessionId, agentId, agentType, subFile, spawnCallId);
+            var       payload = SubagentHookPayloads.Start(sessionId, agentId, agentType, subFile, spawnCallId);
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await client.PostWithRetryAsync($"{context.Url}/hooks/subagent-start", content, context.Time, ct: ct);
 
@@ -118,7 +118,7 @@ internal static class CodexSubagentScan {
             using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct, budgetCap.Token);
 
             using var client  = await context.Http.ForBackgroundAsync(budgetCts.Token);
-            var       payload = CodexSubagentDiscovery.BuildStopPayload(sessionId, agentId, agentType, subFile);
+            var       payload = SubagentHookPayloads.Stop(sessionId, agentId, agentType, subFile);
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await client.PostWithRetryAsync($"{context.Url}/hooks/subagent-stop", content, context.Time, timeout: CodexSubagentStopPostBudget, ct: budgetCts.Token);
 

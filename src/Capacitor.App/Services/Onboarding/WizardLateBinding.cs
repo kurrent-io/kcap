@@ -49,6 +49,9 @@ public sealed class LateBoundLocalControlOps(Func<ILocalControlOps> bind) : ILoc
 
     public Task<ResumeProbeReplyDto?> ProbeResumeAsync(ResumeProbeRequestDto request, CancellationToken ct) =>
         bind().ProbeResumeAsync(request, ct);
+
+    public Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct) =>
+        bind().ListCommandsAsync(agentId, ct);
 }
 
 /// <summary>

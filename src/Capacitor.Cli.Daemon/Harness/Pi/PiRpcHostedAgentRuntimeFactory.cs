@@ -476,7 +476,7 @@ internal sealed partial class PiRpcHostedAgentRuntimeFactory(
     ///
     /// <para><b>Why stderr must never reach the returned exception.</b>
     /// <see cref="PiRpcProcess.Diagnostics"/> is a bounded capture of whatever the child wrote to
-    /// stderr, and <c>PiRpcProcess.DrainStderrAsync</c> deliberately never logs that text itself
+    /// stderr, and <c>PiRpcProcess</c> deliberately never logs that text itself
     /// because it can carry prompt fragments, paths, or auth detail. This exception, however, is
     /// what <c>AgentOrchestrator</c>'s launch catch forwards verbatim to the server via
     /// <c>LaunchFailedAsync</c> — an off-host sink. Embedding the raw capture in the message would

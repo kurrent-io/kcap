@@ -102,7 +102,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             IObservable<RemoteTraySummary>? remote = null,
             IObservable<UpdateMenuItem>? updateMenu = null, Func<Task>? updateAction = null,
             IObservable<bool>? restartPending = null, Action? openSettings = null, IObservable<bool>? finishSwitchOffered = null,
-            Func<Task>? finishSwitch = null, Action? openLaunchApprovals = null) {
+            Func<Task>? finishSwitch = null, Action? openLaunchApprovals = null, IObservable<string?>? toolTipHint = null) {
         _pause = pause;
 
         TogglePauseCommand = ReactiveCommand.Create<bool>(pause.RequestToggle);
@@ -164,7 +164,8 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         var pendingWhileConnected = service.Status
             .CombineLatest(restartPending ?? Observable.Return(false), (status, pending) => pending && status.State == AttachState.Connected);
         var withRestartPending = withUpdate.CombineLatest(pendingWhileConnected,
-            (model, pending) => pending ? model with { Header = $"{model.Header} · {RestartPendingSuffix}" } : model);
+            (model, pending) => pending ? model with { Header = $"{model.Header} · {RestartPendingSuffix}" } : model)
+            .CombineLatest(toolTipHint ?? Observable.Return((string?)null), (model, hint) => model with { ToolTipHint = hint });
 
         // Status, snapshots (seeded above), pause.State, consent.PendingCount, attention,
         // pendingSummary, remoteSummary, shim, finish, update, and restartPending are all replay-1-shaped

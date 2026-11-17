@@ -27,3 +27,8 @@ M:System.Threading.Timer.#ctor(System.Threading.TimerCallback,System.Object,Syst
 M:System.Threading.Timer.#ctor(System.Threading.TimerCallback,System.Object,System.Int64,System.Int64);Take a TimeProvider: time.CreateTimer(callback, state, dueTime, period).
 M:System.Threading.Timer.#ctor(System.Threading.TimerCallback,System.Object,System.UInt32,System.UInt32);Take a TimeProvider: time.CreateTimer(callback, state, dueTime, period).
 M:System.Threading.Timer.#ctor(System.Threading.TimerCallback);Take a TimeProvider: time.CreateTimer(callback, state, dueTime, period).
+M:System.String.Normalize;Use UnicodeNormalization: under InvariantGlobalization this returns its input unchanged.
+M:System.String.Normalize(System.Text.NormalizationForm);Use UnicodeNormalization: under InvariantGlobalization this returns its input unchanged.
+M:System.String.IsNormalized;Use UnicodeNormalization.IsNfc: under InvariantGlobalization this answers true for any text.
+M:System.String.IsNormalized(System.Text.NormalizationForm);Use UnicodeNormalization.IsNfc: under InvariantGlobalization this answers true for any text.
+M:System.StringNormalizationExtensions.Normalize(System.String,System.Text.NormalizationForm);Use UnicodeNormalization: under InvariantGlobalization this returns its input unchanged.

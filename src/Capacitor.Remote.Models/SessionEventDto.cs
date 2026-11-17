@@ -12,5 +12,8 @@ public sealed record SessionEventDto {
     [JsonPropertyName("payload")]      public JsonElement? Payload { get; init; }
     [JsonPropertyName("data")]         public JsonElement? Data { get; init; }
     [JsonPropertyName("timestamp")]    public DateTimeOffset? Timestamp { get; init; }
+    /// What a vendor stamped on the event beside its payload, one member per vendor; absent when none did,
+    /// and from a server older than the vendor's member.
+    [JsonPropertyName("vendors")]      public JsonElement? Vendors { get; init; }
     [JsonIgnore] public JsonElement? Body => Payload is { ValueKind: JsonValueKind.Object } p ? p : Data;
 }

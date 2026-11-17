@@ -2,11 +2,15 @@ using Kurrent.Agent.Schema.Events;
 
 namespace Capacitor.Models.Transcripts.Harness.Codex;
 
-/// What a rollout carries between lines. The turn model, the usage cluster and the web-search
-/// pairing span batches, because a cluster's `token_count` and a search's `web_search_end` can land
-/// in another flush than the events they describe; the telemetry stashes and the index of results
-/// returned this batch are cleared at every batch boundary.
+/// What a rollout carries between lines. The turn model, the usage cluster, the web-search pairing
+/// and the patch stash span batches, because a cluster's `token_count`, a search's `web_search_end`
+/// and a `patch_apply_end` can land in another flush than the events they belong to; the exec stash
+/// and the index of results returned this batch are cleared at every batch boundary.
 public sealed class CodexRolloutContext : TranscriptContext {
+    /// An end is followed by its output on the next line, so only a crashed or truncated run, or an
+    /// end that came after its output in a later batch, leaves more than a few waiting.
+    const int MaxPendingPatches = 64;
+
     internal string? Model { get; set; }
 
     /// Every reasoning, assistant text, agent message and tool call since the last finalization.
@@ -25,14 +29,19 @@ public sealed class CodexRolloutContext : TranscriptContext {
     /// queue has drained.
     internal Dictionary<Guid, string> AssignedWebSearchCallIds { get; } = [];
 
-    internal Dictionary<string, CodexExecResultExtension>  PendingExec    { get; } = new(StringComparer.Ordinal);
-    internal Dictionary<string, CodexPatchResultExtension> PendingPatch   { get; } = new(StringComparer.Ordinal);
-    internal Dictionary<string, Guid>                      EmittedResults { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, CodexExecResultExtension>         PendingExec    { get; } = new(StringComparer.Ordinal);
+    internal OrderedDictionary<string, CodexPatchResultExtension> PendingPatch   { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, Guid>                             EmittedResults { get; } = new(StringComparer.Ordinal);
 
     public override void BeginBatch() {
         PendingExec.Clear();
-        PendingPatch.Clear();
         EmittedResults.Clear();
+    }
+
+    /// Holds an end for its output still to come; past the bound the oldest waiting end is dropped.
+    internal void StashPatch(string callId, CodexPatchResultExtension patch) {
+        if (PendingPatch.Count >= MaxPendingPatches && !PendingPatch.ContainsKey(callId)) PendingPatch.RemoveAt(0);
+        PendingPatch[callId] = patch;
     }
 
     internal void Track(CanonicalEvent evt) {

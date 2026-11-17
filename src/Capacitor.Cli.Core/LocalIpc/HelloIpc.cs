@@ -5,7 +5,12 @@ namespace Capacitor.Cli.Core.LocalIpc;
 /// JSON payloads for the hello frames. snake_case on the wire; shared verbatim by the
 /// daemon, the CLI, and the desktop app. Deserialization ignores unmapped members (STJ
 /// default) — additive fields must never break an older client.
-public sealed record ClientHelloDto(string? ClientName, string? ClientVersion);
+/// <para><see cref="AcceptsStarting"/> asks a daemon that is still probing its vendors for an immediate reply marked
+/// <see cref="HelloReplyDto.Starting"/>. Without it the hello waits until the daemon is ready, so a client that reads
+/// capabilities never mistakes a starting daemon's for a finished one's.</para>
+public sealed record ClientHelloDto(
+    string? ClientName, string? ClientVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? AcceptsStarting = null);
 
 /// <summary>
 /// <see cref="Capabilities"/> is <see langword="null"/> = field absent (older daemon); treat as
@@ -14,10 +19,13 @@ public sealed record ClientHelloDto(string? ClientName, string? ClientVersion);
 /// older daemon's reply. <see cref="Pid"/>/<see cref="InstanceId"/> are additive trailing members
 /// identifying the replying daemon process for client-side correlation — null on an
 /// older daemon that predates them.
+/// <para><see cref="Starting"/> is true only on a reply to a client that set <see cref="ClientHelloDto.AcceptsStarting"/>,
+/// from a daemon still probing its vendors: it advertises nothing until it is ready, so the client asks again.</para>
 /// </summary>
 public sealed record HelloReplyDto(
     int ProtocolVersion, string DaemonVersion, string DaemonName, List<string>? Capabilities,
-    int? Pid = null, string? InstanceId = null);
+    int? Pid = null, string? InstanceId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Starting = null);
 
 /// <summary>Single source of truth for the local control socket hello protocol version this build
 /// speaks — both what <c>HandleHelloAsync</c> reports and what a per-verb hello probe (e.g.
