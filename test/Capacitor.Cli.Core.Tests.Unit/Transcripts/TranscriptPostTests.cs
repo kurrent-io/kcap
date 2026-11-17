@@ -11,7 +11,7 @@ public class TranscriptPostTests {
     const string Base    = "http://server";
     const string Raw     = "/hooks/transcript";
 
-    const string Unsupported = """{"error":"canonical_unsupported","reason":"canonical ingress is not enabled"}""";
+    const string Unsupported = """{"error":"canonical_unsupported","reason":"disabled"}""";
 
     static readonly DateTimeOffset Received = new(2026, 11, 16, 9, 0, 0, TimeSpan.Zero);
 

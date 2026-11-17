@@ -17,8 +17,8 @@ public sealed class IngestCapability(HttpClient client, string baseUrl, TimeProv
     /// <summary>How long a client waits for the answer before taking it as a no.</summary>
     public static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-    /// <summary>The wait for a drain, which runs under a cap of a few seconds, a hook's or a spool pass's: the raw post
-    /// that follows a no must still fit in it.</summary>
+    /// <summary>The wait for a drain that runs under a cap of a few seconds: the raw post that follows a no must
+    /// still fit in it. A pass capped below this wait leaves its lines spooled when the answer hangs.</summary>
     public static readonly TimeSpan DrainBudget = TimeSpan.FromSeconds(2);
 
     const int Unknown = 0, Supported = 1, Unsupported = 2;

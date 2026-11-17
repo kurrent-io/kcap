@@ -207,7 +207,7 @@ public class LifecycleSpoolDrainTests {
 
         using var handler = new HangingProbe(Capabilities);
         using var client  = new HttpClient(handler);
-        // As a hook and the daemon run a pass: its posts end with its budget.
+        // A pass's posts end with its budget.
         using var cap     = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
