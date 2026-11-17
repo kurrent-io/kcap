@@ -12,6 +12,9 @@ public class WatchCreatedPullRequestTests {
         $$$"""{"type":"user","toolUseResult":{"stdout":"","gitOperation":{"pr":{"number":{{{number}}},"url":"https://github.com/kurrent-io/kcap-cli/pull/{{{number}}}","action":"created"""
       + "\"}}}}";
 
+    static void Observe(WatchState state, string line) =>
+        TranscriptRecorder.ObserveCreatedPullRequest(state, "claude", CreatedPullRequestAdapters.For("claude")!, line);
+
     static CreatedPullRequest Created(int number) => new("kurrent-io", "kcap-cli", number, $"https://github.com/kurrent-io/kcap-cli/pull/{number}");
 
     static Task Link(WatchState state, Func<CreatedPullRequest, TimeSpan, Task<PrInfo?>> describe, Func<RepositoryPayload, CancellationToken, Task<bool>> post,
@@ -27,8 +30,8 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task Every_created_pr_is_posted_with_its_title_and_head() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        Observe(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1918));
         var posted = new List<RepositoryPayload>();
 
         await Link(state, Describes, (pr, _) => { posted.Add(pr); return Task.FromResult(true); });
@@ -43,7 +46,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_pr_gh_cannot_describe_waits_for_a_later_pass() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1917));
         var posted = 0;
 
         await Link(state, (_, _) => throw new InvalidOperationException("gh missing"), (_, _) => { posted++; return Task.FromResult(true); });
@@ -55,7 +58,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task On_the_last_chance_a_pr_gh_cannot_describe_is_linked_by_its_url() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1917));
         var posted = new List<RepositoryPayload>();
 
         await Link(state, (_, _) => throw new InvalidOperationException("gh missing"), (pr, _) => { posted.Add(pr); return Task.FromResult(true); }, lastChance: true);
@@ -68,7 +71,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_hung_lookup_leaves_the_last_chance_time_to_post() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1917));
         var posted = 0;
 
         await Link(state, Hangs, (_, token) => { token.ThrowIfCancellationRequested(); posted++; return Task.FromResult(true); },
@@ -82,8 +85,8 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_pr_that_runs_out_the_pass_moves_behind_the_rest() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        Observe(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1918));
 
         await Link(state, Describes, async (pr, token) => {
             if (pr.PrNumber == 1917) await Task.Delay(Timeout.Infinite, token);
@@ -96,7 +99,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_rejected_post_stays_pending_for_the_next_pass() {
         var state = new WatchState();
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1917));
 
         await Link(state, Describes, (_, _) => Task.FromResult(false));
 
@@ -109,10 +112,39 @@ public class WatchCreatedPullRequestTests {
     public async Task A_pr_already_linked_is_neither_queued_nor_posted_again() {
         var state = new WatchState();
         state.LinkedPullRequests.Add(("kurrent-io", "kcap-cli", 1917));
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
-        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        Observe(state, CreatedLine(1917));
+        Observe(state, CreatedLine(1918));
+        Observe(state, CreatedLine(1918));
 
         await Assert.That(state.PendingCreatedPullRequests).IsEquivalentTo([Created(1918)]);
+    }
+
+    // A call made before a restart and answered after it: the replay must rebuild the pending call, or the answer
+    // that follows the cursor finds nothing to pair with.
+    [Test]
+    public async Task A_replayed_call_pairs_with_a_result_after_the_cursor() {
+        var state = new WatchState();
+        var log   = new List<string>();
+
+        TranscriptRecorder.CreatedPullRequestsReplay(state, "split", SplitAdapter.Instance).OnLine("call\tc1\tgh pr create --fill");
+        TranscriptRecorder.ObserveCreatedPullRequest(state, "split", SplitAdapter.Instance, "result\tc1\thttps://github.com/kurrent-io/kcap-cli/pull/1917", log.Add);
+
+        await Assert.That(state.PendingCreatedPullRequests).IsEquivalentTo([Created(1917)]);
+        await Assert.That(log.Single()).Contains("call c1");
+    }
+
+    [Test]
+    public async Task A_vendor_without_an_adapter_links_nothing() {
+        await Assert.That(CreatedPullRequestAdapters.For("no-such-vendor")).IsNull();
+    }
+
+    sealed class SplitAdapter : ICreatedPullRequestAdapter {
+        public static readonly SplitAdapter Instance = new();
+
+        public void Observe(string line, CreatedPullRequestEvidence evidence) {
+            var parts = line.Split('\t');
+            if (parts[0] == "call") evidence.Call(parts[1], parts[2]);
+            else evidence.Result(parts[1], parts[2], succeeded: true);
+        }
     }
 }

@@ -141,10 +141,11 @@ public class WatchState {
     public ClaudeSubagentCheckouts?                             SubagentCheckouts        { get; set; }
     public DateTimeOffset                                       LastSubagentCheckoutScan { get; set; }
 
-    // Claude session and subagent watchers: PRs the transcript shows the agent creating, kept
-    // until the server accepts them.
+    // Watchers of a vendor with a CreatedPullRequestAdapters entry: PRs the transcript shows the agent creating,
+    // kept until the server accepts them.
     public List<CreatedPullRequest> PendingCreatedPullRequests { get; } = [];
     public DateTimeOffset           NextCreatedPullRequestLink { get; set; }
+    public CreatedPullRequestEvidence CreatedPullRequestEvidence { get; } = new();
 
     public bool               InitialTitleSent   { get; set; }
     public bool               TitleGenerated     { get; set; }
