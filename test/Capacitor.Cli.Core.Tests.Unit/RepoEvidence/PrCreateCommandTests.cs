@@ -10,6 +10,9 @@ public class PrCreateCommandTests {
     [Arguments("GH_TOKEN=x /opt/homebrew/bin/gh pr create --fill")]
     [Arguments("bash -lc 'cd app && gh pr create --fill'")]
     [Arguments("url=$(gh pr create --fill) && echo \"$url\"")]
+    [Arguments("echo '<<EOF'\ngh pr create --fill")]
+    [Arguments("# <<EOF\ngh pr create --fill")]
+    [Arguments("gh pr create --title '--dry-run' --fill")]
     public async Task A_run_create_matches(string command) {
         await Assert.That(PrCreateCommand.TryMatch(command, out _)).IsTrue();
     }
@@ -22,6 +25,11 @@ public class PrCreateCommandTests {
     [Arguments("# gh pr create --fill")]
     [Arguments("grep -r 'gh pr create' docs")]
     [Arguments("gh pr create --fill --dry-run")]
+    [Arguments("gh pr create --fill || gh pr view --json url --jq .url")]
+    [Arguments("gh pr create --fill; gh pr view --json url --jq .url")]
+    [Arguments("gh pr create --fill 2>&1 | tail -1")]
+    [Arguments("url=$(gh pr create --fill || gh pr view --json url --jq .url) && echo \"$url\"")]
+    [Arguments("url=$(gh pr create --fill) || gh pr view --json url --jq .url")]
     public async Task A_mention_or_another_command_does_not_match(string command) {
         await Assert.That(PrCreateCommand.TryMatch(command, out _)).IsFalse();
     }
@@ -51,6 +59,7 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --repo=kurrent-io/kcap --fill", "kurrent-io/kcap")]
     [Arguments("gh pr create -R kurrent-io/kcap --fill", "kurrent-io/kcap")]
     [Arguments("gh pr create --fill", null)]
+    [Arguments("gh pr create --body '--repo other/repo' --fill", null)]
     public async Task The_repo_flag_is_returned(string command, string? expected) {
         await Assert.That(PrCreateCommand.TryMatch(command, out var repo)).IsTrue();
         await Assert.That(repo).IsEqualTo(expected);

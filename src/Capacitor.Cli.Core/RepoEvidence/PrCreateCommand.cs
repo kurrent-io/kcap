@@ -4,25 +4,32 @@ using System.Text.RegularExpressions;
 namespace Capacitor.Cli.Core.RepoEvidence;
 
 /// <summary>
-/// Finds a <c>gh pr create</c> a shell would run in a command line. Quoted text, heredoc bodies and comments are not
-/// commands, so a line that only mentions one — an echo, a PR body describing it — does not match. Chains
-/// (<c>cd … &amp;&amp; gh pr create</c>), command substitutions and <c>sh -c</c> scripts are searched too.
+/// Finds a <c>gh pr create</c> a shell would run in a command line, and whose output is the line's output. Quoted
+/// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
+/// describing it — does not match. A create must be the last command run: after
+/// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
+/// Only an <c>echo</c> or <c>printf</c> may follow a substitution holding one (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
 /// </summary>
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
 
     static readonly HashSet<string> Prefixes = new(StringComparer.Ordinal) { "env", "command", "exec", "time", "nohup", "sudo", "{", "!" };
     static readonly HashSet<string> Shells   = new(StringComparer.Ordinal) { "sh", "bash", "zsh", "dash", "ksh" };
+    static readonly HashSet<string> Printers = new(StringComparer.Ordinal) { "echo", "printf" };
 
-    /// <summary>True when <paramref name="command"/> runs <c>gh pr create</c>; <paramref name="repo"/> is its
-    /// <c>--repo</c>/<c>-R</c> value, if it named one. A <c>--dry-run</c> creates nothing and does not match.</summary>
+    static readonly HashSet<string> ValueFlags = new(StringComparer.Ordinal) {
+        "--title", "-t", "--body", "-b", "--body-file", "-F", "--base", "-B", "--head", "-H", "--reviewer", "-r",
+        "--assignee", "-a", "--label", "-l", "--project", "-p", "--milestone", "-m", "--template", "-T", "--recover",
+    };
+
+    /// <summary>True when <paramref name="command"/> runs <c>gh pr create</c> as its last command;
+    /// <paramref name="repo"/> is its <c>--repo</c>/<c>-R</c> value, if it named one. A <c>--dry-run</c> creates
+    /// nothing and does not match.</summary>
     public static bool TryMatch(string command, out string? repo) {
         repo = null;
-        if (!command.Contains("gh", StringComparison.Ordinal) || !command.Contains("create", StringComparison.Ordinal)) return false;
-
-        var found = false;
-        Search(StripHeredocBodies(command), 0, ref found, ref repo);
-        return found;
+        return command.Contains("gh", StringComparison.Ordinal)
+            && command.Contains("create", StringComparison.Ordinal)
+            && Search(command, 0, out repo);
     }
 
     /// <summary>Whether a <c>--repo</c> value names <paramref name="owner"/>/<paramref name="name"/>. It may be
@@ -38,23 +45,42 @@ public static partial class PrCreateCommand {
             && string.Equals(segments[^1], name, StringComparison.OrdinalIgnoreCase);
     }
 
-    static void Search(string text, int depth, ref bool found, ref string? repo) {
-        var commands = new List<List<string>>();
-        var scripts  = new List<string>();
-        Split(text, commands, scripts);
+    static bool Search(string text, int depth, out string? repo) {
+        repo = null;
 
-        foreach (var words in commands) {
-            if (Inspect(words, out var script, out var invocationRepo)) {
-                found = true;
-                repo  = invocationRepo;
-            } else if (script is not null) {
-                scripts.Add(script);
+        var commands = new List<ShellCommand>();
+        Scan(text, 0, substitution: false, commands);
+
+        for (var k = commands.Count - 1; k >= 0; k--) {
+            var command = commands[k];
+
+            if (Inspect(command.Words, out var shellScript, out var invocationRepo)) {
+                if (k != commands.Count - 1) return false;
+
+                repo = invocationRepo;
+                return true;
+            }
+
+            if (depth >= MaxDepth) continue;
+
+            if (shellScript is not null) command.Scripts.Add(shellScript);
+
+            foreach (var script in command.Scripts) {
+                if (!Search(script, depth + 1, out var nestedRepo)) continue;
+                if (!commands.Skip(k + 1).All(c => Printers.Contains(Executable(c.Words) ?? ""))) return false;
+
+                repo = nestedRepo;
+                return true;
             }
         }
 
-        if (depth >= MaxDepth) return;
+        return false;
+    }
 
-        foreach (var script in scripts) Search(script, depth + 1, ref found, ref repo);
+    static string? Executable(List<string> words) {
+        var i = 0;
+        while (i < words.Count && (Prefixes.Contains(words[i]) || Assignment().IsMatch(words[i]))) i++;
+        return i < words.Count ? Path.GetFileName(words[i]) : null;
     }
 
     static bool Inspect(List<string> words, out string? script, out string? repo) {
@@ -92,46 +118,23 @@ public static partial class PrCreateCommand {
                 repo = arg["--repo=".Length..];
             } else if (arg.StartsWith("-R", StringComparison.Ordinal) && arg.Length > 2) {
                 repo = arg[2..];
+            } else if (ValueFlags.Contains(arg)) {
+                j++;
             }
         }
 
         return true;
     }
 
-    /// <summary>Drops every heredoc's body, which is data however it is quoted. It runs before splitting because a body
-    /// routinely holds an unbalanced quote, such as an apostrophe in a PR description.</summary>
-    static string StripHeredocBodies(string text) {
-        if (!text.Contains("<<", StringComparison.Ordinal)) return text;
-
-        var kept       = new StringBuilder(text.Length);
-        var delimiters = new Queue<(string Word, bool StripTabs)>();
-
-        foreach (var raw in text.Split('\n')) {
-            var line = raw.TrimEnd('\r');
-
-            if (delimiters.Count > 0) {
-                var (word, stripTabs) = delimiters.Peek();
-                if ((stripTabs ? line.TrimStart('\t') : line) == word) delimiters.Dequeue();
-                continue;
-            }
-
-            kept.Append(raw).Append('\n');
-
-            foreach (Match match in Heredoc().Matches(line)) {
-                delimiters.Enqueue((match.Groups["word"].Value, match.Groups["dash"].Success));
-            }
-        }
-
-        return kept.ToString();
-    }
-
-    /// <summary>Splits shell text into simple commands of words. A command substitution's body becomes opaque word
-    /// text here and is handed back in <paramref name="scripts"/>, since it runs too.</summary>
-    static void Split(string text, List<List<string>> commands, List<string> scripts) {
-        var words  = new List<string>();
-        var word   = new StringBuilder();
-        var inWord = false;
-        var i      = 0;
+    /// <summary>Splits shell code into simple commands of words, from <paramref name="i"/>. A command substitution's
+    /// body is opaque word text here, kept as one of its command's scripts, since it runs too. In a substitution
+    /// it stops past the closing paren and says whether it found one.</summary>
+    static (int End, bool Closed) Scan(string text, int i, bool substitution, List<ShellCommand> commands) {
+        var current  = new ShellCommand([], []);
+        var word     = new StringBuilder();
+        var inWord   = false;
+        var parens   = 0;
+        var heredocs = new Queue<(string Word, bool StripTabs)>();
 
         while (i < text.Length) {
             var c = text[i];
@@ -141,9 +144,23 @@ public static partial class PrCreateCommand {
                     EndWord();
                     i++;
                     break;
-                case '\n' or ';' or '|' or '&' or '(' or ')':
+                case '\n':
+                    EndCommand();
+                    i = SkipHeredocBodies(text, i + 1, heredocs);
+                    break;
+                case ';' or '|' or '&':
                     EndCommand();
                     i++;
+                    break;
+                case '(':
+                    EndCommand();
+                    parens++;
+                    i++;
+                    break;
+                case ')':
+                    EndCommand();
+                    i++;
+                    if (substitution && parens-- == 0) return (i, true);
                     break;
                 case '#' when !inWord:
                     while (i < text.Length && text[i] != '\n') i++;
@@ -162,11 +179,11 @@ public static partial class PrCreateCommand {
                     break;
                 }
                 case '"':
-                    i      = ReadDoubleQuoted(text, i + 1, word, scripts);
+                    i      = ReadDoubleQuoted(text, i + 1, word, current.Scripts);
                     inWord = true;
                     break;
                 case '$' when i + 1 < text.Length && text[i + 1] == '(':
-                    i      = ReadSubstitution(text, i + 2, scripts);
+                    i      = ReadSubstitution(text, i + 2, current.Scripts);
                     inWord = true;
                     break;
                 case '$' when i + 1 < text.Length && text[i + 1] == '{': {
@@ -176,17 +193,19 @@ public static partial class PrCreateCommand {
                     break;
                 }
                 case '`':
-                    i      = ReadBackticks(text, i + 1, scripts);
+                    i      = ReadBackticks(text, i + 1, current.Scripts);
                     inWord = true;
+                    break;
+                case '<' when Heredoc().Match(text, i) is { Success: true, Index: var at } heredoc && at == i:
+                    EndWord();
+                    heredocs.Enqueue((Unquote(heredoc.Groups["word"].Value), heredoc.Groups["dash"].Success));
+                    i += heredoc.Length;
                     break;
                 case '>' or '<':
                     word.Append(c);
                     inWord = true;
                     i++;
-                    if (i < text.Length && text[i] == '&') {
-                        word.Append('&');
-                        i++;
-                    }
+                    while (i < text.Length && text[i] is '<' or '&') word.Append(text[i++]);
                     break;
                 default:
                     word.Append(c);
@@ -197,24 +216,41 @@ public static partial class PrCreateCommand {
         }
 
         EndCommand();
-        return;
+        return (i, false);
 
         void EndWord() {
             if (!inWord) return;
 
-            words.Add(word.ToString());
+            current.Words.Add(word.ToString());
             word.Clear();
             inWord = false;
         }
 
         void EndCommand() {
             EndWord();
-            if (words.Count == 0) return;
+            if (current.Words.Count == 0 && current.Scripts.Count == 0) return;
 
-            commands.Add(words);
-            words = [];
+            commands.Add(current);
+            current = new ShellCommand([], []);
         }
     }
+
+    /// <summary>Skips the bodies of the heredocs a line opened, up to and including each one's delimiter line.</summary>
+    static int SkipHeredocBodies(string text, int i, Queue<(string Word, bool StripTabs)> heredocs) {
+        while (heredocs.Count > 0 && i < text.Length) {
+            var end  = text.IndexOf('\n', i);
+            var line = text[i..(end < 0 ? text.Length : end)].TrimEnd('\r');
+            var (word, stripTabs) = heredocs.Peek();
+
+            if ((stripTabs ? line.TrimStart('\t') : line) == word) heredocs.Dequeue();
+
+            i = end < 0 ? text.Length : end + 1;
+        }
+
+        return i;
+    }
+
+    static string Unquote(string word) => word.Replace("'", "").Replace("\"", "").Replace("\\", "");
 
     static int ReadDoubleQuoted(string text, int i, StringBuilder word, List<string> scripts) {
         while (i < text.Length) {
@@ -248,42 +284,16 @@ public static partial class PrCreateCommand {
 
     /// <summary>Reads a <c>$(…)</c> body from just inside it and returns the index past its closing paren.</summary>
     static int ReadSubstitution(string text, int start, List<string> scripts) {
-        var depth = 1;
-        var i     = start;
-
-        while (i < text.Length) {
-            var c = text[i];
-
-            switch (c) {
-                case '\\':
-                    i += 2;
-                    continue;
-                case '\'': {
-                    var end = text.IndexOf('\'', i + 1);
-                    i = end < 0 ? text.Length : end + 1;
-                    continue;
-                }
-                case '"':
-                    i = ReadDoubleQuoted(text, i + 1, new StringBuilder(), []);
-                    continue;
-                case '(':
-                    depth++;
-                    break;
-                case ')' when --depth == 0:
-                    scripts.Add(text[start..i]);
-                    return i + 1;
-            }
-
-            i++;
-        }
-
-        scripts.Add(text[start..]);
-        return text.Length;
+        var (end, closed) = Scan(text, start, substitution: true, []);
+        scripts.Add(text[start..(closed ? end - 1 : end)]);
+        return end;
     }
+
+    readonly record struct ShellCommand(List<string> Words, List<string> Scripts);
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]
     private static partial Regex Assignment();
 
-    [GeneratedRegex("""(?<!<)<<(?<dash>-)?\s*(?<q>['"]?)(?<word>[A-Za-z_][A-Za-z0-9_]*)\k<q>""")]
+    [GeneratedRegex("""\G<<(?<dash>-)?[ \t]*(?<word>'[^'\n]*'|"[^"\n]*"|\\?[A-Za-z0-9_.-]+)""")]
     private static partial Regex Heredoc();
 }
