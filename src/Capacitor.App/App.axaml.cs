@@ -295,7 +295,7 @@ public partial class App : Application {
     SignInWindow? _signInWindow;
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
-    readonly BehaviorSubject<Action?> _openHarnessesSettings = new(null);
+    readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
     readonly AppMenu _appMenu = new(AppKitMenus.ShowAboutPanel);
@@ -1518,12 +1518,12 @@ public partial class App : Application {
                 ReactiveUI.Reactive.RxSchedulers.MainThreadScheduler);
         }
 
-        Action<SettingsTab>? openSettingsOn = profiles?.Resolution is { ProfileName: { Length: > 0 } profileName, ServerUrl: { Length: > 0 } serverUrl }
+        Func<SettingsTab, bool>? openSettingsOn = profiles?.Resolution is { ProfileName: { Length: > 0 } profileName, ServerUrl: { Length: > 0 } serverUrl }
             ? page => OpenSettings(desktop, new SettingsProfileStore(_config, profileName, serverUrl), service, ops, lane, notifier,
                 lifecycle.PhaseClosed, lifecycle.InstallWindowsServiceAsync, lifecycleCli.ServiceStatusAsync, page, serverLane.Status)
             : null;
-        Action? openSettings = openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Default);
-        _openSearchSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Search));
+        Action? openSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Default);
+        _openSearchSettings.OnNext(openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Search));
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
@@ -1709,17 +1709,18 @@ public partial class App : Application {
         }
     }
 
-    void OpenSettings(IClassicDesktopStyleApplicationLifetime desktop, SettingsProfileStore settings,
+    /// False when the window could not be shown.
+    bool OpenSettings(IClassicDesktopStyleApplicationLifetime desktop, SettingsProfileStore settings,
             IDaemonClientService service, ILocalControlOps ops, DaemonMutationLane lane, IAppNotifier notifier, Task startupSettled,
             Func<CancellationToken, Task<MutationOutcome?>> moveToWindowsService,
             Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus, SettingsTab page = SettingsTab.Default,
             IObservable<ServerLaneStatus>? appLane = null) {
-        if (_shutdownStarted) return;
+        if (_shutdownStarted) return false;
         if (_settingsWindow is { } open) {
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
             open.ShowPage(page);
             open.Activate();
-            return;
+            return true;
         }
 
         ProfilesSettingsViewModel profilesVm;
@@ -1765,7 +1766,7 @@ public partial class App : Application {
             };
         } catch (Exception ex) {
             notifier.Notify($"Could not open settings: {ex.Message}");
-            return;
+            return false;
         }
 
         var window = new SettingsWindow { DataContext = vm, ContentScale = _uiScale };
@@ -1785,6 +1786,7 @@ public partial class App : Application {
         _ = vm.Capture.RefreshVisibilityOptionsAsync();
         window.Show();
         window.Activate();
+        return true;
     }
 
     async Task<string?> PickAccountDirectoryAsync(CancellationToken ct) {
@@ -2326,7 +2328,7 @@ public partial class App : Application {
             RailPreferencesStore? railPreferences = null, AccountReadings? readings = null,
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
-            IObservable<Action?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            IObservable<Func<bool>?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast

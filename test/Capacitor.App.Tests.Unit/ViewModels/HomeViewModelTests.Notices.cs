@@ -130,7 +130,7 @@ public partial class HomeViewModelTests {
             await Assert.That(vm.HarnessesSettingsVisible).IsFalse();
 
             var opened = 0;
-            using var open = new BehaviorSubject<Action?>(() => opened++);
+            using var open = new BehaviorSubject<Func<bool>?>(() => { opened++; return true; });
             vm.AttachHarnessesSettings(open);
             await Assert.That(vm.HarnessesSettingsVisible).IsTrue();
             await Assert.That(vm.BannerActionsVisible).IsTrue();
@@ -148,7 +148,7 @@ public partial class HomeViewModelTests {
             await Assert.That(vm.HarnessesSettingsVisible).IsFalse();
             await Assert.That(await vm.OpenHarnessesSettingsCommand.CanExecute.FirstAsync()).IsFalse();
 
-            open.OnNext(() => opened++);
+            open.OnNext(() => { opened++; return true; });
             daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["codex"]));
             await Assert.That(vm.HarnessesSettingsVisible).IsFalse();
         });
@@ -170,25 +170,34 @@ public partial class HomeViewModelTests {
             daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: []));
             var opened = 0;
             var offered = 0;
-            using var open = new BehaviorSubject<Action?>(() => opened++);
+            var opens = true;
+            Func<Task> offer = () => {
+                offered++;
+                return Task.CompletedTask;
+            };
+            using var open = new BehaviorSubject<Func<bool>?>(() => { opened++; return opens; });
             vm.AttachHarnessesSettings(open);
-            using var found = new BehaviorSubject<NewHarnesses?>(new(["VS Code Copilot"], () => offered++));
+            using var found = new BehaviorSubject<NewHarnesses?>(new(["VS Code Copilot"], offer));
             vm.AttachNewHarnesses(found);
 
             await Assert.That(vm.BannerMessage).IsEqualTo(HomeViewModel.NewHarnessesNotice(["VS Code Copilot"]));
             await Assert.That(vm.BannerTitle).IsEqualTo("VS Code Copilot sessions aren't being stored");
             await Assert.That(vm.HarnessesSettingsVisible).IsTrue();
+            opens = false;
             await vm.OpenHarnessesSettingsCommand.Execute();
-            await Assert.That((opened, offered)).IsEqualTo((1, 1));
+            await Assert.That((opened, offered)).IsEqualTo((1, 0));
+            opens = true;
+            await vm.OpenHarnessesSettingsCommand.Execute();
+            await Assert.That((opened, offered)).IsEqualTo((2, 1));
 
             await vm.SelectMachineAsync("box", isLocal: false);
             await Assert.That(vm.BannerMessage).IsEqualTo(HomeViewModel.NoHarnessesNotice("box"));
 
             await vm.SelectMachineAsync(daemon.DaemonName, isLocal: true);
-            found.OnNext(new([], () => offered++));
+            found.OnNext(new([], offer));
             await Assert.That(vm.BannerMessage).IsEqualTo(HomeViewModel.NoHarnessesNotice(null));
             await vm.OpenHarnessesSettingsCommand.Execute();
-            await Assert.That((opened, offered)).IsEqualTo((2, 1));
+            await Assert.That((opened, offered)).IsEqualTo((3, 1));
         });
     }
 

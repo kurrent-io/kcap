@@ -541,7 +541,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public ReactiveCommand<Unit, Unit> RetryServerCommand { get; }
 
     // Null until AttachHarnessesSettings, and whenever the app has no profile to open Settings for.
-    readonly BehaviorSubject<Action?> _openHarnessesSettings = new(null);
+    readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
     // Null until AttachNewHarnesses.
     readonly BehaviorSubject<NewHarnesses?> _newHarnesses = new(null);
     readonly ObservableAsPropertyHelper<bool> _harnessesSettingsVisible;
@@ -1156,8 +1156,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         var canOpenHarnessesSettings = _openHarnessesSettings.Select(open => open is not null)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
         OpenHarnessesSettingsCommand = ReactiveCommand.Create(() => {
-            if (_newHarnesses.Value is { Labels.Count: > 0 } found && BannerMessage == NewHarnessesNotice(found.Labels)) found.Offered();
-            _openHarnessesSettings.Value?.Invoke();
+            var offering = _newHarnesses.Value is { Labels.Count: > 0 } found && BannerMessage == NewHarnessesNotice(found.Labels) ? found : null;
+            // Only an offer the user reached counts: settings that failed to open leave the banner up.
+            if (_openHarnessesSettings.Value?.Invoke() == true && offering is not null) _ = offering.Offered();
         }, canOpenHarnessesSettings);
         var harnessesSettingsVisible = bannerContent
             .CombineLatest(canOpenHarnessesSettings, newHarnessNotice, (content, canOpen, newHarness) =>
@@ -1276,7 +1277,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         found.Subscribe(_newHarnesses.OnNext).DisposeWith(_disposables);
 
     /// The no-agent banner's way to Settings → Harnesses; null while there is no profile to open Settings for.
-    public void AttachHarnessesSettings(IObservable<Action?> open) =>
+    public void AttachHarnessesSettings(IObservable<Func<bool>?> open) =>
         open.Subscribe(_openHarnessesSettings.OnNext).DisposeWith(_disposables);
 
     /// The "local server is not running" banner, beside the daemon's own recovery.

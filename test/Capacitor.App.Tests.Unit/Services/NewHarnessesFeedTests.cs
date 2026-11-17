@@ -24,7 +24,7 @@ public class NewHarnessesFeedTests {
         var found = NewHarnessesFeed.Read(harnesses, offers, time);
 
         await Assert.That(found!.Labels).IsEquivalentTo(["VS Code Copilot"]);
-        found.Offered();
+        await found.Offered();
         await Assert.That(offers.Load().Entry(HarnessId.Copilot)?.LastOffered).IsEqualTo(time.GetUtcNow());
         await Assert.That(NewHarnessesFeed.Read(harnesses, offers, time)).IsNull();
     }

@@ -22,6 +22,6 @@ public static class NewHarnessesFeed {
 
         return new(
             [.. found.Select(h => harnesses.Detect(h.Id).HostApp is { } host ? $"{host} {h.Label}" : h.Label)],
-            () => offers.StampOffered(found.Select(h => h.Id), time.GetUtcNow()));
+            () => Task.Run(() => offers.StampOffered(found.Select(h => h.Id), time.GetUtcNow())));
     }
 }
