@@ -97,7 +97,7 @@ public static partial class PrCreateCommand {
     /// so what it prints is the create's own output with gh's "already exists:" line, the one before the URL, in view.
     /// </summary>
     static bool IsLineFilter(ShellCommand command) {
-        if (command is not { Joiner: "|", Scripts.Count: 0, RedirectsStdout: false, Words: ["tail" or "head", .. var args] }) return false;
+        if (command is not { Joiner: "|", Scripts.Count: 0, RedirectsStdout: false, ReadsElsewhere: false, Words: ["tail" or "head", .. var args] }) return false;
 
         var lines = 10;
 
@@ -297,6 +297,7 @@ public static partial class PrCreateCommand {
                 case '<' when Heredoc().Match(text, i) is { Success: true, Index: var at } heredoc && at == i:
                     EndWord();
                     heredocs.Enqueue((Unquote(heredoc.Groups["word"].Value), heredoc.Groups["dash"].Success));
+                    current.ReadsElsewhere = true;
                     i += heredoc.Length;
                     break;
                 case '>' or '<':
@@ -328,6 +329,7 @@ public static partial class PrCreateCommand {
             // the repo is o/r.
             if (redirect) {
                 current.RedirectsStdout |= stdoutRedirect;
+                current.ReadsElsewhere  |= word.ToString().Contains('<');
                 redirectTarget          =  word[^1] is '>' or '<' or '&';
             } else if (redirectTarget) {
                 redirectTarget = false;
@@ -351,6 +353,7 @@ public static partial class PrCreateCommand {
                 current = new ShellCommand(joiner);
             } else {
                 current.RedirectsStdout = false;
+                current.ReadsElsewhere  = false;
                 if (joiner != "\n" || !current.Joiner.EndsWith('&') && !current.Joiner.EndsWith('|')) current.Joiner += joiner;
             }
 
@@ -422,6 +425,9 @@ public static partial class PrCreateCommand {
         /// <summary>Whether it sends stdout elsewhere (<c>&gt;file</c>, <c>1&gt;&gt;file</c>), so a URL printed earlier
         /// would read as the create's. Only unquoted syntax counts; <c>2&gt;&amp;1</c> leaves stdout alone.</summary>
         public bool RedirectsStdout { get; set; }
+
+        /// <summary>Whether its stdin comes from a file or heredoc rather than the pipe before it.</summary>
+        public bool ReadsElsewhere { get; set; }
     }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]

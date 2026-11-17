@@ -126,6 +126,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill 2>&1 | tail -n 1")]
     [Arguments("gh pr create --fill | tail -c 60")]
     [Arguments("gh pr create --fill | tail -n +2")]
+    [Arguments("gh pr create --fill | tail -2 < /tmp/old-pr-url")]
+    [Arguments("gh pr create --fill | tail -2 <<EOF\nhttps://github.com/o/r/pull/1\nEOF")]
     [Arguments("gh pr create --fill | tail -1 | cat")]
     [Arguments("gh pr create --fill | tail -1 > out.txt")]
     public async Task Any_other_pipe_after_a_create_does_not_match(string command) {
