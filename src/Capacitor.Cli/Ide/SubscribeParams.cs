@@ -1,3 +1,3 @@
 namespace Capacitor.Cli.Ide;
 
-internal sealed record SubscribeParams(string SubscriptionId, string[] GitRoots);
+internal sealed record SubscribeParams(string SubscriptionId, string[]? GitRoots);
