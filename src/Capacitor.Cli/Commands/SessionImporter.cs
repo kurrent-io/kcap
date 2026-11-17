@@ -31,6 +31,11 @@ static class SessionImporter {
     /// subagents are discovered from the shared sessions tree by parent_thread_id and appended after
     /// the parent transcript.
     /// </param>
+    /// <param name="startLine">
+    /// Resumes a session the server holds up to this line: earlier parent lines and the subagents
+    /// they first reference are skipped, everything from here on is sent.
+    /// </param>
+    /// <param name="strict">A refused or undeliverable parent batch throws instead of being dropped.</param>
     internal static async Task<ImportResult> ImportSessionAsync(
             HttpClient                 httpClient,
             string                     baseUrl,
@@ -39,8 +44,10 @@ static class SessionImporter {
             SessionMetadata            metadata,
             string?                    encodedCwd,
             TimeProvider               time,
-            IProgress<ImportProgress>? progress = null,
-            HarnessId                  vendor   = HarnessId.Claude
+            IProgress<ImportProgress>? progress  = null,
+            HarnessId                  vendor    = HarnessId.Claude,
+            int                        startLine = 0,
+            bool                       strict    = false
         ) {
         if (!File.Exists(transcriptPath))
             return new(sessionId, [], 0);
@@ -95,6 +102,12 @@ static class SessionImporter {
         var lineIndex = 0;
 
         while (await reader.ReadLineAsync() is { } line) {
+            if (lineIndex < startLine) {
+                lineIndex++;
+
+                continue;
+            }
+
             // Before adding this line to the batch, check if any agent should be
             // interleaved at this position (i.e., the agent's first progress line).
             foreach (var (agentId, firstLine) in agentFirstLine) {
@@ -130,7 +143,7 @@ static class SessionImporter {
         // Send any agents that had transcript files but NO progress marker in the
         // main session (e.g., compact agents like acompact-*) as a fallback at the end.
         foreach (var (agentId, agentPath) in agentTranscripts) {
-            if (!sentAgents.Contains(agentId)) {
+            if (!sentAgents.Contains(agentId) && agentFirstLine.GetValueOrDefault(agentId, startLine) >= startLine) {
                 agentTypes.TryGetValue(agentId, out var agentType);
                 await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
                     agentPath, cwd, transcriptPath, progress, time);
@@ -187,7 +200,7 @@ static class SessionImporter {
 
         async Task FlushAsync() =>
             totalSent += await FlushBatchAsync(
-                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: false, progress, time);
+                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: strict, progress, time);
     }
 
     /// <summary>POSTs one subagent lifecycle hook; false on any failure so the caller can

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -3618,19 +3617,22 @@ class ImportCommand(
             try {
                 // Fail-closed tail: a rejected/half-applied resume must NOT be finalized
                 // (posting session-end after a gap would mark the session ended with a hole).
-                var completeLines = new StrongBox<int>();
-                var linesSent = await SessionImporter.SendTranscriptBatches(
+                // Subagents first referenced past the watermark go too, or the next import
+                // reads the session as loaded and they never arrive.
+                var resumed = await SessionImporter.ImportSessionAsync(
                     httpClient,
                     baseUrl,
-                    session.SessionId,
                     session.FilePath,
-                    agentId: null,
-                    startLine: session.ResumeFromLine, time: time,
-                    progress: perSessionProgress,
-                    vendor: session.Vendor,
-                    failOnError: true,
-                    completeLines: completeLines
+                    session.SessionId,
+                    session.Meta,
+                    session.EncodedCwd,
+                    time,
+                    perSessionProgress,
+                    session.Vendor,
+                    startLine: session.ResumeFromLine,
+                    strict: true
                 );
+                var linesSent = resumed.LinesSent;
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
 
@@ -3666,7 +3668,7 @@ class ImportCommand(
                     return (SessionImportOutcome.Errored, linesSent);
                 }
 
-                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines.Value, ct);
+                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, resumed.CompleteLines, ct);
 
                 return (SessionImportOutcome.Resumed, linesSent);
             } catch (HttpRequestException ex) {
