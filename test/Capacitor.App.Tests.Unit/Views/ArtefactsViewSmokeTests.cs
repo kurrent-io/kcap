@@ -11,16 +11,15 @@ using static Capacitor.App.Tests.Unit.AvaloniaSession;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
-/// The Artefacts view on its own: an opened page shows in the right pane, and the tab lists no pages.
+/// The Pages tab view on its own: pages list beside the documents and an opened one shows in the right pane.
 public class ArtefactsViewSmokeTests {
     const string Session = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     static IEnumerable<string> Texts(Window window) =>
         window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "");
 
-    /// The right pane swaps the reader's prompt for the page viewer, and with no documents to list the viewer
-    /// takes the whole width. A page that is not found never reaches Ready, so no NativeWebView is built under
-    /// the headless platform.
+    /// The page is listed, and opening it swaps the reader's prompt for the page viewer beside the list. A page
+    /// that is not found never reaches Ready, so no NativeWebView is built under the headless platform.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task An_opened_page_shows_the_viewer_in_the_right_pane() => RunOnUiAsync(async () => {
@@ -35,8 +34,8 @@ public class ArtefactsViewSmokeTests {
         await (vm.PendingPagesForTesting ?? Task.CompletedTask);
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
-        await Assert.That(Texts(window)).Contains("No documents yet.");
-        await Assert.That(Texts(window).Any(t => t == "Release checklist")).IsFalse();
+        await Assert.That(Texts(window)).Contains("Select a page or document to read it.");
+        await Assert.That(Texts(window)).Contains("Release checklist");
 
         await vm.OpenPageCommand.Execute(vm.Pages[0]);
         await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
@@ -45,10 +44,11 @@ public class ArtefactsViewSmokeTests {
 
         await Assert.That(window.GetVisualDescendants().OfType<PageViewer>().Count()).IsEqualTo(1);
         await Assert.That(Texts(window)).Contains("This page is gone, or you can't see it.");
-        await Assert.That(Texts(window).Any(t => t == "No documents yet.")).IsFalse();
+        await Assert.That(Texts(window).Any(t => t == "Select a page or document to read it.")).IsFalse();
         await Assert.That(window.GetVisualDescendants().OfType<NativeWebView>().Any()).IsFalse();
+        var list = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "DocumentListPane");
         var viewer = window.GetVisualDescendants().OfType<PageViewer>().Single();
-        await Assert.That(viewer.Bounds.Width).IsEqualTo(window.Bounds.Width);
+        await Assert.That(viewer.Bounds.Width).IsEqualTo(window.Bounds.Width - list.Bounds.Width);
         window.Close();
         await vm.TeardownAsync();
     });
