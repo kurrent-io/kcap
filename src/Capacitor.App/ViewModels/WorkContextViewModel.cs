@@ -356,7 +356,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
             ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
-            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null) {
+            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null,
+            IWorkItemPageApi? workItems = null, Func<string>? sessionTitle = null, IAppNotifier? notifier = null) {
         _isRemote = isRemote;
         _canSendToAgent = canSendToAgent ?? (() => false);
         _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
@@ -387,6 +388,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _runs = runs;
         _runs.Changed += RefreshRuns;
         InitializeProjections();
+        InitializePartChip(workItems, sessionTitle, notifier);
         OpenRunCommand = ReactiveCommand.Create<RunRow>(row => { if (row.CanOpen) RunOpened?.Invoke(row); });
         _disposables.Add(OpenRunCommand);
         _disposables.Add(_hasSessionChanges);

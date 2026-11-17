@@ -30,6 +30,7 @@
                     </Grid>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <views:SessionPartChip x:Name="PartChip" DataContext="{Binding WorkContext}" />
                     <Border x:Name="SurfaceSwitch" Classes="kcapSegment" IsVisible="{Binding ShowsSurfaceSwitch}">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <Button x:Name="ChatTabButton" Content="Chat" Classes="kcapSegmentItem"

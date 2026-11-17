@@ -1314,6 +1314,8 @@ public partial class App : Application {
         var pickers = new ComposerPickers(
             new FileCatalog(new ProcessRunner(_time), _userHome, _shutdown.Token),
             new CommandCatalog(ops, shownService.Status, _userHome, _time, _shutdown.Token));
+        var workItems = sessionHttp is null || profiles is null || string.IsNullOrEmpty(profiles.Resolution.ServerUrl)
+            ? null : new WorkItemPageApi(sessionHttp, profiles);
         // The shown status: a planned restart must read as one in the workspace too, not as a dead daemon.
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
             agentId, shownService, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
@@ -1328,7 +1330,7 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn);
+            inAppPages: () => inAppPages.IsOn, workItems: workItems);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1342,7 +1344,8 @@ public partial class App : Application {
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
+                    workItems: workItems)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1379,7 +1382,8 @@ public partial class App : Application {
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
+                    workItems: workItems)
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
@@ -1414,8 +1418,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
-                workItemPages: sessionHttp is null || profiles is null || string.IsNullOrEmpty(profiles.Resolution.ServerUrl)
-                    ? null : new WorkItemPageApi(sessionHttp, profiles),
+                workItemPages: workItems,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2435,7 +2438,7 @@ public partial class App : Application {
                 .Where(list => list is not null)
                 .Select(list => list!),
             readWorkItems: sessions is null ? null : readWorkItems,
-            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default));
+            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default).Merge(workItemPages?.Changed ?? Observable.Never<Unit>()));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(
@@ -2451,7 +2454,7 @@ public partial class App : Application {
             needsYou: (agentsWithPending ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
                 .CombineLatest(agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty),
                     (permissions, answers) => (IReadOnlySet<string>)permissions.Union(answers).ToFrozenSet(StringComparer.Ordinal)),
-            changed: sessions.Snapshots.Select(_ => Unit.Default),
+            changed: sessions.Snapshots.Select(_ => Unit.Default).Merge(workItemPages.Changed),
             openSession: sessionId => _ = vm?.OpenWorkItemSessionAsync(sessionId),
             openUrl: openUrl,
             openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null

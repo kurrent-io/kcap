@@ -13,30 +13,6 @@ namespace Capacitor.App.Tests.Unit.ViewModels;
 public class WorkItemPageViewModelTests {
     const string ListEvery = "List every decision waiting on you";
 
-    sealed class FakePages : IWorkItemPageApi {
-        public WorkItemPartsDto Read { get; set; } = Approve();
-        public List<(string Id, string? Status)> StatusesSet { get; } = [];
-
-        public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(Read);
-
-        public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) {
-            StatusesSet.Add((workItemId, status));
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct) {
-            var looseEnd = Read.LooseEnds.Single(l => l.LooseEndId == looseEndId);
-            Read = Read with {
-                LooseEnds = [.. Read.LooseEnds.Where(l => l != looseEnd)],
-                Parts = [.. Read.Parts, Part(looseEndId, looseEnd.Text, "open")],
-            };
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> AddPartAsync(string workItemId, string title, CancellationToken ct) => Task.FromResult(true);
-        public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) => Task.FromResult(true);
-    }
-
     static WorkItemPartDetailDto Part(string id, string title, string status, List<string>? sessions = null,
             List<WorkItemLinkDto>? links = null, List<WorkItemRefDto>? waitsOn = null) =>
         new() { WorkItemId = id, Title = title, Status = status, SessionIds = sessions ?? [], Links = links ?? [], WaitsOn = waitsOn ?? [] };
@@ -63,7 +39,7 @@ public class WorkItemPageViewModelTests {
         StartedAt = DateTimeOffset.UtcNow, LastActivityAt = DateTimeOffset.UtcNow,
     }, hostedPresentation: false);
 
-    static async Task<WorkItemPageViewModel> OpenAsync(FakeAgentDirectory directory, FakePages pages, ISet<string>? flipped = null,
+    static async Task<WorkItemPageViewModel> OpenAsync(FakeAgentDirectory directory, FakeWorkItemPageApi pages, ISet<string>? flipped = null,
             IObservable<IReadOnlySet<string>>? needsYou = null) {
         var page = new WorkItemPageViewModel("approve", pages, directory, TimeProvider.System,
             flipped ?? new HashSet<string>(), needsYou: needsYou);
@@ -80,7 +56,7 @@ public class WorkItemPageViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             directory.Rows.AddOrUpdate(Session("s-build", "Build the waiting list"));
-            using var page = await OpenAsync(directory, new FakePages());
+            using var page = await OpenAsync(directory, new FakeWorkItemPageApi { Read = Approve() });
 
             await Assert.That(page.ProgressText).IsEqualTo("2 of 6 parts done");
             await Assert.That(page.Links.Select(l => l.Label)).IsEquivalentTo(["AI-5190 In Progress"]);
@@ -106,7 +82,7 @@ public class WorkItemPageViewModelTests {
             using var directory = new FakeAgentDirectory();
             directory.Rows.AddOrUpdate(Session("s-deny", "Add the deny reason"));
             using var waiting = new BehaviorSubject<IReadOnlySet<string>>(FrozenSet<string>.Empty);
-            using var page = await OpenAsync(directory, new FakePages(), needsYou: waiting);
+            using var page = await OpenAsync(directory, new FakeWorkItemPageApi { Read = Approve() }, needsYou: waiting);
             await Assert.That(PartTitled(page, "Send a deny reason back to the agent").NeedsYou).IsFalse();
 
             waiting.OnNext(new HashSet<string> { "s-deny" });
@@ -122,7 +98,7 @@ public class WorkItemPageViewModelTests {
     public async Task Make_part_turns_a_loose_end_into_an_open_part() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
-            using var page = await OpenAsync(directory, new FakePages());
+            using var page = await OpenAsync(directory, new FakeWorkItemPageApi { Read = Approve() });
             var looseEnd = page.Groups[^1].LooseEnds.Single();
 
             await page.MakePartCommand.Execute(looseEnd);
@@ -139,7 +115,7 @@ public class WorkItemPageViewModelTests {
     public async Task A_status_set_by_hand_names_the_part_and_an_empty_choice_clears_it() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
-            var pages = new FakePages();
+            var pages = new FakeWorkItemPageApi { Read = Approve() };
             using var page = await OpenAsync(directory, pages);
             var rules = PartTitled(page, "Manage allow rules from any client");
 
@@ -156,10 +132,10 @@ public class WorkItemPageViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             var flipped = new HashSet<string>();
-            using (var first = await OpenAsync(directory, new FakePages(), flipped))
+            using (var first = await OpenAsync(directory, new FakeWorkItemPageApi { Read = Approve() }, flipped))
                 await first.Groups.Single(g => g.Status == WorkStatus.Done).ToggleCommand.Execute();
 
-            using var second = await OpenAsync(directory, new FakePages(), flipped);
+            using var second = await OpenAsync(directory, new FakeWorkItemPageApi { Read = Approve() }, flipped);
 
             await Assert.That(second.Groups.Single(g => g.Status == WorkStatus.Done).IsExpanded).IsTrue();
         });

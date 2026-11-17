@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.SessionPartChip"
+             x:DataType="vm:WorkContextViewModel"
+             IsVisible="{Binding ShowsPartChip}">
+    <UserControl.Styles>
+        <Style Selector="Button.partRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </UserControl.Styles>
+    <Button x:Name="PartChipButton" Classes="kcapChip" Padding="10,5" MaxWidth="320" IsEnabled="{Binding !IsChangingPart}"
+            AutomationProperties.Name="{Binding PartChipLabel, StringFormat='Part: {0}'}" ToolTip.Tip="Move this session to another part">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+            <views:AppIcon Kind="{Binding PartChipIcon}" Size="12" VerticalAlignment="Center" IsVisible="{Binding HasPartChipStatus}"
+                           Foreground="{Binding PartChipStatus, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+            <TextBlock x:Name="PartChipLabel" Grid.Column="1" Text="{Binding PartChipLabel}" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" />
+            <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+        </Grid>
+        <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                <StackPanel Spacing="2" Margin="6" MinWidth="260" MaxWidth="380">
+                    <TextBlock x:Name="PartChipWorkItemTitle" Text="{Binding Title, Converter={x:Static views:UppercaseConverter.Instance}}" FontSize="11"
+                               FontWeight="Bold" LetterSpacing="0.8" Foreground="{StaticResource KcapFaintBrush}" Margin="10,4,10,4"
+                               TextTrimming="CharacterEllipsis" />
+                    <ItemsControl x:Name="PartChipOptions" ItemsSource="{Binding PartOptions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SessionPartOption">
+                                <Button Classes="kcapGhost partRow" Click="OnMenuItemClick"
+                                        Command="{Binding $parent[views:SessionPartChip].((vm:WorkContextViewModel)DataContext).MoveToPartCommand}"
+                                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
+                                    <Grid ColumnDefinitions="16,*,16" ColumnSpacing="6">
+                                        <views:AppIcon Kind="{Binding StatusIcon}" Size="12" VerticalAlignment="Center" IsVisible="{Binding HasStatus}"
+                                                       Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapTextBrush}" />
+                                        <views:AppIcon Grid.Column="2" Kind="Check" Size="12" VerticalAlignment="Center" IsVisible="{Binding IsCurrent}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border Height="1" Background="{StaticResource KcapBorderBrush}" Margin="4,3" />
+                    <Button x:Name="NewPartFromSessionButton" Classes="kcapGhost partRow" Click="OnMenuItemClick"
+                            Command="{Binding NewPartFromSessionCommand}" Content="New part from this session" />
+                    <Button x:Name="RemoveFromWorkItemButton" Classes="kcapGhost partRow" Click="OnMenuItemClick"
+                            Command="{Binding RemoveFromWorkItemCommand}" Content="Remove from work item" />
+                </StackPanel>
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</UserControl>

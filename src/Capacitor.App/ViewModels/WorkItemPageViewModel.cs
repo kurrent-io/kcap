@@ -76,7 +76,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
             ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a part from that loose end")).DisposeWith(_disposables);
         AddPartCommand = ReactiveCommand.CreateFromTask(async () => {
-            if (await ChangeAsync(ct => _api.AddPartAsync(WorkItemId, NewPartTitle.Trim(), ct), "Couldn't add that part")) NewPartTitle = "";
+            if (await ChangeAsync(async ct => await _api.AddPartAsync(WorkItemId, NewPartTitle.Trim(), ct) is not null, "Couldn't add that part")) NewPartTitle = "";
         }, this.WhenAnyValue(x => x.NewPartTitle, title => !string.IsNullOrWhiteSpace(title))).DisposeWith(_disposables);
         AddLinkCommand = ReactiveCommand.CreateFromTask(async () => {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
