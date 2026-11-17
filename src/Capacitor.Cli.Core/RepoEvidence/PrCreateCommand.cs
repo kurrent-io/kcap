@@ -67,7 +67,7 @@ public static partial class PrCreateCommand {
 
             foreach (var script in command.Scripts) {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
-                if (!commands.Skip(k + 1).All(c => Printers.Contains(Executable(c.Words) ?? ""))) return false;
+                if (!commands.Skip(k + 1).All(PrintsOnlyAfterSuccess)) return false;
 
                 repo = nestedRepo;
                 return true;
@@ -76,6 +76,11 @@ public static partial class PrCreateCommand {
 
         return false;
     }
+
+    /// <summary>A plain echo or printf that runs only once what came before it succeeded: after <c>||</c>, or with
+    /// a substitution of its own, it can print a URL the create never did.</summary>
+    static bool PrintsOnlyAfterSuccess(ShellCommand command) =>
+        command.Joiner is "&&" or ";" or "\n" && command.Scripts.Count == 0 && Printers.Contains(Executable(command.Words) ?? "");
 
     static string? Executable(List<string> words) {
         var i = 0;
@@ -130,7 +135,7 @@ public static partial class PrCreateCommand {
     /// body is opaque word text here, kept as one of its command's scripts, since it runs too. In a substitution
     /// it stops past the closing paren and says whether it found one.</summary>
     static (int End, bool Closed) Scan(string text, int i, bool substitution, List<ShellCommand> commands) {
-        var current  = new ShellCommand([], []);
+        var current  = new ShellCommand("");
         var word     = new StringBuilder();
         var inWord   = false;
         var parens   = 0;
@@ -145,20 +150,22 @@ public static partial class PrCreateCommand {
                     i++;
                     break;
                 case '\n':
-                    EndCommand();
+                    EndCommand("\n");
                     i = SkipHeredocBodies(text, i + 1, heredocs);
                     break;
-                case ';' or '|' or '&':
-                    EndCommand();
-                    i++;
+                case ';' or '|' or '&': {
+                    var doubled = c != ';' && i + 1 < text.Length && text[i + 1] == c;
+                    EndCommand(doubled ? new string(c, 2) : c.ToString());
+                    i += doubled ? 2 : 1;
                     break;
+                }
                 case '(':
-                    EndCommand();
+                    EndCommand("(");
                     parens++;
                     i++;
                     break;
                 case ')':
-                    EndCommand();
+                    EndCommand(")");
                     i++;
                     if (substitution && parens-- == 0) return (i, true);
                     break;
@@ -215,7 +222,7 @@ public static partial class PrCreateCommand {
             }
         }
 
-        EndCommand();
+        EndCommand("");
         return (i, false);
 
         void EndWord() {
@@ -226,12 +233,15 @@ public static partial class PrCreateCommand {
             inWord = false;
         }
 
-        void EndCommand() {
+        void EndCommand(string joiner) {
             EndWord();
-            if (current.Words.Count == 0 && current.Scripts.Count == 0) return;
 
-            commands.Add(current);
-            current = new ShellCommand([], []);
+            if (current.Words.Count > 0 || current.Scripts.Count > 0) {
+                commands.Add(current);
+                current = new ShellCommand(joiner);
+            } else {
+                current.Joiner = joiner;
+            }
         }
     }
 
@@ -289,7 +299,12 @@ public static partial class PrCreateCommand {
         return end;
     }
 
-    readonly record struct ShellCommand(List<string> Words, List<string> Scripts);
+    /// <param name="joiner">The operator that ran it after the command before: <c>&amp;&amp;</c>, <c>||</c>, <c>;</c>, a newline.</param>
+    sealed class ShellCommand(string joiner) {
+        public List<string> Words   { get; } = [];
+        public List<string> Scripts { get; } = [];
+        public string       Joiner  { get; set; } = joiner;
+    }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]
     private static partial Regex Assignment();

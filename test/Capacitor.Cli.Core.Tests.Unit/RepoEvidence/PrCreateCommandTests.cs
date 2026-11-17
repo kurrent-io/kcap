@@ -10,6 +10,7 @@ public class PrCreateCommandTests {
     [Arguments("GH_TOKEN=x /opt/homebrew/bin/gh pr create --fill")]
     [Arguments("bash -lc 'cd app && gh pr create --fill'")]
     [Arguments("url=$(gh pr create --fill) && echo \"$url\"")]
+    [Arguments("url=$(gh pr create --fill)\necho \"$url\"")]
     [Arguments("echo '<<EOF'\ngh pr create --fill")]
     [Arguments("# <<EOF\ngh pr create --fill")]
     [Arguments("gh pr create --title '--dry-run' --fill")]
@@ -30,6 +31,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill 2>&1 | tail -1")]
     [Arguments("url=$(gh pr create --fill || gh pr view --json url --jq .url) && echo \"$url\"")]
     [Arguments("url=$(gh pr create --fill) || gh pr view --json url --jq .url")]
+    [Arguments("url=$(gh pr create --fill) || echo \"$(gh pr view --json url --jq .url)\"")]
+    [Arguments("url=$(gh pr create --fill); echo \"$(gh pr view --json url --jq .url)\"")]
     public async Task A_mention_or_another_command_does_not_match(string command) {
         await Assert.That(PrCreateCommand.TryMatch(command, out _)).IsFalse();
     }
