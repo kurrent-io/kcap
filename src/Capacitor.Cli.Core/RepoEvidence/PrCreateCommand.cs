@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
 
-    static readonly HashSet<string> Prefixes = new(StringComparer.Ordinal) { "env", "command", "exec", "time", "nohup", "sudo", "{", "!" };
+    static readonly HashSet<string> Prefixes = new(StringComparer.Ordinal) { "env", "command", "exec", "time", "nohup", "sudo", "{" };
     static readonly HashSet<string> Shells   = new(StringComparer.Ordinal) { "sh", "bash", "zsh", "dash", "ksh" };
 
     static readonly HashSet<string> ValueFlags = new(StringComparer.Ordinal) {
@@ -70,7 +70,7 @@ public static partial class PrCreateCommand {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
                             && RunsUnconditionally(commands, k)
-                            && (wrapsShell && k == commands.Count - 1 && command.StdoutRedirects.Count == 0 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
+                            && (wrapsShell && k == commands.Count - 1 && !command.RedirectsStdout || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
                 repo = nestedRepo;
@@ -153,7 +153,7 @@ public static partial class PrCreateCommand {
             return false;
         }
 
-        if (exe != "gh" || words.Count < i + 3 || words[i + 1] != "pr" || words[i + 2] != "create" || command.StdoutRedirects.Count > 0) return false;
+        if (exe != "gh" || words.Count < i + 3 || words[i + 1] != "pr" || words[i + 2] != "create" || command.RedirectsStdout) return false;
 
         for (var j = i + 3; j < words.Count; j++) {
             var arg = words[j];
@@ -182,7 +182,9 @@ public static partial class PrCreateCommand {
         var word           = new StringBuilder();
         var inWord         = false;
         var parens         = 0;
+        var redirect       = false;
         var stdoutRedirect = false;
+        var redirectTarget = false;
         var literal        = true;
         var heredocs       = new Queue<(string Word, bool StripTabs)>();
 
@@ -265,6 +267,7 @@ public static partial class PrCreateCommand {
                     // A redirection needs no space before it: in --title=New>/dev/null the argument ends at the '>'.
                     // Only bare digits before it name a file descriptor; a quoted "2" is an argument.
                     if (inWord && (!literal || !word.ToString().All(char.IsAsciiDigit))) EndWord();
+                    redirect = true;
                     if (c == '>' && word is [] or ['1']) stdoutRedirect = true;
                     word.Append(c);
                     inWord = true;
@@ -285,10 +288,20 @@ public static partial class PrCreateCommand {
         void EndWord() {
             if (!inWord) return;
 
-            if (stdoutRedirect) current.StdoutRedirects.Add(current.Words.Count);
-            current.Words.Add(word.ToString());
+            // A redirection, and its target when a space parts them, is no argument: in --repo 2>/dev/null o/r
+            // the repo is o/r.
+            if (redirect) {
+                current.RedirectsStdout |= stdoutRedirect;
+                redirectTarget          =  word[^1] is '>' or '<' or '&';
+            } else if (redirectTarget) {
+                redirectTarget = false;
+            } else {
+                current.Words.Add(word.ToString());
+            }
+
             word.Clear();
             inWord         = false;
+            redirect       = false;
             stdoutRedirect = false;
             literal        = true;
         }
@@ -299,9 +312,12 @@ public static partial class PrCreateCommand {
             if (current.Words.Count > 0 || current.Scripts.Count > 0) {
                 commands.Add(current);
                 current = new ShellCommand(joiner);
-            } else if (joiner != "\n" || !current.Joiner.EndsWith('&') && !current.Joiner.EndsWith('|')) {
-                current.Joiner += joiner;
+            } else {
+                current.RedirectsStdout = false;
+                if (joiner != "\n" || !current.Joiner.EndsWith('&') && !current.Joiner.EndsWith('|')) current.Joiner += joiner;
             }
+
+            redirectTarget = false;
         }
     }
 
@@ -366,9 +382,9 @@ public static partial class PrCreateCommand {
         public List<string> Scripts { get; } = [];
         public string       Joiner  { get; set; } = joiner;
 
-        /// <summary>The words that send stdout elsewhere (<c>&gt;file</c>, <c>1&gt;&gt;file</c>), so a URL printed
-        /// earlier would read as the create's. Only unquoted syntax counts; <c>2&gt;&amp;1</c> leaves stdout alone.</summary>
-        public HashSet<int> StdoutRedirects { get; } = [];
+        /// <summary>Whether it sends stdout elsewhere (<c>&gt;file</c>, <c>1&gt;&gt;file</c>), so a URL printed earlier
+        /// would read as the create's. Only unquoted syntax counts; <c>2&gt;&amp;1</c> leaves stdout alone.</summary>
+        public bool RedirectsStdout { get; set; }
     }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]

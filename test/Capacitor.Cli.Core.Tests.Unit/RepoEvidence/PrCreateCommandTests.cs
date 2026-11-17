@@ -9,6 +9,7 @@ public class PrCreateCommandTests {
     [Arguments("git push -u origin HEAD; gh pr create --fill 2>&1")]
     [Arguments("gh pr create --fill 2>/tmp/gh.err")]
     [Arguments("gh pr create --fill 2>>errors.log")]
+    [Arguments("gh pr create --fill 2> /dev/null")]
     [Arguments("bash -c 'gh pr create --title \"$1\" --fill' _ '>new feature'")]
     [Arguments("gh pr create --fill --title '>quoted'")]
     [Arguments("git push || true; gh pr create --fill")]
@@ -36,6 +37,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill --dry-run")]
     [Arguments("printf '%s\\n' https://github.com/o/r/pull/1; gh pr create --repo o/r --fill >/dev/null 2>&1")]
     [Arguments("gh pr create --fill > out.txt")]
+    [Arguments("! gh pr create --fill 2>&1")]
+    [Arguments("bash -c '! gh pr create --fill 2>&1'")]
     [Arguments("gh pr create --repo o/r --title \"2\">/dev/null --body b")]
     [Arguments("gh pr create --repo o/r --title \\1>/dev/null --body b")]
     [Arguments("gh pr create --repo o/r --title=New>/dev/null --body=b")]
@@ -94,6 +97,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create -R kurrent-io/kcap --fill", "kurrent-io/kcap")]
     [Arguments("gh pr create --fill", null)]
     [Arguments("gh pr create --body '--repo other/repo' --fill", null)]
+    [Arguments("gh pr create --repo 2>/dev/null o/r --fill", "o/r")]
+    [Arguments("gh pr create --repo 2> /dev/null o/r --fill", "o/r")]
     public async Task The_repo_flag_is_returned(string command, string? expected) {
         await Assert.That(PrCreateCommand.TryMatch(command, out var repo)).IsTrue();
         await Assert.That(repo).IsEqualTo(expected);
