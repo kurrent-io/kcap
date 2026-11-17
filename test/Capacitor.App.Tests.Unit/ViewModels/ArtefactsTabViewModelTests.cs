@@ -719,6 +719,30 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// A documents read that fails still counts as answered, so the pages listed before it open.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(SessionPlansReadKind.Unreachable)]
+    [Arguments(SessionPlansReadKind.SignedOut)]
+    public async Task A_documents_read_that_is_not_ready_still_lets_the_shown_tab_open_a_page(SessionPlansReadKind kind) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var documents = h.Source.Gate();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingPagesForTesting ?? Task.CompletedTask);
+            h.Vm.IsShown = true;
+            await Assert.That(h.Vm.PageViewer).IsNull();
+
+            documents.SetResult(PlanArtifactsRead.Of(kind));
+            await h.SettledAsync();
+            await h.PageLoadedAsync();
+
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("a");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// Opening the tab never launches the browser: with pages shown there, the first document opens instead.
     [Test]
     [NotInParallel("AvaloniaSession")]

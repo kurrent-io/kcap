@@ -64,6 +64,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public bool HasItems => HasDocuments || HasPages;
     /// A page opened from a link is shown though the session does not list it.
     public bool HasAny => HasItems || PageViewer is not null;
+    /// Where a document card that names no listed document still sends the reader: pages alone are not that.
+    public bool HasDocumentOrOpenPage => HasDocuments || PageViewer is not null;
     /// True while a session lease is open and has not yet applied a result — distinct from a settled empty list.
     public bool IsLoading => _reads.IsLoading;
     /// Right-pane prompt when nothing is open: loading, settled empty, or pick a row.
@@ -366,13 +368,14 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 Show(read.Body?.Artifacts ?? []);
-                return;
+                break;
             case SessionPlansReadKind.Unreachable:
-                return;
+                break;
             default:
                 Clear();
-                return;
+                break;
         }
+        OpenFirst();
     }
 
     static int KindRank(string kind) => kind switch { "plan" => 0, "spec" => 1, "design" => 2, _ => 3 };
@@ -407,7 +410,6 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             Select(match);
             RequestOpen();
         }
-        OpenFirst();
     }
 
     void ClearSelection() {
