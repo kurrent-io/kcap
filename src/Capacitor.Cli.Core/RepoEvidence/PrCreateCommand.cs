@@ -92,17 +92,35 @@ public static partial class PrCreateCommand {
     }
 
     /// <summary>False when an <c>||</c> since the last <c>;</c> or newline may skip it: after
-    /// <c>gh pr view … || gh pr create</c>, a successful run printing a URL is the view's. The split flattens
-    /// groups, so with one in play a <c>;</c> may sit inside a group an outer <c>||</c> skips, and any
-    /// <c>||</c> before it counts.</summary>
+    /// <c>gh pr view … || gh pr create</c>, a successful run printing a URL is the view's. A <c>;</c> inside a group
+    /// settles nothing about whether the group runs, so the walk climbs out of each group that holds the command and
+    /// passes over groups that closed before it.</summary>
     static bool RunsUnconditionally(List<ShellCommand> commands, int k) {
-        var grouped = commands.Take(k + 1).Any(c => c.Joiner.AsSpan().IndexOfAny('(', ')') >= 0 || c.Words is ["{", ..] or ["}", ..]);
+        var depths = new int[k + 1];
+        var depth  = 0;
+
+        for (var j = 0; j <= k; j++) {
+            var joiner = commands[j].Joiner;
+            depth += joiner.Count(c => c == '(') - joiner.Count(c => c == ')');
+            if (commands[j].Words is ["{", ..]) depth++;
+            if (commands[j].Words is ["}", ..]) depth--;
+            depths[j] = depth;
+        }
+
+        var level = depths[k];
 
         for (var j = k; j > 0; j--) {
+            var boundary = Math.Min(depths[j - 1], depths[j]);
+            if (boundary > level) continue;
+
+            level = boundary;
             var joiner = commands[j].Joiner;
 
             if (joiner.Contains("||", StringComparison.Ordinal)) return false;
-            if (!grouped && joiner.AsSpan().IndexOfAny(';', '\n') >= 0) return true;
+            if (joiner.AsSpan().IndexOfAny(';', '\n') < 0) continue;
+            if (level == 0) return true;
+
+            level--;
         }
 
         return true;
@@ -266,7 +284,7 @@ public static partial class PrCreateCommand {
             if (current.Words.Count > 0 || current.Scripts.Count > 0) {
                 commands.Add(current);
                 current = new ShellCommand(joiner);
-            } else {
+            } else if (joiner != "\n" || !current.Joiner.EndsWith('&') && !current.Joiner.EndsWith('|')) {
                 current.Joiner += joiner;
             }
         }
