@@ -54,7 +54,11 @@ Options:
                       OpenCode has no shell
                       hooks; the plugin auto-loads on `opencode` startup and
                       streams each session. User-wide only — --project has no
-                      effect with --opencode.
+                      effect with --opencode. Needs OpenCode 1.18.29 or newer
+                      (an older one is told to upgrade). On OpenCode v2 it
+                      records the session start and end, titles, the memory
+                      index and session ids on kcap tool calls, but not yet
+                      the transcript.
   --skip-opencode-skills
                       With --opencode: skip installing the kcap skills into
                       ~/.agents/skills.

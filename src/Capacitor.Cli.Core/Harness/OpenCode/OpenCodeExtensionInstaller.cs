@@ -9,7 +9,8 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// (which POSTs lifecycle + spawns the transcript watcher), and on
 /// <c>session.idle</c> it fetches the session's full messages via the injected SDK
 /// <c>client</c> and appends them as native <c>{info,parts}</c> JSONL lines to the
-/// file the watcher tails.
+/// file the watcher tails. OpenCode v2 loads the default export's <c>setup</c> instead, which captures
+/// no transcript; the file needs OpenCode v1 1.18.29 or newer (<see cref="OpenCodeVersionFloor"/>).
 ///
 /// <para><see cref="ExtensionContent"/> is the single source of truth for the
 /// installed file (embedding it as a const keeps NativeAOT happy — no manifest
@@ -44,13 +45,55 @@ public static class OpenCodeExtensionInstaller {
         //     deterministic part id, so re-appending an updated message is safe.
         //   - tool.execute.before → a kcap MCP call that names no session_id gets the calling session's.
         //
+        // OpenCode v2 loads the default export's setup instead (see the v2 section at the end): it records
+        // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript.
+        //
         // Dependency-free (only node: builtins) and fail-safe by default.
 
         import { appendFileSync, mkdirSync } from "node:fs"
         import { homedir } from "node:os"
         import { join, dirname } from "node:path"
 
+        const MEMORY_MARKER = "<!-- kcap-memory-index:v1 -->"
+        // kcap MCP tools, as `<server>_<tool>`, whose optional session_id names the CALLING session.
+        // Elsewhere it is a filter or a session to read, which a default would silently narrow or
+        // replace; close_loose_end treats a session it defaulted differently from one it was given.
+        // OpenCode v2 presents the same names, including for calls made inside Code Mode's execute.
+        const CALLER_SESSION_TOOLS = new Set([
+          "kcap-workitems_declare_work_item", "kcap-workitems_get_session_work_items",
+          "kcap-workitems_detach_work_item", "kcap-workitems_declare_work_incomplete",
+          "kcap-workitems_declare_loose_end",
+          "kcap-workitems_claim_loose_end", "kcap-workitems_release_loose_end",
+          "kcap-plans_declare_plan_document", "kcap-plans_set_plan_tasks",
+          "kcap-plans_update_plan_task", "kcap-plans_get_plan",
+          "kcap-flows_start_agent", "kcap-flows_get_flow_status", "kcap-flows_get_review_flow_status",
+        ])
+
+        // OpenCode v1 also calls the v2 setup, after server and with a partial context. The first API
+        // to start owns the process, so a session is never started by both.
+        let api: "v1" | "v2" | undefined
+
+        // `.quiet()` keeps the child's output off OpenCode's own stdio while still handing it back:
+        // session-start uses stdout as a DATA channel for the team-memory fragment. Bounded so a hung
+        // kcap can never stall OpenCode.
+        function kcapRunner($: any) {
+          return async (args: string[]): Promise<string> => {
+            try {
+              const res: any = await Promise.race([
+                $`kcap ${args}`.quiet().nothrow(),
+                new Promise((res) => setTimeout(() => res(null), 10000)),
+              ])
+              const out = res?.stdout
+              return typeof out === "string" ? out : out ? out.toString() : ""
+            } catch {
+              return ""
+            }
+          }
+        }
+
         export const KcapPlugin = async ({ client, $, directory }: any) => {
+          if (api === "v2") return {}
+          api = "v1"
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
           // Subagents run as child sessions; their {info,parts} go in a nested dir beside
@@ -75,7 +118,6 @@ public static class OpenCodeExtensionInstaller {
           // chat.system.transform racing it has something to await rather than concluding there is
           // nothing in flight.
           const pendingStart = new Map<string, Promise<boolean>>()
-          const MEMORY_MARKER = "<!-- kcap-memory-index:v1 -->"
           const MEMORY_MAX_SESSIONS = 64      // bounded: never an unbounded process-global map
           // Matches runKcap's own 10s ceiling. Only ever paid on a session's FIRST request, and only
           // while the start is genuinely still running — a shorter bound would silently give up on a
@@ -91,18 +133,6 @@ public static class OpenCodeExtensionInstaller {
           const coldStarts = new Map<string, number>()
           const TITLE_MAX_SESSIONS = 64
           const lastTitle = new Map<string, string>()   // dedupes session.updated noise per session
-          // kcap MCP tools, as `<server>_<tool>`, whose optional session_id names the CALLING session.
-          // Elsewhere it is a filter or a session to read, which a default would silently narrow or
-          // replace; close_loose_end treats a session it defaulted differently from one it was given.
-          const CALLER_SESSION_TOOLS = new Set([
-            "kcap-workitems_declare_work_item", "kcap-workitems_get_session_work_items",
-            "kcap-workitems_detach_work_item", "kcap-workitems_declare_work_incomplete",
-            "kcap-workitems_declare_loose_end",
-            "kcap-workitems_claim_loose_end", "kcap-workitems_release_loose_end",
-            "kcap-plans_declare_plan_document", "kcap-plans_set_plan_tasks",
-            "kcap-plans_update_plan_task", "kcap-plans_get_plan",
-            "kcap-flows_start_agent", "kcap-flows_get_flow_status", "kcap-flows_get_review_flow_status",
-          ])
 
           // Bounded like the memory cache: most sessions end without a session.deleted. Re-inserting keeps the most
           // recently titled sessions; an evicted one only writes its title line again.
@@ -133,23 +163,7 @@ public static class OpenCodeExtensionInstaller {
             memory.set(sid, fragment)
           }
 
-          async function runKcap(args: string[]): Promise<string> {
-            try {
-              // kcap spawns a detached watcher and returns fast; bound it so a hung
-              // kcap can never stall OpenCode. `.quiet()` keeps the child's output off OpenCode's
-              // own stdio while still handing it back on the result — session-start uses stdout as a
-              // DATA channel for the team-memory fragment.
-              const res: any = await Promise.race([
-                $`kcap ${args}`.quiet().nothrow(),
-                new Promise((res) => setTimeout(() => res(null), 10000)),
-              ])
-              const out = res?.stdout
-              return typeof out === "string" ? out : out ? out.toString() : ""
-            } catch {
-              // never disrupt the OpenCode session
-              return ""
-            }
-          }
+          const runKcap = kcapRunner($)
 
           // Classify a session: "child" (a subagent — never ingest as top-level), "top"
           // (no parent), or "unknown" (a transient session.get failure left it ambiguous).
@@ -586,6 +600,154 @@ public static class OpenCodeExtensionInstaller {
             },
           }
         }
+
+        // ── OpenCode v2 ──────────────────────────────────────────────────────────────────────────────
+        // v2 runs plugins in its server process, often the long-lived background service, and may set
+        // up one instance per location there, so session state is module-wide. Its transcripts are
+        // event-sourced and not captured here: the session's JSONL file only ever holds title lines.
+
+        const v2 = {
+          started: new Set<string>(),
+          children: new Set<string>(),
+          memory: new Map<string, string>(),
+          pendingStart: new Map<string, Promise<boolean>>(),
+          attempts: new Map<string, number>(),
+          lastTitle: new Map<string, string>(),
+        }
+        const V2_MAX_SESSIONS = 64
+        const V2_START_ATTEMPTS = 3
+        const V2_WAIT_MS = 10000
+
+        // Bounded: most sessions end without a session.deleted, and the server process outlives them.
+        function v2Remember<V>(map: Map<string, V>, key: string, value: V) {
+          map.delete(key)
+          if (map.size >= V2_MAX_SESSIONS) {
+            const oldest = map.keys().next()
+            if (!oldest.done) map.delete(oldest.value)
+          }
+          map.set(key, value)
+        }
+
+        function v2Wait(pending: Promise<unknown>) {
+          return Promise.race([pending, new Promise((res) => setTimeout(res, V2_WAIT_MS))])
+        }
+
+        async function v2Setup(ctx: any) {
+          if (api === "v1" || !ctx?.session?.hook || !ctx?.tool?.hook || !ctx?.event?.subscribe) return
+          const shell = (globalThis as any).Bun?.$
+          if (!shell) return
+          api = "v2"
+
+          const runKcap = kcapRunner(shell)
+          const dir = join(homedir(), ".cache", "kcap", "opencode")
+          const file = (sid: string) => join(dir, sid + ".jsonl")
+
+          // Fails closed like v1: only a session the server reports without a parent is top-level, and a
+          // failed lookup is retried by a later event, a bounded number of times.
+          function ensureStarted(sid: string, cwd?: string): Promise<boolean> {
+            if (v2.started.has(sid)) return Promise.resolve(true)
+            if (v2.children.has(sid)) return Promise.resolve(false)
+            const existing = v2.pendingStart.get(sid)
+            if (existing) return existing
+            const attempts = v2.attempts.get(sid) ?? 0
+            if (attempts >= V2_START_ATTEMPTS) return Promise.resolve(false)
+            v2Remember(v2.attempts, sid, attempts + 1)
+
+            const gate = (async () => {
+              let info: any
+              try { info = await ctx.session.get({ sessionID: sid }) } catch { return false }
+              if (!info?.id) return false
+              if (info.parentID) { v2.children.add(sid); return false }
+              if (v2.started.has(sid)) return true
+              v2.started.add(sid)
+              try { mkdirSync(dir, { recursive: true }); appendFileSync(file(sid), "") } catch {}
+              const args = ["hook", "--opencode", "--event", "session-start", "--session", sid,
+                            "--file", file(sid), "--memory-contract", "1"]
+              const where = info?.location?.directory ?? cwd ?? ctx.location?.directory
+              if (where) args.push("--cwd", String(where))
+              if (ctx.app?.version) args.push("--version", String(ctx.app.version))
+              const fragment = (await runKcap(args)).trim()
+              if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) v2Remember(v2.memory, sid, fragment)
+              return true
+            })()
+
+            v2.pendingStart.set(sid, gate)
+            const clear = () => v2.pendingStart.delete(sid)
+            gate.then(clear, clear)
+            return gate
+          }
+
+          async function onEvent(ev: any) {
+            const type = ev?.type
+            const data = ev?.data
+            const sid = data?.sessionID
+            if (typeof type !== "string" || !sid) return
+            if (type === "session.deleted") {
+              v2.memory.delete(sid)
+              v2.attempts.delete(sid)
+              v2.lastTitle.delete(sid)
+              return
+            }
+            if (type === "session.created" && data?.parentID) { v2.children.add(sid); return }
+            if (v2.children.has(sid)) return
+            const started = await ensureStarted(sid, ev?.location?.directory)
+            if (!started || type !== "session.renamed") return
+            const title = data?.title
+            if (typeof title !== "string" || /^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) return
+            const line: any = { type: "session_title", title }
+            if (typeof ev?.created === "number") line.time = ev.created
+            appendFileSync(file(sid), JSON.stringify(line) + "\n")
+            v2Remember(v2.lastTitle, sid, title)
+          }
+
+          // v2's replacement for the system-prompt transform; it runs before every agent model request
+          // and rebuilds `system` each time, so one push per request keeps the index in context.
+          await ctx.session.hook("context", async (req: any) => {
+            try {
+              const sid = req?.sessionID
+              const system = req?.system
+              if (!sid || v2.children.has(sid) || !Array.isArray(system)) return
+              if (!v2.memory.has(sid)) await v2Wait(ensureStarted(sid))
+              const fragment = v2.memory.get(sid)
+              if (!fragment || v2.children.has(sid)) return
+              if (system.some((p: any) => typeof p?.text === "string" && p.text.includes(MEMORY_MARKER))) return
+              system.push({ type: "text", text: fragment })
+            } catch {
+              // fail open: leave the request exactly as it was
+            }
+          })
+
+          // A throw here would block the tool call, so nothing escapes.
+          await ctx.tool.hook("execute.before", async (call: any) => {
+            try {
+              const sid = call?.sessionID
+              const input = call?.input
+              if (!sid || !CALLER_SESSION_TOOLS.has(call?.tool)) return
+              if (!input || typeof input !== "object") return
+              if (input.session_id !== undefined && input.session_id !== null && input.session_id !== "") return
+              const pending = v2.pendingStart.get(sid)
+              if (!v2.started.has(sid) && pending) await v2Wait(pending)
+              if (!v2.started.has(sid) || v2.children.has(sid)) return
+              input.session_id = sid
+            } catch {
+              // never disrupt the OpenCode session
+            }
+          })
+
+          const abort = new AbortController()
+          void (async () => {
+            try {
+              for await (const ev of ctx.event.subscribe({ signal: abort.signal })) {
+                onEvent(ev).catch(() => {})
+              }
+            } catch {
+              // the subscription ends with the plugin
+            }
+          })()
+          return () => abort.abort()
+        }
+
+        export default { id: "kcap", server: KcapPlugin, setup: v2Setup }
         """;
 
     public static bool IsInstalled(string pluginPath) => OwnedFile.IsInstalled(pluginPath, MarkerFileName);

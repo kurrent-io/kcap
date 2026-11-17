@@ -61,6 +61,11 @@ internal sealed class OpenCodeImportSource : IImportSource {
             // A corrupt / schema-drifted opencode.db must NOT crash the whole `kcap import`
             // (other vendors share the run). On open/query failure, warn and skip OpenCode.
             using var db = new OpenCodeDb(_dbPath);
+            if (db.IsV2Only()) {
+                (filters.Stderr ?? Console.Error).WriteLine(
+                    $"[kcap] OpenCode v2 history import is not supported yet; skipping {_dbPath}.");
+                return Task.FromResult<IReadOnlyList<DiscoveredSession>>([]);
+            }
             foreach (var row in db.QueryRoots()) {
                 ct.ThrowIfCancellationRequested();
                 if (filters.FilterSession is { } fs && !string.Equals(row.Id, fs, StringComparison.Ordinal)) continue;

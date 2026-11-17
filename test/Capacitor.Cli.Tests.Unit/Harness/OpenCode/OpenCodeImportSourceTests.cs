@@ -69,6 +69,28 @@ public class OpenCodeImportSourceTests {
         await Assert.That(stderr.ToString()).Contains("OpenCode discovery skipped");
     }
 
+    /// <summary>OpenCode v2 keeps its sessions in <c>session_v2</c>, which import cannot read yet: the run
+    /// says so plainly rather than reporting a missing table.</summary>
+    [Test]
+    public async Task a_v2_database_is_reported_as_not_supported_yet() {
+        using var tmp = new TempDir();
+        var       db  = tmp.PathTo("opencode.db");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Pooling=False")) {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "CREATE TABLE session_v2 (id TEXT PRIMARY KEY); CREATE TABLE session_message (id TEXT PRIMARY KEY);";
+            cmd.ExecuteNonQuery();
+        }
+        var source = new OpenCodeImportSource(db, tmp.PathTo("ledger.json"), TimeProvider.System);
+        var stderr = new StringWriter();
+
+        var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0) { Stderr = stderr }, CancellationToken.None);
+
+        await Assert.That(sessions).IsEmpty();
+        await Assert.That(stderr.ToString()).Contains("OpenCode v2 history import is not supported yet");
+        await Assert.That(stderr.ToString()).DoesNotContain("no such table");
+    }
+
     [Test]
     public async Task discovery_treats_ms_as_ms_and_seconds_as_seconds() {
         using var tmp = new OpenCodeDbFixture();

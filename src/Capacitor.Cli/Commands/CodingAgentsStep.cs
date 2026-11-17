@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Kiro;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Core.Instructions;
 using Capacitor.Cli.Core.Toml;
@@ -119,7 +120,8 @@ internal static class CodingAgentsStep {
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
             Func<SettingsEdit>?                                      EnableCopilotToolSearch = null,
-            Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null
+            Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null,
+            Func<string?>?                                           OpenCodeVersion = null
         );
 
     internal record Result(
@@ -1188,6 +1190,9 @@ internal static class CodingAgentsStep {
             writeLine($"  [green]✓[/] OpenCode plugin installed ({Markup.Escape(paths.OpenCodeExtensionPath)})");
             writeLine("  [dim]  Note: OpenCode loads plugins at startup — restart any running opencode session to pick it up.[/]");
         }
+
+        if (OpenCodeVersionFloor.UpgradeNotice(installers.OpenCodeVersion?.Invoke()) is { } upgrade)
+            writeLine($"  [yellow]⚠[/] {Markup.Escape(upgrade)}");
 
         return true;
     }
