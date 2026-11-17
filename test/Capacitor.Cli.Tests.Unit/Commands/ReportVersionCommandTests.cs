@@ -37,7 +37,7 @@ public class ReportVersionCommandTests : IDisposable {
 
     /// <summary>The real container: every case here turns on the auth status the credential source
     /// actually resolves, which a stub client cannot produce.</summary>
-    ReportVersionCommand Command(ProfileContext profiles) {
+    ReportVersionCommand Command(ProfileContext profiles, TimeSpan? budget = null) {
         var services = new ServiceCollection();
 
         services.AddSingleton(Config.Root);
@@ -50,8 +50,14 @@ public class ReportVersionCommandTests : IDisposable {
         _sp = services.BuildServiceProvider();
 
         return new ReportVersionCommand(
-            _sp.GetRequiredService<CapacitorServer>(), _sp.GetRequiredService<ICapacitorHttpClient>(), TimeProvider.System);
+            _sp.GetRequiredService<CapacitorServer>(), _sp.GetRequiredService<ICapacitorHttpClient>(), TimeProvider.System) {
+            Budget = budget
+        };
     }
+
+    /// <summary>The probe's budget in the slow cases: far short of both the server's delay and the default
+    /// budget, so the elapsed bound fails if either is what ended the wait.</summary>
+    static readonly TimeSpan ShortBudget = TimeSpan.FromMilliseconds(300);
 
     public void Dispose() {
         _sp?.Dispose();
@@ -205,11 +211,11 @@ public class ReportVersionCommandTests : IDisposable {
         var profiles = await SeedValidTokenAsync("report-version-slow");
 
         var sw     = Stopwatch.StartNew();
-        var result = await Command(profiles).HandleAsync();
+        var result = await Command(profiles, ShortBudget).HandleAsync();
         sw.Stop();
 
         await Assert.That(result).IsEqualTo(0);
-        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(8));
+        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
     }
 
     /// <summary>
@@ -261,11 +267,11 @@ public class ReportVersionCommandTests : IDisposable {
         var profiles = await SeedValidTokenAsync("report-version-slow-discovery");
 
         var sw     = Stopwatch.StartNew();
-        var result = await Command(profiles).HandleAsync();
+        var result = await Command(profiles, ShortBudget).HandleAsync();
         sw.Stop();
 
         await Assert.That(result).IsEqualTo(0);
-        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(8));
+        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
     }
 
     [Test]

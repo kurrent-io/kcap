@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Microsoft.AspNetCore.Builder;
@@ -25,6 +23,7 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     readonly List<string>                                   _registrations = [];
 
     WebApplication _app = null!;
+    volatile bool  _down;
 
     WatcherHubHost() { }
 
@@ -65,19 +64,29 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         }
     }
 
-    /// <param name="port">Zero takes any free port; a number from <see cref="ReservePort"/> brings a hub up where a
-    /// watcher is already looking.</param>
+    /// <param name="down">Aborts every request until <see cref="ComeUp"/>, so a watcher's connects fail as they would
+    /// against a server not yet up, on a port the hub already owns.</param>
     /// <param name="parallelInvocations">How many calls of one connection the hub runs at once. Above one, a detach can
     /// pass a connect still running, as it can on the real server.</param>
-    public static async Task<WatcherHubHost> StartAsync(int port = 0, int parallelInvocations = 1) {
+    public static async Task<WatcherHubHost> StartAsync(bool down = false, int parallelInvocations = 1) {
         var host    = new WatcherHubHost();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton(host);
         builder.Services.AddSignalR(o => o.MaximumParallelInvocationsPerClient = parallelInvocations).AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
         host._app = builder.Build();
+        host._down = down;
+        host._app.Use(async (context, next) => {
+            if (host._down) {
+                context.Abort();
+
+                return;
+            }
+
+            await next(context);
+        });
         host._app.MapHub<WatcherHub>("/hubs/sessions");
         await host._app.StartAsync();
         host.Url = host._app.Urls.Single();
@@ -85,13 +94,8 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         return host;
     }
 
-    /// <summary>A loopback port nothing listens on yet.</summary>
-    public static int ReservePort() {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-
-        return ((IPEndPoint)probe.LocalEndpoint).Port;
-    }
+    /// <summary>Starts answering requests, for a hub started down.</summary>
+    public void ComeUp() => _down = false;
 
     /// <summary>Tells every connected watcher to stop, as the server does when a session ends.</summary>
     public Task PushStopAsync(string reason = "test") =>

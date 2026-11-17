@@ -223,7 +223,7 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(loss.AgentId).IsNull();
         await Assert.That(loss.LineNumber).IsEqualTo(1);
         await Assert.That(loss.Reason).IsEqualTo(RedactionLossReason.InputLimit);
-        await Assert.That(loss.Message).Contains("could not be captured");
+        await Assert.That(loss.Message).Contains("line 2 could not be captured");
 
         var body = _server.LogEntries.Single().RequestMessage.Body;
         await Assert.That(body).Contains("\"line_numbers\":[0,1,2]");
@@ -253,7 +253,80 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(dropped.Count).IsEqualTo(2);
         await Assert.That(dropped[0]).IsEqualTo(new BatchDropped("s1", "agent-1", 0, 99, "HTTP 413"));
         await Assert.That(dropped[1]).IsEqualTo(new BatchDropped("s1", "agent-1", 100, 149, "HTTP 413"));
-        await Assert.That(dropped[0].Message).IsEqualTo("subagent agent-1 lines 0-99 dropped: HTTP 413");
+        await Assert.That(dropped[0].Message).IsEqualTo("subagent agent-1 lines 1-100 dropped: HTTP 413");
+        await Assert.That(dropped[1].Message).IsEqualTo("subagent agent-1 lines 101-150 dropped: HTTP 413");
+    }
+
+    /// <summary>A one-session Claude or Codex import stops at the first batch the server refuses, so no later batch moves
+    /// its watermark past the lost lines; an unfiltered one keeps going.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task ImportSessionAsync_stops_at_a_refused_batch_only_when_asked(bool stopAtLoss) {
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(413));
+
+        using var tmp = TempDir.WithPathTo("s1.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, Enumerable.Range(0, 150).Select(_ => LineOf(10)));
+
+        var events   = new List<ImportProgress>();
+        using var client = new HttpClient();
+        Task Import() => SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, new SyncProgress<ImportProgress>(events.Add), stopAtLoss: stopAtLoss);
+
+        if (stopAtLoss) await Assert.That(Import).Throws<SessionImporter.TranscriptDeliveryAbortedException>();
+        else await Import();
+
+        await Assert.That(events.OfType<BatchDropped>().Count()).IsEqualTo(stopAtLoss ? 1 : 2);
+    }
+
+    /// <summary>A one-session import stops at a refused subagent batch too: no later agent batch moves its watermark past
+    /// the lost lines, and no subagent-stop marks the agent finished.</summary>
+    [Test]
+    public async Task ImportSessionAsync_stops_at_a_refused_subagent_batch_when_asked() {
+        var agentId = Guid.NewGuid().ToString("N");
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .AtPriority(10)
+            .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithBody(b => b is not null && b.Contains($"\"agent_id\":\"{agentId}\"")))
+            .AtPriority(1)
+            .RespondWith(Response.Create().WithStatusCode(413));
+        _server.Given(Request.Create().WithPath("/hooks/subagent-start").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/subagent-stop").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp = new TempDir();
+        var sessionName = Guid.NewGuid().ToString("N");
+        var sessionPath = tmp.PathTo($"{sessionName}.jsonl");
+        var agentPath   = tmp.CreateDir(sessionName, "subagents").PathTo($"agent-{agentId}.jsonl");
+
+        await File.WriteAllLinesAsync(sessionPath, [
+            """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"before"}}""",
+            $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""",
+        ]);
+        await File.WriteAllLinesAsync(agentPath, Enumerable.Range(0, 150).Select(_ => LineOf(10)));
+
+        var events = new List<ImportProgress>();
+        using var client = new HttpClient();
+        Task Import() => SessionImporter.ImportSessionAsync(
+            client, _server.Url!, sessionPath, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, new SyncProgress<ImportProgress>(events.Add), stopAtLoss: true);
+
+        await Assert.That(Import).Throws<SessionImporter.TranscriptDeliveryAbortedException>();
+
+        await Assert.That(events.OfType<BatchDropped>().Count(d => d.AgentId == agentId)).IsEqualTo(1);
+        await Assert.That(_server.LogEntries.Count(e => e.RequestMessage.Path == "/hooks/subagent-stop")).IsEqualTo(0);
+    }
+
+    /// <summary>A skipped line is named as an editor counts it, like the other import warnings, while the record keeps
+    /// the wire index.</summary>
+    [Test]
+    public async Task A_skipped_line_is_named_1_based() {
+        var skipped = new LineSkipped("s1", null, LineNumber: 0, Bytes: 42);
+
+        await Assert.That(skipped.Message).StartsWith("line 1 skipped: 42 bytes");
     }
 
     /// A Cursor 409 frontier can name a blank source line, which was never posted: the drop starts at
@@ -297,7 +370,7 @@ public class SessionImporterProgressTests : IDisposable {
             , time: TimeProvider.System);
         });
 
-        await Assert.That(ex.Message).Contains("lines 0-4");
+        await Assert.That(ex.Message).Contains("lines 1-5");
         await Assert.That(ex.Message).Contains("HTTP 413");
     }
 

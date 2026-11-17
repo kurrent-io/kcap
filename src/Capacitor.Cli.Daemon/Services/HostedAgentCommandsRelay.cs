@@ -4,7 +4,7 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>Buffers the most recent slash-command list a runtime has learned and hands it to the
 /// orchestrator's callback. The orchestrator attaches the callback after the runtime starts, but an
-/// ACP handshake or a Codex skills/list produces the list DURING start — so attaching a callback
+/// ACP handshake, a Codex skills/list or a Pi get_commands produces the list DURING start — so attaching a callback
 /// flushes the buffered list immediately, closing the window between start and attach.</summary>
 sealed class HostedAgentCommandsRelay {
     readonly Lock                                       _lock = new();

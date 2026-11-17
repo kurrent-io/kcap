@@ -5,8 +5,8 @@ namespace Capacitor.Cli.Core.Tests.Unit.Telemetry;
 /// <summary>
 /// Pins the two disclosure surfaces this repo owns.
 ///
-/// <para>The spec's own observation is that neither is checked by code — which is exactly how
-/// "anonymous" survived becoming false. So this is the check. Once one bridge exists, a random
+/// <para>Nothing else checks either surface, so "anonymous" can survive becoming false
+/// unnoticed; this is the check. Once one bridge exists, a random
 /// device id is linkable to an identified person, which means CLI telemetry ALREADY COLLECTED
 /// under the old wording becomes attributable retroactively: the dataset's character changes, not
 /// merely the new events.</para>
@@ -52,8 +52,8 @@ public class DisclosureWordingTests {
         await Assert.That(section).Contains("join_id");
     }
 
-    // A third surface neither the spec nor the plan listed: `kcap config` help text, which the
-    // repo's own rule counts as user-facing CLI surface. It described the data as anonymous too.
+    // A third surface: `kcap config` help text, which the repo's own rule counts as user-facing
+    // CLI surface.
     [Test]
     public async Task The_config_help_text_does_not_still_call_it_anonymous() {
         var help = await File.ReadAllTextAsync(Path.Combine(

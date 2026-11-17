@@ -15,8 +15,7 @@ public static class MistralVibeHooksInstaller {
     /// <c>kcap hook --mistral-vibe</c> entry in <c>hooks.toml</c> (which covers an install whose marker was
     /// lost).</summary>
     public static bool IsInstalled(string hooksTomlPath) {
-        var dir = Path.GetDirectoryName(hooksTomlPath);
-        if (!string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, MarkerFileName))) return true;
+        if (InstallMarker.Exists(hooksTomlPath, MarkerFileName)) return true;
 
         return TomlConfigFile.Read(hooksTomlPath) is { } root
             && MistralVibeHooksParser.HooksArray(root).Any(MistralVibeHooksParser.EntryReferencesCapacitorVibeHook);
@@ -32,7 +31,7 @@ public static class MistralVibeHooksInstaller {
          || !MistralVibeHooksParser.HasCapacitorHooksFor(root, MistralVibeHooksParser.VibeHookTypes))
             return TomlConfigFile.Outcome.Failed;
 
-        WriteMarker(hooksTomlPath);
+        InstallMarker.Write(hooksTomlPath, MarkerFileName);
         return outcome;
     }
 
@@ -41,7 +40,7 @@ public static class MistralVibeHooksInstaller {
     public static TomlConfigFile.Outcome Remove(string hooksTomlPath) {
         // Edit takes its lock beside the file, which would create ~/.vibe on a machine without Vibe.
         var outcome = File.Exists(hooksTomlPath) ? TomlConfigFile.Edit(hooksTomlPath, RemoveMutate) : TomlConfigFile.Outcome.Unchanged;
-        DeleteMarker(hooksTomlPath);
+        InstallMarker.Delete(hooksTomlPath, MarkerFileName);
         return outcome;
     }
 
@@ -85,27 +84,5 @@ public static class MistralVibeHooksInstaller {
         return true;
     }
 
-    public static string? ReadMarker(string hooksTomlPath) {
-        var dir = Path.GetDirectoryName(hooksTomlPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
-
-    static void WriteMarker(string hooksTomlPath) {
-        var dir = Path.GetDirectoryName(hooksTomlPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch { /* best effort */ }
-    }
-
-    static void DeleteMarker(string hooksTomlPath) {
-        var dir = Path.GetDirectoryName(hooksTomlPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { /* best effort */ }
-    }
+    public static string? ReadMarker(string hooksTomlPath) => InstallMarker.Read(hooksTomlPath, MarkerFileName);
 }

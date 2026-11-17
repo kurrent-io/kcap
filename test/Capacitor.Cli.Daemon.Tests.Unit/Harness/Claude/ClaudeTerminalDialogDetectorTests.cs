@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using TUnit.Assertions.Enums;
 
@@ -455,6 +456,234 @@ public class ClaudeTerminalDialogDetectorTests {
         await Assert.That(dialog).IsNotNull();
         await Assert.That(dialog!.Options).IsEmpty();
         await Assert.That(dialog.Screen).Contains("Version 2.1.309");
+    }
+
+    /// A select menu whose footer names what Enter does, and adds keys of its own before Esc, is
+    /// still read for its choices.
+    [Test]
+    public async Task A_menu_that_names_what_Enter_does_is_read_for_its_choices() {
+        var screen = string.Join('\n',
+            "❯ /model",
+            "",
+            new string('─', 120),
+            "  Select model",
+            "  Switch between Claude models. Your pick becomes the default for new sessions.",
+            "",
+            "  ❯ 1.  Default (recommended) ✔  Opus 5.5 · Best for everyday, complex tasks",
+            "    2.  Sonnet 5.5               Most efficient for simpler tasks",
+            "    3.  Haiku 5.5                Fastest for quick answers",
+            "",
+            "  ◐ Medium effort (default) ←/→ to adjust",
+            "",
+            "  Enter to set as default · s to use this session only · Esc to cancel");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Heading).StartsWith("Select model");
+        await Assert.That(dialog.Options).Count().IsEqualTo(3);
+        await Assert.That(dialog.Options[2]).StartsWith("Haiku 5.5");
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+    }
+
+    /// A confirmation that ends at its last choice, with no footer, is still read for its choices;
+    /// a numbered list in ordinary output, with the prompt box below it, is not a dialog.
+    [Test]
+    public async Task A_confirmation_without_a_footer_is_read_for_its_choices() {
+        var confirm = string.Join('\n',
+            "❯ /model",
+            new string('─', 120),
+            "  Switch model?",
+            "  Your next response will be slower and use more tokens",
+            "",
+            "  This conversation is cached for the current model. Switching to Fable 5.2 means the full history gets re-read.",
+            "",
+            "  ❯ 1. Yes, switch to Fable 5.2",
+            "    2. No, go back");
+        var output = string.Join('\n',
+            "● Two options:",
+            "  ❯ 1. Keep it",
+            "    2. Drop it",
+            new string('─', 120),
+            "❯ ",
+            new string('─', 120),
+            "  ⏵⏵ auto mode on (shift+tab to cycle)");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(confirm, 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Switch model? Your next response will be slower and use more tokens");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(new[] { "Yes, switch to Fable 5.2", "No, go back" }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+        await Assert.That(ClaudeTerminalDialogDetector.Parse(output, 120)).IsNull();
+    }
+
+    /// A confirmation drawn narrow enough that its last choice wraps ends on the continuation row; it
+    /// is still read, the wrapped label joined back into one.
+    [Test]
+    public async Task A_footerless_confirmation_whose_last_choice_wraps_is_read() {
+        var screen = string.Join('\n',
+            "❯ /model",
+            new string('─', 40),
+            "  Switch model?",
+            "",
+            "  ❯ 1. Yes, switch to Fable 5.2",
+            "    2. No, go back to the model you",
+            "       were using");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 40);
+
+        await Assert.That(dialog!.Options.ToArray()).IsEquivalentTo(
+            new[] { "Yes, switch to Fable 5.2", "No, go back to the model you were using" }, CollectionOrdering.Matching);
+    }
+
+    /// A chunk that ends between drawing the new cursor and erasing the old one leaves two cursors on
+    /// a footerless confirmation: it is still the dialog, read as an unfinished redraw under its own
+    /// heading, so the choices already read stay.
+    [Test]
+    public async Task A_footerless_confirmation_caught_mid_redraw_is_still_a_dialog() {
+        var screen = string.Join('\n',
+            "❯ /model",
+            new string('─', 120),
+            "  Switch model?",
+            "",
+            "  ❯ 1. Yes, switch to Fable 5.2",
+            "  ❯ 2. No, go back");
+
+        var (dialog, incomplete) = ClaudeTerminalDialogDetector.Read(screen, 120);
+
+        await Assert.That((dialog?.Heading, incomplete)).IsEqualTo(((string?)"Switch model?", true));
+    }
+
+    /// A numbered list under a rule with no cursor on it decides nothing: output with no dialog open
+    /// stays output, and a footerless confirmation caught between erasing its cursor and drawing it
+    /// again stays open.
+    [Test]
+    public async Task A_numbered_list_with_no_cursor_leaves_the_dialog_as_it_was() {
+        var screen = string.Join('\n',
+            "❯ summarize",
+            new string('─', 120),
+            "  Next steps:",
+            "",
+            "    1. Run the tests",
+            "    2. Push the branch");
+
+        var watcher = new ClaudeScreenWatcher();
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + screen.Replace("\n", "\r\n"))).Dialog).IsNull();
+
+        var confirmation = string.Join("\r\n", "❯ /model", new string('─', 120), "  Switch model?", "", "  ❯ 1. Yes", "    2. No");
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation)).Dialog?.Heading).IsEqualTo("Switch model?");
+
+        var dialog = watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation.Replace("  ❯ 1.", "    1."))).Dialog;
+
+        await Assert.That(dialog?.Options.Count).IsEqualTo(2);
+    }
+
+    /// A footerless confirmation whose choices could be one wrapped label still holds the keyboard,
+    /// so it comes back as its screen rather than as nothing.
+    [Test]
+    public async Task A_footerless_confirmation_with_unreadable_choices_comes_back_as_its_screen() {
+        var screen = string.Join('\n',
+            "❯ /model",
+            new string('─', 32),
+            "  Switch model?",
+            "",
+            "  ❯ 1. Yes, switch to Fable 5.2",
+            "    2. No");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 32);
+
+        await Assert.That((dialog?.Heading, dialog?.Options.Count, dialog?.Screen?.Contains("2. No"))).IsEqualTo(((string?)"Switch model?", (int?)0, (bool?)true));
+    }
+
+    static string AutoModeOffer(params string[] choices) =>
+        string.Join('\n', new[] {
+            "● Done.",
+            "",
+            new string('─', 120),
+            "  Make auto mode your default permission mode?",
+            "",
+            "  Auto mode lets Claude handle permission prompts automatically. Claude checks each tool call for risky actions and",
+            "  prompt injection before executing, runs the ones it assesses as lower-risk, and blocks the rest.",
+            "",
+        }.Concat(choices).Append(""));
+
+    /// The auto-mode offer opens after a reply with unnumbered choices and no footer; it holds the
+    /// keyboard all the same, so it is read as a dialog.
+    [Test]
+    public async Task The_auto_mode_offer_is_read_for_its_choices() {
+        var screen = AutoModeOffer(
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Make auto mode your default permission mode?");
+        await Assert.That(dialog.Body).StartsWith("Auto mode lets Claude handle permission prompts automatically.");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(
+            new[] { "Yes, set auto mode as my default permission mode", "No, keep default mode" }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+    }
+
+    /// Caught between erasing one cursor and drawing the next, the offer is still open: the screen
+    /// decides nothing, rather than reading as closed and letting a held message through.
+    [Test]
+    public async Task The_auto_mode_offer_caught_mid_redraw_stays_open() {
+        var open = AutoModeOffer(
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+        var cursorless = AutoModeOffer(
+            "    Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+
+        var watcher = new ClaudeScreenWatcher();
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + open.Replace("\n", "\r\n"))).Dialog).IsNotNull();
+
+        await Assert.That(ClaudeTerminalDialogDetector.Read(cursorless, 120)).IsEqualTo(((TerminalDialogDto?)null, true));
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + cursorless.Replace("\n", "\r\n"))).Dialog?.Options.Count).IsEqualTo(2);
+    }
+
+    /// The offer's headline in ordinary output, with the prompt box below it, is not a dialog; nor is
+    /// an unnumbered cursor list under any other headline.
+    [Test]
+    public async Task Unnumbered_choices_are_a_dialog_only_under_the_offer_headline() {
+        var quoted = string.Join('\n',
+            "● Claude showed: Make auto mode your default permission mode?",
+            "  Make auto mode your default permission mode?",
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode",
+            new string('─', 120),
+            "❯ ",
+            new string('─', 120),
+            "  ⏵⏵ auto mode on (shift+tab to cycle)");
+        var other = string.Join('\n',
+            new string('─', 120),
+            "  Pick one",
+            "",
+            "  ❯ Keep it",
+            "    Drop it");
+
+        await Assert.That(ClaudeTerminalDialogDetector.Read(quoted, 120)).IsEqualTo(((TerminalDialogDto?)null, false));
+        await Assert.That(ClaudeTerminalDialogDetector.Read(other, 120)).IsEqualTo(((TerminalDialogDto?)null, false));
+    }
+
+    /// A panel whose footer offers only Esc holds the keyboard as any dialog does, and comes back
+    /// as its screen.
+    [Test]
+    public async Task A_panel_that_only_closes_with_Esc_comes_back_as_its_screen() {
+        var screen = string.Join('\n',
+            "❯ /status",
+            "",
+            new string('─', 120),
+            "  Status   Config   Usage",
+            "",
+            "  Version:           2.1.323",
+            "  Model:             Default (Opus 5.5)",
+            "",
+            "  Esc to cancel");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Options).IsEmpty();
+        await Assert.That(dialog.Screen).Contains("Version:           2.1.323");
     }
 
     /// The rows on screen are a window onto a list that scrolls, so they are not offered as the

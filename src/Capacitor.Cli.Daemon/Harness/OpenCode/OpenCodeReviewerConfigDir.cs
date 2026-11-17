@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Kiro;
+using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -73,28 +74,8 @@ internal static class OpenCodeReviewerConfigDir {
     /// the same accepted residual <see cref="KiroReviewerHome.SweepStale"/> records.</para>
     internal static void SweepStale(string stateDir, string currentEpoch, ILogger? log = null) {
         log ??= NullLogger.Instance;
-        var root = RootFor(stateDir);
-        if (!Directory.Exists(root)) return;
-
-        var live = $"{Prefix}{Sanitize(currentEpoch)}-";
-
-        IReadOnlyList<string> candidates;
-
-        try {
-            candidates = [.. Directory.EnumerateDirectories(root)];
-        } catch (Exception ex) {
-            log.LogWarning(ex,
-                "Could not enumerate the OpenCode reviewer config root {Root}; skipping the sweep", root);
-            return;
-        }
-
-        foreach (var dir in candidates) {
-            var name = Path.GetFileName(dir);
-            if (!name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-            if (name.StartsWith(live,   StringComparison.Ordinal)) continue;
-
-            Delete(dir, stateDir, log);
-        }
+        ReviewerScratch.SweepStale(RootFor(stateDir), Prefix, $"{Prefix}{Sanitize(currentEpoch)}-",
+            "OpenCode reviewer config", log, dir => Delete(dir, stateDir, log));
     }
 
     /// <summary>

@@ -4,7 +4,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-// Settlement lost-ack redelivery (D1) (Task 7 wiring): the orchestrator re-delivers unretired terminal acks on a status-report
+// Settlement lost-ack redelivery wiring: the orchestrator re-delivers unretired terminal acks on a status-report
 // tick AND on reconnect (re-registration). The freeze + re-delivery MECHANISM is pinned at the processor
 // level (SequencedCommandProcessorTests); these pin that the orchestrator actually invokes it end-to-end
 // — processor -> _server.CommandAckAsync. Reuses the AgentOrchestratorVendorTests harness

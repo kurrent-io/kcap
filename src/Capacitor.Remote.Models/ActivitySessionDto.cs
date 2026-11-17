@@ -7,6 +7,11 @@ public sealed record ActivitySessionDto {
     [JsonPropertyName("session_id")]    public required string SessionId { get; init; }
     [JsonPropertyName("slug")]          public string? Slug { get; init; }
     [JsonPropertyName("title")]         public string? Title { get; init; }
+    [JsonPropertyName("model")]         public string? Model { get; init; }
+    /// Claude Code's permission mode as the session last reported it; absent from a server that does not keep it.
+    [JsonPropertyName("permission_mode")] public string? PermissionMode { get; init; }
+    /// The effort the session last reported; absent from a server that does not keep it.
+    [JsonPropertyName("effort")]        public string? Effort { get; init; }
     [JsonPropertyName("vendor")]        public string? Vendor { get; init; }
     [JsonPropertyName("cwd")]           public string? Cwd { get; init; }
     /// "active" or "ended".

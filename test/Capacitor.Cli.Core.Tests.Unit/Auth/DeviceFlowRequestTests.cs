@@ -38,7 +38,7 @@ public class DeviceFlowRequestTests {
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
             new GitHubOAuthClient(new PlainHttpClientFactory(capture)), "Iv1.abc", new RecordingBrowser(), TimeProvider.System,
-            progress: new RecordingAuthProgress());
+            progress: new RecordingAuthProgress(), pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(token).IsEqualTo("tok");
         await Assert.That(capture.Accept).Contains("application/json");

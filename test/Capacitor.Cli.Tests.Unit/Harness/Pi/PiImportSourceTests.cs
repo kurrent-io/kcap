@@ -3,6 +3,9 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Harness.Pi;
 using Capacitor.Cli.Recording.PrDetection;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Pi;
 
@@ -161,5 +164,51 @@ public class PiImportSourceTests {
     [Arguments("""{"type":"message","id":"a","message":{"role":"user","content":""}}""", false)]
     public async Task is_import_relevant_line_matches_normalizer(string line, bool expected) {
         await Assert.That(PiImportSource.IsImportRelevantLine(line)).IsEqualTo(expected);
+    }
+
+    /// <summary>The lifecycle bodies go to the server as written, so their bytes, property order included, are pinned.</summary>
+    [Test]
+    public async Task import_posts_lifecycle_payloads_byte_for_byte() {
+        using var tmp = new TempDir();
+        WriteSession(tmp.Path, Sid1, cwd: "/work/a");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new PiImportSource(Config.Root, tmp.Path, router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: new(tmp.Path)), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        string Body(string path) => server.LogEntries.Single(e => e.RequestMessage.Path == path).RequestMessage.Body!;
+
+        await Assert.That(server.LogEntries.Count(e => e.RequestMessage.Path == $"/api/sessions/{Sid1.Replace("-", "")}/last-line")).IsEqualTo(1);
+        await Assert.That(Body("/hooks/session-start/pi")).IsEqualTo(
+            """{"hook_event_name":"sessionStart","session_id":"11111111222233334444555555555555","source":"startup","cwd":"/work/a","started_at":"2026-06-12T10:00:00.0000000\u002B00:00","origin":"historical-import"}""");
+        await Assert.That(Body("/hooks/session-end/pi")).IsEqualTo(
+            """{"hook_event_name":"sessionEnd","session_id":"11111111222233334444555555555555","reason":"pi-import","cwd":"/work/a","ended_at":"2026-06-12T10:00:01.0000000\u002B00:00","origin":"historical-import"}""");
+    }
+
+    [Test]
+    [Arguments("""{"last_line_number":0}""", "Partial", 1)]
+    [Arguments("""{"last_line_number":1}""", "AlreadyLoaded", 0)]
+    [Arguments("{}", "New", 0)]
+    public async Task classify_compares_the_watermark_with_the_last_relevant_line(string watermark, string status, int resume) {
+        using var tmp = new TempDir();
+        WriteSession(tmp.Path, Sid1, cwd: "/work/a");
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet()).RespondWith(Response.Create().WithStatusCode(200).WithBody(watermark));
+        using var client = new HttpClient();
+
+        var source     = new PiImportSource(Config.Root, tmp.Path, router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: new(tmp.Path)), CancellationToken.None);
+
+        await Assert.That(classified[0].Status.ToString()).IsEqualTo(status);
+        await Assert.That(classified[0].ResumeFromLine).IsEqualTo(resume);
+        await Assert.That(classified[0].TotalLines).IsEqualTo(2);
     }
 }

@@ -36,8 +36,7 @@ internal enum FakeTurn {
     /// <c>result</c> with <c>status: SUCCESS</c> — a turn that settles cleanly to Idle, healthy, WITHOUT
     /// the runtime ever resolving a conversation id. Exercises the second
     /// <c>WaitForConversationIdAsync</c> fault call site (the clean-success tail of
-    /// <c>ProcessTurnAsync</c>, not <c>EnterTerminal</c>) — a review caught a first cut of rule (e)
-    /// missing exactly this path.</summary>
+    /// <c>ProcessTurnAsync</c>, not <c>EnterTerminal</c>), the path easiest to miss.</summary>
     NormalWithoutConversationId,
 }
 

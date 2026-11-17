@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// The `--version` output of every gated reviewer's binary, as MEASURED on 2026-08-08, run through the
+/// The `--version` output of every gated reviewer's binary, as MEASURED, run through the
 /// extractor that seeds its version floor.
 ///
 /// <para><b>Why this exists.</b> A floor is affirmed once, on the first startup that finds the binary,
@@ -14,8 +14,8 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 /// <para><b>What it does and does not prove.</b> These are recorded observations of four builds on one
 /// host, so this cannot detect the day a vendor ADDS a nag line — nothing local can. What it does is
 /// stop the extractor from being changed in a way that breaks a shape we know ships, and give the next
-/// person the actual strings rather than a description of them. The negative cases below are the ones
-/// review raised, pinned so the limitation stays a KNOWN one rather than being rediscovered as a
+/// person the actual strings rather than a description of them. The negative cases below are known
+/// wrong-token shapes, pinned so the limitation stays a KNOWN one rather than being rediscovered as a
 /// surprise.</para>
 /// </summary>
 public class ObservedVendorVersionShapeTests {

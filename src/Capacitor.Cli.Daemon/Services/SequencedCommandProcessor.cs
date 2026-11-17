@@ -7,14 +7,14 @@ namespace Capacitor.Cli.Daemon.Services;
 
 internal enum SequencedKind { Launch, Stop }
 
-/// <summary>The two un-sequenced server commands that share the sequenced lane (spec §3.3, one
+/// <summary>The two un-sequenced server commands that share the sequenced lane (one
 /// execution domain). Deliberately a SEPARATE enum from <see cref="SequencedKind"/>: nothing about an
 /// un-sequenced item participates in the epoch/watermark/identity-cache protocol, and a shared enum
 /// would invite a call site to pass one where the other belongs.</summary>
 internal enum UnsequencedKind { Launch, Stop }
 
 /// <summary>The COMPLETE set of outcomes <see cref="SequencedCommandProcessor.SubmitUnsequenced"/> can
-/// return (spec §3.3). <c>Committed</c> — the lane owns execution and fault containment; the caller adds
+/// return. <c>Committed</c> — the lane owns execution and fault containment; the caller adds
 /// nothing. <c>Coalesced</c> — an equivalent item for the same (target, payload class, launch segment) is
 /// already queued and has not started; nothing to do. <c>Refused</c> — the lane has stopped accepting
 /// (daemon shutdown); the CALLER owns the consequence. <c>DroppedUnknownTarget</c> — a stop for an id
@@ -36,17 +36,16 @@ internal readonly record struct CommandOutcome(
     CommandOutcomeKind Kind, string? AgentId = null, string? SessionId = null, CommandRejectedReason? RejectReason = null);
 
 /// <summary>
-/// Phase B2-b (sequenced-settlement design §4.2.2; parent §5.5): the daemon's two-lane sequenced
-/// command handler. Exactly two command types are sequenced (Seq'd LaunchAgentCommand + StopAgentV2),
+/// The daemon's single server-command execution lane. Exactly two command types are sequenced
+/// (Seq'd LaunchAgentCommand + StopAgentV2),
 /// executed strictly serially per epoch. Acceptance (bump HighestAcceptedSeq + cache entry + enqueue)
 /// is one atomic operation under <c>_lock</c>; LastProcessedSeq is the contiguous terminal prefix
 /// (advances only on a terminal outcome). Self-contained + delegate-injected so it is unit-testable
 /// with no live orchestrator (mirrors OrphanReaper/AgentKillQuarantine).
 ///
-/// <para>Spec §3.3 (ONE execution domain) widens this from "the sequenced lane" to "the daemon's single
-/// server-command execution lane". <see cref="SubmitUnsequenced"/> commits un-sequenced launches and
+/// <para><see cref="SubmitUnsequenced"/> commits un-sequenced launches and
 /// stops onto the SAME serial lane — no seq, no identity cache, no acks — so cross-format arrival order
-/// holds by construction. The shipped server mixes formats permanently BY DESIGN (§1.9: the sequenced
+/// holds by construction. The shipped server mixes formats permanently BY DESIGN (the sequenced
 /// tuple rides only the review-flow settlement lane, while ordinary launches and every stop are
 /// un-sequenced), so nothing here may ever refuse a command for its FORMAT. Both submission entry points
 /// decide everything — admissibility, active-launch tracking, launch-aware key clearing, coalescing and
@@ -63,13 +62,13 @@ internal readonly record struct CommandOutcome(
 internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     sealed class CacheEntry {
         public required string CommandId;
-        // Lost-ack redelivery (D1): the item's own identity, so a settled entry can re-send its terminal
+        // Lost-ack redelivery: the item's own identity, so a settled entry can re-send its terminal
         // ack at tick/reconnect time without the SequencedItem (Epoch is _epoch; Seq is also the key).
         public required long Seq;
         public required string AgentId;
         public bool Processed;
         public CommandOutcome Outcome;
-        // Lost-ack redelivery (D1): the SINGLE published terminal ack — frozen once (get-or-freeze) so the
+        // Lost-ack redelivery: the SINGLE published terminal ack — frozen once (get-or-freeze) so the
         // proactive send, a duplicate-replay, and every re-delivery carry byte-identical liveness. Null
         // until the first successful freeze (a throwing liveness read defers it).
         public CommandAck? FrozenAck;
@@ -103,7 +102,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         public static LaneItem ForUnsequenced(UnsequencedItem item) => new() { Unsequenced = item };
     }
 
-    /// <summary>§3.3: queued known-target stops are LOSSLESS while the lane is accepting — losing one
+    /// <summary>Queued known-target stops are LOSSLESS while the lane is accepting — losing one
     /// would leave an agent running that the command would have torn down. Depth is therefore an ALARM,
     /// never a cap. Edge-triggered with hysteresis: one Error on crossing
     /// <see cref="StopQueueAlarmThreshold"/>, quiet during further growth, re-armed only after draining
@@ -131,7 +130,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     long _lastAckedPrefix;
     readonly Dictionary<long, CacheEntry> _cache = new();
 
-    // ── §3.3 one-execution-domain state. Read and written ONLY under _lock. ──────────────────────────
+    // ── One-execution-domain state. Read and written ONLY under _lock. ──────────────────────────
     // Active launch INSTANCES per agent id, reference-counted: a stop is admissible for an id with a
     // launch in flight (dequeued and parked at the consent gate, say) even though no registry entry
     // exists yet, and the id stays admissible until the LAST instance settles — no id-non-reuse
@@ -158,12 +157,12 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     readonly Task _laneTask;
     int _disposed;
 
-    /// <param name="isKnownStopTarget">§3.3 stop-admission probe — whether this id is a real stop target
+    /// <param name="isKnownStopTarget">Stop-admission probe — whether this id is a real stop target
     /// OUTSIDE the in-flight-launch set (the orchestrator's registry plus its durable PID records). Called
     /// INSIDE <c>_lock</c>, so it must be cheap and non-blocking. Defaults to fail-closed
     /// ("no target surface": only ids with an active launch instance are admissible) — a processor that
     /// serves real traffic must always pass one.</param>
-    /// <param name="startBarrier">§3.3 transition barrier — awaited before the lane executes its FIRST
+    /// <param name="startBarrier">Transition barrier — awaited before the lane executes its FIRST
     /// item, so an inline (pre-publication) un-sequenced item reserved by the orchestrator can never
     /// overlap the lane. Null means "start immediately".</param>
     public SequencedCommandProcessor(
@@ -184,7 +183,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     public long HighestAcceptedSeq { get { lock (_lock) return _highestAcceptedSeq; } }
     public long LastProcessedSeq   { get { lock (_lock) return _lastProcessedSeq; } }
 
-    /// <summary>§3.3 metrics: un-sequenced stops currently queued (not yet dequeued to start) and the
+    /// <summary>Metrics: un-sequenced stops currently queued (not yet dequeued to start) and the
     /// high-water mark since boot. Boundedness of the stop queue is MONITORED, not proven — under
     /// sustained agent churn during lane non-dequeue time it grows with churn — so these are the
     /// operator's view alongside the hysteresis alarm.</summary>
@@ -253,7 +252,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             return done.Task;                            // nothing tracked: the item was never enqueued
         }
 
-        // §3.3 (one execution domain): the sequenced mutations live in the ACCEPT branch ONLY — the same
+        // The sequenced mutations live in the ACCEPT branch ONLY — the same
         // critical section that advanced the watermark and wrote the lane item above. A duplicate replay
         // and every rejection class (stale epoch, non-next, backpressure, failed enqueue) returned before
         // reaching here and mutate NONE of this. A newly accepted LAUNCH joins the active-instance set
@@ -269,12 +268,12 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         return done.Task;
     }
 
-    /// <summary>§3.3 (one execution domain): commit an UN-SEQUENCED launch/stop onto the same serial lane
+    /// <summary>Commit an UN-SEQUENCED launch/stop onto the same serial lane
     /// the sequenced protocol uses — no seq, no identity cache, no acks. Every predicate and mutation runs
     /// in ONE critical section before this returns (admissibility, active-launch tracking, launch-aware key
     /// clearing, coalescing, the lane write), so pump serialization plus this section IS the arrival-order
     /// guarantee for both formats in both directions, and a shutdown race can never both commit and refuse.
-    /// Never refuses for FORMAT — the shipped server mixes formats by design (§1.9).
+    /// Never refuses for FORMAT — the shipped server mixes formats by design.
     ///
     /// <para>The two diagnostics this can produce (the unknown-target drop log and the queued-stop alarm)
     /// are deliberately emitted AFTER the lock is released: a logging provider is a supported input, not a
@@ -290,7 +289,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
 
         if (outcome is SubmitOutcome.DroppedUnknownTarget)
             // The processor owns this log: the caller has no reply surface for an un-sequenced command
-            // (§1.8) and the drop is observably identical to the unknown-agent no-op it replaces.
+            // and the drop is observably identical to an unknown-agent no-op.
             LogQuietly(() => _logger.LogDebug(
                     "SequencedCommandProcessor: dropping an un-sequenced stop for unknown target {AgentId} (payload {PayloadKey}) — neither registered nor an in-flight launch",
                     item.AgentId,
@@ -413,7 +412,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         else _activeLaunches[agentId] = instances - 1;
     }
 
-    /// <summary>§3.3: the ONE terminal-finalization path, covering every ending an item can have — normal
+    /// <summary>The ONE terminal-finalization path, covering every ending an item can have — normal
     /// execute completion, lane failure, shutdown-synthesized settlement (never executed), and shutdown
     /// discard. Retiring an active-launch instance HERE, after execution has returned, is what pins the
     /// removal ordering: the id stops being admissible only once its agent is in the registry (success) or
@@ -453,7 +452,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         alarmHighWater = _queuedStopsHighWater;
     }
 
-    /// <summary>Test seams for the §3.3 tracking state. Reading them takes <c>_lock</c>, so they observe
+    /// <summary>Test seams for the lane's tracking state. Reading them takes <c>_lock</c>, so they observe
     /// exactly what admission and coalescing observe.</summary>
     internal bool IsActiveLaunchTargetForTest(string agentId) { lock (_lock) return _activeLaunches.ContainsKey(agentId); }
     internal int  ActiveLaunchInstancesForTest(string agentId) { lock (_lock) return _activeLaunches.GetValueOrDefault(agentId); }
@@ -461,11 +460,11 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     internal int  PendingStopKeyCountForTest  { get { lock (_lock) return _pendingStops.Count; } }
 
     /// <summary>Test seam: completes once the lane has nothing queued or in flight. The production code
-    /// never waits on the lane — that is the whole point of §3.3 — so this exists only so a test can
+    /// never waits on the lane — handlers only commit to it — so this exists only so a test can
     /// assert on an un-sequenced item's SIDE EFFECTS, which are otherwise its only observable.</summary>
     internal Task WhenIdleForTest() { lock (_lock) return _outstanding == 0 ? Task.CompletedTask : _idle!.Task; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): an exact-duplicate <c>(Epoch, Seq, CommandId)</c>
+    /// <summary>An exact-duplicate <c>(Epoch, Seq, CommandId)</c>
     /// is ANSWERED, never re-executed — <c>Accepted</c> while still processing, or <c>Processed</c> with the
     /// cached outcome. A DIFFERENT CommandId at an already-accepted Seq is a protocol-invariant violation →
     /// <c>duplicate_collision</c>. Called under <c>_lock</c>; the processed arm only CAPTURES the cached
@@ -501,7 +500,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     /// concurrent <see cref="SubmitAsync"/>/<see cref="AckPrefix"/> callers. Both callers commit the
     /// outcome to the cache first, so an ack can never advertise an outcome the cache lacks.</para>
     ///
-    /// <para>Settlement lost-ack redelivery (D1): the primitive form, so a re-delivery can rebuild an
+    /// <para>Settlement lost-ack redelivery: the primitive form, so a re-delivery can rebuild an
     /// entry's terminal ack from the cached identity (Seq/CommandId/AgentId + Outcome) without the
     /// original SequencedItem.</para></summary>
     CommandAck BuildProcessedAck(long seq, string commandId, string agentId, CommandOutcome outcome) {
@@ -512,7 +511,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             outcome.Kind, live, outcome.AgentId ?? agentId, outcome.SessionId, reason);
     }
 
-    /// <summary>Settlement lost-ack redelivery (D1) (freeze the terminal ack): get-or-freeze the SINGLE terminal ack for a settled
+    /// <summary>Settlement lost-ack redelivery (freeze the terminal ack): get-or-freeze the SINGLE terminal ack for a settled
     /// command. The candidate is built OUTSIDE <c>_lock</c> (readLiveness walks lifecycle collections and
     /// must never run under the lock), then published under <c>_lock</c> IFF the entry has no frozen ack
     /// yet — a single winner. Every sender (proactive settle, duplicate-replay, tick/reconnect
@@ -520,8 +519,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     /// make two terminal acks for one command disagree.
     /// <para>Returns <c>null</c> when the entry is gone (retired) OR the build threw: a throwing
     /// readLiveness must not abandon the item — the outcome stays committed <c>Processed</c>, the freeze is
-    /// simply deferred, and a later tick/reconnect re-attempts it. This is the exact containment
-    /// <see cref="SendSettledAck"/> used to apply to the inline build.</para></summary>
+    /// simply deferred, and a later tick/reconnect re-attempts it.</para></summary>
     CommandAck? TryGetOrFreezeAck(long seq, string commandId, string agentId, CommandOutcome outcome) {
         lock (_lock) {
             if (!_cache.TryGetValue(seq, out var current)) return null;      // retired
@@ -544,7 +542,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>Settlement lost-ack redelivery (D1) (re-deliver unretired outcomes): every Processed cache entry the server has NOT
+    /// <summary>Settlement lost-ack redelivery (re-deliver unretired outcomes): every Processed cache entry the server has NOT
     /// confirmed via a validated <c>AckProcessedPrefix</c> (retirement evicts the entry, so presence in the
     /// cache IS the unretired predicate). Snapshotted under <c>_lock</c> so the caller iterates without
     /// holding it. Each carries what a re-send needs: the frozen ack if already published, else the
@@ -572,14 +570,14 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     /// outcome is recorded in the cache, so swallowing the ack costs at most one status-report interval
     /// of slot latency — never a wrong or missing terminal fact.</para></summary>
     void SendSettledAck(SequencedItem item, CommandOutcome outcome) {
-        // Settlement lost-ack redelivery (D1): send the FROZEN winner (get-or-freeze), never a freshly-built ack — so the proactive
+        // Settlement lost-ack redelivery: send the FROZEN winner (get-or-freeze), never a freshly-built ack — so the proactive
         // send and any later duplicate-replay/re-delivery are byte-identical. A deferred freeze (liveness
         // read threw) sends nothing now; a later tick/reconnect re-delivery retries it.
         if (TryGetOrFreezeAck(item.Seq, item.CommandId, item.AgentId, outcome) is { } ack)
             SendContained(() => _sendAck(ack), item.Seq, "settled ack");
     }
 
-    /// <summary>Lost-ack redelivery (D1): re-send the terminal ack of every unretired Processed command,
+    /// <summary>Lost-ack redelivery: re-send the terminal ack of every unretired Processed command,
     /// freezing any winner-less entry first (a freeze deferred by a throwing liveness read now retries).
     /// The orchestrator calls this post-registration and on each status-report tick, so a terminal ack lost
     /// in a reconnect window is re-elicited without a server retransmit. Sends are contained + one-way and
@@ -592,7 +590,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §5.5): the wire token a cached
+    /// <summary>The wire token a cached
     /// <see cref="CommandRejectedReason"/> carries on a processed-duplicate <see cref="CommandAck"/> —
     /// serialized through the SAME context the SignalR hub uses for <c>CommandRejected.Reason</c>, so a
     /// retransmitted duplicate reads <c>daemon_capacity</c>/<c>semantic</c> identically to the first
@@ -602,7 +600,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     static string RejectReasonWireToken(CommandRejectedReason reason) =>
         JsonSerializer.Serialize(reason, CapacitorJsonContext.Default.CommandRejectedReason).Trim('"');
 
-    /// <summary>Phase B2-b (sequenced-settlement design): a non-next Seq (a gap — Seq &gt; HighestAcceptedSeq+1,
+    /// <summary>A non-next Seq (a gap — Seq &gt; HighestAcceptedSeq+1,
     /// or a too-low already-retired Seq below the frontier) is NEVER accepted out of order. Emit wrong_next so
     /// the server's transport sequencer resyncs (nudge → observe → retransmit); accept path + watermark untouched.</summary>
     static Task HandleNonNextLocked(SequencedItem item, out CommandRejected? rejection) =>
@@ -686,7 +684,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     internal bool LockHeldByCurrentThreadForTest => Monitor.IsEntered(_lock);
 
     async Task RunLaneAsync() {
-        // §3.3 transition barrier: an un-sequenced handler that snapshotted a NULL processor reserved an
+        // Transition barrier: an un-sequenced handler that snapshotted a NULL processor reserved an
         // inline slot in the same critical section publication uses, and publication handed us its
         // completion. Waiting for it here — before the FIRST item — is what makes "no dual domain, ever"
         // true rather than asserted. Shutdown releases the wait so a never-completed barrier can still
@@ -706,7 +704,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
                 RetireDequeuedStopLocked(li);
             }
 
-            // Shutdown supersession (§3.3): daemon-wide teardown supersedes per-agent stops. An accepted
+            // Shutdown supersession: daemon-wide teardown supersedes per-agent stops. An accepted
             // SEQUENCED item still gets its terminal answer; an un-sequenced one is discarded silently.
             if (draining) { SettleAtShutdown(li); continue; }
 
@@ -715,7 +713,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>§3.3: an un-sequenced item has NO reply surface (§1.8), so the log IS its whole failure
+    /// <summary>An un-sequenced item has NO reply surface, so the log IS its whole failure
     /// outcome. Containment is the lane's duty, not the caller's: an item's exception — including an
     /// <see cref="OperationCanceledException"/> from a shutdown-cancelled launch — must never terminate the
     /// single serial consumer, which is why "a stop queued behind a faulted item still executes" holds for
@@ -760,7 +758,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
                 rejection = CommandRejectedReason.InternalError;
             }
 
-            // Task 15: an execution-time terminal rejection (daemon_capacity / semantic).
+            // An execution-time terminal rejection (daemon_capacity / semantic).
             if (outcome.Kind == CommandOutcomeKind.LaunchRejected && outcome.RejectReason is { } r)
                 rejection = r;
 
@@ -779,15 +777,15 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             // is strictly best-effort and must never be able to rewrite it.
             settled = true;
 
-            // Both notifications happen AFTER the outcome is recorded, and both are contained. They
-            // used to run BEFORE it: a synchronous throw from _sendRejected then escaped the lane
-            // with the command still marked nonterminal — the settlement fact lost to a failure in
-            // merely announcing it. Relative order (rejection, then ack) is unchanged.
+            // Both notifications happen AFTER the outcome is recorded, and both are contained: run
+            // before it, a synchronous throw from _sendRejected would escape the lane with the command
+            // still marked nonterminal — the settlement fact lost to a failure in merely announcing it.
+            // Rejection is sent before the ack.
             if (rejection is { } reason)
                 SendRejectedContained(new CommandRejected(
                     li.Sequenced.Epoch, li.Sequenced.Seq, li.Sequenced.CommandId, reason, li.Sequenced.AgentId));
 
-            // Settlement-admission design (§3.2 F): a FRESH terminal command is acked proactively, not
+            // A FRESH terminal command is acked proactively, not
             // just a retransmitted duplicate. Without this the server only learns the command settled
             // when its next periodic status report reconciles (up to one report interval later), and
             // its one-nonterminal-command-per-daemon invariant rejects any concurrent launch for that
@@ -813,7 +811,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
                 _logger.LogError(ex, "SequencedCommandProcessor: unhandled fault for seq {Seq} — lane continues", li.Sequenced.Seq);
             } catch { /* a throwing logger is exactly how we got here */ }
         } finally {
-            // §3.3: retire this item's active-launch instance through the ONE terminal-finalization
+            // Retire this item's active-launch instance through the ONE terminal-finalization
             // path BEFORE releasing the submitter, so the id stops being an admissible stop target
             // only once its launch has actually finished (registered or terminally failed).
             lock (_lock) FinalizeLocked(li);
@@ -821,7 +819,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>§3.3 shutdown supersession. An ACCEPTED sequenced item that never ran still gets its
+    /// <summary>Shutdown supersession. An ACCEPTED sequenced item that never ran still gets its
     /// terminal answer through the shipped <see cref="SynthesizeErrorLocked"/> machinery (cache +
     /// contiguous watermark + a best-effort <c>CommandRejected</c>), and its execution-completion task is
     /// completed EXACTLY once — this item never reaches the normal <c>finally</c>, and
@@ -855,7 +853,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         li.Done!.TrySetResult();
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design): retire per-epoch identity-cache entries through a
+    /// <summary>Retire per-epoch identity-cache entries through a
     /// VALIDATED <c>AckProcessedPrefix</c> — current epoch, not over-ahead of the processed prefix, strictly
     /// monotonic. An unacked entry is NEVER evicted (that is the backpressure contract's other half). Called
     /// off the hub, so it takes <c>_lock</c> itself.</summary>
@@ -873,7 +871,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>§3.3: stop accepting, without waiting for anything. Closing the gate and completing the
+    /// <summary>Stop accepting, without waiting for anything. Closing the gate and completing the
     /// writer happen in the SAME critical section a submitter uses, so no submission can slip past into a
     /// lane that will never run it — after this, <see cref="SubmitUnsequenced"/> returns
     /// <see cref="SubmitOutcome.Refused"/> and the caller owns the consequence. The orchestrator calls this
@@ -887,7 +885,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         }
     }
 
-    /// <summary>§3.3 lane shutdown order. The in-flight item is cancelled by the token its own delegate
+    /// <summary>Lane shutdown order. The in-flight item is cancelled by the token its own delegate
     /// captured (the daemon shutdown token, cancelled by the orchestrator before it disposes this) and
     /// contained by the per-item catch; every remaining queued item is then settled or discarded by
     /// <see cref="SettleAtShutdown"/> before the lane exits, which also retires the exact active-launch

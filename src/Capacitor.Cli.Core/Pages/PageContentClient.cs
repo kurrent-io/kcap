@@ -28,7 +28,7 @@ public sealed class PageContentClient(HttpClient http, string serverUrl) {
             using var contentResp = await http.SendAsync(contentReq, ct).ConfigureAwait(false);
             if (Totalize(contentResp) is { } contentFailed) return contentFailed;
             return new PageContentRead.Found(page, pinned, await contentResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return new PageContentRead.Unreachable();
         }
     }
@@ -73,7 +73,7 @@ public sealed class PageContentClient(HttpClient http, string serverUrl) {
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             return new((int)resp.StatusCode, ParseBody(text));
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return new(0, null);
         }
     }
@@ -86,9 +86,4 @@ public sealed class PageContentClient(HttpClient http, string serverUrl) {
             return null;
         }
     }
-
-    static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException or IOException;
 }

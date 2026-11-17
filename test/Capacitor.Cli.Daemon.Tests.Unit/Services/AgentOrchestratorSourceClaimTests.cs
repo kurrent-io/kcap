@@ -5,7 +5,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// §2.5: the orchestrator's deferred-first-turn SOURCE-CLAIM sequence — the daemon driver for a
+/// The orchestrator's deferred-first-turn SOURCE-CLAIM sequence — the daemon driver for a
 /// runtime that HOLDS its first turn (<c>RequiresSourceClaimBeforeFirstTurn</c>). The load-bearing
 /// facts under test: the claim SUPERSEDES <c>AcpSessionStarted</c> (no bind call), the forwarder starts
 /// without re-binding, the held first turn dispatches strictly after the claim, the launch is confirmed,
@@ -53,13 +53,13 @@ public class AgentOrchestratorSourceClaimTests {
 
     }
 
-    // ── §2.7 B4: the source-claim AcceptedSeq drives the forwarder's resume/fresh mode ─────────────
+    // ── The source-claim AcceptedSeq drives the forwarder's resume/fresh mode ─────────────
 
     [Test]
     public async Task Deferred_rebind_resumes_the_forwarder_from_the_claim_seq_with_no_second_SessionStarted() {
         // A parked-reviewer relaunch's source claim returns a canonical AcceptedSeq >= 0. The bind seam
         // must build the forwarder in RESUME mode: NO SessionStarted, and the first new envelope numbered
-        // at AcceptedSeq+1 — otherwise round-2 events (seq'd from 0 by the pre-fix forwarder) would be
+        // at AcceptedSeq+1 — otherwise round-2 events (seq'd from 0 by a fresh-mode forwarder) would be
         // <= AcceptedSeq and the server would silently dedup (LOSE) them.
         const long acceptedSeq = 7;
 

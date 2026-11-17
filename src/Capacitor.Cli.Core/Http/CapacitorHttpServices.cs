@@ -1,3 +1,4 @@
+using System.Net;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Microsoft.Extensions.DependencyInjection;
@@ -65,6 +66,7 @@ public static class CapacitorHttpServices {
             // retire its own sockets or a DNS change never reaches a process that never restarts.
             .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
+                AutomaticDecompression   = DecompressionMethods.All,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             }))
             // Nothing is redacted by default, so a logging provider added later would print the bearer.
@@ -83,6 +85,7 @@ public static class CapacitorHttpServices {
             .AddHttpMessageHandler(Redirecting)
             .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
+                AutomaticDecompression   = DecompressionMethods.All,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             }))
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
@@ -99,6 +102,7 @@ public static class CapacitorHttpServices {
             .AddHttpMessageHandler<UnauthorizedRecoveryHandler>()
             .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
+                AutomaticDecompression   = DecompressionMethods.All,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             }))
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
@@ -112,7 +116,10 @@ public static class CapacitorHttpServices {
             // With no bearer to strip there is nothing a redirect can break, and a download that
             // lands on an object store needs the hop followed.
             .AddHttpMessageHandler(Redirecting)
-            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler { AllowAutoRedirect = false }))
+            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
+                AllowAutoRedirect      = false,
+                AutomaticDecompression = DecompressionMethods.All,
+            }))
             // A caller may still set an Authorization header by hand on this lane.
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
 

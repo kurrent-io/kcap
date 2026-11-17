@@ -94,6 +94,42 @@ public class IdleEndTests {
         await Assert.That(should).IsEqualTo(expected);
     }
 
+    /// <summary>Only a session run by a shared OpenCode v2 server has no end signal; v1 and a standalone server exit
+    /// with the session. A session with no turn yet still idle-ends, since v2 writes no transcript to reach one.</summary>
+    [Test]
+    [Arguments(true, true, false, 61, false, true)]
+    [Arguments(true, true, true, 61, false, true)]
+    [Arguments(true, true, false, 59, false, false)]
+    [Arguments(true, true, false, 61, true, false)]
+    [Arguments(true, false, false, 61, false, false)]
+    [Arguments(false, true, true, 61, false, false)]
+    public async Task ShouldEndOnIdle_for_opencode_only_for_a_session_watcher_with_no_end_signal(
+            bool noEndSignal, bool isSessionWatcher, bool thresholdReached, int quietMinutes, bool toolInFlight, bool expected) {
+        var should = IdleEnd.ShouldEndOnIdle(
+            vendor: "opencode", isSessionWatcher: isSessionWatcher, thresholdReached: thresholdReached,
+            lastActivityAt: IdleNow - TimeSpan.FromMinutes(quietMinutes), now: IdleNow, idleTimeout: IdleWindow,
+            toolInFlight: toolInFlight, noEndSignal: noEndSignal);
+
+        await Assert.That(should).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task ResolveIdleWindow_defaults_opencode_to_an_hour() {
+        var window = IdleEnd.ResolveIdleWindow("opencode", isSessionWatcher: true, _ => null);
+
+        await Assert.That(window).IsEqualTo(TimeSpan.FromMinutes(60));
+    }
+
+    [Test]
+    public async Task ResolveCursorIdleClock_prefers_the_later_plugin_heartbeat_for_opencode() {
+        var now       = DateTimeOffset.UtcNow;
+        var heartbeat = now.AddMinutes(-2);
+
+        var resolved = IdleEnd.ResolveCursorIdleClock("opencode", now.AddMinutes(-61), heartbeat);
+
+        await Assert.That(resolved).IsEqualTo(heartbeat);
+    }
+
     [Test]
     public async Task ShouldEndOnIdle_false_when_not_yet_idle() {
         var should = IdleEnd.ShouldEndOnIdle(
@@ -285,6 +321,7 @@ public class IdleEndTests {
     [Test]
     [Arguments("codex",       true,  "KCAP_CODEX_IDLE_MINUTES",           "15", 15)]
     [Arguments("copilot",     true,  "KCAP_COPILOT_IDLE_MINUTES",         "15", 15)]
+    [Arguments("opencode",    true,  "KCAP_OPENCODE_IDLE_MINUTES",        "10", 10)]
     [Arguments("codex",       false, "KCAP_CODEX_SUBAGENT_REAP_MINUTES",  "45", 45)]
     [Arguments("antigravity", true,  "KCAP_ANTIGRAVITY_IDLE_MINUTES",     "20", 20)]
     [Arguments("cursor",      true,  "KCAP_CURSOR_IDLE_CEILING_MINUTES",  "25", 25)]

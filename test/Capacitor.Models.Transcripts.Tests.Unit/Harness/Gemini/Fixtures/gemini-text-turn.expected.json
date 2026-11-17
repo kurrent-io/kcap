@@ -1,0 +1,63 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "f098a737-cee1-4415-83d8-d0da04fcda97",
+        "timestamp": "2026-06-17T14:10:04.1780000\u002B00:00",
+        "recordTimestamp": "2026-06-17T14:10:04.178Z",
+        "payload": {
+          "content": "In one short sentence, what does a todo app do?",
+          "timestamp": "2026-06-17T14:10:04.178Z"
+        },
+        "usage": null
+      }
+    ]
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "ce1e78cf-1e45-701a-30e4-44c4253d8973",
+        "timestamp": "2026-06-17T14:10:06.3440000\u002B00:00",
+        "recordTimestamp": "2026-06-17T14:10:06.344Z",
+        "payload": {
+          "content": "A todo app allows users to create, manage, and track a list of tasks or items that need to be completed.",
+          "timestamp": "2026-06-17T14:10:06.344Z"
+        },
+        "usage": {
+          "inputTokens": "7614",
+          "outputTokens": "24",
+          "totalTokens": "7638",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "107",
+          "model": "gemini-3-flash-preview"
+        }
+      }
+    ]
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": []
+  }
+]

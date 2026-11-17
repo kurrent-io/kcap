@@ -190,6 +190,9 @@ public sealed class GitRepo : IDisposable {
     /// <inheritdoc cref="TempDirHandle.CreateFile(string,string[])"/>
     public string CreateFile(string relativePath, string[] lines) => _dir.CreateFile(relativePath, lines);
 
+    /// <inheritdoc cref="TempDirHandle.CreateExecutable"/>
+    public string CreateExecutable(string relativePath, string content) => _dir.CreateExecutable(relativePath, content);
+
     public void Dispose() => _owned?.Dispose();
 
 

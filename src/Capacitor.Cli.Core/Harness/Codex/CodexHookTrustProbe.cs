@@ -36,7 +36,7 @@ public sealed class CodexHookTrustProbe(HarnessRegistry harnesses, UserHome home
         } finally {
             // A Codex that missed the deadline gets no exit grace on top of it: kcap status waits on this.
             if (unanswered) VendorProcess.Stop(process);
-            else await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            else await VendorProcess.ShutDownAsync(process, time).ConfigureAwait(false);
         }
 
         ct.ThrowIfCancellationRequested();

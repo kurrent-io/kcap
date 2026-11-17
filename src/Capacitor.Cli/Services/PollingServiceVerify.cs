@@ -30,7 +30,10 @@ sealed class PollingServiceVerify(
     static readonly TimeSpan LockWait     = TimeSpan.FromSeconds(10);
     static readonly TimeSpan FenceWait    = TimeSpan.FromSeconds(3);
     static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-    static readonly TimeSpan KillWait     = TimeSpan.FromSeconds(5);
+    static readonly TimeSpan DefaultKillWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long a stopped or ended daemon is given to exit before the operation gives up on it.</summary>
+    internal TimeSpan KillWait { get; init; } = DefaultKillWait;
 
     /// <summary>
     /// How long readiness keeps waiting, in all, for a daemon its unit is still running but that has not

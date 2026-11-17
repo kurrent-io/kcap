@@ -72,6 +72,10 @@ internal sealed record ImportContext(
 
     public TranscriptImportLedger? TranscriptLedger { get; init; }
 
+    /// <summary>A one-session import stops at the first batch the server does not take and posts no session-end, so it
+    /// never reads as complete over a gap that the next import, resuming from the server's watermark, would not fill.</summary>
+    public bool StopAtLoss { get; init; }
+
     /// <summary>
     /// The <c>default_visibility</c> to stamp on a session-start, or null to leave the field off.
     /// <b>An omitted stamp is not "no default"</b> — the server coalesces an absent one to

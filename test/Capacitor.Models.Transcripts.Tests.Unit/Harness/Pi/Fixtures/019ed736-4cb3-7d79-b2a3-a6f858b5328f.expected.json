@@ -1,0 +1,625 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "6b87deeb-0433-561a-a514-d0857d5023b9",
+        "timestamp": "2026-06-17T20:12:00.5630000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:00.563Z",
+        "metadata": {
+          "$pi_entry_id": "019ed736-4cb3-7d79-b2a3-a6f858b5328f"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "timestamp": "2026-06-17T20:12:00.563Z",
+          "extensions": {
+            "pi": {
+              "cwd": "/work/repo",
+              "version": 3,
+              "parent_session": null,
+              "source": null,
+              "pi_version": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "0a1f97b2-00a7-5556-8e1f-6c33ad5cc870",
+        "timestamp": "2026-06-17T20:12:19.8860000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:19.886Z",
+        "metadata": {
+          "$pi_entry_id": "8ed94b1e",
+          "$pi_parent_id": "fb1beff2"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "get to know this repository and summarize the projects within it",
+          "timestamp": "2026-06-17T20:12:19.886Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "8cf6cddb-dc5b-5bfb-887d-86c26b3bf771",
+        "timestamp": "2026-06-17T20:12:23.3910000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:23.391Z",
+        "metadata": {
+          "$pi_entry_id": "de662abd",
+          "$pi_parent_id": "8ed94b1e",
+          "$pi_render_parent": "8ed94b1e"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "198",
+          "total_tokens": "3884",
+          "cached_input_tokens": "0",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 3684,
+        "payload": {
+          "content": "Let me explore the repository structure and summarize the projects.",
+          "timestamp": "2026-06-17T20:12:23.391Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "8ed94b1e",
+              "cost": 0.027985
+            }
+          }
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "7623c6db-e232-5c67-a9cc-f7f5b4356a9c",
+        "timestamp": "2026-06-17T20:12:23.3910001\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:23.391Z",
+        "metadata": {
+          "$pi_entry_id": "de662abd",
+          "$pi_parent_id": "8ed94b1e",
+          "$pi_render_parent": "8ed94b1e"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01A5GsVsGNzSRD5un7GYTNNx",
+              "tool_name": "bash",
+              "arguments": {
+                "command": "ls -la \u0026\u0026 git log --oneline -10"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:23.391000100Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "01c64ca5-5d72-5036-af38-713c653cca43",
+        "timestamp": "2026-06-17T20:12:23.3910002\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:23.391Z",
+        "metadata": {
+          "$pi_entry_id": "de662abd",
+          "$pi_parent_id": "8ed94b1e",
+          "$pi_render_parent": "8ed94b1e"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01TiNb482nH4aq49e9oAVf7g",
+              "tool_name": "read",
+              "arguments": {
+                "path": "/work/repo/README.md"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:23.391000200Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "c97cc2e8-c8a0-529c-838f-a51ee9f5a822",
+        "timestamp": "2026-06-17T20:12:23.4640000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:23.464Z",
+        "metadata": {
+          "$pi_entry_id": "e72089b4",
+          "$pi_parent_id": "de662abd",
+          "$pi_render_parent": "de662abd"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01A5GsVsGNzSRD5un7GYTNNx",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T20:12:23.464Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "bash",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "5d9b1ee6-0836-535e-95f4-cb6b6479e22e",
+        "timestamp": "2026-06-17T20:12:23.4640000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:23.464Z",
+        "metadata": {
+          "$pi_entry_id": "63ab48d1",
+          "$pi_parent_id": "e72089b4",
+          "$pi_render_parent": "e72089b4"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01TiNb482nH4aq49e9oAVf7g",
+          "result": "EISDIR: illegal operation on a directory, read",
+          "timestamp": "2026-06-17T20:12:23.464Z",
+          "extensions": {
+            "pi": {
+              "success": false,
+              "tool_name": "read",
+              "details": null,
+              "details_json": {},
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "569b5265-5b1d-5a57-a1c4-6e46d7e934f5",
+        "timestamp": "2026-06-17T20:12:25.7790000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:25.779Z",
+        "metadata": {
+          "$pi_entry_id": "767a9c97",
+          "$pi_parent_id": "63ab48d1",
+          "$pi_render_parent": "63ab48d1"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "65",
+          "total_tokens": "5442",
+          "cached_input_tokens": "3684",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 1691,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01GRhieBzgrqhYXccwskKCwP",
+              "tool_name": "read",
+              "arguments": {
+                "path": "/work/repo/README.md"
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:25.779Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "63ab48d1",
+              "cost": 0.01404575
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "d14b4ee6-edef-59b1-8938-8617d995e227",
+        "timestamp": "2026-06-17T20:12:25.7830000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:25.783Z",
+        "metadata": {
+          "$pi_entry_id": "cfd65d85",
+          "$pi_parent_id": "767a9c97",
+          "$pi_render_parent": "767a9c97"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01GRhieBzgrqhYXccwskKCwP",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T20:12:25.783Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "read",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "c397681f-93e8-5917-9100-0e26092fca2d",
+        "timestamp": "2026-06-17T20:12:31.1530000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.153Z",
+        "metadata": {
+          "$pi_entry_id": "5de1ae04",
+          "$pi_parent_id": "cfd65d85",
+          "$pi_render_parent": "cfd65d85"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "365",
+          "total_tokens": "7156",
+          "cached_input_tokens": "5375",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 1414,
+        "payload": {
+          "content": "Planning how to explore the repository before summarizing.",
+          "timestamp": "2026-06-17T20:12:31.153Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "cfd65d85",
+              "cost": 0.020659999999999998
+            }
+          }
+        }
+      },
+      {
+        "type": "AssistantTextGenerated",
+        "id": "abda0b65-0ed6-5d7f-a5cc-c719578ea57c",
+        "timestamp": "2026-06-17T20:12:31.1530001\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.153Z",
+        "metadata": {
+          "$pi_entry_id": "5de1ae04",
+          "$pi_parent_id": "cfd65d85",
+          "$pi_render_parent": "cfd65d85"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "Let me explore the repository structure and summarize the projects.",
+          "timestamp": "2026-06-17T20:12:31.153000100Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "282a2583-b5ad-5c09-b032-7e6644e435f0",
+        "timestamp": "2026-06-17T20:12:31.1530002\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.153Z",
+        "metadata": {
+          "$pi_entry_id": "5de1ae04",
+          "$pi_parent_id": "cfd65d85",
+          "$pi_render_parent": "cfd65d85"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01JiT64y3d8jNsqNb4sUVDV6",
+              "tool_name": "bash",
+              "arguments": {
+                "command": "ls -la \u0026\u0026 git log --oneline -10"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:31.153000200Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "2eb42ce2-3ff6-5f7d-9b36-892ce20ed5a5",
+        "timestamp": "2026-06-17T20:12:31.1530003\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.153Z",
+        "metadata": {
+          "$pi_entry_id": "5de1ae04",
+          "$pi_parent_id": "cfd65d85",
+          "$pi_render_parent": "cfd65d85"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01RYBP1imW4nKsJfW3Tzqd66",
+              "tool_name": "bash",
+              "arguments": {
+                "command": "ls -la \u0026\u0026 git log --oneline -10"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:31.153000300Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "a81a0330-8ac8-57a1-9902-ecb039170a49",
+        "timestamp": "2026-06-17T20:12:31.2360000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.236Z",
+        "metadata": {
+          "$pi_entry_id": "ff738ded",
+          "$pi_parent_id": "5de1ae04",
+          "$pi_render_parent": "5de1ae04"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01JiT64y3d8jNsqNb4sUVDV6",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T20:12:31.236Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "bash",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "1bf1136b-0bbe-5369-88e5-7ca4cc893757",
+        "timestamp": "2026-06-17T20:12:31.2370000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:31.237Z",
+        "metadata": {
+          "$pi_entry_id": "e0ddab9b",
+          "$pi_parent_id": "ff738ded",
+          "$pi_render_parent": "ff738ded"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01RYBP1imW4nKsJfW3Tzqd66",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T20:12:31.237Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "bash",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "d76511a2-dffd-51ab-bf93-059b5c8d9c63",
+        "timestamp": "2026-06-17T20:12:39.0350000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:39.035Z",
+        "metadata": {
+          "$pi_entry_id": "f54589de",
+          "$pi_parent_id": "e0ddab9b",
+          "$pi_render_parent": "e0ddab9b"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "258",
+          "total_tokens": "8707",
+          "cached_input_tokens": "6789",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 1658,
+        "payload": {
+          "content": "Planning how to explore the repository before summarizing.",
+          "timestamp": "2026-06-17T20:12:39.035Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "e0ddab9b",
+              "cost": 0.020217
+            }
+          }
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "203fbd95-88a9-58a6-bc85-53c5b5ae1859",
+        "timestamp": "2026-06-17T20:12:39.0350001\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:39.035Z",
+        "metadata": {
+          "$pi_entry_id": "f54589de",
+          "$pi_parent_id": "e0ddab9b",
+          "$pi_render_parent": "e0ddab9b"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01TXiTELtGCZSUKmbzD8fsga",
+              "tool_name": "bash",
+              "arguments": {
+                "command": "ls -la \u0026\u0026 git log --oneline -10"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T20:12:39.035000100Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "66f7bab0-f0bb-5ad9-8263-5a80375db2ad",
+        "timestamp": "2026-06-17T20:12:39.0830000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:39.083Z",
+        "metadata": {
+          "$pi_entry_id": "b7d64bf4",
+          "$pi_parent_id": "f54589de",
+          "$pi_render_parent": "f54589de"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01TXiTELtGCZSUKmbzD8fsga",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T20:12:39.083Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "bash",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "4939d3a8-c083-52c8-b68c-6b70a03bcf87",
+        "timestamp": "2026-06-17T20:12:55.0770000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:12:55.077Z",
+        "metadata": {
+          "$pi_entry_id": "867a6996",
+          "$pi_parent_id": "b7d64bf4",
+          "$pi_render_parent": "b7d64bf4"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "1217",
+          "total_tokens": "10325",
+          "cached_input_tokens": "8447",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 659,
+        "payload": {
+          "content": "Let me explore the repository structure and summarize the projects.",
+          "timestamp": "2026-06-17T20:12:55.077Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "b7d64bf4",
+              "cost": 0.03877725
+            }
+          }
+        }
+      }
+    ]
+  }
+]

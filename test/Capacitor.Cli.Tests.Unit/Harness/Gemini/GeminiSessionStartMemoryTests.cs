@@ -162,8 +162,8 @@ public class GeminiSessionStartMemoryTests {
     /// <summary>
     /// The adapter uses the SHARED <c>SessionStartMemoryHookSupport.ReasonFor</c>, not a local mapper.
     ///
-    /// <para>An earlier revision hand-rolled one defaulting unrecognised sources to <c>New</c>. That is a
-    /// real bug, not a style point: the lifecycle policy decides eligibility from this reason, so
+    /// <para>A local mapper defaulting unrecognised sources to <c>New</c> is a real bug, not a style
+    /// point: the lifecycle policy decides eligibility from this reason, so
     /// defaulting to <c>New</c> would inject on an unverified source AND spend the once-per-session lease
     /// on it. The shared mapper returns <c>Unknown</c>, which the policy suppresses.</para>
     ///

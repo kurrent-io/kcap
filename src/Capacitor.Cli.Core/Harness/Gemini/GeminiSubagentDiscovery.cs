@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Gemini;
 
@@ -148,10 +147,12 @@ public static class GeminiSubagentDiscovery {
     /// with the number of raw directory entries actually pulled from the OS enumeration to
     /// satisfy it, letting a regression test prove a single below-cap parent's own directory read
     /// never pulls more than (remaining counting capacity + 1) entries, no matter how many files
-    /// that directory truly holds.
+    /// that directory truly holds. <paramref name="maxCountingNodes"/> stands in for
+    /// <see cref="MaxCountingNodes"/>, so a test reaches the ceiling with tens of files.
     /// </summary>
     internal static DescendantDiscoveryResult EnumerateDescendantFiles(
-        string rootTranscriptPath, Action? onDequeueBelowCapNode, Action<int>? onBelowCapDirectoryRead = null) {
+        string rootTranscriptPath, Action? onDequeueBelowCapNode, Action<int>? onBelowCapDirectoryRead = null,
+        int maxCountingNodes = MaxCountingNodes) {
         if (ReadParentSessionId(rootTranscriptPath) is not { } rootDashedId) return new([], 0, [], false, 0);
         if (Path.GetDirectoryName(rootTranscriptPath) is not { } chatsDir) return new([], 0, [], false, 0);
 
@@ -254,7 +255,7 @@ public static class GeminiSubagentDiscovery {
             // this parent's whole directory.
             if (countTruncated) continue; // already known to be a lower bound — skip the read entirely
 
-            var remaining = MaxCountingNodes - omittedIds.Count;
+            var remaining = maxCountingNodes - omittedIds.Count;
             if (EnumerateChildFilesBounded(dashedId, remaining + 1) is not { } fetch) continue;
             var (belowChildren, hitLimit) = fetch;
 
@@ -263,7 +264,7 @@ public static class GeminiSubagentDiscovery {
                 if (!Guid.TryParse(subId, out _)) continue;
                 if (!visited.Add(subId)) continue; // cycle guard — already reached
 
-                if (omittedIds.Count >= MaxCountingNodes) {
+                if (omittedIds.Count >= maxCountingNodes) {
                     countTruncated = true;
                     break; // stop scanning this parent's remaining fetched entries too
                 }
@@ -290,7 +291,7 @@ public static class GeminiSubagentDiscovery {
             var (_, dashedId) = belowCapFrontier.Dequeue();
             onDequeueBelowCapNode?.Invoke();
 
-            var remaining = MaxCountingNodes - omittedIds.Count;
+            var remaining = maxCountingNodes - omittedIds.Count;
             if (EnumerateChildFilesBounded(dashedId, remaining + 1) is not { } fetch) continue;
             var (children, hitLimit) = fetch;
 
@@ -299,7 +300,7 @@ public static class GeminiSubagentDiscovery {
                 if (!Guid.TryParse(subId, out _)) continue;
                 if (!visited.Add(subId)) continue; // cycle guard — already reached
 
-                if (omittedIds.Count >= MaxCountingNodes) {
+                if (omittedIds.Count >= maxCountingNodes) {
                     countTruncated = true;
                     break; // stop scanning this node's remaining fetched entries too
                 }
@@ -347,34 +348,4 @@ public static class GeminiSubagentDiscovery {
     /// the dashless form the server routes/correlates on and canonicalizes defensively.
     /// </summary>
     public static string CanonicalAgentId(string dashedSubId) => dashedSubId.Replace("-", "");
-
-    // ── Hook payloads (the vendor-agnostic /hooks/subagent-start|stop wire shape) ──
-
-    /// <summary>
-    /// <c>/hooks/subagent-start</c> body. cwd is "" — Gemini carries no cwd for subagents
-    /// (same as the parent session); the server's HookBase requires the (non-null) field.
-    /// </summary>
-    public static JsonObject BuildStartPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = subagentTranscriptPath,
-            ["cwd"]             = "",
-        };
-
-    /// <summary><c>/hooks/subagent-stop</c> body.</summary>
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = subagentTranscriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = subagentTranscriptPath,
-            ["last_assistant_message"] = "",
-        };
 }

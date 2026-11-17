@@ -67,6 +67,17 @@ sealed class FakeBundle : HttpMessageHandler {
     /// <summary>The manifest answers 404, as an unpublished version does.</summary>
     public bool ManifestMissing { get; set; }
 
+    /// <summary>The archive is served with its last byte changed: the size the manifest declares, another digest.</summary>
+    public bool ArchiveTampered { get; set; }
+
+    byte[] ServedArchive() {
+        if (!ArchiveTampered) return _archive;
+
+        var tampered = (byte[])_archive.Clone();
+        tampered[^1] ^= 0xFF;
+        return tampered;
+    }
+
     public List<string> Requests { get; } = [];
 
     public LocalBundleClient Client() => new(new HttpClient(this), TimeProvider.System) { BaseUrl = BaseUrl };
@@ -86,7 +97,7 @@ sealed class FakeBundle : HttpMessageHandler {
             _ when path.EndsWith(".json", StringComparison.Ordinal) && ManifestMissing => new(HttpStatusCode.NotFound),
             _ when path.EndsWith(".json", StringComparison.Ordinal)     => new(HttpStatusCode.OK) { Content = new ByteArrayContent(Manifest) },
             _ when path.EndsWith(".json.sig", StringComparison.Ordinal) => new(HttpStatusCode.OK) { Content = new StringContent(Signature) },
-            _ when path.EndsWith(".tar.gz", StringComparison.Ordinal)   => new(HttpStatusCode.OK) { Content = new ByteArrayContent(_archive) },
+            _ when path.EndsWith(".tar.gz", StringComparison.Ordinal)   => new(HttpStatusCode.OK) { Content = new ByteArrayContent(ServedArchive()) },
             _                                                           => new(HttpStatusCode.NotFound),
         };
 

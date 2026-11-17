@@ -20,7 +20,7 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// without a real SignalR connection (see <c>AcpInteractionBridgeTests</c>).
 ///
 /// <paramref name="unexpectedUnattendedInteraction"/> fires on every reap this bridge triggers, and
-/// carries the CODED REASON (design spec §3.1) that <c>AcpHostedAgentRuntime</c> forwards verbatim
+/// carries the CODED REASON that <c>AcpHostedAgentRuntime</c> forwards verbatim
 /// into its reap claim — never the bare JSON-RPC method: an unadmittable frame codes its own logged
 /// <c>why</c> (<c>unattended_frame_unadmittable: …</c>), everything else codes the method
 /// (<c>unattended_interaction_forbidden:{method}</c>) via <see cref="ForbiddenInteractionReason"/>.
@@ -87,7 +87,7 @@ internal sealed partial class AcpInteractionBridge(
     ///
     /// Publishes the FRAME-UNADMITTABLE coding of this method's own logged <paramref name="why"/> —
     /// never the generic forbidden-method coding <see cref="ForbiddenInteractionReason"/> uses —
-    /// so a caller downstream (design spec §3.1) can tell "we couldn't even parse this" apart from
+    /// so a caller downstream can tell "we couldn't even parse this" apart from
     /// "we understood it and it wasn't allowed."
     /// </summary>
     JsonElement? UnadmittableFrame(AcpRequest request, string why) {
@@ -122,7 +122,7 @@ internal sealed partial class AcpInteractionBridge(
     /// existing default-decline posture answer with a JSON-RPC "Method not found" error, unchanged
     /// from the prior behavior for every method except the two this bridge now claims).
     ///
-    /// <b>Qodo daemon-review Q2:</b> takes NO caller-supplied session id — the ACP session id used to
+    /// Takes NO caller-supplied session id — the ACP session id used to
     /// correlate this interaction server-side comes ONLY from the request's OWN
     /// <c>params.sessionId</c> (<see cref="SessionRequestPermissionParams.SessionId"/> /
     /// <see cref="ElicitationCreateParams.SessionId"/>), never from a runtime field closed over at
@@ -319,7 +319,7 @@ internal sealed partial class AcpInteractionBridge(
             return UnadmittableFrame(request, "malformed session/request_permission params");
         }
 
-        // Qodo daemon-review Q2: the request's OWN params are the sole source of truth for
+        // The request's OWN params are the sole source of truth for
         // correlation — no resolvable session id at all means the server has no way to correlate
         // this interaction, so fail safe rather than forwarding an empty/placeholder id.
         if (string.IsNullOrEmpty(parsed.SessionId)) {
@@ -328,11 +328,11 @@ internal sealed partial class AcpInteractionBridge(
             return UnadmittableFrame(request, "session/request_permission carried no sessionId");
         }
 
-        // Qodo daemon-review Q1 (fail-safe hole): System.Text.Json does NOT enforce
+        // System.Text.Json does NOT enforce
         // SessionRequestPermissionParams.Options' non-nullable C# annotation — an omitted OR
         // explicit-null `options` field on the wire (this shape is spec-derived, NOT
         // probe-confirmed; see docs/acp-probe-findings.md) deserializes to `parsed.Options == null`,
-        // which used to NRE inside `.Select(...)` below and propagate all the way out to
+        // which would NRE inside `.Select(...)` below and propagate all the way out to
         // AcpConnection.HandleServerRequestAsync's generic catch-all (-32603) instead of this
         // bridge's well-formed `cancelled`. Normalize once, up front, filtering out any null
         // element too (an options ARRAY with a null entry is equally unenforceable on the wire) —
@@ -478,7 +478,7 @@ internal sealed partial class AcpInteractionBridge(
             AcpSessionId: parsed.SessionId,
             Kind: "permission",
             ToolName: TryGetToolTitle(parsed.ToolCall),
-            // Qodo daemon-review Q1: a default/undefined JsonElement (e.g. `toolCall` itself omitted
+            // A default/undefined JsonElement (e.g. `toolCall` itself omitted
             // from the wire frame — ToolCall is non-nullable on SessionRequestPermissionParams, but
             // again unenforced by System.Text.Json) must not be forwarded as a bare JsonElement,
             // which can throw when the caller later tries to serialize/inspect it. Undefined maps to
@@ -486,8 +486,8 @@ internal sealed partial class AcpInteractionBridge(
             ToolInput: parsed.ToolCall.ValueKind == JsonValueKind.Undefined ? null : parsed.ToolCall,
             ToolCallId: TryGetToolCallId(parsed.ToolCall),
             Prompt: null,
-            // Spec-review Finding 6: carry OptionId through to the server-facing DTO so a UI
-            // decision can round-trip it back — Options: o.Name (Label) is now display-only.
+            // Carry OptionId through to the server-facing DTO so a UI
+            // decision can round-trip it back — o.Name (Label) is display-only.
             Options: options.Select(o => new AcpInteractionOption(o.OptionId, o.Name, null, o.Kind)).ToArray(),
             IsMultiSelect: false
         );
@@ -504,7 +504,7 @@ internal sealed partial class AcpInteractionBridge(
         try {
             decision = await requestInteraction(interactionRequest, ct).ConfigureAwait(false);
         } catch (OperationCanceledException) {
-            // Spec-review Finding 3(b): connection-closed / runtime-disposing / CT-cancelled while
+            // Connection-closed / runtime-disposing / CT-cancelled while
             // this interaction is pending (AcpHostedAgentRuntime.DisposeAsync cancels its _cts,
             // which is the SAME token flowing through AcpConnection's read loop → HandleServerRequestAsync
             // → this bridge → RequestAcpInteractionAsync → PendingAcpInteractionRegistry.AwaitDecisionAsync,

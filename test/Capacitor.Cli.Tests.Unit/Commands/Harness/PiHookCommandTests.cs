@@ -3,7 +3,7 @@ using Capacitor.Cli.Commands.Harness;
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
 
 /// <summary>
-/// Unit tests for <see cref="PiHookCommand.ExtractSessionId"/> (PR #162 review).
+/// Unit tests for <see cref="PiHookCommand.ExtractSessionId"/>.
 /// Pi can hand the extension the session file before its header line is flushed,
 /// and names files <c>&lt;timestamp&gt;_&lt;uuid&gt;.jsonl</c>, so the session id
 /// must be recoverable from the filename suffix when the header isn't readable.

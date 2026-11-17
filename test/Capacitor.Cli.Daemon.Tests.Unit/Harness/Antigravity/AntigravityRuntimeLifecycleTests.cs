@@ -23,8 +23,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 /// enqueued — before the worker even dequeues it — and <c>WaitForTurnIdleAsync</c>'s
 /// acquire-then-release on a currently-FREE gate can complete synchronously, before the worker's own
 /// continuation is even scheduled to acquire it. Calling <c>WaitForTurnIdleAsync</c> right after
-/// <c>SendUserInputAsync</c> is therefore not a reliable "the turn ran" barrier — a review caught this
-/// after it let a comparison test pass on two empty strings without a single turn actually completing.
+/// <c>SendUserInputAsync</c> is therefore not a reliable "the turn ran" barrier — it lets a comparison
+/// test pass on two empty strings without a single turn actually completing.
 /// <c>WaitForConversationIdAsync</c> only resolves once the worker has genuinely read a spawned turn's
 /// first line, so awaiting it first closes the gap.</para>
 /// </summary>
@@ -868,9 +868,9 @@ public class AntigravityRuntimeLifecycleTests {
     [Test]
     public async Task A_turn_that_settles_without_a_conversation_id_faults_the_barrier_instead_of_hanging() {
         // A turn can settle cleanly (→ Idle, healthy — no EnterTerminal call at all) having never seen
-        // a non-empty conversation_id on its init line. A first cut of rule (e) only faulted the
-        // barrier from EnterTerminal, so a factory correctly awaiting WaitForConversationIdAsync would
-        // hang forever here even though the runtime itself is perfectly healthy.
+        // a non-empty conversation_id on its init line. Faulting the barrier only from EnterTerminal
+        // would leave a factory correctly awaiting WaitForConversationIdAsync hanging forever here even
+        // though the runtime itself is perfectly healthy.
         await using var rt = FakeRuntime(turn: FakeTurn.NormalWithoutConversationId);
 
         await rt.SendUserInputAsync("hello").WaitAsync(HangGuard);

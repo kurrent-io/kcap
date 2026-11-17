@@ -31,7 +31,7 @@ public sealed class AssistantTextItem(string text, ChatTimestamp? time = null) :
 }
 
 /// The model's reasoning, rendered as collapsible muted Markdown in the assistant column.
-public sealed class AssistantThinkingItem : ChatItemViewModel {
+public sealed class AssistantThinkingItem : ChatItemViewModel, IExpandableItem {
     public const string ThinkingLabel = "Thinking";
 
     readonly string? _peek;
@@ -80,7 +80,7 @@ public sealed class AssistantThinkingItem : ChatItemViewModel {
 
 /// System-attributed text — a finished background task, a reconnect note, another agent's message
 /// — never the user's speech.
-public sealed partial class SystemNoteItem : ChatItemViewModel {
+public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem {
     public const string NoteLabel = "Note";
     public const string AgentReportLabel = "Subagent report";
     public const string AgentMessageLabel = "Agent message";
@@ -411,7 +411,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
 /// calls in the group; a lone call stays a single row with no "Ran a command" chrome.
 /// VisibleCalls is the one list the view binds, swapped on toggle so a folded multi-call group
 /// holds no containers for its settled rows.
-public sealed class ToolGroupItem : ChatItemViewModel {
+public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
     readonly AvaloniaList<ToolCallItem> _calls = new();
     readonly AvaloniaList<ToolCallItem> _live = new();
     /// What a folded group shows: the live calls and every card, in call order.

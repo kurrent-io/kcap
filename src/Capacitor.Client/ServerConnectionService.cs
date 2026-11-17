@@ -23,19 +23,17 @@ using Capacitor.Cli.Core.LocalEdition;
 namespace Capacitor.Client;
 
 /// The app's one long-lived server connection. Handlers are registered before StartAsync so no
-/// broadcast can slip past a fresh connection; a closed or cold-failed connection re-dials on a
-/// 1/2/5/10/30s ladder because SignalR's automatic reconnect covers neither cold-start failure
-/// nor a close it decides not to retry.
+/// broadcast can slip past a fresh connection. A dropped connection reconnects on the ladder every
+/// hub client shares and never gives up except on a 401, which parks the lane; the outer loop
+/// re-dials on the same ladder only for what automatic reconnect does not cover, a cold-start
+/// failure or a close the server asked for.
 public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsyncDisposable {
     readonly TimeProvider _time;
 
-    static readonly TimeSpan[] Backoff =
-        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)];
-
     readonly string? _serverUrl;
     readonly Func<Task<string?>> _token;
-    /// SignalR's own reconnect ladder, which a test shortens; null keeps the client's default.
-    readonly TimeSpan[]? _reconnectDelays;
+    readonly HubRetryPolicy _retry;
+    Exception? _refusedReconnect;
     readonly Action<ILoggingBuilder>? _hubLogging;
     readonly BehaviorSubject<ServerLaneStatus> _status = new(new(ServerLaneState.Dormant));
     readonly Subject<Unit> _agentsChanged = new();
@@ -98,7 +96,13 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         _time = time;
         _serverUrl = string.IsNullOrEmpty(serverUrl) ? null : serverUrl.TrimEnd('/');
         _token = accessTokenProvider;
-        _reconnectDelays = reconnectDelays;
+        // SignalR closes a connection the policy gave up on with an exception of its own, so the 401 is kept here.
+        _retry = new HubRetryPolicy(ex => {
+            if (!IsUnauthorized(ex)) return false;
+
+            Volatile.Write(ref _refusedReconnect, ex);
+            return true;
+        }, reconnectDelays);
         _hubLogging = hubLogging;
     }
 
@@ -200,26 +204,40 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 // ReadSubjectAsync token read below — or during StartAsync itself — is still
                 // observed, never lost with status stuck on a dead hub.
                 var closed = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                hub.Closed += ex => { closed.TrySetResult(ex); return Task.CompletedTask;  };
+                var spans  = new ConnectedSpans(_time);
+                hub.Closed += ex => { spans.Down(); closed.TrySetResult(ex); return Task.CompletedTask;  };
                 hub.Reconnecting += _ => {
+                    spans.Down();
                     Publish(generation, new(ServerLaneState.Retrying, "reconnecting"));
                     return Task.CompletedTask;
                 };
                 hub.Reconnected += async _ => {
+                    spans.Up();
+                    EndTails();
                     var subject = await ReadSubjectAsync().ConfigureAwait(false);
                     PublishConnected(generation, capturedHub, subject);
                 };
 
                 await hub.StartAsync(ct).ConfigureAwait(false);
+                spans.Up();
                 _hub = hub;
                 _streams = streams;
-                attempt = 0;
                 var connectedSubject = await ReadSubjectAsync().ConfigureAwait(false);
                 PublishConnected(generation, capturedHub, connectedSubject);
 
                 Exception? closeReason;
                 await using (ct.Register(() => closed.TrySetResult(null)))
                     closeReason = await closed.Task.ConfigureAwait(false);
+
+                // Only a connection that stayed up longer than the ladder's longest step starts it over: one the server
+                // takes and closes at once keeps climbing, rather than being redialled every second.
+                spans.Down();
+                if (spans.Longest >= _retry.Delay(long.MaxValue)) attempt = 0;
+
+                if (Interlocked.Exchange(ref _refusedReconnect, null) is { } refused) {
+                    ParkSignedOutCore(generation, refused.Message);
+                    return;
+                }
 
                 if (!ct.IsCancellationRequested)
                     Publish(generation, new(ServerLaneState.Retrying, closeReason?.Message, Failure: LaneFailures.Unanswered(closeReason)));
@@ -238,6 +256,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 _streams = null;
                 _hub = null;
                 if (hub is not null) await hub.DisposeAsync().ConfigureAwait(false);
+                // A reconnect attempt already past its stop check can still meet a 401 while the hub disposes.
+                Interlocked.Exchange(ref _refusedReconnect, null);
                 // The hub goes first: disposed, the client's courtesy unsubscribe finds a dead
                 // connection and skips it (the library itself catches ObjectDisposedException),
                 // so it never makes a server round-trip on the shutdown path. A failure here still
@@ -248,7 +268,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             }
 
             if (ct.IsCancellationRequested) break;
-            var delay = Backoff[Math.Min(attempt++, Backoff.Length - 1)];
+            var delay = _retry.Delay(attempt++);
             try { await Task.Delay(delay, _time, ct).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
         }
     }
@@ -312,7 +332,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 o.WebSocketFactory = ConnectWebSocketAsync;
             });
         if (_hubLogging is { } logging) builder.ConfigureLogging(logging);
-        var hub = (_reconnectDelays is { } delays ? builder.WithAutomaticReconnect(delays) : builder.WithAutomaticReconnect())
+        var hub = builder.WithAutomaticReconnect(_retry)
             .AddJsonProtocol(o => {
                 // Any resolver in the chain replaces SignalR's implicit reflection fallback, so where reflection is
                 // on, a hub type the generated contexts do not name would throw.
@@ -320,6 +340,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 else ConfigureHubPayload(o.PayloadSerializerOptions);
             })
             .Build();
+        hub.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
         hub.On(HubBroadcasts.AgentInstancesChanged, () => _agentsChanged.OnNext(Unit.Default));
         hub.On(HubBroadcasts.DaemonsChanged, () => _daemonsChanged.OnNext(Unit.Default));
         hub.On(HubBroadcasts.DaemonAccountsChanged, () => _daemonAccountsChanged.OnNext(Unit.Default));
@@ -502,6 +523,15 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         }
     }
 
+    /// The subscription client resubscribes a reconnected connection's streams one at a time and stops at the first
+    /// the server refuses, leaving the rest open and silent. Ending every tail instead has each consumer re-tail from
+    /// its own position, so a refusal reaches only the stream it was for.
+    void EndTails() {
+        lock (_tailLock)
+            foreach (var slot in _tails.Values)
+                slot.Cts.Cancel();
+    }
+
     readonly Dictionary<string, TailSlot> _tails = new(StringComparer.Ordinal);
     readonly Lock _tailLock = new();
 
@@ -516,7 +546,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     public Task<HubCallOutcome> ReleaseResizeTerminalAsync(string agentId, CancellationToken ct) => InvokeAsync(HubMethods.ReleaseResizeTerminal, ct, agentId);
     // Three arguments always: the method's arity is frozen and SignalR does not backfill a
     // missing trailing one.
-    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, CancellationToken ct) => InvokeAsync(HubMethods.SendUserInput, ct, agentId, text, null);
+    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) =>
+        InvokeAsync(HubMethods.SendUserInput, ct, agentId, text, attachmentIds.Count > 0 ? attachmentIds.ToArray() : null);
     public Task<HubCallOutcome> DiscardQueuedInputAsync(string agentId, Guid dispatchId, CancellationToken ct) =>
         InvokeAsync(HubMethods.DiscardQueuedInput, ct, new DiscardQueuedInputRequest(agentId, dispatchId));
     public Task<HubCallOutcome> SendSpecialKeyAsync(string agentId, string key, CancellationToken ct) => InvokeAsync(HubMethods.SendSpecialKey, ct, agentId, key);

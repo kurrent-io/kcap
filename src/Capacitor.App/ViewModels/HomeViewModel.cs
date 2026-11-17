@@ -9,6 +9,9 @@ using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.App.ViewModels.Composer;
+using Capacitor.App.Services.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -50,7 +53,7 @@ internal enum LaunchAvailability { Ready, Pending, DaemonUnavailable, ServerDisc
 /// on the daemon client's own background thread (same as MainWindowViewModel/
 /// ConsentPromptViewModel), so projections ObserveOn RxSchedulers.MainThreadScheduler BEFORE the
 /// operator that touches bound state — a binding must never see a mutation off the UI thread.
-public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink, ILaunchChoices {
+public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IComposer, ILaunchChoices {
     /// A repository with no remembered choice falls back to this — never to whatever vendor was
     /// selected for a DIFFERENT repository, which would leak a preference across repositories.
     public const string DefaultVendor = "claude";
@@ -130,6 +133,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         : $"No coding agents are available to launch on {remoteMachine}. Install one there. " +
           $"It's offered here once {remoteMachine}'s daemon finds its command. If it doesn't show up, run setup there again or restart its daemon.";
 
+    internal static string NewHarnessesNotice(IReadOnlyList<string> labels) {
+        var names = labels.Count == 1 ? labels[0] : $"{string.Join(", ", labels.Take(labels.Count - 1))} and {labels[^1]}";
+        var them  = labels.Count == 1 ? "it" : "them";
+
+        return $"{names} sessions aren't being stored. kcap found {them} after it was set up. Turn {them} on in Harnesses settings.";
+    }
+
     /// The daemon advertises only what it can host, so a missing vendor lacks its command there or is not
     /// hostable on that system; it does not say which.
     internal static string HarnessUnavailableReason(string label, string? remoteMachine) => remoteMachine is null
@@ -173,6 +183,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     // Subject (not WhenAnyValue) so the ctor can compose StartButtonTip — same reason as
     // _signInRequired below.
     readonly BehaviorSubject<string> _selectedRepoPathChanges = new(ScratchRepoPath);
+    public ComposerPicker? Picker { get; }
+
     public string SelectedRepoPath {
         get => _selectedRepoPath;
         set {
@@ -529,7 +541,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     public ReactiveCommand<Unit, Unit> RetryServerCommand { get; }
 
     // Null until AttachHarnessesSettings, and whenever the app has no profile to open Settings for.
-    readonly BehaviorSubject<Action?> _openHarnessesSettings = new(null);
+    readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
+    // Null until AttachNewHarnesses.
+    readonly BehaviorSubject<NewHarnesses?> _newHarnesses = new(null);
     readonly ObservableAsPropertyHelper<bool> _harnessesSettingsVisible;
     /// Only beside this machine's no-agent line: local settings cannot configure a remote machine.
     public bool HarnessesSettingsVisible => _harnessesSettingsVisible.Value;
@@ -778,7 +792,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             IObservable<DaemonListing>? listing = null, IObservable<IReadOnlyList<DaemonAccountsDto>>? daemonAccounts = null,
             IObservable<AccountsSnapshotDto?>? localAccounts = null, Func<Task>? retryListing = null,
-            AccountReadings? readings = null, IBranchReader? branches = null, Action<string>? launchFailed = null) {
+            AccountReadings? readings = null, IBranchReader? branches = null,
+            ComposerPickers? pickers = null,
+            Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
         _branches = branches;
         _daemon = daemon;
@@ -847,6 +863,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
                 (machine, server, account) => WithAccountCatalog(MergeCatalogs(machine.Models, server), machine.ByAccount, account))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.EffectiveModelCatalog, ServerVendorModelCatalog.Empty)
+            .DisposeWith(_disposables);
+
+        Picker = pickers?.Create(_selectedRepoPathChanges
+                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), this.WhenAnyValue(x => x.AccountRows), _machineSelectionChanges, (repo, vendor, accounts, machine) =>
+                    !machine.Remote && repo is { Length: > 0 }
+                        ? new ComposerContext(repo, HarnessId.From(vendor), Account: ComposerContext.AccountOf(accounts))
+                        : null)
+                .ObserveOn(RxSchedulers.MainThreadScheduler))
             .DisposeWith(_disposables);
 
         // A model the previous catalog listed and the next one withdraws resets to the default. A
@@ -1068,11 +1092,17 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
         // The lifecycle feed speaks for the LOCAL daemon (start attempts, version mismatch), so it
         // is shown only while the local machine is selected. Remote notices must stay independent.
+        // A harness found after setup outranks the no-agent line: it says why sessions are going unstored, and both
+        // lines lead to the same settings.
+        var newHarnessNotice = _newHarnesses.ObserveOn(RxSchedulers.MainThreadScheduler)
+            .CombineLatest(_machineSelectionChanges,
+                (found, sel) => !sel.Remote && found is { Labels.Count: > 0 } ? NewHarnessesNotice(found.Labels) : null)
+            .DistinctUntilChanged();
         var bannerContent = connectionNotices.CombineLatest(
-            _daemonStartMessageFeed, _machineSelectionChanges, harnessNotice,
-            (notice, startMessage, sel, harness) => {
+            _daemonStartMessageFeed, _machineSelectionChanges, harnessNotice, newHarnessNotice,
+            (notice, startMessage, sel, harness, newHarness) => {
                 var content = BannerContentFor(notice, sel.Remote ? null : startMessage);
-                return content.Message is null ? (Message: harness, Detail: (string?)null) : content;
+                return content.Message is null ? (Message: newHarness ?? harness, Detail: (string?)null) : content;
             });
         _bannerMessage = bannerContent.Select(content => content.Message)
             .ToProperty(this, x => x.BannerMessage, ConnectingNotice)
@@ -1125,9 +1155,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             .DisposeWith(_disposables);
         var canOpenHarnessesSettings = _openHarnessesSettings.Select(open => open is not null)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
-        OpenHarnessesSettingsCommand = ReactiveCommand.Create(() => _openHarnessesSettings.Value?.Invoke(), canOpenHarnessesSettings);
+        OpenHarnessesSettingsCommand = ReactiveCommand.Create(() => {
+            var offering = _newHarnesses.Value is { Labels.Count: > 0 } found && BannerMessage == NewHarnessesNotice(found.Labels) ? found : null;
+            // Only an offer the user reached counts: settings that failed to open leave the banner up.
+            if (_openHarnessesSettings.Value?.Invoke() == true && offering is not null) _ = offering.Offered();
+        }, canOpenHarnessesSettings);
         var harnessesSettingsVisible = bannerContent
-            .CombineLatest(canOpenHarnessesSettings, (content, canOpen) => canOpen && content.Message == NoHarnessesNotice(null))
+            .CombineLatest(canOpenHarnessesSettings, newHarnessNotice, (content, canOpen, newHarness) =>
+                canOpen && content.Message is { } shown && (shown == NoHarnessesNotice(null) || shown == newHarness))
             .DistinctUntilChanged();
         _harnessesSettingsVisible = harnessesSettingsVisible
             .ToProperty(this, x => x.HarnessesSettingsVisible, initialValue: false)
@@ -1237,8 +1272,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Redials the app's own server connection at once rather than at the next step of its backoff.
     public void AttachServerRetry(Func<Task> retry) => _retryServer.OnNext(retry);
 
+    /// The coding tools this machine found after setup, polled, so the banner can say their sessions are not stored.
+    public void AttachNewHarnesses(IObservable<NewHarnesses?> found) =>
+        found.Subscribe(_newHarnesses.OnNext).DisposeWith(_disposables);
+
     /// The no-agent banner's way to Settings → Harnesses; null while there is no profile to open Settings for.
-    public void AttachHarnessesSettings(IObservable<Action?> open) =>
+    public void AttachHarnessesSettings(IObservable<Func<bool>?> open) =>
         open.Subscribe(_openHarnessesSettings.OnNext).DisposeWith(_disposables);
 
     /// The "local server is not running" banner, beside the daemon's own recovery.
@@ -1485,6 +1524,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         _daemonSignInOffered.Dispose();
         _daemonRepairVisibleFeed.Dispose();
         _openHarnessesSettings.Dispose();
+        _newHarnesses.Dispose();
         _retryServer.Dispose();
         _uploadingChanges.Dispose();
         _updateFinishing.Dispose();

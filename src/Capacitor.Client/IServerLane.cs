@@ -53,7 +53,7 @@ public interface IServerLane {
     Task<HubCallOutcome> UnsubscribeFromTerminalAsync(string agentId, CancellationToken ct);
     Task<HubCallOutcome> RequestResizeTerminalAsync(string agentId, int cols, int rows, CancellationToken ct);
     Task<HubCallOutcome> ReleaseResizeTerminalAsync(string agentId, CancellationToken ct);
-    Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, CancellationToken ct);
+    Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, IReadOnlyList<string> attachmentIds, CancellationToken ct);
     Task<HubCallOutcome> DiscardQueuedInputAsync(string agentId, Guid dispatchId, CancellationToken ct);
     Task<HubCallOutcome> SendSpecialKeyAsync(string agentId, string key, CancellationToken ct);
     Task<HubCallOutcome> SendTerminalInputAsync(string agentId, byte[] data, CancellationToken ct);

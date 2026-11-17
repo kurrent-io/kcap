@@ -60,7 +60,7 @@ public class McpFlowsServerSettlementRetryTests {
 
     // === SettlementBackoff: the delay schedule shared by the POST and poll lanes ===
     //
-    // Pinned formula (settlement-admission design §3.2 G): for retry n (1-based),
+    // Pinned formula: for retry n (1-based),
     // raw(n) = min(10s, 500ms · 2^(n−1)) with the cap applied BEFORE jitter, then equal jitter
     // delay(n) = raw(n)/2 + U(0, raw(n)/2), then truncation to the caller's remaining budget.
 
@@ -412,8 +412,8 @@ public class McpFlowsServerSettlementRetryTests {
         await Assert.That(text).StartsWith("Error (flow_settlement_busy)");
 
         // ...but it must NOT claim the daemon was settling. Nothing observed that: the deadline
-        // cancelled the request before any coded response was parsed, and presenting the client's own
-        // default as a server verdict is what the README used to describe.
+        // cancelled the request before any coded response was parsed, so the client's own default
+        // must not be presented as a server verdict.
         await Assert.That(text).Contains("this client's default");
         await Assert.That(text).DoesNotContain("still settling a prior launch");
     }
@@ -636,5 +636,65 @@ public class McpFlowsServerSettlementRetryTests {
         // Exactly one GET — a different coded 4xx must fail immediately, no retry.
         await Assert.That(server.LogEntries.Count(
             e => e.RequestMessage.Path == $"/api/flows/{flowRunId}")).IsEqualTo(1);
+    }
+
+    /// <summary>A GET that fails with a 5xx every time exhausts the transient budget — five failures, given up on
+    /// the sixth — and reports an error rather than the graceful still-running result.</summary>
+    [Test]
+    public async Task Poll_path_persistent_500_exhausts_the_transient_budget_and_returns_isError() {
+        const string flowRunId = "flow-persistent-500";
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/flows/review/start/v2").UsingPost())
+              .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                  .WithBody($$"""{"flow_run_id":"{{flowRunId}}","round_id":"r1","round_number":1,"status":"running","result_kind":null,"result_text":null}"""));
+        server.Given(Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(500).WithBody("Internal Server Error"));
+        using var client = new HttpClient();
+
+        var response = await Server().HandleToolCallAsync(
+            JsonNode.Parse("1")!, ToolCallRequest("start_review_flow", StartArguments()),
+            client, server.Url!, cwd: "/tmp/cwd", repoRoot: null, repoInfo: null, clock: Clock());
+
+        var result = JsonNode.Parse(response)!.AsObject();
+        await Assert.That(result["result"]!["isError"]!.GetValue<bool>()).IsTrue();
+        var text = result["result"]!["content"]![0]!["text"]!.GetValue<string>();
+        await Assert.That(text).Contains("Error:");
+        await Assert.That(text).DoesNotContain("still running");
+
+        await Assert.That(server.LogEntries.Count(
+            e => e.RequestMessage.Path == $"/api/flows/{flowRunId}")).IsEqualTo(6);
+    }
+
+    /// <summary>The 404 grace is anchored to the start of polling: a run that is never found is reported missing
+    /// once the grace has passed, long before the poll cap.</summary>
+    [Test]
+    public async Task Poll_path_not_found_past_the_grace_deadline_returns_isError() {
+        const string flowRunId = "flow-404-grace";
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/flows/review/start/v2").UsingPost())
+              .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                  .WithBody($$"""{"flow_run_id":"{{flowRunId}}","round_id":"r1","round_number":1,"status":"running","result_kind":null,"result_text":null}"""));
+        server.Given(Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404).WithBody("Not Found"));
+        using var client = new HttpClient();
+
+        var clock = Clock();
+        var response = await Server().HandleToolCallAsync(
+            JsonNode.Parse("1")!, ToolCallRequest("start_review_flow", StartArguments()),
+            client, server.Url!, cwd: "/tmp/cwd", repoRoot: null, repoInfo: null, clock: clock);
+
+        var result = JsonNode.Parse(response)!.AsObject();
+        await Assert.That(result["result"]!["isError"]!.GetValue<bool>()).IsTrue();
+        var text = result["result"]!["content"]![0]!["text"]!.GetValue<string>();
+        await Assert.That(text).Contains("not found");
+        await Assert.That(text).DoesNotContain("still running");
+
+        // Not given up on the first 404: polling went on until the grace had passed.
+        await Assert.That(server.LogEntries.Count(
+            e => e.RequestMessage.Path == $"/api/flows/{flowRunId}")).IsGreaterThan(1);
+        await Assert.That(clock.Elapsed).IsGreaterThan(TimeSpan.FromSeconds(10));
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(60));
     }
 }

@@ -106,6 +106,15 @@ public class MuseAssistantPostureTests {
         await Assert.That(MuseAssistantPosture.ArgumentError(tenantGiven: true)).IsNull();
     }
 
+    /// <summary>The posture sets up no daemon for steering to flip, so a <c>--steering</c> answer is refused rather than dropped.</summary>
+    [Test]
+    public async Task ArgumentError_refuses_a_steering_answer() {
+        var error = MuseAssistantPosture.ArgumentError(tenantGiven: true, steeringGiven: true);
+
+        await Assert.That(error).IsNotNull();
+        await Assert.That(error!).Contains("--steering");
+    }
+
     [Test]
     public async Task The_notice_names_every_host_and_the_card_choice() {
         var lines = MuseAssistantPosture.HostNoticeLines(["acme.kcap.ai", "phog.kurrent.io"]).ToList();

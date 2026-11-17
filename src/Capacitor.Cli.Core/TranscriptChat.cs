@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Models.Transcripts.UserMessages;
@@ -7,6 +8,11 @@ namespace Capacitor.Cli.Core;
 
 /// A vendor's say over how its stored events read in the chat: drop one, or rewrite the envelope.
 public interface IChatDisplayRules {
+    /// Puts back onto a stored event's payload what the server keeps beside it rather than in it, before the
+    /// payload is projected: the session-detail read's `vendors` block, or the live tail's event metadata.
+    /// A server that sends neither leaves the payload as stored.
+    void RestoreServerFacts(object payload, JsonElement? vendors, string? metadata) { }
+
     /// <param name="scheduled">What the session scheduled for itself before this event, when the caller tracks it.</param>
     AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null);
 

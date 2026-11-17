@@ -5,9 +5,9 @@ namespace Capacitor.Cli.Core.Eval;
 /// <summary>
 /// Fetches the full eval catalog (server-rendered per-question prompts +
 /// retrospective prompt + versions) from <c>GET /api/eval/catalog</c>
-/// (Phase 3). Returns <c>null</c> on HTTP failure, deserialization error, or a
+/// Returns <c>null</c> on HTTP failure, deserialization error, or a
 /// failed integrity check so callers abort the run BEFORE expensive judge work
-/// (SF#4) -- the catalog is non-optional, so there is no safe fallback. Fetched
+/// -- the catalog is non-optional, so there is no safe fallback. Fetched
 /// once per run and threaded through <see cref="EvalService.EvalContext"/>.
 /// </summary>
 public static class EvalCatalogClient {
@@ -36,7 +36,7 @@ public static class EvalCatalogClient {
                 return null;
             }
 
-            // SF#4 -- fail-fast integrity checks before any judge invocation.
+            // Fail-fast integrity checks before any judge invocation.
             // A JSON `"questions": null` overrides the [] initializer, so guard the null case
             // explicitly: `is not { Count: > 0 }` is true for both null and empty -> fail closed
             // rather than NRE on `.Count` (which the catch below would NOT swallow).

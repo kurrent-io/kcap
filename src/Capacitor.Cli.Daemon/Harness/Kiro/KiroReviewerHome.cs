@@ -1,3 +1,4 @@
+using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -79,32 +80,9 @@ internal static class KiroReviewerHome {
     /// and the reaper collects the process shortly after. Reordering boot to reap first is the
     /// cleaner fix and is deliberately NOT done here: it changes daemon startup sequencing that this
     /// feature does not own.</para>
-    internal static void SweepStale(string stateDir, string currentEpoch, ILogger log) {
-        var root = RootFor(stateDir);
-        if (!Directory.Exists(root)) return;
-
-        var live = $"{Prefix}{Sanitize(currentEpoch)}-";
-
-        // Enumeration itself can throw on an unreadable or corrupt root, BEFORE any per-directory
-        // Delete gets a chance to catch. This runs at daemon boot, so an inaccessible reviewer root
-        // must degrade to "swept nothing" rather than take the daemon down with it.
-        IReadOnlyList<string> candidates;
-
-        try {
-            candidates = [.. Directory.EnumerateDirectories(root)];
-        } catch (Exception ex) {
-            log.LogWarning(ex, "Could not enumerate the Kiro reviewer home root {Root}; skipping the sweep", root);
-            return;
-        }
-
-        foreach (var dir in candidates) {
-            var name = Path.GetFileName(dir);
-            if (!name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-            if (name.StartsWith(live,   StringComparison.Ordinal)) continue;
-
-            Delete(dir, stateDir, log);
-        }
-    }
+    internal static void SweepStale(string stateDir, string currentEpoch, ILogger log) =>
+        ReviewerScratch.SweepStale(RootFor(stateDir), Prefix, $"{Prefix}{Sanitize(currentEpoch)}-",
+            "Kiro reviewer home", log, dir => Delete(dir, stateDir, log));
 
     /// <summary>
     /// Removes a reviewer home. Never follows a link out of the tree, and refuses a path that does
@@ -179,10 +157,9 @@ internal static class KiroReviewerHome {
     /// umask, and the thing written into it is review context. .NET's mode-carrying overload closes
     /// the window at the syscall.</para>
     ///
-    /// <para>And not best-effort. An earlier revision swallowed every mode failure, on the LaunchConsentStore
-    /// precedent — but that store degrades to a safe default, whereas here the mode IS the protection.
-    /// A POSIX host where it cannot be achieved must not run a reviewer at all, so this throws and the
-    /// launch fails.</para>
+    /// <para>And not best-effort. LaunchConsentStore can swallow a failure because it degrades to a safe
+    /// default; here the mode IS the protection. A POSIX host where it cannot be achieved must not run a
+    /// reviewer at all, so this throws and the launch fails.</para>
     /// </summary>
     static void CreateOwnerOnly(string path) {
         if (OperatingSystem.IsWindows()) {

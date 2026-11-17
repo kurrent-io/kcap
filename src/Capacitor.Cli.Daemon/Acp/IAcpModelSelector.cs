@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Daemon.Acp;
 /// from AcpHostedAgentRuntime.StartAsync after session/new resolves and before the first
 /// session/prompt fires.
 ///
-/// <b>Cancellation contract (spec-review Finding 2):</b> a canceled <c>ct</c> is NOT
+/// <b>Cancellation contract:</b> a canceled <c>ct</c> is NOT
 /// one of the "never throws" failure modes below — <see cref="AcpConnection.RequestAsync"/> throws
 /// <see cref="OperationCanceledException"/> when <c>ct</c> is canceled, and every
 /// implementation of this method MUST let that propagate uncaught, aborting <c>StartAsync</c>
@@ -178,10 +178,10 @@ internal sealed class SetModelSelector : IAcpModelSelector {
 }
 
 /// <summary>Used by a descriptor whose vendor has no model-selection hook at all — never touches
-/// the wire, never inspects sessionNewResult. <b>Round 2 Finding 2:</b> there is no
+/// the wire, never inspects sessionNewResult. There is no
 /// SupportsModelSelection flag to check this instance against — a vendor opts out of model
 /// selection simply by carrying THIS instance as its ModelSelector, and
-/// AcpHostedAgentRuntimeFactory.StartAsync (D4) forwards descriptor.ModelSelector unconditionally
+/// AcpHostedAgentRuntimeFactory.StartAsync forwards descriptor.ModelSelector unconditionally
 /// for every descriptor. This type is exactly as valid a ModelSelector as
 /// ConfigOptionModelSelector.Instance — the object itself is the whole contract, not a paired
 /// boolean.</summary>

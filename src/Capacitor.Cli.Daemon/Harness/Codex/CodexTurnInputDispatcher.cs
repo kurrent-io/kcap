@@ -24,6 +24,8 @@ internal sealed class CodexTurnInputDispatcher {
     // Sends turn/steer(expectedTurnId, input); returns when the RESPONSE lands. Throws
     // CodexAppServerRpcException(-32600) when the turn is no longer active (the retryable miss).
     readonly Func<string, string, CancellationToken, Task> _steerTurn;
+    // Sends thread/compact/start; returns when the RESPONSE lands. The compaction then runs as a turn of its own.
+    readonly Func<CancellationToken, Task>? _compact;
     // Notified (true/false) as a turn becomes active / goes idle — drives the runtime's turn-in-flight clock.
     readonly Action<bool>?     _onTurnInFlight;
     readonly ILogger           _logger;
@@ -41,14 +43,18 @@ internal sealed class CodexTurnInputDispatcher {
     bool      _lastInFlight;             // last value handed to _onTurnInFlight, so it fires only on change
     bool      _faulted;                 // FaultAll ran; a dispatch resuming after it must not resurrect state
     bool      _sealed;                  // pre-first-turn seal: input enqueues and WAITS; nothing dispatches until Unseal
+    string?   _compactionTurnId;        // the turn a pending thread/compact/start started, once turn/started names it
+    bool      _compactionEndedEarly;    // that turn completed before the request's response landed
+    InputItem? _compacting;             // the compaction whose turn is running
 
     public CodexTurnInputDispatcher(
             Func<string, CancellationToken, Task<CodexTurnStarted>> startTurn,
             Func<string, string, CancellationToken, Task> steerTurn,
             ILogger logger, CancellationToken ct, Action<bool>? onTurnInFlight = null,
-            bool sealedAtStart = false) {
+            bool sealedAtStart = false, Func<CancellationToken, Task>? compact = null) {
         _startTurn      = startTurn;
         _steerTurn      = steerTurn;
+        _compact        = compact;
         _logger         = logger;
         _ct             = ct;
         _onTurnInFlight = onTurnInFlight;
@@ -71,7 +77,7 @@ internal sealed class CodexTurnInputDispatcher {
     public bool TurnInFlight { get { lock (_gate) return InFlightLocked(); } }
 
     /// <summary>The active turn id, or null when idle — the target for a <c>turn/interrupt</c>.</summary>
-    public string? CurrentTurnId { get { lock (_gate) return _lifecycle == Lifecycle.Active ? _activeTurnId : null; } }
+    public string? CurrentTurnId { get { lock (_gate) return _lifecycle != Lifecycle.Idle ? _activeTurnId : null; } }
 
     /// <summary>Enqueues one input and returns a task that completes when the dispatch carrying it
     /// (a <c>turn/start</c> or an accepted <c>turn/steer</c>) succeeds — the "wait for write" contract.
@@ -90,6 +96,39 @@ internal sealed class CodexTurnInputDispatcher {
         return item.Ack.Task;
     }
 
+    /// <summary>Queues a compaction behind any earlier input. It is sent only while no turn runs, since the app server
+    /// would otherwise start it beside the active turn, and input queued after it waits until its turn completes.
+    /// <c>Written</c> completes when the app server accepts the request and faults when it refuses it; <c>Finished</c>
+    /// completes once the compaction is over, whichever way it ended.</summary>
+    public (Task Written, Task Finished) EnqueueCompaction() {
+        if (_compact is null) throw new InvalidOperationException("This dispatcher was built without a compaction sender.");
+
+        var item = new InputItem("", CancellationToken.None, compaction: true);
+        lock (_gate) {
+            if (_faulted) throw new InputNotAdmittedException("Codex dispatcher is torn down; this compaction was not queued.");
+            _queue.Enqueue(item);
+        }
+        PumpDispatch();
+        return (item.Ack.Task, item.Finished!.Task);
+    }
+
+    /// <summary>Fed from the <c>turn/started</c> notification: names the turn a compaction runs as, which its request's
+    /// response does not. True when this is that turn.</summary>
+    public bool OnTurnStarted(string? turnId) {
+        if (turnId is null) return false;
+        lock (_gate) {
+            if (_pending is Pending.Compact && _compactionTurnId is null) {
+                _compactionTurnId = turnId;
+                return true;
+            }
+            if (_lifecycle == Lifecycle.Compacting && _activeTurnId is null) {
+                _activeTurnId = turnId;
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Completes when the dispatcher is fully settled — no turn active, nothing pending, queue
     /// drained. The runtime's <c>WaitForTurnIdleAsync</c> composes this with its terminal signal.</summary>
     public Task WaitForSettledAsync() {
@@ -105,7 +144,13 @@ internal sealed class CodexTurnInputDispatcher {
     /// <c>turn/start</c> response has not yet identified its turn, stashes the completion so the
     /// response can reconcile "this input rode a turn that already finished".</summary>
     public void OnTurnCompleted(string? turnId) {
+        InputItem? compacted = null;
         lock (_gate) {
+            if (_pending is Pending.Compact) {
+                if (turnId is null || _compactionTurnId is null || string.Equals(turnId, _compactionTurnId, StringComparison.Ordinal))
+                    _compactionEndedEarly = true;
+                return;
+            }
             if (_pending is Pending.Start && _activeTurnId is null) {
                 // Completion raced ahead of the start response — remember it by id; the response reconciles.
                 if (turnId is not null) _completedBeforeStartResp = turnId;
@@ -116,9 +161,14 @@ internal sealed class CodexTurnInputDispatcher {
             if (turnId is not null && _activeTurnId is not null
                 && !string.Equals(_activeTurnId, turnId, StringComparison.Ordinal))
                 return;
+            if (_lifecycle == Lifecycle.Compacting) {
+                compacted   = _compacting;
+                _compacting = null;
+            }
             _lifecycle    = Lifecycle.Idle;
             _activeTurnId = null;
         }
+        compacted?.Finished!.TrySetResult();
         SignalTransitions();
         PumpDispatch();
     }
@@ -130,12 +180,17 @@ internal sealed class CodexTurnInputDispatcher {
         lock (_gate) {
             _faulted      = true;
             orphans       = [.. _queue];
+            if (_compacting is { } running) orphans.Add(running);
+            _compacting   = null;
             _queue.Clear();
             _pending      = Pending.None;
             _lifecycle    = Lifecycle.Idle;
             _activeTurnId = null;
         }
-        foreach (var item in orphans) item.Ack.TrySetException(ex);
+        foreach (var item in orphans) {
+            item.Ack.TrySetException(ex);
+            item.Finished?.TrySetResult();
+        }
         SignalTransitions();
     }
 
@@ -160,12 +215,22 @@ internal sealed class CodexTurnInputDispatcher {
             lock (_gate) {
                 // While sealed, input stays queued and NOTHING dispatches — no turn/* request leaves,
                 // so no hook can fire before the source claim commits (the guard-2 ordering).
-                if (_sealed || _pending is not Pending.None || _queue.Count == 0) {
+                if (_sealed || _pending is not Pending.None || _queue.Count == 0 || _lifecycle == Lifecycle.Compacting) {
                     _dispatching = false;
                     return;
                 }
                 item = _queue.Peek();
-                if (_lifecycle == Lifecycle.Active && _activeTurnId is { } t) {
+                if (item.Compaction) {
+                    if (_lifecycle == Lifecycle.Active) {
+                        _dispatching = false;
+                        return;
+                    }
+                    _pending              = Pending.Compact;
+                    _compactionTurnId     = null;
+                    _compactionEndedEarly = false;
+                    asSteer               = false;
+                    turnId                = "";
+                } else if (_lifecycle == Lifecycle.Active && _activeTurnId is { } t) {
                     asSteer = true;
                     turnId  = t;
                     _pending = Pending.Steer;
@@ -178,8 +243,9 @@ internal sealed class CodexTurnInputDispatcher {
             }
 
             SignalTransitions(); // a pending turn/start is already in-flight — signal before awaiting it
-            if (asSteer) await DispatchSteerAsync(item, turnId).ConfigureAwait(false);
-            else         await DispatchStartAsync(item).ConfigureAwait(false);
+            if (item.Compaction) await DispatchCompactAsync(item).ConfigureAwait(false);
+            else if (asSteer)    await DispatchSteerAsync(item, turnId).ConfigureAwait(false);
+            else                 await DispatchStartAsync(item).ConfigureAwait(false);
         }
       } catch (Exception ex) {
         // The dispatch primitives handle their own errors; this only fires on an unexpected fault, and
@@ -249,6 +315,43 @@ internal sealed class CodexTurnInputDispatcher {
         SignalTransitions();
     }
 
+    async Task DispatchCompactAsync(InputItem item) {
+        try {
+            await _compact!(_ct).ConfigureAwait(false);
+            bool carried = false, endedEarly = false;
+            lock (_gate) {
+                if (!_faulted) {
+                    _pending   = Pending.None;
+                    endedEarly = _compactionEndedEarly;
+                    if (endedEarly) {
+                        _lifecycle    = Lifecycle.Idle;
+                        _activeTurnId = null;
+                    } else {
+                        _lifecycle    = Lifecycle.Compacting;
+                        _activeTurnId = _compactionTurnId;
+                        _compacting   = item;
+                    }
+                    _compactionTurnId     = null;
+                    _compactionEndedEarly = false;
+                    _queue.Dequeue();
+                    carried = true;
+                }
+            }
+            if (carried) {
+                item.Ack.TrySetResult();
+                if (endedEarly) item.Finished!.TrySetResult();
+            }
+        } catch (Exception ex) {
+            lock (_gate) {
+                _compactionTurnId     = null;
+                _compactionEndedEarly = false;
+            }
+            FailHead(item, ex);
+            item.Finished!.TrySetResult();
+        }
+        SignalTransitions();
+    }
+
     // Links a per-input token (e.g. the launch's linked token on the initial prompt) with the
     // runtime-wide token; null when the input carried no cancellable token, so the caller uses _ct.
     CancellationTokenSource? LinkInputToken(InputItem item) =>
@@ -266,7 +369,7 @@ internal sealed class CodexTurnInputDispatcher {
 
     // In-flight spans from a turn/start being SENT (pending Start) through the active turn, matching the
     // old clock's turn/start-to-turn/completed window — a pending Steer implies Active, so it's covered.
-    bool InFlightLocked() => _lifecycle == Lifecycle.Active || _pending == Pending.Start;
+    bool InFlightLocked() => _lifecycle != Lifecycle.Idle || _pending is Pending.Start or Pending.Compact;
 
     // Fires the in-flight callback on a real change and releases any settled waiters — both OUTSIDE the
     // lock so a callback can never re-enter the dispatcher under it.
@@ -293,16 +396,18 @@ internal sealed class CodexTurnInputDispatcher {
         if (settled is not null) foreach (var w in settled) w.TrySetResult();
     }
 
-    enum Pending   { None, Start, Steer }
-    enum Lifecycle { Idle, Active }
+    enum Pending   { None, Start, Steer, Compact }
+    enum Lifecycle { Idle, Active, Compacting }
 
     // An item is only ever touched by the single active dispatch loop (the _dispatching guard admits
     // exactly one), so its mutable RetriedAsStart needs no synchronization — the per-iteration lock
     // acquisitions fence the one write against the next iteration's read.
-    sealed class InputItem(string text, CancellationToken ct) {
+    sealed class InputItem(string text, CancellationToken ct, bool compaction = false) {
         public string Text { get; } = text;
         public CancellationToken Ct { get; } = ct;
+        public bool Compaction { get; } = compaction;
         public TaskCompletionSource Ack { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource? Finished { get; } = compaction ? new(TaskCreationOptions.RunContinuationsAsynchronously) : null;
         public bool RetriedAsStart { get; set; }
     }
 }

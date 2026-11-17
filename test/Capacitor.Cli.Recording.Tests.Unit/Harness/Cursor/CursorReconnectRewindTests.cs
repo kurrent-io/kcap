@@ -395,7 +395,7 @@ public class CursorReconnectRewindTests {
         await Assert.That(result).IsEmpty();
     }
 
-    // ---- GatedApplyReconnectRewindAsync/GatedDrainNewLinesAsync ----
+    // ---- GatedReregisterAsync/GatedDrainNewLinesAsync ----
     //
     // These drive the gate-composition helpers directly, with the SAME SemaphoreSlim(1, 1) instance the
     // recorder passes to both call sites. A SemaphoreSlim(1, 1) enforces exclusivity unconditionally, so
@@ -414,9 +414,7 @@ public class CursorReconnectRewindTests {
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
         var state = new WatchState { LinesProcessed = 4, CursorByteOffset = 15 };
 
-        // Simulate an in-flight reconnect rewind: acquire the gate ourselves (standing in for
-        // GatedApplyReconnectRewindAsync mid-ResolveByteOffsetForLineAsync, BEFORE it has
-        // applied any of its three writes).
+        // Stands in for GatedReregisterAsync waiting on the server, before it has moved anything.
         await gate.WaitAsync();
 
         var drainTask = Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedDrainNewLinesAsync(
@@ -438,7 +436,7 @@ public class CursorReconnectRewindTests {
     }
 
     [Test]
-    public async Task GatedApplyReconnectRewindAsync_cannot_run_while_the_gate_is_held_by_a_drain() {
+    public async Task GatedReregisterAsync_cannot_register_while_the_gate_is_held_by_a_drain() {
         var sid = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
@@ -452,11 +450,16 @@ public class CursorReconnectRewindTests {
         // Simulate an in-flight drain (standing in for GatedDrainNewLinesAsync mid-ack).
         await gate.WaitAsync();
 
-        var rewindTask = Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedApplyReconnectRewindAsync(
-            gate, state, serverPosition: 2, guard, CancellationToken.None);
+        var registered = false;
+        var rewindTask = Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedReregisterAsync(
+            gate, state, _ => {
+                registered = true;
+                return Task.FromResult(2);
+            }, guard, CancellationToken.None);
 
         await Task.Delay(50);
         await Assert.That(rewindTask.IsCompleted).IsFalse();
+        await Assert.That(registered).IsFalse();
 
         // The rewind has not been allowed to touch state yet — no half-applied rewind for a
         // concurrently-finishing drain to observe (or clobber).
@@ -471,44 +474,26 @@ public class CursorReconnectRewindTests {
         await Assert.That(state.CursorByteOffset).IsEqualTo(7L); // true byte offset of line 2
     }
 
-    [Test]
-    public async Task GatedDrainNewLinesAsync_and_GatedApplyReconnectRewindAsync_are_no_ops_when_gate_is_null() {
-        // Every non-Cursor vendor passes a null gate — both helpers must fall back to calling the
-        // underlying method directly rather than deadlocking or throwing on a null semaphore.
-        using var tmp = new TempDir();
-        var transcriptPath = tmp.PathTo("t.jsonl");
-        await File.WriteAllTextAsync(transcriptPath, "a\nb\n");
-
-        var state = new WatchState { LinesProcessed = 2, CursorByteOffset = 999 };
-        var rewound = await Recorders.For(NewSessionId(), transcriptPath, null, vendor: "codex").GatedApplyReconnectRewindAsync(
-            gate: null, state, serverPosition: 1, cursorGuard: null, CancellationToken.None);
-        await Assert.That(rewound).IsTrue();
-        await Assert.That(state.LinesProcessed).IsEqualTo(1);
-        var result = await Recorders.For("sid", transcriptPath, null, vendor: "codex").GatedDrainNewLinesAsync(
-            gate: null, new WatchState { ThresholdReached = true }, CancellationToken.None);
-        await Assert.That(result).IsNotNull();
-    }
-
-    // ---- GatedApplyReconnectRewindAsync propagates a refused rewind ----
+    // ---- GatedReregisterAsync propagates a refused rewind ----
 
     [Test]
-    public async Task GatedApplyReconnectRewindAsync_returns_false_and_leaves_state_untouched_when_the_server_frontier_exceeds_local_lines() {
+    public async Task GatedReregisterAsync_returns_false_and_leaves_state_untouched_when_the_server_frontier_exceeds_local_lines() {
         var sid = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
         await File.WriteAllTextAsync(transcriptPath, "a\nb\n"); // only 2 lines locally
 
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
-        var state = new WatchState { LinesProcessed = 2, CursorByteOffset = 7 };
+        var state = new WatchState { LinesProcessed = 12, CursorByteOffset = 7 };
 
-        // The server claims line 9 — far beyond the local (truncated) file's 2 lines.
-        var rewound = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedApplyReconnectRewindAsync(
-            gate: null, state, serverPosition: 9, guard, CancellationToken.None);
+        // The server is behind the cursor but claims line 9 — far beyond the local (truncated) file's 2 lines.
+        var rewound = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedReregisterAsync(
+            new(1, 1), state, _ => Task.FromResult(9), guard, CancellationToken.None);
 
         await Assert.That(rewound).IsFalse();
         await Assert.That(Markers.IsQuarantined(sid)).IsTrue();
         // Neither frontier moved — the caller (RunWatch) is responsible for exiting instead.
-        await Assert.That(state.LinesProcessed).IsEqualTo(2);
+        await Assert.That(state.LinesProcessed).IsEqualTo(12);
         await Assert.That(state.CursorByteOffset).IsEqualTo(7L);
         try { File.Delete(Markers.QuarantinePath(sid)); } catch { }
     }

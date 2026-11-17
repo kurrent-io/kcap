@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Telemetry;
@@ -34,75 +33,14 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
     static string TimeoutHintFor(string toolName) =>
         toolName == "get_analytics_schema" ? SchemaTimedOutMessage : TimedOutMessage;
 
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
+    public Task<int> RunAsync() {
         var repository = new CwdRepository(config, workdir.Path, router, time);
-        var tools      = BuildToolsList();
 
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting, and an absent property is a different value in a funnel
-        // from a false one — "could not tell" belongs with "not logged in", not with a gap.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command
-        // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command
-        // "mcp-server" is what lets per-tool-call events leave at all.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(
-                    callId, callRequest, client, baseUrl, ReadsTheCwdRepository(callRequest) ? await repository.GetHashAsync(client, baseUrl) : null);
-            } catch (Exception ex) {
-                await Console.Error.WriteLineAsync($"kcap mcp analytics: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-analytics", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "analytics");
-
-        return 0;
+        return McpServerHost.RunAsync(
+            new("kcap-analytics", "analytics", ServerInstructions, BuildToolsList()) { RejectsNonStringMethod = false },
+            new(config, profiles, tokens, http, startup, time),
+            async (id, request, client, baseUrl) => await HandleToolCallAsync(
+                id, request, client, baseUrl, ReadsTheCwdRepository(request) ? await repository.GetHashAsync(client, baseUrl) : null));
     }
 
     internal const string ServerInstructions =
@@ -110,16 +48,6 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
         "commits, PRs, evals) with governed read-only SQL. Call get_analytics_schema once to learn the " +
         "views, then write Postgres SELECTs for query_analytics. Rejections include the reason — fix the " +
         "SQL and retry.";
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-analytics", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
 
     /// <summary>Whether the call's tool can read the working directory's repository: a query can, the schema cannot, and
     /// only a reader is worth the lookup a repository with no remote costs.</summary>
@@ -142,7 +70,7 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
         // Read params.name tolerantly: a wrong-typed value (LLM clients send them) must yield a
         // clean protocol error, not a throw that the outer catch masks as an internal error.
         if (!TryGetStringArg(paramsNode, "name", out var toolName)) {
-            return BuildErrorResponse(id, -32602, "Missing or invalid params.name");
+            return McpResponses.Error(id, -32602, "Missing or invalid params.name");
         }
 
         try {
@@ -159,23 +87,23 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
             // read — resolved here so MapResponse stays a pure, unit-testable mapper (its own
             // 401 arm remains as the fallback wording).
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
-            return BuildToolResult(id, MapResponse(toolName, httpResponse.StatusCode, body, out var isError), isError);
+            return McpResponses.ToolResult(id, MapResponse(toolName, httpResponse.StatusCode, body, out var isError), isError);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (OperationCanceledException) {
             // Client-side HttpClient timeout (TaskCanceledException : OperationCanceledException):
             // the request never got a server 408, so give the same actionable hint the 408 path
             // does rather than letting it fall through to the generic outer "internal error".
-            return BuildToolResult(id, TimeoutHintFor(toolName), isError: true);
+            return McpResponses.ToolResult(id, TimeoutHintFor(toolName), isError: true);
         } catch (Exception ex) when (ex is InvalidOperationException or FormatException or JsonException) {
             // A wrong-typed argument that slipped past the tolerant readers still becomes a tool
             // error the agent can react to — never the generic outer "internal error".
-            return BuildToolResult(id, $"Error: malformed arguments — {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: malformed arguments — {ex.Message}", isError: true);
         }
     }
 
@@ -274,7 +202,7 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
             ["repos"] = repos
         };
 
-        if (TryReadInt(args, "max_rows", out var maxRows)) body["max_rows"] = maxRows;
+        if (McpToolArguments.TryReadIntLenient(args, "max_rows", out var maxRows)) body["max_rows"] = maxRows;
 
         return body;
     }
@@ -290,72 +218,6 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
         value = s;
 
         return true;
-    }
-
-    /// <summary>Reads an optional integer argument, tolerant of JSON number shapes (int/long/double)
-    /// and rejecting out-of-range or non-integer values with a precise message. A private copy per
-    /// the established per-server convention (kcap-sessions/-memory/-workitems each carry their own),
-    /// so this server takes no compile-time dependency on another MCP server.</summary>
-    static bool TryReadInt(JsonObject? args, string key, out int value) {
-        value = 0;
-        var node = args?[key];
-
-        if (node is null) return false;
-
-        JsonValue v;
-
-        try {
-            v = node.AsValue();
-        } catch {
-            return false; // wrong shape (object/array)
-        }
-
-        if (v.TryGetValue(out value)) return true;
-
-        if (v.TryGetValue<long>(out var lv)) {
-            if (lv is < int.MinValue or > int.MaxValue)
-                throw new ArgumentException($"'{key}' value {lv} is out of range for int.");
-
-            value = (int)lv;
-
-            return true;
-        }
-
-        if (v.TryGetValue<double>(out var dv)) {
-            var rounded = (long)dv;
-
-            if (rounded < int.MinValue || rounded > int.MaxValue || rounded != dv)
-                throw new ArgumentException($"'{key}' value {dv} is out of range or non-integer for int.");
-
-            value = (int)rounded;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() => [

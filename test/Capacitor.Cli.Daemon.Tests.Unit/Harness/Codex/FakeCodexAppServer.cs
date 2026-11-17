@@ -61,11 +61,13 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
     public string?                     LastThreadStartModel;
     public bool                        LastTurnStartHadModel;
     public string?                     LastTurnStartModel;
-    public string?                     LastResumeThreadId; // §2.7 B4: the threadId carried on thread/resume
+    public string?                     LastResumeThreadId; // the threadId carried on thread/resume
     public string?                     LastTurnApprovalPolicy;
     public string?                     LastTurnEffort;
     public string?                     LastSteerExpectedTurnId;
     public string?                     LastSteerText;
+    public string?                     LastCompactThreadId;
+    int                                _compactCount;
     public JsonElement?                ApprovalResponse; // the client's response to the injected request
     int    _turnStartCount;
     string _lastTurnId = "turn-x";
@@ -154,7 +156,7 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
                 break;
 
             case "thread/resume": {
-                // §2.7 B4 resume-by-thread_id: echo the requested thread id back (response.thread.id ==
+                // Resume by thread_id: echo the requested thread id back (response.thread.id ==
                 // the requested id, per the app-server schema). The daemon reads it exactly as thread/start.
                 LastResumeThreadId = Str(@params, "threadId");
                 var resumedId = LastResumeThreadId ?? ThreadId;
@@ -231,6 +233,25 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
                 await RespondAsync(id, new JsonObject { ["accepted"] = true }, ct);
                 if (EchoUserMessages && !HoldUserMessages) await EchoUserMessageAsync(LastSteerExpectedTurnId ?? _lastTurnId, @params, ct);
                 break;
+
+            case "thread/compact/start": {
+                LastCompactThreadId = Str(@params, "threadId");
+                var turnId = "compact-" + ++_compactCount;
+                await RespondAsync(id, new JsonObject(), ct);
+                await NotifyAsync("turn/started", new JsonObject {
+                    ["threadId"] = ThreadId,
+                    ["turn"]     = new JsonObject { ["id"] = turnId, ["status"] = "inProgress", ["items"] = new JsonArray() },
+                }, ct);
+                await NotifyAsync("item/started", new JsonObject {
+                    ["threadId"] = ThreadId, ["turnId"] = turnId,
+                    ["item"]     = new JsonObject { ["type"] = "contextCompaction", ["id"] = turnId + "-item" },
+                }, ct);
+                await NotifyAsync("turn/completed", new JsonObject {
+                    ["threadId"] = ThreadId,
+                    ["turn"]     = new JsonObject { ["id"] = turnId, ["status"] = "completed", ["items"] = new JsonArray() },
+                }, ct);
+                break;
+            }
 
             case "turn/interrupt":
                 await RespondAsync(id, new JsonObject(), ct);

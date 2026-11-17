@@ -3,12 +3,11 @@ using Capacitor.Cli.Core.Auth;
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
 
 /// <summary>
-/// The MCP servers used to answer EVERY post-recovery 401 with
-/// "Not logged in. Run 'kcap login' on the host shell." — including the incident shape where
-/// the stored token was re-read from disk, re-sent, and rejected by a server whose signing
-/// key had rotated. The user then saw `kcap status` report a valid login while the tools
-/// insisted they were logged out, concluded `kcap login` was ineffective, and restarted the
-/// daemon (which never helps — a fresh process reads the same store). These tests pin the
+/// A post-recovery 401 is not always a missing login. When the stored token was re-read from disk,
+/// re-sent, and rejected by a server whose signing key rotated, `kcap status` still reports a valid
+/// login, so "Not logged in. Run 'kcap login' on the host shell." sends the user to a login that
+/// looks ineffective and a daemon restart that never helps (a fresh process reads the same store).
+/// These tests pin the
 /// truthful classification: the legacy message survives byte-identical for a genuinely
 /// missing login, and the other states say what is actually wrong.
 /// </summary>

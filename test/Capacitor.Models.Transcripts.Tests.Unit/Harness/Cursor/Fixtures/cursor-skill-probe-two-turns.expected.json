@@ -1,0 +1,295 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "543bef2c-90a8-5070-8b02-fe7ca5ee174c",
+        "timestamp": "2026-09-17T15:16:00.0000000\u002B02:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "0"
+        },
+        "payload": {
+          "content": "You have a skill named kcap-probe-903d3d. Use it and reply with only the probe token it contains. Do not search the file system or guess where it might be: only a skill already listed for you counts, and reading that listed skill\u0027s own file is fine. If no such skill is listed for you, reply with exactly NO-SKILL.",
+          "messageId": "line:0",
+          "createdAt": "2026-09-17T13:16:00Z",
+          "timestamp": "2026-09-17T13:16:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "ac4f1bbe-4c76-5d6d-ba79-9d2bfaf6c214",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "content": "Using the listed \u0060kcap-probe-903d3d\u0060 skill and reading its file for the probe token.",
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4f0110c7-ae53-5ceb-87d0-6c5b289d411f",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:1:1",
+              "toolName": "Read",
+              "arguments": {
+                "path": "/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-4xru67um/repo/.cursor/skills/kcap-probe-903d3d/SKILL.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "181a44e8-843d-515b-9fe2-8536379d07fb",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "content": "PROBE-BODY-0d05e9115876",
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "272142f4-66dd-509a-ab44-c70b24348d1d",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "3"
+        },
+        "payload": {
+          "content": "PROBE-BODY-0d05e9115876",
+          "messageId": "line:3",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "2216ed68-027a-5d8f-96e9-b7b6f6a50f50",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "4"
+        },
+        "payload": {
+          "content": "PROBE-BODY-0d05e9115876",
+          "messageId": "line:4",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "d6ca102d-9bef-536f-bd5c-2cd47e8ec5a7",
+        "timestamp": "2026-09-17T15:16:00.0000000\u002B02:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "5"
+        },
+        "payload": {
+          "content": "You have a skill named kcap-probe-903d3d. Use it again and reply with the probe token it contains now. Do not search the file system or guess where it might be: only a skill already listed for you counts, and reading that listed skill\u0027s own file is fine. If no such skill is listed for you, reply with exactly NO-SKILL.",
+          "messageId": "line:5",
+          "createdAt": "2026-09-17T13:16:00Z",
+          "timestamp": "2026-09-17T13:16:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "de36144e-360f-5dfc-8b81-5d780ea204db",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "6"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "line:6:0",
+              "toolName": "Read",
+              "arguments": {
+                "path": "/private/var/folders/lw/y5x_2wrn7w7g40gdhdkhv2m00000gn/T/skprobe-4xru67um/repo/.cursor/skills/kcap-probe-903d3d/SKILL.md"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:6",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "ed4a61f6-df6c-5f68-84fc-fdfd63028982",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "7"
+        },
+        "payload": {
+          "content": "PROBE-BODY-3162e66b3248",
+          "messageId": "line:7",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "e70411a3-cc09-572c-b27d-13a9383264ef",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "8"
+        },
+        "payload": {
+          "content": "PROBE-BODY-3162e66b3248",
+          "messageId": "line:8",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "ce3ec25e-b5fb-5e55-b8fe-447d3cfd4163",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "9"
+        },
+        "payload": {
+          "content": "PROBE-BODY-3162e66b3248",
+          "messageId": "line:9",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "31763c4b-a904-5827-84cf-5efd6be4666d",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "10"
+        },
+        "payload": {
+          "content": "PROBE-BODY-3162e66b3248",
+          "messageId": "line:10",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]

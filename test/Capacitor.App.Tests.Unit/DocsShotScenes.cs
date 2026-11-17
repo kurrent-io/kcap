@@ -1,3 +1,5 @@
+using Capacitor.App.Tests.Unit.Services.Onboarding;
+using Capacitor.App.Tests.Unit.Services;
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -161,7 +163,7 @@ static partial class DocsShotScenes {
             Action<FeedbackCategory>? openFeedback = null, Action? requestSetup = null,
             bool openSession = true, bool localServerDown = false, WorkContextRead? workContext = null,
             SessionPlansRead? plan = null, bool moreSessions = false, bool remoteMachine = false,
-            Func<MainWindowViewModel, Task>? arrange = null, ViewModels.NextWork.NextWorkBandViewModel? nextWork = null) {
+            Func<MainWindowViewModel, Task>? arrange = null, Capacitor.App.ViewModels.NextWork.NextWorkBandViewModel? nextWork = null) {
         var scene = new DocsShotScene();
         try {
             var vm = await BuildMainWindowAsync(scene, pendingIds, permissionRequests, openFeedback, requestSetup, openSession,
@@ -218,7 +220,7 @@ static partial class DocsShotScenes {
     static async Task<MainWindowViewModel> BuildMainWindowAsync(DocsShotScene scene, IReadOnlySet<string>? pendingIds,
             IReadOnlyList<PendingPermissionRequest>? permissionRequests, Action<FeedbackCategory>? openFeedback,
             Action? requestSetup, bool openSession, bool localServerDown, WorkContextRead workContextRead,
-            SessionPlansRead? plan, bool moreSessions, bool remoteMachine, ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
+            SessionPlansRead? plan, bool moreSessions, bool remoteMachine, Capacitor.App.ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
         var transcript = openSession ? scene.Own(new TempDir()) : null;
         var homeState = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
         var service = new FakeDaemonClientService();
@@ -265,7 +267,7 @@ static partial class DocsShotScenes {
                 new ScriptedLocalControlOps(), new NoAttachmentUploader(), pullRequests: linkedPullRequests, plans: plans),
             rail: rail, home: home, tenantName: localServerDown ? "local" : "northwind", laneStatus: lane,
             openFeedback: openFeedback, requestSetup: requestSetup) { Web = web };
-        scene.Present(new Views.MainWindow { DataContext = vm });
+        scene.Present(new Capacitor.App.Views.MainWindow { DataContext = vm });
         Task? pendingRead = null;
         scene.Defer(async () => {
             vm.CloseWorkspace();
@@ -365,7 +367,7 @@ static partial class DocsShotScenes {
             var vm = new OnboardingViewModel(steps, startAt: startAt);
             await vm.PendingEnterForTesting;
             if (arrange is not null) await arrange();
-            scene.Present(new Views.MainWindow { Onboarding = vm, Width = 760, Height = 760 });
+            scene.Present(new Capacitor.App.Views.MainWindow { Onboarding = vm, Width = 760, Height = 760 });
             return scene;
         } catch {
             await scene.DisposeAsync();

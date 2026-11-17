@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
 /// <see cref="IHostedAgentRuntime"/> + <see cref="IAcpTranscriptSource"/> test double mirroring
-/// the real <c>AcpHostedAgentRuntime</c>'s dual role (task 2) closely enough to exercise task 4's
+/// the real <c>AcpHostedAgentRuntime</c>'s dual role closely enough to exercise the orchestrator's
 /// wiring: <see cref="ReadOutputAsync"/> stays open until <see cref="TerminateAsync"/>/cancellation
 /// (exactly like the real ACP runtime, and <see cref="FakeHostedAgentRuntime"/> above), and
 /// <see cref="DisposeAsync"/> completes the <see cref="Envelopes"/> channel — mirroring the real
@@ -59,7 +59,7 @@ internal sealed class FakeAcpRuntime : IHostedAgentRuntime, IAcpTranscriptSource
         yield break;
     }
 
-    /// <summary>§2.5: when true the runtime advertises the deferred-first-turn contract, so the
+    /// <summary>When true the runtime advertises the deferred-first-turn contract, so the
     /// orchestrator drives it through the source-claim sequence rather than the single-phase bind.</summary>
     public bool DeferFirstTurn { get; init; }
     public bool RequiresSourceClaimBeforeFirstTurn => DeferFirstTurn;

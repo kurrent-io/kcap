@@ -670,7 +670,9 @@ public sealed class TokenStore(
     // persist. A shorter wait gives up on a holder that is one replay away from saving a fresh token
     // and falls back to the stale one instead.
     static readonly TimeSpan LockWaitMargin = TimeSpan.FromSeconds(10);
-    static readonly TimeSpan LockPollGap    = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>How long a waiter sleeps between attempts on a profile lock held elsewhere.</summary>
+    internal TimeSpan LockPollGap { get; init; } = TimeSpan.FromMilliseconds(100);
 
     internal TimeSpan LockWait => workos.RefreshBudget + LockWaitMargin;
 
@@ -781,13 +783,10 @@ public sealed class TokenStore(
         return time.GetUtcNow().AddMinutes(5);
     }
 
-    // Short retry budget for the refresh HTTP call. A bare single-shot POST turned any
-    // transient blip (DNS stutter, connection reset, brief server slowness) into a hard
-    // "token expired — run kcap login", even though the refresh credential was still valid.
-    // PostWithRetryAsync retries only transport failures, never non-success responses — so a
-    // genuinely-expired refresh token still returns fast (400/401 → null, no pointless retries).
-    // Kept short so a hook never blocks for the default 30s budget when the server is down.
-    static readonly TimeSpan RefreshRetryBudget = TimeSpan.FromSeconds(5);
+    // Retries a transport blip that would otherwise read as an expired credential; a refused token
+    // still returns at once, since only transport failures are retried. Short so a hook never blocks
+    // for the default 30 s budget when the server is down.
+    internal TimeSpan RefreshRetryBudget { get; init; } = TimeSpan.FromSeconds(5);
 
     async Task<StoredTokens?> RefreshGitHubAsync(string profile, StoredTokens tokens, CancellationToken ct) {
         // A bound token refreshes against the server that minted it: /auth/refresh validates the

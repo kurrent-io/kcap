@@ -5,8 +5,7 @@ namespace Capacitor.Cli.Core;
 ///
 /// <para>Lives beside <see cref="HttpClientExtensions.IsAcceptableUrl"/> deliberately: a guard that
 /// can disagree with the validator it protects is worse than no guard, because it fails in exactly
-/// the case it was added for. Before this existed the same composition was hand-written in twelve
-/// places and named twice.</para>
+/// the case it was added for.</para>
 /// </summary>
 public static class HookHttp {
     /// <summary>

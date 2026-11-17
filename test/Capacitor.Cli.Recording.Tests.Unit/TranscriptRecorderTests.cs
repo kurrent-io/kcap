@@ -322,6 +322,83 @@ public class TranscriptRecorderTests {
         await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([0, 1, 1]);
     }
 
+    string SentLines => string.Join(",", _transport.Batches.SelectMany(batch => batch.LineNumbers!));
+
+    /// <summary>The server drops a line at or below one it already took, so a line sent ahead of the server's answer
+    /// would push the resent gap under it.</summary>
+    [Test]
+    public async Task A_line_written_while_re_registering_waits_for_the_servers_answer() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n");
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectHold = answer.Task;
+        _transport.ResumeFrom  = 1;
+        var reconnect = _transport.RaiseReconnectedAsync();
+        await Eventually(() => _transport.ConnectsHeld == 1);
+
+        await File.AppendAllTextAsync(path, $"{Later}\n");
+        var ticked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _housekeeping.BeforeDrain = () => {
+            ticked.TrySetResult();
+            return Task.CompletedTask;
+        };
+        await ticked.Task.WithinDeadlineAsync("a drain after the line was written");
+        // Long enough for a drain that is not held to have read and sent the line.
+        await Task.Delay(200);
+        var sentBeforeTheAnswer = SentLines;
+
+        answer.SetResult();
+        await reconnect.WithinDeadlineAsync("the re-registration");
+        await LinesSent(4);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(sentBeforeTheAnswer).IsEqualTo("0,1");
+        await Assert.That(SentLines).IsEqualTo("0,1,1,2");
+    }
+
+    /// <summary>A drain that read the cursor before the rewind would write its own frontier over it, and the gap the
+    /// server asked for would never be resent.</summary>
+    [Test]
+    public async Task A_rewind_waits_for_the_send_in_flight_and_is_kept() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n");
+        using var recorder = Recorder(path);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+
+        var sending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var landed  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.OnSend = _ => {
+            sending.TrySetResult();
+            return landed.Task;
+        };
+
+        await File.AppendAllTextAsync(path, $"{Later}\n");
+        await sending.Task.WithinDeadlineAsync("the drain to send the new line");
+
+        _transport.ResumeFrom = 1;
+        var reconnect = _transport.RaiseReconnectedAsync();
+        await Task.Delay(200);
+        var registeredUnderTheSend = _transport.ConnectAttempts;
+
+        _transport.OnSend = null;
+        landed.SetResult();
+        await reconnect.WithinDeadlineAsync("the re-registration");
+        await LinesSent(5);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(registeredUnderTheSend).IsEqualTo(1);
+        await Assert.That(SentLines).IsEqualTo("0,1,2,1,2");
+    }
+
     [Test]
     public async Task A_finished_recorder_stops_listening_to_its_transport() {
         var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");

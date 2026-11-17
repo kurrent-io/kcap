@@ -138,6 +138,13 @@ internal partial class AgentOrchestrator {
         await FrameCodec.WriteAsync(stream, LocalFrame.AgentSessionReply(HeldSessionOf(agentId)), ct);
     }
 
+    public Task HandleLocalAgentCommandsAsync(string agentId, Stream stream, CancellationToken ct) {
+        HostedAgentCommand[] commands = _agents.TryGetValue(agentId, out var agent) && agent.Commands is { } known ? [.. known] : [];
+        var json = JsonSerializer.Serialize(commands, AgentCommandsIpcJsonContext.Default.HostedAgentCommandArray);
+
+        return FrameCodec.WriteAsync(stream, LocalFrame.AgentCommandsReply(json), ct);
+    }
+
     /// <summary>The agent's session once the server holds it. A transcript's session is held only once its
     /// bind succeeded: answering it before, or after a failed bind, would have the caller keep an id the
     /// server refuses for good.</summary>

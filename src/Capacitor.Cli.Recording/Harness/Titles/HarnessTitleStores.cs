@@ -2,6 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Recording.Harness.Copilot;
@@ -18,13 +19,18 @@ public static class HarnessTitleStores {
 
         return vendor switch {
             "codex"       => new CodexSessionIndexTitle(CodexHome(transcriptPath, harnesses, accounts, home), sessionId),
-            "copilot"     => new CopilotWorkspaceTitle(Path.Combine(Path.GetDirectoryName(transcriptPath)!, "workspace.yaml")),
+            "copilot"     => Copilot(transcriptPath),
             "kiro"        => new KiroSessionTitle(Path.ChangeExtension(transcriptPath, ".json")),
             "cursor"      => Cursor(harnesses.Of<CursorHarness>().Paths, transcriptPath, host.OpenSqliteTitleStore(vendor, transcriptPath)),
             "antigravity" => host.OpenSqliteTitleStore(vendor, transcriptPath),
             _             => null,
         };
     }
+
+    static IHarnessTitleStore Copilot(string transcriptPath) =>
+        CopilotPaths.IsVsCodeLocalTranscript(transcriptPath) && VsCodeChatTitle.ForTranscript(transcriptPath) is { } local
+            ? local
+            : new CopilotWorkspaceTitle(Path.Combine(Path.GetDirectoryName(transcriptPath)!, "workspace.yaml"));
 
     // The account that wrote the rollout owns its index; the environment layout is only the fallback.
     static string CodexHome(string rolloutPath, HarnessRegistry harnesses, AccountRegistry? accounts, UserHome? home) =>

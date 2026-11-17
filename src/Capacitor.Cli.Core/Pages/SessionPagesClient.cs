@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Net.Mime;
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Text.Json;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Plans;
 using Capacitor.Cli.Core.WorkItems;
 
@@ -30,7 +30,7 @@ public sealed class SessionPagesClient(HttpClient http, string serverUrl) {
                     => new(SessionPlansReadKind.Ready, pages),
                 _ => SessionPagesRead.Of(SessionPlansReadKind.Unreachable),
             };
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return SessionPagesRead.Of(SessionPlansReadKind.Unreachable);
         }
     }
@@ -51,13 +51,8 @@ public sealed class SessionPagesClient(HttpClient http, string serverUrl) {
                 401 or 408 or 429 or >= 500 => null,
                 _ => false,
             };
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return null;
         }
     }
-
-    static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException or IOException;
 }

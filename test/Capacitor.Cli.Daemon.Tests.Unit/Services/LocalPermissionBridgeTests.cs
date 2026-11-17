@@ -675,7 +675,7 @@ public class LocalPermissionBridgeTests {
         }
     }
 
-    // Qodo #255: the auto-approve must be precise. A tool from a DIFFERENT server whose id merely
+    // The auto-approve must be precise. A tool from a DIFFERENT server whose id merely
     // ends in "submit_review_result" must NOT be short-circuited — it goes to the server like any
     // other tool, so the auto-approve can't be used to slip an unrelated tool past the prompt.
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
@@ -924,7 +924,7 @@ public class LocalPermissionBridgeTests {
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task Claude_cli_hook_post_target_lands_at_new_url() {
         // Verify that the bridge accepts POSTs at the /{token}/claude/permission-request URL
-        // that the CLI's PermissionRequestCommand now targets (Task 10 migration).
+        // that the CLI's PermissionRequestCommand targets.
         var (bridge, server) = CreateBridge();
 
         try {

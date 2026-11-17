@@ -270,8 +270,8 @@ sealed class GeminiHookCommand(
             return 0;
         }
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
+        // The cross-vendor backlog drain runs centrally in Program.cs's `case "hook":` before
+        // dispatch, not here.
         var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");
@@ -410,10 +410,11 @@ sealed class GeminiHookCommand(
                 , clock.Time);
 
                 if (!drained) {
-                    await Console.Error.WriteLineAsync(
-                        $"[kcap] gemini session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
-                      + $"Transcript tail may be incomplete — recoverable via: kcap import --gemini --session {sessionId}"
-                    );
+                    var handed = DetachedBacklogImport.Spawn("--gemini", sessionId, transcriptPath, null, config, profiles.Resolution, SystemProcessStarter.Instance);
+                    await Console.Error.WriteLineAsync(handed
+                        ? $"[kcap] gemini session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
+                        : $"[kcap] gemini session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
+                        + $"Transcript tail may be incomplete — recoverable via: kcap import --gemini --session {sessionId}");
                 }
             } catch (Exception ex) {
                 Console.Error.WriteLine($"[kcap] gemini session-end pre-hook failed: {ex.Message}");

@@ -20,7 +20,8 @@ public static class CanonicalEventJson {
                 CanonicalEventTypes.SubagentCompleted           => Parser.Parse<SubagentCompleted>(json),
                 CanonicalEventTypes.SubagentStarted             => Parser.Parse<SubagentStarted>(json),
                 CanonicalEventTypes.SessionStarted              => Parser.Parse<SessionStarted>(json),
-                CanonicalEventTypes.ContextCompacted            => System.Text.Json.JsonSerializer.Deserialize(json, Harness.Codex.CodexJsonContext.Default.ContextCompactedEvent),
+                CanonicalEventTypes.ContextCompacted            => System.Text.Json.JsonSerializer.Deserialize(json, TranscriptEventJsonContext.Default.ContextCompactedEvent),
+                CanonicalEventTypes.UserMessageRetracted        => System.Text.Json.JsonSerializer.Deserialize(json, TranscriptEventJsonContext.Default.UserMessageRetractedEvent),
                 _ => null,
             };
         } catch (System.Text.Json.JsonException) {
