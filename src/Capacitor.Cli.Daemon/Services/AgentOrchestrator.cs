@@ -166,6 +166,10 @@ internal record AgentInstance(
     public Task TerminalDialogReport { get; set; } = Task.CompletedTask;
     public readonly Lock TerminalDialogReportGate = new();
 
+    /// The compaction last started for this agent, guarded by <see cref="CompactionGate"/>.
+    public RunningCompaction? Compaction { get; set; }
+    public readonly Lock CompactionGate = new();
+
     /// The agent's own transcript — Claude's project .jsonl or Codex's rollout — resolved once
     /// by discovery and cached: the status payload and the Codex send-path probe both read it,
     /// and neither may scan a directory to do so. Null until discovery lands, and forever for a
@@ -1006,6 +1010,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.OnSendSpecialKey         += HandleSendSpecialKey;
         _server.OnSendRawInput           += HandleSendRawInput;
         _server.OnResizeTerminal         += HandleResizeTerminal;
+        _server.OnCompactAgent           += HandleCompactAgent;
         _server.ReRegisterAgentsHook          =  ReRegisterAgentsAsync;
         // Acks and status reports sent inside the registration bracket are dropped by the IsReady gate,
         // so this report, and the ack redelivery it runs, is what reaches the server for that window.
@@ -5108,6 +5113,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         public const string DeliveryFailed    = "delivery_failed";
         /// <summary>Written, but the agent started no turn from it: the input never reached the model.</summary>
         public const string TurnNotStarted    = "turn_not_started";
+        /// <summary>A question, permission prompt or terminal dialog is open that a compaction could reach.</summary>
+        public const string PromptOpen            = "prompt_open";
+        /// <summary>An earlier compaction of the agent is still queued or running.</summary>
+        public const string CompactionRunning     = "compaction_running";
+        public const string CompactionUnsupported = "compaction_unsupported";
     }
 
     /// <summary>Reports a drop to the server, when the dispatch carried an id to name. Never throws:
@@ -5148,26 +5158,33 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    async Task HandleSendInput(SendInputCommand cmd) {
-        if (cmd.DispatchId is { } dispatchId) {
-            switch (_dispatchedInputs.Admit(dispatchId, out var dropReason)) {
-                case DispatchState.InFlight:
-                    LogSendInputDuplicateInFlight(cmd.AgentId, dispatchId);
-                    return;
-                case DispatchState.Taken:
-                    LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
-                    _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
+    /// <summary>False when the dispatch was seen before, and has been answered again as it was the first time.</summary>
+    async Task<bool> AdmitDispatchAsync(SendInputCommand cmd) {
+        if (cmd.DispatchId is not { } dispatchId) return true;
 
-                    // A drop recorded since the admit is reported again, in case its own report never arrived.
-                    // The server records a rejection whether or not an ack reached it first.
-                    if (_dispatchedInputs.Peek(dispatchId, out var lost) == DispatchState.Dropped)
-                        await ReportInputDroppedAsync(cmd, lost!);
-                    return;
-                case DispatchState.Dropped:
-                    await ReportInputDroppedAsync(cmd, dropReason!);
-                    return;
-            }
+        switch (_dispatchedInputs.Admit(dispatchId, out var dropReason)) {
+            case DispatchState.InFlight:
+                LogSendInputDuplicateInFlight(cmd.AgentId, dispatchId);
+                return false;
+            case DispatchState.Taken:
+                LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
+                _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
+
+                // A drop recorded since the admit is reported again, in case its own report never arrived.
+                // The server records a rejection whether or not an ack reached it first.
+                if (_dispatchedInputs.Peek(dispatchId, out var lost) == DispatchState.Dropped)
+                    await ReportInputDroppedAsync(cmd, lost!);
+                return false;
+            case DispatchState.Dropped:
+                await ReportInputDroppedAsync(cmd, dropReason!);
+                return false;
         }
+
+        return true;
+    }
+
+    async Task HandleSendInput(SendInputCommand cmd) {
+        if (!await AdmitDispatchAsync(cmd)) return;
 
         // Held for the mod and returned at once: this runs on the daemon's one sequential server dispatch.
         if (_attachments?.TakeInput(cmd) == true) return;
@@ -7629,6 +7646,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// <summary>Test-only entry point to the private send-input handler (bracketed-paste submit).</summary>
     internal Task HandleSendInputForTest(SendInputCommand cmd) => HandleSendInput(cmd);
+
+    internal Task HandleCompactAgentForTest(CompactAgentCommand cmd) => HandleCompactAgent(cmd);
 
     internal Task HandleSendRawInputForTest(SendRawInputCommand cmd) => HandleSendRawInput(cmd);
 

@@ -123,8 +123,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
     // Seeded once: a later check must not move a chip the user has been looking at.
-    bool _modelSeeded;
-    Task<string?>? _sourceModel;
+    bool _choicesSeeded;
+    Task<ActivitySessionDto?>? _source;
     string? _checkout;
     ProbePlan? _plan;
     bool _originChecked;
@@ -212,7 +212,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 if (c) {
                     _features = null;
                     _context = null;
-                    if (!_modelSeeded) _sourceModel = null;
+                    if (!_choicesSeeded) _source = null;
                 }
                 Recheck();
             })
@@ -564,10 +564,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 });
             _context = fetched;
         }
-        if (!_modelSeeded) {
-            _sourceModel ??= ReadSourceModelAsync();
-            _choices.SeedModel(await _sourceModel.WaitAsync(ct));
-            _modelSeeded = true;
+        if (!_choicesSeeded) {
+            _source ??= ReadSourceAsync();
+            var source = await _source.WaitAsync(ct);
+            _choices.Seed(source?.Model, source?.Effort, source?.PermissionMode);
+            _choicesSeeded = true;
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
@@ -959,9 +960,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     static bool HasResume(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeInPlaceWire.Capability) == true;
 
-    async Task<string?> ReadSourceModelAsync() {
+    async Task<ActivitySessionDto?> ReadSourceAsync() {
         var summary = await _sessions.ReadSummaryAsync(_session.SessionId, _shutdown);
-        return summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source.Model : null;
+        return summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source : null;
     }
 
     /// A verified fork's head, or a head in the session's own repository; anything else, including a

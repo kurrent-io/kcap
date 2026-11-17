@@ -109,6 +109,9 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     // clock, WaitForTurnIdle) is derived from it — the runtime no longer tracks turns itself.
     readonly CodexTurnInputDispatcher _dispatcher;
 
+    // Compactions asked for and not yet started, oldest first, by the dispatch that asked.
+    readonly LinkedList<Guid> _requestedCompactions = new();
+
     // The mapper translates every app-server notification into
     // canonical/ephemeral envelopes, drained through the bounded forward buffer (IAcpTranscriptSource).
     readonly CodexNotificationMapper _mapper;
@@ -190,7 +193,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             logger: logger, ct: _cts.Token, onTurnInFlight: flip => _clock?.SetTurnInFlight(flip),
             // Deferring the first turn seals the dispatcher — externally-reachable input arriving during
             // the source-claim window enqueues and waits; BeginFirstTurnAsync unseals it.
-            sealedAtStart: deferFirstTurn);
+            sealedAtStart: deferFirstTurn, compact: IssueCompactAsync);
         _mapper = new CodexNotificationMapper(() => _resolvedModel, logger);
         _submitted = new CodexSubmittedInputs(timeProvider);
         _forwardBuffer = new CodexForwardBuffer(
@@ -499,6 +502,49 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         await RequestAsync("turn/steer", steerParams, ct).ConfigureAwait(false);
     }
 
+    async Task IssueCompactAsync(CancellationToken ct) {
+        var threadId = _threadId ?? throw new InvalidOperationException("codex app-server: no thread to compact.");
+        await RequestAsync("thread/compact/start", new JsonObject { ["threadId"] = threadId }, ct).ConfigureAwait(false);
+    }
+
+    // An open approval refuses it as on every other transport, though the compaction would wait for its turn to end.
+    public CompactionStart StartCompaction(Guid dispatchId) {
+        if (_approvalBridge is { AwaitingPerson: > 0 }) return CompactionStart.PromptOpen;
+
+        lock (_requestedCompactions) _requestedCompactions.AddLast(dispatchId);
+
+        (Task Written, Task Finished) started;
+        try {
+            started = _dispatcher.EnqueueCompaction();
+        } catch {
+            ForgetCompaction(dispatchId);
+            throw;
+        }
+
+        _ = started.Written.ContinueWith(_ => ForgetCompaction(dispatchId), CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+        return CompactionStart.Started(started.Written, started.Finished);
+    }
+
+    void ForgetCompaction(Guid dispatchId) {
+        lock (_requestedCompactions) _requestedCompactions.Remove(dispatchId);
+    }
+
+    // The app server records no message for a compaction it was asked for, so one is recorded as its turn starts: it is
+    // what retires the server's pending dispatch, and what the chat shows. On the read loop, the buffer's one writer.
+    void RecordRequestedCompaction() {
+        Guid dispatchId;
+        lock (_requestedCompactions) {
+            if (_requestedCompactions.First is not { } oldest) return;
+            dispatchId = oldest.Value;
+            _requestedCompactions.RemoveFirst();
+        }
+
+        _forwardBuffer.Emit(new AcpEventEnvelope(
+            Kind: AcpEventKind.UserMessage, Text: "/compact", TimestampIso: _time.GetUtcNow().ToString("O"), DispatchId: dispatchId));
+    }
+
     public Task SendUserInputAsync(string text) => Submit(text, dispatchId: null);
 
     public Task SendUserInputAndWaitForWriteAsync(string text) => Submit(text, dispatchId: null);
@@ -542,6 +588,11 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     void HandleNotification(AcpNotification n) {
         switch (n.Method) {
+            case "turn/started":
+                if (_dispatcher.OnTurnStarted(n.Params is { } started ? started.Obj("turn")?.Str("id") : null) && _emitEnvelopeTranscript)
+                    RecordRequestedCompaction();
+                _clock?.Advance();
+                break;
             case "turn/completed": {
                 var turn = n.Params is { } p ? p.Obj("turn") : null;
                 if (turn?.Str("status") is "failed")

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using TUnit.Assertions.Enums;
 
@@ -591,6 +592,77 @@ public class ClaudeTerminalDialogDetectorTests {
         var dialog = ClaudeTerminalDialogDetector.Parse(screen, 32);
 
         await Assert.That((dialog?.Heading, dialog?.Options.Count, dialog?.Screen?.Contains("2. No"))).IsEqualTo(((string?)"Switch model?", (int?)0, (bool?)true));
+    }
+
+    static string AutoModeOffer(params string[] choices) =>
+        string.Join('\n', new[] {
+            "● Done.",
+            "",
+            new string('─', 120),
+            "  Make auto mode your default permission mode?",
+            "",
+            "  Auto mode lets Claude handle permission prompts automatically. Claude checks each tool call for risky actions and",
+            "  prompt injection before executing, runs the ones it assesses as lower-risk, and blocks the rest.",
+            "",
+        }.Concat(choices).Append(""));
+
+    /// The auto-mode offer opens after a reply with unnumbered choices and no footer; it holds the
+    /// keyboard all the same, so it is read as a dialog.
+    [Test]
+    public async Task The_auto_mode_offer_is_read_for_its_choices() {
+        var screen = AutoModeOffer(
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+
+        var dialog = ClaudeTerminalDialogDetector.Parse(screen, 120);
+
+        await Assert.That(dialog!.Heading).IsEqualTo("Make auto mode your default permission mode?");
+        await Assert.That(dialog.Body).StartsWith("Auto mode lets Claude handle permission prompts automatically.");
+        await Assert.That(dialog.Options.ToArray()).IsEquivalentTo(
+            new[] { "Yes, set auto mode as my default permission mode", "No, keep default mode" }, CollectionOrdering.Matching);
+        await Assert.That(dialog.Selected).IsEqualTo(0);
+    }
+
+    /// Caught between erasing one cursor and drawing the next, the offer is still open: the screen
+    /// decides nothing, rather than reading as closed and letting a held message through.
+    [Test]
+    public async Task The_auto_mode_offer_caught_mid_redraw_stays_open() {
+        var open = AutoModeOffer(
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+        var cursorless = AutoModeOffer(
+            "    Yes, set auto mode as my default permission mode",
+            "    No, keep default mode");
+
+        var watcher = new ClaudeScreenWatcher();
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + open.Replace("\n", "\r\n"))).Dialog).IsNotNull();
+
+        await Assert.That(ClaudeTerminalDialogDetector.Read(cursorless, 120)).IsEqualTo(((TerminalDialogDto?)null, true));
+        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + cursorless.Replace("\n", "\r\n"))).Dialog?.Options.Count).IsEqualTo(2);
+    }
+
+    /// The offer's headline in ordinary output, with the prompt box below it, is not a dialog; nor is
+    /// an unnumbered cursor list under any other headline.
+    [Test]
+    public async Task Unnumbered_choices_are_a_dialog_only_under_the_offer_headline() {
+        var quoted = string.Join('\n',
+            "● Claude showed: Make auto mode your default permission mode?",
+            "  Make auto mode your default permission mode?",
+            "  ❯ Yes, set auto mode as my default permission mode",
+            "    No, keep default mode",
+            new string('─', 120),
+            "❯ ",
+            new string('─', 120),
+            "  ⏵⏵ auto mode on (shift+tab to cycle)");
+        var other = string.Join('\n',
+            new string('─', 120),
+            "  Pick one",
+            "",
+            "  ❯ Keep it",
+            "    Drop it");
+
+        await Assert.That(ClaudeTerminalDialogDetector.Read(quoted, 120)).IsEqualTo(((TerminalDialogDto?)null, false));
+        await Assert.That(ClaudeTerminalDialogDetector.Read(other, 120)).IsEqualTo(((TerminalDialogDto?)null, false));
     }
 
     /// A panel whose footer offers only Esc holds the keyboard as any dialog does, and comes back

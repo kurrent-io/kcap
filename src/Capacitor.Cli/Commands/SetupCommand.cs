@@ -1186,6 +1186,7 @@ sealed class SetupCommand(
             InstallKiroHooks:       agentPath => Edited(PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error)),
             InstallPiExtension:     PiExtensionInstaller.Apply,
             InstallOpenCodeExtension: OpenCodeExtensionInstaller.Apply,
+            OpenCodeVersion:          () => new VendorVersionResolver(binaries).Resolve("opencode"),
             InstallAntigravityHooks:  path => Edited(PluginCommand.InstallAntigravityHooks(path)),
             EnableCodexNetworkAccess: () => CodexConfigToml.EnableNetworkAccess(codexAllowDomains, codex.ConfigToml),
             RegisterCodexMcp:         () => CodexConfigToml.RegisterKcapMcpServers(codex.ConfigToml),

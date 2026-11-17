@@ -1445,6 +1445,30 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(psi.WorkingDirectory).IsEqualTo(ctx.Worktree.Path);
     }
 
+    /// <summary>VS Code's Copilot launcher on the PATH is not a Copilot CLI to host, and one behind it is: that CLI is
+    /// the path the version probe and the update watcher read.</summary>
+    [Test]
+    public async Task Copilot_is_available_only_when_a_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var exe     = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+        var shim    = Path.GetDirectoryName(tmp.CreateExecutable(Path.Combine("Code", "copilot-shim", exe), ""))!;
+        var cliPath = tmp.CreateExecutable(Path.Combine("bin", exe), "");
+
+        static AcpHostedAgentRuntimeFactory Over(string searchPath) => new(
+            descriptor: AcpVendorDescriptors.Copilot,
+            config: new DaemonConfig { Binaries = BinaryProbe.Searching(searchPath) },
+            loggerFactory: NullLoggerFactory.Instance,
+            connection: new CaptureServerConnection(),
+            connectionSource: _ => throw new InvalidOperationException("Reading availability must not spawn a process."),
+            timeProvider: TimeProvider.System);
+
+        var both = Over(shim + Path.PathSeparator + Path.GetDirectoryName(cliPath));
+
+        await Assert.That(Over(shim).IsAvailable()).IsFalse();
+        await Assert.That(both.IsAvailable()).IsTrue();
+        await Assert.That(both.CliPath).IsEqualTo(BinaryProbe.Searching(Path.GetDirectoryName(cliPath)).Resolve("copilot"));
+    }
+
     /// <summary>Vibe is hosted through its separate ACP entry point, which takes no arguments; the
     /// <c>vibe</c> TUI would never answer <c>initialize</c>.</summary>
     [Test]

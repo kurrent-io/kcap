@@ -78,6 +78,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public event Func<string, string, Task>?        OnSendSpecialKey; // agentId, key
     public event Func<SendRawInputCommand, Task>?   OnSendRawInput;
     public event Func<ResizeTerminalCommand, Task>? OnResizeTerminal;
+    public event Func<CompactAgentCommand, Task>?   OnCompactAgent;
 
     // Per-phase eval handlers (DEV-1463 PR 2). These use SignalR's
     // client-result invocation — the server calls
@@ -182,7 +183,16 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// <summary>Set by what serves attached agents, where it is offered; nothing else claims them.</summary>
     internal bool AdvertisesSteering { get; set; }
 
-    internal string[]? AdvertisedCapabilities => AdvertisesSteering ? [DaemonCapabilities.Steering] : null;
+    internal string[]? AdvertisedCapabilities {
+        get {
+            string[] advertised = [
+                .. AdvertisesSteering ? [DaemonCapabilities.Steering] : Array.Empty<string>(),
+                .. OnCompactAgent is not null ? [DaemonCapabilities.Compaction] : Array.Empty<string>(),
+            ];
+
+            return advertised.Length == 0 ? null : advertised;
+        }
+    }
 
     /// <summary>The connection the server pushed on has gone, so nothing it pushed can be acted on any more.</summary>
     public event Action? ConnectionLost;
@@ -328,6 +338,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         // instead of resizing the PTY to 0×0 — graceful degradation during a non-atomic CLI/server
         // rollout.
         _hub.On<ResizeTerminalCommand>("ResizeTerminalAggregate", cmd => SafeInvoke("ResizeTerminalAggregate", () => OnResizeTerminal?.Invoke(cmd)));
+        _hub.On<CompactAgentCommand>("CompactAgent", cmd => SafeInvoke("CompactAgent", () => OnCompactAgent?.Invoke(cmd)));
 
         // One-way server→daemon receive that prunes the
         // resolved-candidates ledger per-entry. The handler is SYNCHRONOUS (the ledger Ack is void), so

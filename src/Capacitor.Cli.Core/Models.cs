@@ -146,10 +146,11 @@ public class WatchState {
     public ClaudeSubagentCheckouts?                             SubagentCheckouts        { get; set; }
     public DateTimeOffset                                       LastSubagentCheckoutScan { get; set; }
 
-    // Claude session and subagent watchers: PRs the transcript shows the agent creating, kept
-    // until the server accepts them.
+    // Watchers of a vendor with a CreatedPullRequestAdapters entry: PRs the transcript shows the agent creating,
+    // kept until the server accepts them.
     public List<CreatedPullRequest> PendingCreatedPullRequests { get; } = [];
     public DateTimeOffset           NextCreatedPullRequestLink { get; set; }
+    public CreatedPullRequestEvidence CreatedPullRequestEvidence { get; } = new();
 
     public bool               InitialTitleSent   { get; set; }
     public bool               TitleGenerated     { get; set; }
@@ -1160,6 +1161,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(SendInputCommand))]
 [JsonSerializable(typeof(SendInputAcked))]
 [JsonSerializable(typeof(SendRawInputCommand))]
+[JsonSerializable(typeof(CompactAgentCommand))]
 [JsonSerializable(typeof(ResizeTerminalCommand))]
 [JsonSerializable(typeof(PrepareEvalCommand))]
 [JsonSerializable(typeof(RunQuestionCommand))]
@@ -2240,6 +2242,13 @@ public readonly record struct SendInputCommand(
 public readonly record struct SendRawInputCommand(
         string AgentId,
         string Data,
+        Guid   DispatchId
+    );
+
+/// Asks the daemon to compact a hosted agent's context. Sent only to a daemon whose connect advertised
+/// <see cref="DaemonCapabilities.Compaction"/>; answered like a dispatched input, by an ack or a rejection.
+public readonly record struct CompactAgentCommand(
+        string AgentId,
         Guid   DispatchId
     );
 

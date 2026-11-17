@@ -9,7 +9,8 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// (which POSTs lifecycle + spawns the transcript watcher), and on
 /// <c>session.idle</c> it fetches the session's full messages via the injected SDK
 /// <c>client</c> and appends them as native <c>{info,parts}</c> JSONL lines to the
-/// file the watcher tails.
+/// file the watcher tails. OpenCode v2 loads the default export's <c>setup</c> instead, which captures
+/// no transcript; the file needs OpenCode v1 1.18.29 or newer (<see cref="OpenCodeVersionFloor"/>).
 ///
 /// <para><see cref="ExtensionContent"/> is the single source of truth for the
 /// installed file (embedding it as a const keeps NativeAOT happy — no manifest
@@ -44,13 +45,55 @@ public static class OpenCodeExtensionInstaller {
         //     deterministic part id, so re-appending an updated message is safe.
         //   - tool.execute.before → a kcap MCP call that names no session_id gets the calling session's.
         //
+        // OpenCode v2 loads the default export's setup instead (see the v2 section at the end): it records
+        // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript.
+        //
         // Dependency-free (only node: builtins) and fail-safe by default.
 
         import { appendFileSync, mkdirSync } from "node:fs"
         import { homedir } from "node:os"
         import { join, dirname } from "node:path"
 
+        const MEMORY_MARKER = "<!-- kcap-memory-index:v1 -->"
+        // kcap MCP tools, as `<server>_<tool>`, whose optional session_id names the CALLING session.
+        // Elsewhere it is a filter or a session to read, which a default would silently narrow or
+        // replace; close_loose_end treats a session it defaulted differently from one it was given.
+        // OpenCode v2 presents the same names, including for calls made inside Code Mode's execute.
+        const CALLER_SESSION_TOOLS = new Set([
+          "kcap-workitems_declare_work_item", "kcap-workitems_get_session_work_items",
+          "kcap-workitems_detach_work_item", "kcap-workitems_declare_work_incomplete",
+          "kcap-workitems_declare_loose_end",
+          "kcap-workitems_claim_loose_end", "kcap-workitems_release_loose_end",
+          "kcap-plans_declare_plan_document", "kcap-plans_set_plan_tasks",
+          "kcap-plans_update_plan_task", "kcap-plans_get_plan",
+          "kcap-flows_start_agent", "kcap-flows_get_flow_status", "kcap-flows_get_review_flow_status",
+        ])
+
+        // OpenCode v1 also calls the v2 setup, after server and with a partial context. The first API
+        // to start owns the process, so a session is never started by both.
+        let api: "v1" | "v2" | undefined
+
+        // `.quiet()` keeps the child's output off OpenCode's own stdio while still handing it back:
+        // session-start uses stdout as a DATA channel for the team-memory fragment. Bounded so a hung
+        // kcap can never stall OpenCode.
+        function kcapRunner($: any) {
+          return async (args: string[]): Promise<string> => {
+            try {
+              const res: any = await Promise.race([
+                $`kcap ${args}`.quiet().nothrow(),
+                new Promise((res) => setTimeout(() => res(null), 10000)),
+              ])
+              const out = res?.stdout
+              return typeof out === "string" ? out : out ? out.toString() : ""
+            } catch {
+              return ""
+            }
+          }
+        }
+
         export const KcapPlugin = async ({ client, $, directory }: any) => {
+          if (api === "v2") return {}
+          api = "v1"
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
           // Subagents run as child sessions; their {info,parts} go in a nested dir beside
@@ -75,7 +118,6 @@ public static class OpenCodeExtensionInstaller {
           // chat.system.transform racing it has something to await rather than concluding there is
           // nothing in flight.
           const pendingStart = new Map<string, Promise<boolean>>()
-          const MEMORY_MARKER = "<!-- kcap-memory-index:v1 -->"
           const MEMORY_MAX_SESSIONS = 64      // bounded: never an unbounded process-global map
           // Matches runKcap's own 10s ceiling. Only ever paid on a session's FIRST request, and only
           // while the start is genuinely still running — a shorter bound would silently give up on a
@@ -91,18 +133,6 @@ public static class OpenCodeExtensionInstaller {
           const coldStarts = new Map<string, number>()
           const TITLE_MAX_SESSIONS = 64
           const lastTitle = new Map<string, string>()   // dedupes session.updated noise per session
-          // kcap MCP tools, as `<server>_<tool>`, whose optional session_id names the CALLING session.
-          // Elsewhere it is a filter or a session to read, which a default would silently narrow or
-          // replace; close_loose_end treats a session it defaulted differently from one it was given.
-          const CALLER_SESSION_TOOLS = new Set([
-            "kcap-workitems_declare_work_item", "kcap-workitems_get_session_work_items",
-            "kcap-workitems_detach_work_item", "kcap-workitems_declare_work_incomplete",
-            "kcap-workitems_declare_loose_end",
-            "kcap-workitems_claim_loose_end", "kcap-workitems_release_loose_end",
-            "kcap-plans_declare_plan_document", "kcap-plans_set_plan_tasks",
-            "kcap-plans_update_plan_task", "kcap-plans_get_plan",
-            "kcap-flows_start_agent", "kcap-flows_get_flow_status", "kcap-flows_get_review_flow_status",
-          ])
 
           // Bounded like the memory cache: most sessions end without a session.deleted. Re-inserting keeps the most
           // recently titled sessions; an evicted one only writes its title line again.
@@ -133,23 +163,7 @@ public static class OpenCodeExtensionInstaller {
             memory.set(sid, fragment)
           }
 
-          async function runKcap(args: string[]): Promise<string> {
-            try {
-              // kcap spawns a detached watcher and returns fast; bound it so a hung
-              // kcap can never stall OpenCode. `.quiet()` keeps the child's output off OpenCode's
-              // own stdio while still handing it back on the result — session-start uses stdout as a
-              // DATA channel for the team-memory fragment.
-              const res: any = await Promise.race([
-                $`kcap ${args}`.quiet().nothrow(),
-                new Promise((res) => setTimeout(() => res(null), 10000)),
-              ])
-              const out = res?.stdout
-              return typeof out === "string" ? out : out ? out.toString() : ""
-            } catch {
-              // never disrupt the OpenCode session
-              return ""
-            }
-          }
+          const runKcap = kcapRunner($)
 
           // Classify a session: "child" (a subagent — never ingest as top-level), "top"
           // (no parent), or "unknown" (a transient session.get failure left it ambiguous).
@@ -586,6 +600,212 @@ public static class OpenCodeExtensionInstaller {
             },
           }
         }
+
+        // ── OpenCode v2 ──────────────────────────────────────────────────────────────────────────────
+        // v2 runs plugins in its server process, often the long-lived background service, and may set
+        // up one instance per location there, so session state is module-wide. Its transcripts are
+        // event-sourced and not captured here: the session's JSONL file only ever holds title lines.
+
+        const v2 = {
+          started: new Map<string, true>(),
+          children: new Map<string, true>(),
+          memory: new Map<string, string>(),
+          pendingStart: new Map<string, Promise<boolean>>(),
+          retryAt: new Map<string, number>(),
+          waitExpired: new Map<string, true>(),
+          pendingTitle: new Map<string, { title: string; time?: number }>(),
+          lastTitle: new Map<string, string>(),
+        }
+        const V2_MAX_SESSIONS = 64
+        // Ids only, so a wider bound; an evicted session is classified, and at worst started, again.
+        const V2_MAX_IDS = 1024
+        const V2_RETRY_MS = 5000
+        const V2_WAIT_MS = 10000
+
+        // Bounded: most sessions end without a session.deleted, and the server process outlives them.
+        // Returns the id it evicted, if any.
+        function v2Remember<V>(map: Map<string, V>, key: string, value: V, max = V2_MAX_SESSIONS): string | undefined {
+          map.delete(key)
+          let evicted: string | undefined
+          if (map.size >= max) {
+            const oldest = map.keys().next()
+            if (!oldest.done) { evicted = oldest.value; map.delete(evicted) }
+          }
+          map.set(key, value)
+          return evicted
+        }
+
+        // A caller waits for an in-flight start at most once per session: a start still running after
+        // one full wait is not waited on again, or every request would stall behind a hung kcap.
+        async function v2Wait(sid: string, pending: Promise<unknown>) {
+          if (v2.waitExpired.has(sid)) return
+          let expired = false
+          await Promise.race([pending, new Promise((res) => setTimeout(() => { expired = true; res(null) }, V2_WAIT_MS))])
+          if (expired && v2.pendingStart.get(sid) === pending) v2Remember(v2.waitExpired, sid, true, V2_MAX_IDS)
+        }
+
+        // Unbounded on purpose: the start stays in flight until kcap settles, so a late fragment is still
+        // cached, a late failure is still retried, and no second start overlaps a running one.
+        async function v2RunKcap(shell: any, args: string[]): Promise<{ failed: boolean; out: string }> {
+          try {
+            const res: any = await shell`kcap ${args}`.quiet().nothrow()
+            const out = res?.stdout
+            return { failed: res?.exitCode !== 0, out: typeof out === "string" ? out : out ? out.toString() : "" }
+          } catch {
+            return { failed: true, out: "" }
+          }
+        }
+
+        async function v2Setup(ctx: any) {
+          if (api === "v1" || !ctx?.session?.hook || !ctx?.tool?.hook || !ctx?.event?.subscribe) return
+          const shell = (globalThis as any).Bun?.$
+          if (!shell) return
+          api = "v2"
+
+          const dir = join(homedir(), ".cache", "kcap", "opencode")
+          const file = (sid: string) => join(dir, sid + ".jsonl")
+
+          // Fails closed like v1: only a session the server reports without a parent is top-level. A
+          // failed lookup is retried by a later event, at most once per V2_RETRY_MS. The in-flight start
+          // is checked first, so a caller waits for the lifecycle post rather than seeing it as done.
+          function ensureStarted(sid: string, cwd?: string): Promise<boolean> {
+            const existing = v2.pendingStart.get(sid)
+            if (existing) return existing
+            if (v2.started.has(sid)) return Promise.resolve(true)
+            if (v2.children.has(sid)) return Promise.resolve(false)
+            if ((v2.retryAt.get(sid) ?? 0) > Date.now()) return Promise.resolve(false)
+
+            const gate = (async () => {
+              let info: any
+              try { info = await ctx.session.get({ sessionID: sid }) } catch {}
+              if (!info?.id) { v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS); return false }
+              v2.retryAt.delete(sid)
+              if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }
+              v2Remember(v2.started, sid, true, V2_MAX_IDS)
+              try { mkdirSync(dir, { recursive: true }); appendFileSync(file(sid), "") } catch {}
+              const args = ["hook", "--opencode", "--event", "session-start", "--session", sid,
+                            "--file", file(sid), "--memory-contract", "1"]
+              const where = info?.location?.directory ?? cwd ?? ctx.location?.directory
+              if (where) args.push("--cwd", String(where))
+              if (ctx.app?.version) args.push("--version", String(ctx.app.version))
+              const result = await v2RunKcap(shell, args)
+              if (result.failed) {
+                // Retried by a later event, like a failed lookup: the session must not read as recorded.
+                v2.started.delete(sid)
+                v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
+                return false
+              }
+              const fragment = result.out.trim()
+              if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) {
+                // A session whose fragment is evicted is started again on its next request, and kcap
+                // serves the fragment to each start of the same session.
+                const evicted = v2Remember(v2.memory, sid, fragment)
+                if (evicted) v2.started.delete(evicted)
+              }
+              flushTitle(sid)
+              return true
+            })()
+
+            v2.pendingStart.set(sid, gate)
+            const clear = () => { v2.pendingStart.delete(sid); v2.waitExpired.delete(sid) }
+            gate.then(clear, clear)
+            return gate
+          }
+
+          async function onEvent(ev: any) {
+            const type = ev?.type
+            const data = ev?.data
+            const sid = data?.sessionID
+            if (typeof type !== "string" || !sid) return
+            if (type === "session.deleted") {
+              v2.memory.delete(sid)
+              v2.started.delete(sid)
+              v2.children.delete(sid)
+              v2.retryAt.delete(sid)
+              v2.pendingTitle.delete(sid)
+              v2.lastTitle.delete(sid)
+              return
+            }
+            if (type === "session.created" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }
+            if (v2.children.has(sid)) return
+            if (type === "session.renamed" && typeof data?.title === "string") {
+              // Held until the session is proven top-level, which a failed start can delay past this event.
+              v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })
+            }
+            // Bounded like every other wait: a start still running leaves the title for a later event.
+            const gate = ensureStarted(sid, ev?.location?.directory)
+            await v2Wait(sid, gate)
+            if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return
+            flushTitle(sid)
+          }
+
+          // Called by the event that brought the title and by the start that proves the session, so a
+          // title outlives a start slower than any one event's wait.
+          function flushTitle(sid: string) {
+            const pending = v2.pendingTitle.get(sid)
+            if (!pending) return
+            v2.pendingTitle.delete(sid)
+            const { title, time } = pending
+            if (/^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) return
+            const line: any = { type: "session_title", title }
+            if (typeof time === "number") line.time = time
+            try {
+              appendFileSync(file(sid), JSON.stringify(line) + "\n")
+            } catch {
+              if (!v2.pendingTitle.has(sid)) v2Remember(v2.pendingTitle, sid, pending)
+              return
+            }
+            v2Remember(v2.lastTitle, sid, title)
+          }
+
+          // v2's replacement for the system-prompt transform; it runs before every agent model request
+          // and rebuilds `system` each time, so one push per request keeps the index in context.
+          await ctx.session.hook("context", async (req: any) => {
+            try {
+              const sid = req?.sessionID
+              const system = req?.system
+              if (!sid || v2.children.has(sid) || !Array.isArray(system)) return
+              if (!v2.memory.has(sid)) await v2Wait(sid, ensureStarted(sid))
+              const fragment = v2.memory.get(sid)
+              if (!fragment || v2.children.has(sid)) return
+              if (system.some((p: any) => typeof p?.text === "string" && p.text.includes(MEMORY_MARKER))) return
+              system.push({ type: "text", text: fragment })
+            } catch {
+              // fail open: leave the request exactly as it was
+            }
+          })
+
+          // A throw here would block the tool call, so nothing escapes.
+          await ctx.tool.hook("execute.before", async (call: any) => {
+            try {
+              const sid = call?.sessionID
+              const input = call?.input
+              if (!sid || !CALLER_SESSION_TOOLS.has(call?.tool)) return
+              if (!input || typeof input !== "object") return
+              if (input.session_id !== undefined && input.session_id !== null && input.session_id !== "") return
+              const pending = v2.pendingStart.get(sid)
+              if (pending) await v2Wait(sid, pending)
+              if (!v2.started.has(sid) || v2.children.has(sid)) return
+              input.session_id = sid
+            } catch {
+              // never disrupt the OpenCode session
+            }
+          })
+
+          const abort = new AbortController()
+          void (async () => {
+            try {
+              for await (const ev of ctx.event.subscribe({ signal: abort.signal })) {
+                onEvent(ev).catch(() => {})
+              }
+            } catch {
+              // the subscription ends with the plugin
+            }
+          })()
+          return () => abort.abort()
+        }
+
+        export default { id: "kcap", server: KcapPlugin, setup: v2Setup }
         """;
 
     public static bool IsInstalled(string pluginPath) => OwnedFile.IsInstalled(pluginPath, MarkerFileName);

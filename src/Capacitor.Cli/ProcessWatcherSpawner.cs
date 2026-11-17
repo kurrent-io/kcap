@@ -32,11 +32,11 @@ public sealed class ProcessWatcherSpawner(
             var kcapPath = Environment.ProcessPath ?? "kcap";
             // The long-lived agent, not getppid(): hooks run under a transient executor that dies when the hook
             // returns, and following it either ends the session or arms nothing.
-            // Copilot's follows only a process named as Copilot's. A VS Code Local session has none, and a process
-            // above it that happens to match says nothing about the session.
+            // Copilot's follows only a process named as Copilot's, and a VS Code Local session's follows VS Code: it
+            // fires no sessionEnd, so VS Code quitting is its end.
             var parentPid     = requestedParentPid
                              ?? (vendor != "copilot"                                ? ProcessHelpers.GetCodingAgentPid(vendor)
-                                 : CopilotPaths.IsVsCodeLocalTranscript(transcriptPath) ? null
+                                 : CopilotPaths.IsVsCodeLocalTranscript(transcriptPath) ? ProcessHelpers.GetVsCodeHostPid()
                                  :                                                        ProcessHelpers.GetCopilotHostPid());
             var arguments     = BuildSpawnArgs(key, transcriptPath, agentId, sessionIdOverride, cwd, skipTitle, parentPid, vendor);
 

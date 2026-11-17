@@ -1,7 +1,8 @@
 using System.Text.Json;
 using Capacitor.Cli.Core.Commands;
+using Capacitor.Cli.Core.RepoEvidence;
 
-namespace Capacitor.Cli.Core.RepoEvidence;
+namespace Capacitor.Cli.Core.Harness.Claude;
 
 /// <summary>
 /// The github.com pull request a Claude transcript line records the agent creating, read from the
@@ -9,8 +10,16 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// the PR came from — a `gh pr create --repo` run anywhere, a subagent's worktree, one of several
 /// branches in a shared worktree — none of which a probe of a checked-out branch can see.
 /// </summary>
-public static class CreatedPullRequests {
-    public static CreatedPullRequest? FromClaudeLine(string jsonlLine) {
+public sealed class ClaudeCreatedPullRequestAdapter : ICreatedPullRequestAdapter {
+    public static ClaudeCreatedPullRequestAdapter Instance { get; } = new();
+
+    ClaudeCreatedPullRequestAdapter() { }
+
+    public void Observe(string line, CreatedPullRequestEvidence evidence) {
+        if (FromLine(line) is { } pr) evidence.Created(pr, null);
+    }
+
+    public static CreatedPullRequest? FromLine(string jsonlLine) {
         if (!jsonlLine.Contains("\"gitOperation\"", StringComparison.Ordinal)) return null;
 
         try {

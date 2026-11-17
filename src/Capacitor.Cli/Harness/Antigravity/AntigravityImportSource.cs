@@ -445,7 +445,7 @@ internal sealed class AntigravityImportSource : IImportSource {
         ImportHarnessTitle.PostFromStoreAsync(
             AntigravitySummaryTitle.ForTranscript(transcriptPath), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
 
-    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl);
 
     // ── transcript reading ──────────────────────────────────────────────────────
 

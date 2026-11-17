@@ -19,8 +19,8 @@ internal static class ToolCallTracking {
     internal static bool TracksCopilotToolCalls(string vendor, string transcriptPath, bool hostMissing) =>
         vendor == "copilot" && (hostMissing || CopilotPaths.IsVsCodeLocalTranscript(transcriptPath));
 
-    /// <summary>A Local session has no parent process to end it, so a tool that never reports back, such as
-    /// one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
+    /// <summary>A Local session whose VS Code was not found has no parent process to end it, so a tool that
+    /// never reports back, such as one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
     internal static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
 
     internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>

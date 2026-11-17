@@ -7,6 +7,7 @@ using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness.Claude;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -152,7 +153,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         get => _selectedModel;
         // A pick, Default included, settles the chip against the source session's model.
         set {
-            _seeded = true;
+            _modelSettled = true;
             SetModel(value);
         }
     }
@@ -168,7 +169,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         EffectiveModelCatalog.TryGetValue(vendor, out var models) ? models : HostedHarnessCatalog.ModelChoicesFor(vendor);
 
     public Task ChooseHarnessAsync(string vendor) {
-        _seeded = true;
+        SettleAll();
         _restored = null;
         _picked = null;
         SetVendor(vendor);
@@ -178,14 +179,24 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     string? _selectedEffort;
     public string? SelectedEffort {
         get => _selectedEffort;
-        set => this.RaiseAndSetIfChanged(ref _selectedEffort, value);
+        set {
+            _effortSettled = true;
+            SetEffort(value);
+        }
     }
+
+    void SetEffort(string? effort) => this.RaiseAndSetIfChanged(ref _selectedEffort, effort, nameof(SelectedEffort));
 
     string _selectedPermissionMode = HomeViewModel.DefaultPermissionMode;
     public string SelectedPermissionMode {
         get => _selectedPermissionMode;
-        set => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, value);
+        set {
+            _permissionModeSettled = true;
+            SetPermissionMode(value);
+        }
     }
+
+    void SetPermissionMode(string mode) => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, mode, nameof(SelectedPermissionMode));
 
     public Task ChoosePermissionModeAsync(string mode) {
         SelectedPermissionMode = mode;
@@ -280,23 +291,32 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             _accounts.Restore(restored.Choice.Id);
     }
 
-    bool _seeded;
+    bool _modelSettled;
+    bool _effortSettled;
+    bool _permissionModeSettled;
 
-    /// The ended session's own model, offered once in place of the default while the chips still show
-    /// the session's agent, and only when that agent lists it. A restored draft or the user's own pick
-    /// of agent or model settles the chips first.
-    public void SeedModel(string? model) {
-        if (_seeded) return;
-        _seeded = true;
-        if (model is not { Length: > 0 } || !string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase))
-            return;
-        if (ModelChoicesFor(SelectedVendor).FirstOrDefault(m => string.Equals(m.Slug, model, StringComparison.OrdinalIgnoreCase)) is { } listed)
-            SetModel(listed.Slug);
+    void SettleAll() => _modelSettled = _effortSettled = _permissionModeSettled = true;
+
+    /// The ended session's own model, effort and permission mode, each offered once in place of its
+    /// default while the chips still show the session's agent, and only when that agent offers it. A
+    /// restored draft, a pick of agent, or a pick of that chip settles it first.
+    public void Seed(string? model, string? effort, string? permissionMode) {
+        if (string.Equals(SelectedVendor, _sessionVendor, StringComparison.OrdinalIgnoreCase)) {
+            if (!_modelSettled && model is { Length: > 0 }
+             && ModelChoicesFor(SelectedVendor).FirstOrDefault(m => string.Equals(m.Slug, model, StringComparison.OrdinalIgnoreCase)) is { } listed)
+                SetModel(listed.Slug);
+            if (!_effortSettled && effort is not null && HostedHarnessCatalog.EffortLadder.Contains(effort, StringComparer.Ordinal))
+                SetEffort(effort);
+            if (!_permissionModeSettled && HostedHarnessCatalog.SupportsPermissionMode(SelectedVendor)
+             && permissionMode is not null && ClaudePermissionModes.IsOffered(permissionMode))
+                SetPermissionMode(permissionMode);
+        }
+        SettleAll();
     }
 
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
     public void Restore(HandoffDraft draft) {
-        _seeded = true;
+        SettleAll();
         SetVendor(draft.Vendor);
         Revalidate(Harnesses);
         if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {

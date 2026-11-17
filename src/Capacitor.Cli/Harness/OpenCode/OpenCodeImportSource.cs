@@ -1,4 +1,3 @@
-using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
@@ -62,6 +61,11 @@ internal sealed class OpenCodeImportSource : IImportSource {
             // A corrupt / schema-drifted opencode.db must NOT crash the whole `kcap import`
             // (other vendors share the run). On open/query failure, warn and skip OpenCode.
             using var db = new OpenCodeDb(_dbPath);
+            if (db.IsV2Only()) {
+                (filters.Stderr ?? Console.Error).WriteLine(
+                    $"[kcap] OpenCode v2 history import is not supported yet; skipping {_dbPath}.");
+                return Task.FromResult<IReadOnlyList<DiscoveredSession>>([]);
+            }
             foreach (var row in db.QueryRoots()) {
                 ct.ThrowIfCancellationRequested();
                 if (filters.FilterSession is { } fs && !string.Equals(row.Id, fs, StringComparison.Ordinal)) continue;
@@ -463,19 +467,9 @@ internal sealed class OpenCodeImportSource : IImportSource {
         return d;
     }
 
-    async Task<int?> FetchServerLastLineAsync(
-        HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) {
-        var url = $"{baseUrl}/api/sessions/{sessionId}/last-line" + (agentId is not null ? $"?agentId={agentId}" : "");
-        using var resp = await http.GetWithRetryAsync(url, _time, ct: ct);
-        SessionDeletedException.ThrowIfDeleted(resp, sessionId);
-        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NoContent) return null;
-        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"watermark probe returned {(int)resp.StatusCode}");
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.TryGetProperty("last_line_number", out var ln) && ln.ValueKind == JsonValueKind.Number
-            ? ln.GetInt32() : null;
-    }
+    Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, string? agentId, CancellationToken ct) =>
+        Client(http, baseUrl).FetchServerLastLineAsync(sessionId, ct, agentId);
 
-    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl, rethrowCancellation: true);
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, _time, baseUrl);
 }
 

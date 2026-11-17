@@ -6,6 +6,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Policy;
@@ -137,9 +138,21 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
 
     public bool SupportsRestartResume(string? runtimeTransport) => descriptor.SupportsRestartResume;
 
-    public string CliPath => config.PathSlot(descriptor.Harness).Read();
+    /// <summary>The configured command, or for Copilot the CLI it resolves to past VS Code's launcher, so the version
+    /// probe and the update watcher read the program that runs.</summary>
+    public string CliPath => descriptor.Harness is HarnessId.Copilot && ResolveCli(descriptor, config) is { } cli
+        ? cli
+        : config.PathSlot(descriptor.Harness).Read();
 
-    public bool IsAvailable() => config.Binaries.Finds(CliPath);
+    public bool IsAvailable() => ResolveCli(descriptor, config) is not null;
+
+    static string? ResolveCli(AcpVendorDescriptor descriptor, DaemonConfig config) {
+        var command = config.PathSlot(descriptor.Harness).Read();
+
+        return descriptor.Harness is HarnessId.Copilot
+            ? CopilotHarness.ResolveCli(config.Binaries, command)
+            : config.Binaries.Resolve(command);
+    }
 
     public async Task<HostedRuntimeStart> StartAsync(RuntimeStartContext ctx, CancellationToken ct) {
         LogLaunching(ctx.AgentId, Vendor, ctx.Worktree.Path);
@@ -950,7 +963,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
             // recursively, while sandbox-exec separately executed the real binary from PATH. Resolving
             // once and using the result for both the profile and the argv is what keeps "what is
             // granted" and "what runs" the same program.
-            var vendorBinary = config.Binaries.Resolve(binaryPath)
+            var vendorBinary = ResolveCli(descriptor, config)
                 ?? throw new InvalidOperationException(
                     $"borrowed_review_vendor_binary_unresolved: cannot resolve '{binaryPath}' to an "
                   + "executable, so the sandbox cannot be drawn around it.");

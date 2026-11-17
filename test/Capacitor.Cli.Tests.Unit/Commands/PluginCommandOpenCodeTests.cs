@@ -76,6 +76,47 @@ public class PluginCommandOpenCodeTests {
         await Assert.That(await File.ReadAllTextAsync(pluginPath)).Contains("export const KcapPlugin");
     }
 
+    /// <summary>A fresh install on an OpenCode v1 below the plugin's floor still writes the plugin, and
+    /// says to upgrade; a refresh never asks OpenCode its version.</summary>
+    [Test]
+    [Arguments("1.18.21", true)]
+    [Arguments("2.3.0", false)]
+    public async Task Install_opencode_tells_an_old_opencode_to_upgrade(string version, bool warned) {
+        using var tmp    = new TempDir();
+        using var bin    = new TempDir();
+        var       stderr = new StringWriter();
+        var       env    = TestEnv(tmp.Path) with {
+            Stderr          = stderr,
+            Binaries        = TestBinaries.Searching(bin, "kcap"),
+            OpenCodeVersion = () => version
+        };
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(
+            ["plugin", "install", "--opencode", "--opencode-plugin-path", tmp.PathTo("plugins", "kcap.ts"),
+             "--skip-opencode-mcp", "--skip-opencode-instructions"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(File.Exists(tmp.PathTo("plugins", "kcap.ts"))).IsTrue();
+        await Assert.That(stderr.ToString().Contains("opencode upgrade")).IsEqualTo(warned);
+    }
+
+    [Test]
+    public async Task Install_opencode_refresh_never_asks_opencode_its_version() {
+        using var tmp = new TempDir();
+        var       pluginPath = tmp.PathTo("plugins", "kcap.ts");
+        OpenCodeExtensionInstaller.Install(pluginPath);
+        await File.WriteAllTextAsync(tmp.PathTo("plugins", OpenCodeExtensionInstaller.MarkerFileName), "0.0.1");
+        var env = TestEnv(tmp.Path) with {
+            OpenCodeVersion = () => throw new InvalidOperationException("a refresh must not probe OpenCode")
+        };
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(
+            ["plugin", "install", "--opencode", "--opencode-plugin-path", pluginPath, "--if-installed",
+             "--skip-opencode-mcp", "--skip-opencode-instructions"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+    }
+
     [Test]
     public async Task Remove_opencode_deletes_plugin_and_marker() {
         // remove also unregisters MCP + strips AGENTS.md (both under ConfigDir); clear

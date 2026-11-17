@@ -448,9 +448,13 @@ internal sealed partial class ClaudeLauncher(
             }
 
             var alreadyTrusted = entry["hasTrustDialogAccepted"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+            // The auto-mode offer opens after a first reply, with nobody at the terminal, and would take
+            // the next remote message as its answer.
+            var offerSeen = root["hasSeenAutoDefaultNudge"] is JsonValue nv && nv.TryGetValue<bool>(out var nb) && nb;
 
-            if (!alreadyTrusted) {
+            if (!alreadyTrusted || !offerSeen) {
                 entry["hasTrustDialogAccepted"] = true;
+                root["hasSeenAutoDefaultNudge"] = true;
                 WriteJsonAtomic(claudeJsonPath, root);
             }
 
