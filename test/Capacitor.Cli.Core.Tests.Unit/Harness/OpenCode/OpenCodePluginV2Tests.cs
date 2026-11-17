@@ -59,9 +59,13 @@ public class OpenCodePluginV2Tests {
     public async Task An_in_flight_start_is_waited_for_before_it_reads_as_started() {
         var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
 
-        await Assert.That(gate.IndexOf("v2.pendingStart.get(sid)", StringComparison.Ordinal))
-            .IsLessThan(gate.IndexOf("if (v2.started.has(sid)) return Promise.resolve(true)", StringComparison.Ordinal));
-        await Assert.That(V2).Contains("if (pending) await v2Wait(pending)");
+        var pending = gate.IndexOf("v2.pendingStart.get(sid)", StringComparison.Ordinal);
+        var started = gate.IndexOf("if (v2.started.has(sid)) return Promise.resolve(true)", StringComparison.Ordinal);
+
+        await Assert.That(pending).IsGreaterThanOrEqualTo(0);
+        await Assert.That(started).IsGreaterThanOrEqualTo(0);
+        await Assert.That(pending).IsLessThan(started);
+        await Assert.That(V2).Contains("if (pending) await v2Wait(sid, pending)");
     }
 
     /// <summary>The server process outlives its sessions, most of which never send session.deleted, so
@@ -74,16 +78,20 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).DoesNotContain("v2.children.add(");
     }
 
-    /// <summary>A start whose kcap finished badly or never launched leaves the session unrecorded, so a
-    /// later event retries it. A timed-out one may still be running and posting, so it is not retried:
-    /// that would overlap two starts.</summary>
+    /// <summary>A start stays in flight until kcap settles: a late failure is still retried, a late
+    /// fragment still cached, and no second start can overlap a running one. A hung kcap is waited on
+    /// once per session, so it cannot stall every request.</summary>
     [Test]
-    public async Task A_failed_start_is_retried_but_a_timed_out_one_is_not() {
+    public async Task A_start_stays_in_flight_until_kcap_settles() {
         var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
 
-        await Assert.That(Content).Contains("failed: res !== null && res?.exitCode !== 0,");
+        await Assert.That(Content).Contains("const res: any = await shell`kcap ${args}`.quiet().nothrow()");
+        await Assert.That(Between(Content, "async function v2RunKcap(", "async function v2Setup(")).DoesNotContain("Promise.race");
+        await Assert.That(gate).Contains("const result = await v2RunKcap(shell, args)");
         await Assert.That(gate).Contains("if (result.failed) {");
         await Assert.That(gate).Contains("v2.started.delete(sid)");
+        await Assert.That(Content).Contains("if (v2.waitExpired.has(sid)) return");
+        await Assert.That(gate).Contains("v2.waitExpired.delete(sid)");
     }
 
     /// <summary>A fragment evicted from the bounded cache must not leave its session reading as started,
@@ -99,7 +107,8 @@ public class OpenCodePluginV2Tests {
     public async Task No_transcript_is_written_on_v2() {
         await Assert.That(V2).DoesNotContain("session.messages");
         await Assert.That(V2).DoesNotContain("writeMessages");
-        await Assert.That(V2).Contains("if (!started || type !== \"session.renamed\") return");
+        await Assert.That(V2).Contains("v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })");
+        await Assert.That(V2).Contains("if (!(await ensureStarted(sid, ev?.location?.directory))) return");
         await Assert.That(V2).Contains("{ type: \"session_title\", title }");
     }
 

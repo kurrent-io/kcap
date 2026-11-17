@@ -76,29 +76,19 @@ public static class OpenCodeExtensionInstaller {
         // `.quiet()` keeps the child's output off OpenCode's own stdio while still handing it back:
         // session-start uses stdout as a DATA channel for the team-memory fragment. Bounded so a hung
         // kcap can never stall OpenCode.
-        // `failed` means kcap finished without a zero exit, or never launched (missing from PATH). A
-        // timeout is not a failure: the race stops waiting, not the process, which may still post.
-        function kcapCommand($: any) {
-          return async (args: string[]): Promise<{ failed: boolean; out: string }> => {
+        function kcapRunner($: any) {
+          return async (args: string[]): Promise<string> => {
             try {
               const res: any = await Promise.race([
                 $`kcap ${args}`.quiet().nothrow(),
                 new Promise((res) => setTimeout(() => res(null), 10000)),
               ])
               const out = res?.stdout
-              return {
-                failed: res !== null && res?.exitCode !== 0,
-                out: typeof out === "string" ? out : out ? out.toString() : "",
-              }
+              return typeof out === "string" ? out : out ? out.toString() : ""
             } catch {
-              return { failed: true, out: "" }
+              return ""
             }
           }
-        }
-
-        function kcapRunner($: any) {
-          const run = kcapCommand($)
-          return async (args: string[]): Promise<string> => (await run(args)).out
         }
 
         export const KcapPlugin = async ({ client, $, directory }: any) => {
@@ -622,6 +612,8 @@ public static class OpenCodeExtensionInstaller {
           memory: new Map<string, string>(),
           pendingStart: new Map<string, Promise<boolean>>(),
           retryAt: new Map<string, number>(),
+          waitExpired: new Map<string, true>(),
+          pendingTitle: new Map<string, { title: string; time?: number }>(),
           lastTitle: new Map<string, string>(),
         }
         const V2_MAX_SESSIONS = 64
@@ -643,8 +635,25 @@ public static class OpenCodeExtensionInstaller {
           return evicted
         }
 
-        function v2Wait(pending: Promise<unknown>) {
-          return Promise.race([pending, new Promise((res) => setTimeout(res, V2_WAIT_MS))])
+        // A caller waits for an in-flight start at most once per session: a start still running after
+        // one full wait is not waited on again, or every request would stall behind a hung kcap.
+        async function v2Wait(sid: string, pending: Promise<unknown>) {
+          if (v2.waitExpired.has(sid)) return
+          let expired = false
+          await Promise.race([pending, new Promise((res) => setTimeout(() => { expired = true; res(null) }, V2_WAIT_MS))])
+          if (expired && v2.pendingStart.get(sid) === pending) v2Remember(v2.waitExpired, sid, true, V2_MAX_IDS)
+        }
+
+        // Unbounded on purpose: the start stays in flight until kcap settles, so a late fragment is still
+        // cached, a late failure is still retried, and no second start overlaps a running one.
+        async function v2RunKcap(shell: any, args: string[]): Promise<{ failed: boolean; out: string }> {
+          try {
+            const res: any = await shell`kcap ${args}`.quiet().nothrow()
+            const out = res?.stdout
+            return { failed: res?.exitCode !== 0, out: typeof out === "string" ? out : out ? out.toString() : "" }
+          } catch {
+            return { failed: true, out: "" }
+          }
         }
 
         async function v2Setup(ctx: any) {
@@ -653,7 +662,6 @@ public static class OpenCodeExtensionInstaller {
           if (!shell) return
           api = "v2"
 
-          const runKcap = kcapCommand(shell)
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
 
@@ -680,7 +688,7 @@ public static class OpenCodeExtensionInstaller {
               const where = info?.location?.directory ?? cwd ?? ctx.location?.directory
               if (where) args.push("--cwd", String(where))
               if (ctx.app?.version) args.push("--version", String(ctx.app.version))
-              const result = await runKcap(args)
+              const result = await v2RunKcap(shell, args)
               if (result.failed) {
                 // Retried by a later event, like a failed lookup: the session must not read as recorded.
                 v2.started.delete(sid)
@@ -698,7 +706,7 @@ public static class OpenCodeExtensionInstaller {
             })()
 
             v2.pendingStart.set(sid, gate)
-            const clear = () => v2.pendingStart.delete(sid)
+            const clear = () => { v2.pendingStart.delete(sid); v2.waitExpired.delete(sid) }
             gate.then(clear, clear)
             return gate
           }
@@ -713,18 +721,28 @@ public static class OpenCodeExtensionInstaller {
               v2.started.delete(sid)
               v2.children.delete(sid)
               v2.retryAt.delete(sid)
+              v2.pendingTitle.delete(sid)
               v2.lastTitle.delete(sid)
               return
             }
             if (type === "session.created" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }
             if (v2.children.has(sid)) return
-            const started = await ensureStarted(sid, ev?.location?.directory)
-            if (!started || type !== "session.renamed") return
-            const title = data?.title
-            if (typeof title !== "string" || /^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) return
+            if (type === "session.renamed" && typeof data?.title === "string") {
+              // Held until the session is proven top-level, which a failed start can delay past this event.
+              v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })
+            }
+            if (!(await ensureStarted(sid, ev?.location?.directory))) return
+            const pending = v2.pendingTitle.get(sid)
+            if (!pending) return
+            const { title, time } = pending
+            if (/^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) {
+              if (v2.pendingTitle.get(sid) === pending) v2.pendingTitle.delete(sid)
+              return
+            }
             const line: any = { type: "session_title", title }
-            if (typeof ev?.created === "number") line.time = ev.created
+            if (typeof time === "number") line.time = time
             appendFileSync(file(sid), JSON.stringify(line) + "\n")
+            if (v2.pendingTitle.get(sid) === pending) v2.pendingTitle.delete(sid)
             v2Remember(v2.lastTitle, sid, title)
           }
 
@@ -735,7 +753,7 @@ public static class OpenCodeExtensionInstaller {
               const sid = req?.sessionID
               const system = req?.system
               if (!sid || v2.children.has(sid) || !Array.isArray(system)) return
-              if (!v2.memory.has(sid)) await v2Wait(ensureStarted(sid))
+              if (!v2.memory.has(sid)) await v2Wait(sid, ensureStarted(sid))
               const fragment = v2.memory.get(sid)
               if (!fragment || v2.children.has(sid)) return
               if (system.some((p: any) => typeof p?.text === "string" && p.text.includes(MEMORY_MARKER))) return
@@ -754,7 +772,7 @@ public static class OpenCodeExtensionInstaller {
               if (!input || typeof input !== "object") return
               if (input.session_id !== undefined && input.session_id !== null && input.session_id !== "") return
               const pending = v2.pendingStart.get(sid)
-              if (pending) await v2Wait(pending)
+              if (pending) await v2Wait(sid, pending)
               if (!v2.started.has(sid) || v2.children.has(sid)) return
               input.session_id = sid
             } catch {
