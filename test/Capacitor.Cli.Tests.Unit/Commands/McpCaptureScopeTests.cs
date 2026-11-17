@@ -35,8 +35,18 @@ public class McpCaptureScopeTests {
         const string sessionId = "0f3c2a4e-1111-4222-8333-944455556666";
         DisabledSessions.Exclude(sessionId, Config.Root);
 
-        await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("anything"), null, sessionId)).IsTrue();
+        await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("anything"), sessionId)).IsTrue();
         await Assert.That(await Scope(new Profile()).IsOutOfScopeAsync(Tmp.CreateDir("other"), "another-session")).IsFalse();
+    }
+
+    [Test]
+    public async Task The_Claude_spelling_is_consulted_only_for_the_session_it_names() {
+        const string claude = "0f3c2a4e-1111-4222-8333-944455556666";
+        var canonical = SessionIds.Canonical(claude)!;
+
+        await Assert.That(McpCaptureScope.MarkerIds(canonical, claude)).IsEquivalentTo(new[] { canonical, claude });
+        await Assert.That(McpCaptureScope.MarkerIds("codex-thread", claude)).IsEquivalentTo(new[] { "codex-thread" });
+        await Assert.That(McpCaptureScope.MarkerIds(null, claude)).IsEmpty();
     }
 
     [Test]

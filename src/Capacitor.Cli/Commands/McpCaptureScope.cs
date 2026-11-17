@@ -20,14 +20,22 @@ sealed class McpCaptureScope(
             Environment.GetEnvironmentVariable, Directory.Exists, ProcessHelpers.NearestCodingAgent, ProcessHelpers.GetProcessCwd,
             hostedAgentSession: _ => null);
 
-        // The hook marks the id its payload carries, which for Claude is the vendor's spelling, not the canonical one.
-        string?[] sessionIds = [harness.SessionId, Environment.GetEnvironmentVariable(HarnessRequesterContext.ClaudeSessionIdVar)];
-
-        return IsOutOfScopeAsync(harness.ProjectDir ?? workdir.Path, sessionIds);
+        return IsOutOfScopeAsync(
+            harness.ProjectDir ?? workdir.Path,
+            MarkerIds(harness.SessionId, Environment.GetEnvironmentVariable(HarnessRequesterContext.ClaudeSessionIdVar)));
     }
 
-    internal Task<bool> IsOutOfScopeAsync(string cwd, params string?[] sessionIds) =>
-        sessionIds.Any(id => !string.IsNullOrWhiteSpace(id) && DisabledSessions.IsDisabled(id, config))
+    /// <summary>The ids the hook may have marked for this session. The Claude hook marks its payload's spelling, not the
+    /// canonical one, but that spelling is this session's only when the resolver attributed the session to it: an id
+    /// inherited by a harness nested inside Claude belongs to the outer session.</summary>
+    internal static string[] MarkerIds(string? resolvedSessionId, string? claudeSessionId) =>
+        resolvedSessionId is null ? []
+        : claudeSessionId is not null && claudeSessionId != resolvedSessionId && SessionIds.Canonical(claudeSessionId) == resolvedSessionId
+            ? [resolvedSessionId, claudeSessionId]
+            : [resolvedSessionId];
+
+    internal Task<bool> IsOutOfScopeAsync(string cwd, params string[] sessionIds) =>
+        sessionIds.Any(id => DisabledSessions.IsDisabled(id, config))
             ? Task.FromResult(true)
             : SessionScope.IsOutOfScopeAsync(router, config, home, profiles.Effective, $"{{\"cwd\":\"{JsonEncodedText.Encode(cwd)}\"}}", time, budget: null);
 }
