@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.RepoEvidence;
@@ -7,6 +8,7 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 public static class CreatedPullRequestAdapters {
     public static ICreatedPullRequestAdapter? For(string vendor) => vendor switch {
         "claude" => ClaudeCreatedPullRequestAdapter.Instance,
+        "codex"  => CodexCreatedPullRequestAdapter.Instance,
         "pi"     => PiCreatedPullRequestAdapter.Instance,
         _        => null,
     };
