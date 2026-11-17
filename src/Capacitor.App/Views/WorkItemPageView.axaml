@@ -230,7 +230,7 @@
 
     <Border Background="{StaticResource KcapCanvasBrush}">
         <DockPanel Margin="24,20,24,0">
-            <Grid x:Name="WorkItemHeader" DockPanel.Dock="Top" ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,16">
+            <Grid x:Name="WorkItemHeader" DockPanel.Dock="Top" MaxWidth="860" ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,16">
                 <StackPanel Spacing="4">
                     <TextBlock x:Name="WorkItemTitle" Text="{Binding Title}" FontSize="18" FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis" />
