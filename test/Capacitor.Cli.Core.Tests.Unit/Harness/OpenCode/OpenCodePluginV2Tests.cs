@@ -108,7 +108,9 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).DoesNotContain("session.messages");
         await Assert.That(V2).DoesNotContain("writeMessages");
         await Assert.That(V2).Contains("v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })");
-        await Assert.That(V2).Contains("if (!(await ensureStarted(sid, ev?.location?.directory))) return");
+        await Assert.That(V2).Contains("await v2Wait(sid, gate)");
+        await Assert.That(V2).Contains("if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return");
+        await Assert.That(Between(V2, "async function onEvent(", "ctx.session.hook(")).DoesNotContain("await ensureStarted(");
         await Assert.That(V2).Contains("{ type: \"session_title\", title }");
     }
 

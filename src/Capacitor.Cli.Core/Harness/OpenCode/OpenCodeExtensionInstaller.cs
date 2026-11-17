@@ -731,7 +731,10 @@ public static class OpenCodeExtensionInstaller {
               // Held until the session is proven top-level, which a failed start can delay past this event.
               v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })
             }
-            if (!(await ensureStarted(sid, ev?.location?.directory))) return
+            // Bounded like every other wait: a start still running leaves the title for a later event.
+            const gate = ensureStarted(sid, ev?.location?.directory)
+            await v2Wait(sid, gate)
+            if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return
             const pending = v2.pendingTitle.get(sid)
             if (!pending) return
             const { title, time } = pending
