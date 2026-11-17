@@ -79,15 +79,15 @@ public sealed class RailList : ItemsControl {
         foreach (var key in before.Keys) tops.Remove((scope, key));
         var animates = before.Count > 0 && IsEffectivelyVisible;
 
-        // Recorded where each row starts drawing, so a second change before this one lands still slides from there.
+        // Records the layout top, not where a slide starts: a rebuilt container (a Replace on update) would otherwise replay
+        // the last slide. A change mid-slide adds the live offset back, so the row continues from where it is drawn.
         foreach (var row in GetRealizedContainers()) {
             if (KeyOf(row) is not { } key) continue;
-            var offset = 0d;
             if (animates && row.IsVisible) {
-                if (!before.TryGetValue(key, out var top)) Enter(row, offset = Rise);
-                else if (Math.Abs(offset = top + row.GetValue(OffsetProperty) - row.Bounds.Y) > 0.5) Move(row, offset);
+                if (!before.TryGetValue(key, out var top)) Enter(row, Rise);
+                else if (top + row.GetValue(OffsetProperty) - row.Bounds.Y is var offset && Math.Abs(offset) > 0.5) Move(row, offset);
             }
-            tops[(scope, key)] = row.Bounds.Y + offset;
+            tops[(scope, key)] = row.Bounds.Y;
         }
 
         if (_root != this) return;

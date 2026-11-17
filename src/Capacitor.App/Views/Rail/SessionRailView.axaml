@@ -643,7 +643,7 @@
                                                             Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4"
-                                                                AutomationProperties.Name="{Binding SessionAccessibleName}"
+                                                                AutomationProperties.Name="{Binding Primary}"
                                                                 Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.marked="{Binding IsMarked}" Classes.attention="{Binding Status.IsWarning}">
                                                             <ToolTip.Tip>
                                                                 <StackPanel Spacing="10" MaxWidth="320">

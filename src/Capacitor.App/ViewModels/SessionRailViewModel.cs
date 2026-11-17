@@ -744,7 +744,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         Comparer<RailSessionViewModel>.Create((a, b) => {
             var order = sort switch {
                 RailSort.Created => a.CreatedAt.CompareTo(b.CreatedAt),
-                RailSort.Title => StringComparer.OrdinalIgnoreCase.Compare(a.Primary ?? a.Vendor, b.Primary ?? b.Vendor),
+                RailSort.Title => StringComparer.OrdinalIgnoreCase.Compare(a.Primary, b.Primary),
                 _ => (a.LastActivityAt ?? a.CreatedAt).CompareTo(b.LastActivityAt ?? b.CreatedAt),
             };
             if (descending) order = -order;

@@ -79,7 +79,6 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public static SearchHitViewModel? ForSidebar(RailSessionViewModel row, string query, DateTimeOffset now, string? viewerUserId = null) {
         var title = TitleMatch.Split(row.Primary, query);
         if (query.Length > 0 && !title.Any(run => run.Matched)) return null;
-        if (title.Count == 0) title = [new SnippetRun(row.SessionAccessibleName, false)];
         var source = row.Row;
         var owner = string.IsNullOrWhiteSpace(source.OwnerName) ? null : source.OwnerName;
         var ownerId = source.OwnerUserId

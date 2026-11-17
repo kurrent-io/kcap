@@ -27,12 +27,12 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public DateTime? LastActivityAt { get => _lastActivityAt; private set => this.RaiseAndSetIfChanged(ref _lastActivityAt, value); }
     string? _checkoutPath;
     public string? CheckoutPath { get => _checkoutPath; private set => this.RaiseAndSetIfChanged(ref _checkoutPath, value); }
-    /// Null when the row has no title, in which case the chips line stands alone as the row.
-    string? _primary;
-    public string? Primary { get => _primary; private set => this.RaiseAndSetIfChanged(ref _primary, value); }
+    public const string UntitledLabel = "Untitled";
+    /// The session's title, or <see cref="UntitledLabel"/> until the session has one.
+    string _primary = UntitledLabel;
+    public string Primary { get => _primary; private set => this.RaiseAndSetIfChanged(ref _primary, value); }
     bool _hasTitle;
     public bool HasTitle { get => _hasTitle; private set => this.RaiseAndSetIfChanged(ref _hasTitle, value); }
-    public string SessionAccessibleName => Primary ?? (HasVendor ? Vendor : "Session");
     string _vendor = "";
     public string Vendor { get => _vendor; private set => this.RaiseAndSetIfChanged(ref _vendor, value); }
     bool _hasVendor;
@@ -100,9 +100,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public PullRequestStatus? PullRequestStatus => PullRequest?.Status;
     public bool HasPullRequestLifecycle => PullRequest?.HasLifecycle == true;
     public bool HasMultiplePullRequests => PullRequest?.Count > 1;
-    public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
+    public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {Primary}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
     public bool HasPullRequest => PullRequest is not null;
-    public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
+    public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary}";
     readonly ObservableAsPropertyHelper<bool> _isSelected;
     public bool IsSelected => _isSelected.Value;
 
@@ -226,13 +226,12 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     void UpdateFields(AgentRow row) {
         var oldPrimary = Primary;
-        var oldVendor = Vendor;
         var oldMachine = MachineBadge;
         CreatedAt = row.CreatedAt;
         LastActivityAt = row.LastActivityAt;
         CheckoutPath = (row.WorkLocation == WorkLocationText.Borrowed ? row.BorrowedFrom : row.WorktreePath) ?? row.RepoPath;
-        Primary = string.IsNullOrEmpty(row.Title) ? null : row.Title;
-        HasTitle = Primary is not null;
+        HasTitle = !string.IsNullOrWhiteSpace(row.Title);
+        Primary = HasTitle ? row.Title! : UntitledLabel;
         Vendor = row.Vendor;
         HasVendor = !string.IsNullOrEmpty(row.Vendor);
         Model = string.IsNullOrEmpty(row.Model) ? null : row.Model;
@@ -253,8 +252,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         MachineBadge = row.MachineBadge;
         IsRemote = row.Origin == AgentOrigin.Remote;
 
-        if (oldPrimary != Primary || oldVendor != Vendor) {
-            this.RaisePropertyChanged(nameof(SessionAccessibleName));
+        if (oldPrimary != Primary) {
             this.RaisePropertyChanged(nameof(PullRequestTooltip));
             this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
         }
