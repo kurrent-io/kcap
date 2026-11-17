@@ -964,6 +964,42 @@
                             </Grid>
                         </Border>
                     </StackPanel>
+
+                    <StackPanel x:Name="TopicsSection" Margin="0,18,0,0" IsVisible="{Binding Topics.Any, FallbackValue=False}">
+                        <Button x:Name="TopicsToggle" Command="{Binding ToggleTopicsCommand}" Classes="sectionHeader expandable"
+                                AutomationProperties.Name="{Binding TopicsToggleName}">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBlock Text="TOPICS" Classes="eyebrow" />
+                                <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding TopicsExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !TopicsExpanded}" />
+                                </Panel>
+                            </Grid>
+                        </Button>
+                        <Border Classes="sectionBody" IsVisible="{Binding TopicsExpanded}">
+                            <ItemsControl x:Name="TopicList" ItemsSource="{Binding Topics.All}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ChatTopicItem">
+                                        <Button Classes="kcapGhost topicLink" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                Padding="6,4" Margin="-6,0" Cursor="Hand"
+                                                Command="{Binding $parent[ItemsControl].((vm:WorkContextViewModel)DataContext).Topics.RevealCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{Binding Label}"
+                                                AutomationProperties.Name="{Binding Label, StringFormat='Go to topic {0}'}">
+                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                <views:AppIcon Kind="Signpost" Size="12" VerticalAlignment="Center"
+                                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
+                                                <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
+                                                           IsVisible="{Binding !IsExpanded}" Foreground="{StaticResource KcapMutedBrush}" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>

@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
@@ -13,11 +14,17 @@ namespace Capacitor.App.Views;
 /// Chat rows have very different heights. Keep each measured height when its container is
 /// recycled, rather than estimating the whole history from the rows currently on screen.
 /// Unknown rows use a fixed estimate; discovering one never resizes other unknown rows.
+/// Rows inside a chat topic are indented by its rail, and clicking the rail folds the topic.
 /// </summary>
 public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     sealed record Row(object Item, Control Container, object? RecycleKey, bool OwnContainer);
     const double EstimatedHeight = 80;
     const double KeepAliveOverscan = 240;
+    const double RailWidth = 16;
+    // Centres the rail under a topic header's 14px icon.
+    const double RailInset = 7;
+    // From the middle of a topic header to just below its icon.
+    const double HeaderIconClearance = 9;
     readonly Dictionary<object, double> _measured = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<int, Row> _realized = [];
     readonly Dictionary<object, Stack<Control>> _pool = [];
@@ -26,6 +33,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     double _lastWidth = double.NaN;
     int _first = -1;
     int _last = -1;
+    ChatTopicRailLayer? _rails;
 
     internal bool MeasuredAtEstimatedEnd { get; private set; }
 
@@ -41,6 +49,14 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     public ChatVirtualizingPanel() => EffectiveViewportChanged += OnViewportChanged;
+
+    // Added first so every row draws over it; it takes the pointer only in the rail gutters.
+    void EnsureRailLayer() {
+        if (_rails is not null && Children.Contains(_rails)) return;
+        _rails ??= new ChatTopicRailLayer(this);
+        AddInternalChild(_rails);
+        Children.Move(Children.IndexOf(_rails), 0);
+    }
 
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
         if (_viewport == e.EffectiveViewport) return;
@@ -63,14 +79,20 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
-    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem;
+    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem or ChatTopicItem;
 
-    double RowWidth(object item, double width) => SpansColumn(item) ? width : Math.Min(width, LaneWidth);
+    static double Indent(object item) => item is ChatItemViewModel { Topic: not null } ? RailWidth : 0;
+
+    double RowWidth(object item, double width) {
+        var inner = Math.Max(0, width - Indent(item));
+        return SpansColumn(item) ? inner : Math.Min(inner, LaneWidth - Indent(item));
+    }
 
     protected override Size MeasureOverride(Size availableSize) {
         var scroll = this.FindAncestorOfType<ScrollViewer>();
         var view = this.FindAncestorOfType<ChatTabView>();
         MeasuredAtEstimatedEnd = scroll is not null && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 2;
+        EnsureRailLayer();
         if (Items.Count == 0) { _first = _last = -1; return default; }
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var anchor = IndexAt(Math.Max(0, _viewport.Top));
@@ -152,10 +174,49 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var anchors = this.FindAncestorOfType<IScrollAnchorProvider>();
         foreach (var entry in _realized) {
             var container = entry.Value.Container;
-            container.Arrange(new Rect(0, _starts[entry.Key], RowWidth(entry.Value.Item, finalSize.Width), container.DesiredSize.Height));
+            container.Arrange(new Rect(Indent(entry.Value.Item), _starts[entry.Key], RowWidth(entry.Value.Item, finalSize.Width), container.DesiredSize.Height));
             if (container.IsVisible && container.Bounds.Intersects(_viewport)) anchors?.RegisterAnchorCandidate(container);
         }
+        _rails?.Arrange(new Rect(finalSize));
+        _rails?.InvalidateVisual();
         return finalSize;
+    }
+
+    internal void DrawRails(DrawingContext context, ChatTopicItem? hovered) {
+        var info  = Brush("KcapInfoBrush");
+        var rest  = new Pen(new SolidColorBrush((info as ISolidColorBrush)?.Color ?? Colors.Gray, 0.55), 1.5);
+        var hover = new Pen(info, 2.5);
+        Pen PenFor(ChatTopicItem topic) => ReferenceEquals(topic, hovered) ? hover : rest;
+
+        foreach (var (index, row) in _realized) {
+            if (row.Item is not ChatItemViewModel item || !row.Container.IsVisible || index + 1 >= _starts.Length) continue;
+            var top = _starts[index];
+            var bottom = _starts[index + 1];
+            if (item.Topic is { } topic)
+                context.DrawLine(PenFor(topic), new Point(RailInset, top), new Point(RailInset, bottom));
+            // A topic's own rail starts just under its header's icon.
+            else if (item is ChatTopicItem { IsExpanded: true } header)
+                context.DrawLine(PenFor(header), new Point(RailInset, (top + bottom) / 2 + HeaderIconClearance), new Point(RailInset, bottom));
+        }
+    }
+
+    IBrush Brush(string key) =>
+        this.TryFindResource(key, ActualThemeVariant, out var value) && value is IBrush brush ? brush : Brushes.Gray;
+
+    internal ChatTopicItem? RailAt(Point point) {
+        if (point.X < 0 || Items.Count == 0 || _starts.Length != Items.Count + 1) return null;
+        var index = IndexAt(point.Y);
+        if (point.Y < _starts[index] || point.Y >= _starts[index + 1]) return null;
+        return point.X < RailWidth && Items[index] is ChatItemViewModel item ? item.Topic : null;
+    }
+
+    internal void FoldFromRail(ChatTopicItem topic) {
+        topic.ToggleCommand.Execute().Subscribe();
+        // Folding from a rail far below the header would leave the reader past the fold.
+        Dispatcher.UIThread.Post(() => {
+            var index = ItemsControl?.Items.IndexOf(topic) ?? -1;
+            if (index >= 0 && index < _starts.Length - 1 && _starts[index] < _viewport.Top) ScrollIntoView(index);
+        }, DispatcherPriority.Background);
     }
 
     Row Realize(int index) {

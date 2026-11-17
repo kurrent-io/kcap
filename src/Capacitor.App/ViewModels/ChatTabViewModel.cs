@@ -141,6 +141,21 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
+    public ChatTopics Topics => _topics;
+    readonly ChatTopics _topics;
+
+    ChatSendMode _sendMode;
+    /// Whether Send also changes topic; back to a plain send once a message goes out.
+    public ChatSendMode SendMode {
+        get => _sendMode;
+        set {
+            this.RaiseAndSetIfChanged(ref _sendMode, value);
+            this.RaisePropertyChanged(nameof(SendLabel));
+        }
+    }
+
+    public string SendLabel => _sendMode == ChatSendMode.ChangeTopic ? "Change topic" : "Send";
+
     public ChatFindViewModel Find => _find ??= CreateFind();
 
     ChatFindViewModel CreateFind() {
@@ -862,13 +877,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
             IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
-            IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null)
+            IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null,
+            ChatTopicMarks? topicMarks = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
                signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, viewerAccess: viewerAccess,
-               findMemory: findMemory) { }
+               findMemory: findMemory, topicMarks: topicMarks) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -880,7 +896,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
-            HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
+            HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
+            ChatTopicMarks? topicMarks = null) {
+        _topics = new ChatTopics(_items, topicMarks);
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
         _findMemory = findMemory;
@@ -920,9 +938,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         admittedSessionId?.Subscribe(id => _sessionId = id).DisposeWith(_disposables);
         if (_senders is { } lookup) {
             admittedSessionId?.ObserveOn(RxSchedulers.MainThreadScheduler)
-                .Subscribe(id => lookup.SetSession(id, SenderLabels(_items))).DisposeWith(_disposables);
+                .Subscribe(id => lookup.SetSession(id, SenderLabels(Topics.Everything()))).DisposeWith(_disposables);
             signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler)
-                .Subscribe(_ => lookup.Restart(SenderLabels(_items))).DisposeWith(_disposables);
+                .Subscribe(_ => lookup.Restart(SenderLabels(Topics.Everything()))).DisposeWith(_disposables);
         }
         Cards = new PendingCardsViewModel(
             agentId, origin, sessionId ?? Observable.Return<string?>(null), permissions, _rootSubject,
@@ -1104,7 +1122,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
         // is still the user's own draft, not the snapshot.
         SendCommand = ReactiveCommand.CreateFromTask(async () => {
-            await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false);
+            // The topic starts before the message goes out, so the message's echo lands under its header.
+            var opened = SendMode == ChatSendMode.ChangeTopic ? Topics.Start() : null;
+            var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false);
+            if (outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed) SendMode = ChatSendMode.Send;
+            else if (opened is not null) Topics.Discard(opened);
         }, canSend);
         _disposables.Add(SendCommand);
         SendCommand.IsExecuting
@@ -1304,7 +1326,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _interruption = info.Interruption;
         if (_ended != info.Ended) {
             _ended = info.Ended;
-            foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
+            foreach (var call in Topics.Everything().OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
                 call.SessionOver = _ended;
             RaisePhaseNote();
         }
@@ -1465,6 +1487,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
+        _topics.Reset(key);
         _items.Clear();
         // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
         var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;
@@ -1893,6 +1916,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 // Skip everything the new source replays: it may be history, not receipts. The feed
                 // names where that history ends — anything past it arrived after and can acknowledge.
                 RebaseQueuedMessages(read.SnapshotOffset ?? CurrentOffset ?? 0);
+                _topics.Reset(_feedKey);
                 _items.Clear();
                 _history.ClearForReplay();
                 _pendingTools.Clear();
@@ -2068,12 +2092,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 SyncPendingCardItems();
                 RefreshActivityNote();
             }
+            _topics.Restore();
             return;
         }
         RefreshQueue();
         Reconcile();
         SyncPendingCardItems();
         RefreshActivityNote();
+        _topics.Restore();
     }
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file

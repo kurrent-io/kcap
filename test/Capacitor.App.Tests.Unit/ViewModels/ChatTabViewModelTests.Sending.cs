@@ -42,6 +42,42 @@ public partial class ChatTabViewModelTests {
         });
     }
 
+    /// Change topic starts a topic as the message goes out, takes it back for a refused send, and falls
+    /// back to a plain send once it has been used.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Change_topic_starts_a_topic_and_falls_back_to_a_plain_send() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var time = new FakeTimeProvider();
+            var chat = new ChatTabViewModel(
+                "a1", AgentOrigin.Remote, new BehaviorSubject<ChatSessionInfo>(Session("s1")), Observable.Return<string[]?>(null), input,
+                new NoAttachmentUploader(), _ => new ScriptedFeed { ResetNext = true }, new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time),
+                sessionId: new BehaviorSubject<string?>("s1"));
+            try {
+                await WaitUntilAsync(() => chat.HasSeed, what: "the seed");
+
+                chat.SendMode = ChatSendMode.ChangeTopic;
+                await Assert.That(chat.SendLabel).IsEqualTo("Change topic");
+                chat.ComposerText = "refused";
+                var send = chat.SendCommand.Execute().ToTask();
+                await Assert.That(chat.Items.OfType<ChatTopicItem>().Count()).IsEqualTo(1);
+                input.Pending!.SetResult(ChatSendOutcome.Rejected);
+                await send;
+                await Assert.That(chat.Items.OfType<ChatTopicItem>()).IsEmpty();
+                await Assert.That(chat.SendMode).IsEqualTo(ChatSendMode.ChangeTopic);
+
+                chat.ComposerText = "point 1";
+                send = chat.SendCommand.Execute().ToTask();
+                input.Pending!.SetResult(ChatSendOutcome.Accepted);
+                await send;
+                await Assert.That(chat.Items.OfType<ChatTopicItem>().Count()).IsEqualTo(1);
+                await Assert.That(chat.SendMode).IsEqualTo(ChatSendMode.Send);
+                await Assert.That(chat.SendLabel).IsEqualTo("Send");
+            } finally { await chat.TeardownAsync(); }
+        });
+    }
+
     /// The session is captured as each prompt goes out, and only a prompt the channel accepted can
     /// have answered its open questions, whether or not its tab outlived the send.
     [Test]

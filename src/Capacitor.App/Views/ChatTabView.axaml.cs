@@ -23,6 +23,7 @@ public partial class ChatTabView : UserControl {
     readonly HashSet<MarkdownView> _selectedMarkdown = [];
     IDisposable? _sendSubscription;
     ChatFindViewModel? _find;
+    ChatTopics? _topics;
     MarkdownView? _currentFindView;
     ScrollViewer? _scroll;
     TextPresenter? _composerPresenter;
@@ -122,6 +123,7 @@ public partial class ChatTabView : UserControl {
         base.OnAttachedToVisualTree(e);
         ObserveSending();
         ObserveFind();
+        ObserveTopics();
         RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -146,6 +148,7 @@ public partial class ChatTabView : UserControl {
         base.OnDataContextChanged(e);
         ObserveSending();
         ObserveFind();
+        ObserveTopics();
         RestoreFind();
     }
 
@@ -160,6 +163,8 @@ public partial class ChatTabView : UserControl {
         _sendSubscription = null;
         if (_find is not null) _find.Navigated -= OnFindNavigated;
         _find = null;
+        if (_topics is not null) _topics.Revealing -= OnTopicRevealing;
+        _topics = null;
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
         _primaryPointer = null;
@@ -374,13 +379,57 @@ public partial class ChatTabView : UserControl {
         ToolTip.SetIsOpen(control, true);
     }
 
+    // Set before the menu hides: hidden, a row leaves the tree and its bindings let go.
+    void OnSendModeClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is ChatTabViewModel vm && sender is Button { Tag: ChatSendMode mode }) vm.SendMode = mode;
+        SendModeButton.Flyout?.Hide();
+    }
+
     // Click is raised before the command flips the group, so a keyboard toggle (no pointer press
     // ahead of it) can still take its anchor here.
     void OnToolSummaryClick(object? sender, RoutedEventArgs e) {
+        EnsureChatScroll();
+        // A topic unfolding at the bottom of the chat keeps the chat at the bottom, as new rows would.
+        if (sender is Control { DataContext: ChatTopicItem } && _scroll is { } scroll
+            && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - BottomTolerance) {
+            _followTail = true;
+            CancelSmoothScroll();
+            DropToggleAnchor();
+            Dispatcher.UIThread.Post(() => _scroll?.ScrollToEnd(), DispatcherPriority.Background);
+            return;
+        }
         _followTail = false;
         CancelSmoothScroll();
         if (_anchorItem is null) CaptureToggleAnchor(sender);
         ArmToggleRestore();
+    }
+
+    void OnTopicNameClick(object? sender, RoutedEventArgs e) {
+        e.Handled = true;
+        if (sender is Button { DataContext: ChatTopicItem topic }) topic.IsRenaming = true;
+    }
+
+    void OnTopicNameFieldChanged(object? sender, AvaloniaPropertyChangedEventArgs e) {
+        if (e.Property != IsVisibleProperty || sender is not TextBox { IsVisible: true } field) return;
+        Dispatcher.UIThread.Post(() => {
+            field.Focus();
+            field.SelectAll();
+        });
+    }
+
+    // The field sits inside the topic's fold button, which would take Enter and Space as a click.
+    // Handling Space also stops the platform sending its text, so the field types it itself.
+    void OnTopicNameKeyDown(object? sender, KeyEventArgs e) {
+        if (sender is not TextBox { DataContext: ChatTopicItem topic } field
+            || e.Key is not (Key.Enter or Key.Space or Key.Escape)) return;
+        e.Handled = true;
+        if (e.Key == Key.Enter) topic.Rename(field.Text);
+        else if (e.Key == Key.Escape) topic.IsRenaming = false;
+        else field.SelectedText = " ";
+    }
+
+    void OnTopicNameLostFocus(object? sender, RoutedEventArgs e) {
+        if (sender is TextBox { DataContext: ChatTopicItem { IsRenaming: true } topic } field) topic.Rename(field.Text);
     }
 
     void OnToolRowGotFocus(object? sender, FocusChangedEventArgs e) {
@@ -724,6 +773,43 @@ public partial class ChatTabView : UserControl {
     }
 
     public void FocusComposer() => ComposerInput.Focus();
+
+    void ObserveTopics() {
+        if (_topics is not null) _topics.Revealing -= OnTopicRevealing;
+        _topics = (DataContext as ChatTabViewModel)?.Topics;
+        if (_topics is not null) {
+            _topics.Revealing += OnTopicRevealing;
+            OnTopicRevealing();
+        }
+    }
+
+    // Posted: the request can come with a switch back to the chat tab, which lays the list out first.
+    void OnTopicRevealing() {
+        var topics = _topics;
+        Dispatcher.UIThread.Post(() => {
+            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } topic) ShowTopic(topic);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// Scrolls a topic's header to the top of the transcript.
+    void ShowTopic(ChatTopicItem topic) {
+        if (ChatItems.Items is not { } items) return;
+        var index = items.IndexOf(topic);
+        if (index < 0) return;
+        DropToggleAnchor();
+        CancelSmoothScroll();
+        _thumbFraction = null;
+        _followTail = false;
+        EnsureChatScroll();
+        if (_scroll is null) return;
+        ChatItems.ScrollIntoView(index);
+        ChatItems.UpdateLayout();
+        if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
+        var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
+        _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - TopicRevealGap, 0, max));
+    }
+
+    const double TopicRevealGap = 8;
 
     void ObserveFind() {
         if (_find is not null) _find.Navigated -= OnFindNavigated;

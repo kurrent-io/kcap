@@ -244,7 +244,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             ComposerPickers? pickers = null,
-            Func<bool>? inAppPages = null) {
+            Func<bool>? inAppPages = null, ChatTopicMarks? topicMarks = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -475,7 +475,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink, findMemory: finds,
+                    openLink: Artefacts.OpenLink, findMemory: finds, topicMarks: topicMarks,
                     viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
@@ -489,6 +489,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
+                WorkContext.Topics = Chat.Topics;
+                Chat.Topics.Revealing += ShowTopic;
+                _disposables.Add(Disposable.Create(() => Chat.Topics.Revealing -= ShowTopic));
                 if (PullRequests is { } fixHost)
                     Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
                 Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
@@ -583,6 +586,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         dto is { Vendor: "claude", TranscriptPath: not null } && dto.TranscriptFormat != TranscriptFormats.Envelopes;
 
     void CloseSubagent() => ReplaceSubagent(null);
+
+    void ShowTopic() {
+        CloseSubagent();
+        ActiveTab = WorkspaceTab.Chat;
+    }
 
     void ReplaceSubagent(SubagentPaneViewModel? next) {
         var previous = Subagent;

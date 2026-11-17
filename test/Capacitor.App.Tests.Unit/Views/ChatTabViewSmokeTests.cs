@@ -1193,6 +1193,122 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Picking a send mode from the menu sets it and closes the menu.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_send_menu_sets_the_mode() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("send-menu.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                var caret = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "SendModeButton");
+                var menu = (StackPanel)((Flyout)caret.Flyout!).Content!;
+
+                Click(host, caret);
+                Invoke(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "Change topic"));
+                host.Settle();
+                await Assert.That(host.Chat.SendMode).IsEqualTo(ChatSendMode.ChangeTopic);
+                await Assert.That(caret.Flyout!.IsOpen).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Unfolding_a_topic_at_the_bottom_stays_at_the_bottom() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-unfold.jsonl", Enumerable.Repeat(UserLine, 30).ToArray());
+                await host.AttachAsync(path);
+                var turns = host.Chat.Items.OfType<UserTurnItem>().ToList();
+                host.Chat.Topics.ToggleChange(turns[0]);
+                host.Chat.Topics.ToggleChange(turns[^1]);
+                host.Chat.Items.OfType<ChatTopicItem>().First().ToggleCommand.Execute().Subscribe();
+                host.Settle();
+                await Assert.That(host.AtBottom()).IsTrue();
+
+                var toggle = host.View.GetVisualDescendants().OfType<Button>().First(b => b.Name == "TopicToggle" && b.DataContext is ChatTopicItem { IsExpanded: false });
+                Click(host, toggle);
+                host.Settle();
+                host.Settle();
+                await Assert.That(host.Chat.Items.Count).IsGreaterThan(2);
+                await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A click on a topic's name renames it in place and leaves it open; Enter keeps the new name,
+    /// Escape keeps the old one, and neither key reaches the fold button around the field.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Clicking_a_topic_name_renames_it_without_folding_it() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-rename.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                host.Chat.Topics.ToggleChange(host.Chat.Items.OfType<UserTurnItem>().First());
+                host.Settle();
+                var topic = host.Chat.Items.OfType<ChatTopicItem>().Single();
+                Button Name() => host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicName"));
+                TextBox Field() => host.View.GetVisualDescendants().OfType<TextBox>().Single(b => b.Classes.Contains("topicNameField"));
+
+                Click(host, Name());
+                host.Settle();
+                await Assert.That(topic.IsRenaming).IsTrue();
+                await Assert.That(topic.IsExpanded).IsTrue();
+                await Assert.That(Field().IsFocused).IsTrue();
+
+                host.Window.KeyTextInput("Retry");
+                host.Press(PhysicalKey.Space);
+                host.Window.KeyTextInput("policy");
+                host.Press(PhysicalKey.Enter);
+                await Assert.That(topic.Label).IsEqualTo("Retry policy");
+                await Assert.That(topic.IsRenaming).IsFalse();
+                await Assert.That(topic.IsExpanded).IsTrue();
+
+                Click(host, Name());
+                host.Settle();
+                host.Window.KeyTextInput("Something else");
+                host.Press(PhysicalKey.Escape);
+                await Assert.That(topic.Label).IsEqualTo("Retry policy");
+                await Assert.That(topic.IsExpanded).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// Picking a topic from the list scrolls its header to the top of the transcript, and stops
+    /// following the tail so the next row to land does not take the reader away again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Revealing_a_topic_scrolls_its_header_to_the_top() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-reveal.jsonl", Enumerable.Repeat(UserLine, 40).ToArray());
+                await host.AttachAsync(path);
+                host.Chat.Topics.ToggleChange(host.Chat.Items.OfType<UserTurnItem>().ElementAt(3));
+                host.Settle();
+                await Assert.That(host.AtBottom()).IsTrue();
+                var topic = host.Chat.Topics.All.Single();
+
+                host.Chat.Topics.RevealCommand.Execute(topic).Subscribe();
+                host.Settle();
+                host.Settle();
+                var header = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle");
+                var top = header.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(top).IsBetween(0, 40);
+                await Assert.That(host.AtBottom()).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    // What a pointer or key press on a row does: its Click handlers, then its command.
+    static void Invoke(Button button) =>
+        typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(button, null);
+
     [Test]
     [Arguments(false)]
     [Arguments(true)]

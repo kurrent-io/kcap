@@ -49,6 +49,54 @@
         <Style Selector="Border.toolGroup.packsWithCard">
             <Setter Property="Margin" Value="0,4,0,4" />
         </Style>
+        <!-- A message's change-of-topic toggle shows only while the message is pointed at or the
+             toggle has keyboard focus, so it does not repeat down every row. -->
+        <Style Selector="Button.topicHere">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip.Tip" Value="Start a new topic at this message" />
+            <Setter Property="AutomationProperties.Name" Value="Change of topic" />
+            <Setter Property="Content">
+                <Template>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <views:AppIcon Kind="Signpost" Size="12" />
+                        <TextBlock Text="Change of topic" FontSize="11.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Template>
+            </Setter>
+        </Style>
+        <Style Selector="Border.userTurn:pointerover Button.topicHere, StackPanel.assistantTurn:pointerover Button.topicHere, Button.topicHere:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- A marked message keeps its toggle shown, in the topic blue, so the mark can be read and undone. -->
+        <Style Selector="Button.topicHere.on">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Button.topicHere.on TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <Style Selector="Button.topicHere.on views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
+        <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Button.kcapPrimary.sendIdle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Button.sendModeRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
         <!-- Fluent paints the presenter, so rest and hover both pin it — same raised fill as
              a rail row / expandable section header. Local Background on the Button would
              outrank the hover and leave Fluent's wash on the dark card. -->
@@ -68,6 +116,10 @@
         <Style Selector="Button.toolSummary /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <!-- A folded topic is a band, so it reads as content tucked away rather than a divider. -->
+        <Style Selector="Button.topicHeader.folded /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
         <Style Selector="Button.toolSummary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                          Button.toolSummary:pressed /template/ ContentPresenter#PART_ContentPresenter">
@@ -301,6 +353,9 @@
                                 </TextBlock>
                                 <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                            IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
+                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                                        CommandParameter="{Binding}" />
                             </StackPanel>
                             <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -345,12 +400,15 @@
                     </Border>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
+                    <StackPanel Classes="assistantTurn" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Classes="toolKindChip"
                                        Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
                             <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                        IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
+                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                                    CommandParameter="{Binding}" />
                         </StackPanel>
                         <views:MarkdownView Text="{Binding Text}"
                                             FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -554,6 +612,44 @@
                             </StackPanel>
                         </Border>
                     </views:ChatCardRow>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:ChatTopicItem">
+                    <!-- Padding and margin cancel so the icon sits over the topic's rail. -->
+                    <Button x:Name="TopicToggle" Classes="toolSummary topicHeader" Classes.folded="{Binding !IsExpanded}"
+                            Padding="6,5" Margin="-6,6"
+                            Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
+                            ToolTip.Tip="{Binding ToggleAccessibleName}"
+                            AutomationProperties.Name="{Binding ToggleAccessibleName}">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Panel Width="12" Height="12">
+                                    <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                                                   Foreground="{StaticResource KcapInfoBrush}" />
+                                    <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                                                   Foreground="{StaticResource KcapInfoBrush}" />
+                                </Panel>
+                                <views:AppIcon Kind="Signpost" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
+                            </StackPanel>
+                            <!-- The name is its own button inside the fold button, so a click on it renames. -->
+                            <Panel Grid.Column="1" VerticalAlignment="Center">
+                                <Button Classes="kcapGhost topicName" IsVisible="{Binding !IsRenaming}" Click="OnTopicNameClick"
+                                        Padding="4,1" Margin="-4,0" Cursor="Ibeam"
+                                        ToolTip.Tip="Rename this topic" AutomationProperties.Name="Rename topic">
+                                    <TextBlock Classes="toolKindChip" Text="{Binding Label}" MaxWidth="420" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                </Button>
+                                <TextBox Classes="kcapField topicNameField" IsVisible="{Binding IsRenaming}" Text="{Binding Draft}" MinWidth="260" MaxWidth="420"
+                                         Margin="-4,-2" Padding="4,2" MinHeight="0" FontSize="13"
+                                         Watermark="Name this topic" AutomationProperties.Name="Topic name"
+                                         PropertyChanged="OnTopicNameFieldChanged" KeyDown="OnTopicNameKeyDown"
+                                         LostFocus="OnTopicNameLostFocus" />
+                            </Panel>
+                            <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsExpanded}" Foreground="{StaticResource KcapMutedBrush}" />
+                            <Rectangle Grid.Column="3" Height="1" VerticalAlignment="Center" Opacity="0.45"
+                                       Fill="{StaticResource KcapInfoBrush}" />
+                        </Grid>
+                    </Button>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:PendingCardItem">
                     <views:ChatCardRow>
@@ -945,10 +1041,29 @@
                                     ToolTip.Tip="{Binding InterruptTip}" ToolTip.ShowOnDisabled="True" Margin="12,0,0,0"
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                     FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
-                            <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
-                                    Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7"
-                                    Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                                    IsVisible="{Binding ShowsComposer}" />
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="1" Margin="8,0,0,0" IsVisible="{Binding ShowsComposer}">
+                                <Button x:Name="SendButton" Classes="kcapPrimary" Content="{Binding SendLabel}" Command="{Binding SendCommand}"
+                                        Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7,0,0,7"
+                                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}" />
+                                <Button x:Name="SendModeButton" Classes="kcapPrimary" Classes.sendIdle="{Binding !#SendButton.IsEffectivelyEnabled}" Width="22" Height="24" Padding="0" CornerRadius="0,7,7,0"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand"
+                                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                                        ToolTip.Tip="Send, or send as a change of topic"
+                                        AutomationProperties.Name="Choose what Send does">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" />
+                                    <Button.Flyout>
+                                        <Flyout Placement="TopEdgeAlignedRight" VerticalOffset="-6" FlyoutPresenterClasses="kcapPanel">
+                                            <StackPanel Spacing="2" Margin="6" MinWidth="200">
+                                                <Button Classes="kcapGhost sendModeRow" Content="Send" Click="OnSendModeClick"
+                                                        Tag="{x:Static vm:ChatSendMode.Send}" />
+                                                <Button Classes="kcapGhost sendModeRow" Content="Change topic" Click="OnSendModeClick"
+                                                        ToolTip.Tip="Send this message as the start of a new topic"
+                                                        Tag="{x:Static vm:ChatSendMode.ChangeTopic}" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>
