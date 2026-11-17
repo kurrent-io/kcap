@@ -178,8 +178,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2")); // clear + generation bump
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch([Agent("a1")])); // u1's stale rows land after the identity change
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
@@ -278,8 +277,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2")); // generation bump
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch(null, Unauthorized: true)); // u1's stale Unauthorized lands late
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
@@ -308,8 +306,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1")); // same-subject reconnect
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch(null, Unauthorized: true)); // pre-reconnect fetch's stale Unauthorized
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
