@@ -37,11 +37,15 @@ def tcp_payload(link, data):
     version = data[offset] >> 4
     if version == 4:
         ihl = (data[offset] & 0x0F) * 4
-        proto = data[offset + 9]
         ip_end = offset + ihl
+        if ihl < 20 or len(data) < ip_end:
+            return None
+        proto = data[offset + 9]
     elif version == 6:
-        proto = data[offset + 6]
         ip_end = offset + 40
+        if len(data) < ip_end:
+            return None
+        proto = data[offset + 6]
     else:
         return None
     if proto != 6 or len(data) < ip_end + 20:
