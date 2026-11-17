@@ -5,6 +5,7 @@
                      xmlns:views="clr-namespace:Capacitor.App.Views"
                      xmlns:svc="clr-namespace:Capacitor.App.Services"
                      xmlns:onboarding="clr-namespace:Capacitor.App.Views.Onboarding"
+                     xmlns:rail="clr-namespace:Capacitor.App.Views.Rail"
                      x:Class="Capacitor.App.Views.MainWindow"
                      x:TypeArguments="vm:MainWindowViewModel"
                      x:DataType="vm:MainWindowViewModel"
@@ -48,7 +49,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <views:SessionRailView x:Name="SessionRail" Grid.Column="0" />
+                    <rail:SessionRailView x:Name="SessionRail" Grid.Column="0" />
                     <Panel x:Name="ContentPane" Grid.Column="1">
                         <!-- Hidden, never removed, under the search or work item cover: the workspace and its watches carry on. -->
                         <Grid x:Name="LauncherPane" RowDefinitions="Auto,*" Margin="24,20,24,24">

@@ -8,7 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels.Onboarding;
-using Capacitor.App.Views;
+using Capacitor.App.Views.Rail;
 
 namespace Capacitor.App.Tests.Unit;
 

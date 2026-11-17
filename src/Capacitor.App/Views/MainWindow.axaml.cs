@@ -62,14 +62,40 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     void ToggleRail() => Panes.RailCollapsed = !Panes.RailCollapsed;
 
+    bool _railCollapsed;
+    CancellationTokenSource? _railSlide;
+
     void ApplyRail() {
         var collapsed = Panes.RailCollapsed;
-        RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
-        SessionRail.IsVisible = !collapsed;
+        if (collapsed != _railCollapsed && IsLoaded) _ = SlideRail(collapsed);
+        else if (_railSlide is null) SettleRail(collapsed);
+        _railCollapsed = collapsed;
         RailSplitter.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
         ApplyRailAttention();
         ApplyRailClearance();
+    }
+
+    // The rail keeps its width and slides past the window's edge while an Auto column follows it.
+    async Task SlideRail(bool collapsed) {
+        var from = SessionRail.IsVisible ? SessionRail.Margin : new Thickness(-Panes.RailWidth, 0, 0, 0);
+        _railSlide?.Cancel();
+        var slide = _railSlide = new CancellationTokenSource();
+        SessionRail.Width = Panes.RailWidth;
+        SessionRail.IsVisible = true;
+        RailColumn.Width = GridLength.Auto;
+
+        await Motion.Standard.RunAsync(SessionRail, slide.Token, (MarginProperty, from, new Thickness(collapsed ? -Panes.RailWidth : 0, 0, 0, 0)));
+        if (slide.IsCancellationRequested) return;
+
+        _railSlide = null;
+        SessionRail.ClearValue(WidthProperty);
+        SettleRail(collapsed);
+    }
+
+    void SettleRail(bool collapsed) {
+        RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
+        SessionRail.IsVisible = !collapsed;
     }
 
     void ApplyRailAttention() {

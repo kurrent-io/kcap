@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
+using Capacitor.App.Views.Rail;
 using Capacitor.Remote.Models;
 using DynamicData;
 

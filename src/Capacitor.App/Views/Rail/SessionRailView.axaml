@@ -2,9 +2,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:rail="clr-namespace:Capacitor.App.Views.Rail"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
-             x:Class="Capacitor.App.Views.SessionRailView"
+             x:Class="Capacitor.App.Views.Rail.SessionRailView"
              x:DataType="vm:MainWindowViewModel">
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
@@ -594,7 +595,7 @@
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
-                    <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
+                    <rail:RailList x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
@@ -635,7 +636,7 @@
                                             </Grid>
                                         </Button>
                                         <views:FoldPanel IsOpen="{Binding IsExpanded}" Animates="{Binding IsWorkItem}">
-                                        <ItemsControl ItemsSource="{Binding Sessions}">
+                                        <rail:RailList ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
                                                     <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,0,0,4"
@@ -690,13 +691,13 @@
                                                     </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+                                        </rail:RailList>
                                         </views:FoldPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    </rail:RailList>
                     <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                                 Margin="8,8,8,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Button x:Name="RailShowMoreButton" Classes="kcapGhost" Content="Load more ended sessions" Command="{Binding ShowMoreCommand}"

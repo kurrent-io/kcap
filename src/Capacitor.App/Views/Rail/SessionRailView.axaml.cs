@@ -10,7 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
-namespace Capacitor.App.Views;
+namespace Capacitor.App.Views.Rail;
 
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.

@@ -1,8 +1,5 @@
 using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Animation.Easings;
 using Avalonia.Controls;
-using Avalonia.Styling;
 
 namespace Capacitor.App.Views;
 
@@ -10,9 +7,6 @@ namespace Capacitor.App.Views;
 public sealed class FoldPanel : Decorator {
     public static readonly StyledProperty<bool> IsOpenProperty = AvaloniaProperty.Register<FoldPanel, bool>(nameof(IsOpen), true);
     public static readonly StyledProperty<bool> AnimatesProperty = AvaloniaProperty.Register<FoldPanel, bool>(nameof(Animates));
-
-    static readonly TimeSpan Duration = TimeSpan.FromMilliseconds(200);
-    static readonly SplineEasing Easing = new(0.4, 0, 0.2);
 
     CancellationTokenSource? _folding;
 
@@ -50,14 +44,7 @@ public sealed class FoldPanel : Decorator {
             Opacity = 0;
         }
 
-        await new Animation {
-            Duration = Duration,
-            Easing = Easing,
-            Children = {
-                new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(HeightProperty, height), new Setter(OpacityProperty, opacity) } },
-                new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(HeightProperty, target), new Setter(OpacityProperty, open ? 1d : 0d) } },
-            },
-        }.RunAsync(this, token);
+        await Motion.Standard.RunAsync(this, token, (HeightProperty, height, target), (OpacityProperty, opacity, open ? 1d : 0d));
 
         if (!open && !token.IsCancellationRequested) IsVisible = false;
     }
