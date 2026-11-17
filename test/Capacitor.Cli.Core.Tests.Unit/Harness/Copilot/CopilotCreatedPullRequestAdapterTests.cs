@@ -51,6 +51,11 @@ public class CopilotCreatedPullRequestAdapterTests {
     }
 
     [Test]
+    public async Task A_result_without_the_shell_trailer_is_not_found() {
+        await Assert.That(Observe(Bash("toolu_pr", "gh pr create --fill"), Complete("toolu_pr", "already exists:\n" + Url))).IsEmpty();
+    }
+
+    [Test]
     public async Task A_url_from_another_command_or_in_prose_is_not_found() {
         var found = Observe(
             Bash("toolu_view", "gh pr view --json url -q .url"), Complete("toolu_view", Url + "\n<shellId: 1 completed with exit code 0>"),

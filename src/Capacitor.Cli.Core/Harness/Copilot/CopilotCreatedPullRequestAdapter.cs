@@ -65,7 +65,8 @@ public sealed partial class CopilotCreatedPullRequestAdapter : ICreatedPullReque
             return;
         }
 
-        evidence.Result(callId, text, succeeded: data.Bool("success") == true);
+        // The tool reports success whatever the shell's exit; without the trailer nothing says gh succeeded.
+        evidence.Result(callId, text, succeeded: false);
     }
 
     static string ShellKey(string shellId) => "copilot-shell:" + shellId;
