@@ -35,6 +35,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill --dry-run")]
     [Arguments("printf '%s\\n' https://github.com/o/r/pull/1; gh pr create --repo o/r --fill >/dev/null 2>&1")]
     [Arguments("gh pr create --fill > out.txt")]
+    [Arguments("gh pr create --repo o/r --title \"2\">/dev/null --body b")]
+    [Arguments("gh pr create --repo o/r --title \\1>/dev/null --body b")]
     [Arguments("gh pr create --repo o/r --title=New>/dev/null --body=b")]
     [Arguments("gh pr create --repo o/r --title >/dev/null 'New PR' --body b")]
     [Arguments(">/dev/null gh pr create --fill")]

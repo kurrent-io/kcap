@@ -178,12 +178,13 @@ public static partial class PrCreateCommand {
     /// body is opaque word text here, kept as one of its command's scripts, since it runs too. In a substitution
     /// it stops past the closing paren and says whether it found one.</summary>
     static (int End, bool Closed) Scan(string text, int i, bool substitution, List<ShellCommand> commands) {
-        var current  = new ShellCommand("");
-        var word     = new StringBuilder();
-        var inWord   = false;
-        var parens   = 0;
+        var current        = new ShellCommand("");
+        var word           = new StringBuilder();
+        var inWord         = false;
+        var parens         = 0;
         var stdoutRedirect = false;
-        var heredocs = new Queue<(string Word, bool StripTabs)>();
+        var literal        = true;
+        var heredocs       = new Queue<(string Word, bool StripTabs)>();
 
         while (i < text.Length) {
             var c = text[i];
@@ -218,36 +219,42 @@ public static partial class PrCreateCommand {
                     break;
                 case '\\':
                     if (i + 1 < text.Length && text[i + 1] != '\n') word.Append(text[i + 1]);
-                    inWord =  true;
+                    inWord  =  true;
+                    literal =  false;
                     i      += 2;
                     break;
                 case '\'': {
                     var end = text.IndexOf('\'', i + 1);
                     if (end < 0) end = text.Length;
                     word.Append(text, i + 1, end - i - 1);
-                    inWord = true;
+                    inWord  = true;
+                    literal = false;
                     i      = end + 1;
                     break;
                 }
                 case '"':
                     i      = ReadDoubleQuoted(text, i + 1, word, current.Scripts);
-                    inWord = true;
+                    inWord  = true;
+                    literal = false;
                     break;
                 case '$' when i + 1 < text.Length && text[i + 1] == '(':
                     i      = ReadSubstitution(text, i + 2, current.Scripts);
-                    inWord = true;
+                    inWord  = true;
+                    literal = false;
                     break;
                 case '$' when i + 1 < text.Length && text[i + 1] == '{': {
                     var end = text.IndexOf('}', i + 2);
                     end = end < 0 ? text.Length : end + 1;
                     word.Append(text, i, end - i);
-                    inWord = true;
+                    inWord  = true;
+                    literal = false;
                     i      = end;
                     break;
                 }
                 case '`':
                     i      = ReadBackticks(text, i + 1, current.Scripts);
-                    inWord = true;
+                    inWord  = true;
+                    literal = false;
                     break;
                 case '<' when Heredoc().Match(text, i) is { Success: true, Index: var at } heredoc && at == i:
                     EndWord();
@@ -256,7 +263,8 @@ public static partial class PrCreateCommand {
                     break;
                 case '>' or '<':
                     // A redirection needs no space before it: in --title=New>/dev/null the argument ends at the '>'.
-                    if (inWord && !word.ToString().All(char.IsAsciiDigit)) EndWord();
+                    // Only bare digits before it name a file descriptor; a quoted "2" is an argument.
+                    if (inWord && (!literal || !word.ToString().All(char.IsAsciiDigit))) EndWord();
                     if (c == '>' && word is [] or ['1']) stdoutRedirect = true;
                     word.Append(c);
                     inWord = true;
@@ -282,6 +290,7 @@ public static partial class PrCreateCommand {
             word.Clear();
             inWord         = false;
             stdoutRedirect = false;
+            literal        = true;
         }
 
         void EndCommand(string joiner) {
