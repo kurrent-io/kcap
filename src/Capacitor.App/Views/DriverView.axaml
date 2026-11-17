@@ -76,7 +76,8 @@
         <Style Selector="Ellipse.drvDot.work"><Setter Property="Fill" Value="{StaticResource KcapPurpleBrush}" /></Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,*" Margin="24,16,24,0">
+    <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="24,16,24,0">
         <DockPanel Grid.Row="0" Margin="0,8,0,4">
             <Button x:Name="DriverRefreshButton" DockPanel.Dock="Right" Classes="kcapGhost kcapIcon" Command="{Binding RefreshCommand}"
                     AutomationProperties.Name="Refresh Driver" ToolTip.Tip="Refresh">
@@ -233,5 +234,50 @@
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
+    </Grid>
+
+    <!-- The chatbox: a starter composer until the first message starts the driver agent, then that agent's own chat. -->
+    <Border Grid.Column="1" Width="440" IsVisible="{Binding HasChat}" BorderThickness="1,0,0,0"
+            BorderBrush="{StaticResource KcapBorderBrush}" Background="{StaticResource KcapSurfaceBrush}">
+        <Grid DataContext="{Binding Chat}" x:DataType="drv:DriverChatViewModel" RowDefinitions="Auto,*">
+            <DockPanel Grid.Row="0" Margin="16,22,12,10">
+                <Button x:Name="DriverNewChatButton" DockPanel.Dock="Right" Classes="kcapGhost" Command="{Binding NewConversationCommand}"
+                        IsVisible="{Binding HasConversation}" AutomationProperties.Name="New Driver conversation">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="Plus" Size="14" />
+                        <TextBlock Text="New" FontSize="12" />
+                    </StackPanel>
+                </Button>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <views:AppIcon Kind="MessageCircle" Size="14" Foreground="{StaticResource KcapTextBrush}" />
+                    <TextBlock Text="Talk to Driver" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </DockPanel>
+
+            <StackPanel Grid.Row="1" Margin="16,4,16,16" Spacing="10" IsVisible="{Binding ShowsStarter}">
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                           Text="Ask about your work items, or tell Driver what to do. It starts an agent that sees what Driver shows; anything it would change, it asks you first." />
+                <TextBox x:Name="DriverChatDraft" Classes="kcapField" Text="{Binding Draft}" AcceptsReturn="True" TextWrapping="Wrap"
+                         MinHeight="90" Watermark="Why is wave 3 not moving?" AutomationProperties.Name="Message to Driver" />
+                <DockPanel>
+                    <Button x:Name="DriverChatSend" DockPanel.Dock="Right" Classes="kcapChip" Command="{Binding SendCommand}"
+                            AutomationProperties.Name="Send to Driver">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <views:AppIcon Kind="ArrowUp" Size="14" />
+                            <TextBlock Text="Send" FontSize="12" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock Text="Starting Driver's agent…" IsVisible="{Binding IsStarting}" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+                </DockPanel>
+                <TextBlock Text="{Binding Error}" IsVisible="{Binding HasError}" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource KcapDangerBrush}" />
+            </StackPanel>
+
+            <views:ChatTabView Grid.Row="1" x:Name="DriverChatHost" DataContext="{Binding Conversation.Chat}"
+                               IsVisible="{Binding $parent[Grid].((drv:DriverChatViewModel)DataContext).HasConversation}" />
+        </Grid>
+    </Border>
     </Grid>
 </UserControl>

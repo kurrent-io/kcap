@@ -2456,9 +2456,13 @@ public partial class App : Application {
         };
         if (driver is not null) {
             var shell = vm;
+            var driverView = new DriverViewModel(driver, time, resolvedDirectory.Rows.Connect(), pendingPermissions,
+                openAgent: id => shell.OpenSession(id), openUrl: openUrl);
+            // Spike: the driver agent works in the checkout KCAP_DRIVER_REPO names.
+            driverView.AttachChat(new DriverChatViewModel(launch, () => service.DaemonName,
+                () => Environment.GetEnvironmentVariable("KCAP_DRIVER_REPO"), driverView.ContextSummary, workspaceFactory));
             shell.AttachDriver(
-                new DriverViewModel(driver, time, resolvedDirectory.Rows.Connect(), pendingPermissions,
-                    openAgent: id => shell.OpenSession(id), openUrl: openUrl),
+                driverView,
                 Observable.Interval(TimeSpan.FromSeconds(5)).StartWith(0L)
                     .Select(_ => driverEnabled?.Invoke() == true).DistinctUntilChanged());
         }

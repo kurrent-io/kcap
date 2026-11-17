@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
@@ -55,6 +56,44 @@ public sealed class DriverViewModel : ReactiveObject, IDisposable {
                 .ToCollection()
                 .ObserveOn(_scheduler)
                 .Subscribe(requests => { _pending = requests.ToList(); Project(); }));
+    }
+
+    /// <summary>Null until the app attaches one: it needs the launch client and a daemon.</summary>
+    public DriverChatViewModel? Chat {
+        get;
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(HasChat));
+        }
+    }
+
+    public bool HasChat => Chat is not null;
+
+    public void AttachChat(DriverChatViewModel chat) => Chat = chat;
+
+    /// <summary>What the chat's agent is told Driver shows: the open work item when one is open, otherwise everything.</summary>
+    public string ContextSummary() {
+        var text  = new System.Text.StringBuilder();
+        IReadOnlyList<DriverWorkItemViewModel> scope = Selected is { } one ? [one] : WorkItems;
+        text.AppendLine(Selected is null
+            ? $"Driver shows {WorkItems.Count} work items in flight, as of {_time.GetLocalNow():HH:mm}."
+            : $"Driver shows one work item, as of {_time.GetLocalNow():HH:mm}.");
+        foreach (var item in scope) {
+            text.AppendLine();
+            text.AppendLine(CultureInfo.InvariantCulture, $"Work item \"{item.Title}\" ({item.StatusLabel}{(item.Workspace is { } ws ? $", workspace {ws}" : "")}, id {item.WorkItemId})");
+            if (item.HasGoal) text.AppendLine(CultureInfo.InvariantCulture, $"  Goal: {item.Goal}");
+            foreach (var part in item.Parts) {
+                var extra = string.Join("; ", new[] { part.WaitsOnText, part.Links, part.HasActivity ? part.ActivityLabel : "", part.SessionsText }
+                    .Where(s => s.Length > 0));
+                text.AppendLine(CultureInfo.InvariantCulture, $"  - Part \"{part.Title}\": {part.StatusLabel}{(extra.Length > 0 ? $" ({extra})" : "")}, id {part.WorkItemId}");
+            }
+        }
+        if (NeedsYou.Count > 0) {
+            text.AppendLine();
+            text.AppendLine("Waiting on the person:");
+            foreach (var need in NeedsYou) text.AppendLine(CultureInfo.InvariantCulture, $"  - {need.Kind}: {need.Title} ({need.Context})");
+        }
+        return text.ToString();
     }
 
     public ReactiveCommand<Unit, Unit>                    RefreshCommand { get; }
@@ -250,6 +289,7 @@ public sealed class DriverViewModel : ReactiveObject, IDisposable {
     }
 
     public void Dispose() {
+        Chat?.Dispose();
         _polling.Dispose();
         _subscriptions.Dispose();
     }
