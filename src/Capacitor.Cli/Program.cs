@@ -156,6 +156,9 @@ if (command == "git-hook") return await GitHook.RunAsync(GitHookInvocation.Curre
 // Claude kills a SessionEnd hook after 1.5 s (ClaudeSessionEndHandoff), so the hand-off sits
 // ahead of ResolveServerUrl's git probes and the global spool drain, each of which can spend it.
 string? claudeHookBody = null;
+var claudeSideFlags   = isHook && args.Contains("--claude") ? ClaudeSideHooks.Requested(args).ToList() : [];
+var claudeSideOutputs = new List<string>();
+var claudeSideExit    = 0;
 if (isHook && args.Contains("--claude")) {
     try { claudeHookBody = await Console.In.ReadToEndAsync(); } catch { claudeHookBody = ""; }
 
@@ -163,17 +166,24 @@ if (isHook && args.Contains("--claude")) {
     HookTiming.Mark("stdin");
 
     if (args.Contains(ClaudeTitlePrompt.Flag)) {
+        var titleOutput = new StringWriter();
         var titled = ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config),
-            ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable), Console.Out, Console.Error);
+            ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable), titleOutput, Console.Error);
         HookTiming.Mark("title-prompt");
 
-        return titled;
+        claudeSideOutputs.Add(titleOutput.ToString());
+        claudeSideExit = titled;
     }
 
-    // Every prompt waits on this hook, so a session never armed leaves before the profile's git probes.
+    // Every prompt waits on this hook, so a session never armed skips it before the profile's git probes.
     if (args.Contains(ClaudePassNotices.Flag)
      && (ClaudePassNotices.SessionIdOf(claudeHookBody) is not { } promptSession || !new PassNoticeSessions(config).IsArmed(promptSession)))
-        return 0;
+        claudeSideFlags.Remove(ClaudePassNotices.Flag);
+
+    // Written now unless another side hook may write too, so no later exit can lose it.
+    if (claudeSideOutputs.Count > 0 && !claudeSideFlags.Any(ClaudeSideHooks.Writes)) FlushClaudeSideOutputs();
+
+    if ((args.Contains(ClaudeTitlePrompt.Flag) || args.Contains(ClaudePassNotices.Flag)) && claudeSideFlags.Count == 0) return claudeSideExit;
 
     ClaudeSessionEnv.Persist(claudeHookBody, Environment.GetEnvironmentVariable(ClaudeSessionEnv.EnvFileVar), Console.Error);
 
@@ -231,6 +241,13 @@ var services = new ServiceCollection()
 await using var sp = services.BuildValidated();
 
 TCommand Run<TCommand>() where TCommand : notnull => sp.GetRequiredService<TCommand>();
+
+void FlushClaudeSideOutputs() {
+    if (claudeSideOutputs.Count == 0) return;
+
+    if (ClaudeHookOutput.Merge(claudeSideOutputs, Console.Error) is { } merged) Console.Out.WriteLine(merged);
+    claudeSideOutputs.Clear();
+}
 
 ISessionsApi Api() => sp.GetRequiredService<ISessionsApi>();
 
@@ -328,6 +345,7 @@ if (command == "import" && detachedImport is not null
 }
 
 if (baseUrl is null && !offlineCommands.Contains(command) && !offlineDiscover) {
+    FlushClaudeSideOutputs();
     Console.Error.WriteLine($"No server configured. Run `kcap setup` or set {ProfileOverrides.UrlVar}.");
 
     return 1;
@@ -967,22 +985,27 @@ switch (command) {
         // Codex blocks on this hook's stdout, so its stamp waits until the hook has answered.
         if (hookVendor is not null && hookVendor != HarnessId.Codex.VendorId) new HookActivity(config, time).Stamp(hookVendor);
 
-        // These block the agent's tool call, so they skip the spool drain below.
-        if (args.Contains("--claude") && args.Contains("--plan-read")) {
-            return await Run<ClaudeHookCommand>().HandlePlanRead(new StringReader(claudeHookBody!));
+        // These block the agent's tool call, so they skip the spool drain below. Several on one invocation run
+        // at once, each on its own command, and leave one object on stdout.
+        if (args.Contains("--claude") && claudeSideFlags.Count > 0) {
+            var runs = claudeSideFlags.Select(async flag => {
+                var output = new StringWriter();
+                var exit   = await ClaudeSideHooks.RunAsync(flag, Run<ClaudeHookCommand>(), claudeHookBody!, output);
+                return (Exit: exit, Output: output.ToString());
+            }).ToList();
+            var results = await Task.WhenAll(runs);
+
+            claudeSideOutputs.AddRange(results.Select(r => r.Output));
+            FlushClaudeSideOutputs();
+
+            return results.Select(r => r.Exit).Prepend(claudeSideExit).Max();
         }
-        if (args.Contains("--claude") && args.Contains("--task-list")) {
-            return await Run<ClaudeHookCommand>().HandleTaskList(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains("--plan-edit")) {
-            return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains(ClaudeWorkspaceSpanEvent.Flag)) {
-            return await Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
-            return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
-        }
+        // Started ahead of the spool drain, which it never waited on as a hook of its own: a span closed late leaves the
+        // baseline open, and the next turn takes edits made between turns for its own. On the pool, because a span with
+        // nothing to close runs its synchronous store and spool sweep before it first yields.
+        var stopSpans = args.Contains("--claude") && args.Contains(ClaudeSideHooks.StopSpans)
+            ? Task.Run(() => Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!)))
+            : Task.FromResult(0);
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 
         if (args.Contains("--claude") && baseUrl is not null) {
@@ -1018,6 +1041,7 @@ switch (command) {
         async Task<int> DispatchVendorHookAsync() {
             if (args.Contains("--claude")) {
                 var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
+                await stopSpans;
                 HookTiming.Mark("handled");
 
                 return handled;

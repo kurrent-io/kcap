@@ -608,7 +608,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                     throw;
                 } catch (Exception ex) {
                     var delay = ConnectRetryDelays[Math.Min(attempt, ConnectRetryDelays.Length - 1)];
-                    LogConnectionAttemptFailed(ex, attempt + 1, delay.TotalSeconds);
+                    LogConnectionAttemptFailed(attempt + 1, LoggedRetryPolicy.Reason(ex), delay.TotalSeconds);
+                    LogConnectionAttemptDetail(ex);
                     // A hub that never starts never reaches the registration that would record this.
                     if (!registering) _config.CodexRegistrationFailed(attempted.Codex);
                     // The failed attempt has returned the hub to Disconnected — pulse so a
@@ -2113,8 +2114,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     [LoggerMessage(Level = LogLevel.Information, Message = "Connected and registered as '{Name}'")]
     partial void LogConnected(string name);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Connection attempt {Attempt} failed, retrying in {Delay}s")]
-    partial void LogConnectionAttemptFailed(Exception ex, int attempt, double delay);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Connection attempt {Attempt} failed ({Reason}); retrying in {Delay}s")]
+    partial void LogConnectionAttemptFailed(int attempt, string reason, double delay);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Connection attempt failed")]
+    partial void LogConnectionAttemptDetail(Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SignalR connection closed after {UptimeSeconds:F1}s uptime, will reconnect")]
     partial void LogConnectionClosed(Exception? ex, double uptimeSeconds);

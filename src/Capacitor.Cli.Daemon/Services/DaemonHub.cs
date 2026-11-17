@@ -27,6 +27,9 @@ internal static class DaemonHub {
         var url     = $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions";
         var refusal = config.DestinationRefusal;
 
+        HubConnection? built = null;
+        var quiet = new ReconnectQuietLoggerFactory(loggerFactory, () => built is not { State: HubConnectionState.Connected });
+
         var hub = new HubConnectionBuilder()
             .WithUrl(
                 url,
@@ -43,14 +46,16 @@ internal static class DaemonHub {
                     };
                 }
             )
-            .WithAutomaticReconnect(new HubRetryPolicy())
+            .WithAutomaticReconnect(new LoggedRetryPolicy(new HubRetryPolicy(), loggerFactory.CreateLogger(typeof(DaemonHub).FullName!)))
             // Left to its default the builder drops the framework's own logs, a failed argument binding among them,
             // and a daemon that drops every invocation looks healthy.
-            .ConfigureLogging(b => b.Services.AddSingleton(loggerFactory))
+            .ConfigureLogging(b => b.Services.AddSingleton<ILoggerFactory>(quiet))
             .AddJsonProtocol(options => ServerConnection.ConfigureHubPayload(options.PayloadSerializerOptions))
             .Build();
 
         hub.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
+
+        built = hub;
 
         return hub;
     }
