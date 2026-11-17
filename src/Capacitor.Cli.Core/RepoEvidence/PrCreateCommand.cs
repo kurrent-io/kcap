@@ -87,7 +87,7 @@ public static partial class PrCreateCommand {
     static bool EchoesAssignment(ShellCommand assignment, ShellCommand echo) {
         if (AssignedVariable(assignment) is not { } name) return false;
 
-        return echo is { Joiner: "&&", Scripts.Count: 0, Words: ["echo", var value] } && (value == "$" + name || value == "${" + name + "}");
+        return echo is { Joiner: "&&", Scripts.Count: 0, RedirectsStdout: false, Words: ["echo", var value] } && (value == "$" + name || value == "${" + name + "}");
     }
 
     /// <summary>False when an <c>||</c> since the last <c>;</c> or newline may skip it: after
@@ -309,7 +309,8 @@ public static partial class PrCreateCommand {
         void EndCommand(string joiner) {
             EndWord();
 
-            if (current.Words.Count > 0 || current.Scripts.Count > 0) {
+            // A redirection alone stays a node: after (gh pr create) >/dev/null it is what the group's output meets.
+            if (current.Words.Count > 0 || current.Scripts.Count > 0 || current.RedirectsStdout) {
                 commands.Add(current);
                 current = new ShellCommand(joiner);
             } else {
