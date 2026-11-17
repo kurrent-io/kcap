@@ -35,7 +35,10 @@ static class SessionImporter {
     /// Resumes a session the server holds up to this line: earlier parent lines and the subagents
     /// they first reference are skipped, everything from here on is sent.
     /// </param>
-    /// <param name="strict">A refused or undeliverable parent batch throws instead of being dropped.</param>
+    /// <param name="strict">
+    /// A refused or undeliverable parent or subagent batch throws instead of being dropped. A subagent
+    /// refused mid-transcript then leaves the parent watermark before its reference, so the next resume replays it.
+    /// </param>
     internal static async Task<ImportResult> ImportSessionAsync(
             HttpClient                 httpClient,
             string                     baseUrl,
@@ -118,7 +121,7 @@ static class SessionImporter {
                     // Send agent lifecycle: start → transcript → stop
                     agentTypes.TryGetValue(agentId, out var agentType);
                     await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                        agentPath, cwd, transcriptPath, progress, time);
+                        agentPath, cwd, transcriptPath, progress, time, strict);
                     sentAgents.Add(agentId);
                     agentIds.Add(agentId);
                 }
@@ -146,7 +149,7 @@ static class SessionImporter {
             if (!sentAgents.Contains(agentId) && agentFirstLine.GetValueOrDefault(agentId, startLine) >= startLine) {
                 agentTypes.TryGetValue(agentId, out var agentType);
                 await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                    agentPath, cwd, transcriptPath, progress, time);
+                    agentPath, cwd, transcriptPath, progress, time, strict);
                 sentAgents.Add(agentId);
                 agentIds.Add(agentId);
             }
@@ -518,7 +521,8 @@ static class SessionImporter {
             string                     cwd,
             string                     sessionTranscriptPath,
             IProgress<ImportProgress>? progress,
-            TimeProvider               time
+            TimeProvider               time,
+            bool                       strict
         ) {
         var resolvedAgentType = agentType ?? "task";
 
@@ -542,7 +546,7 @@ static class SessionImporter {
 
         progress?.Report(new SubagentStarted(agentId));
         var agentLines = await SendTranscriptBatches(
-            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress);
+            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress, failOnError: strict);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
         var agentStopHook = new JsonObject {

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using WireMock.Matchers;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -83,5 +84,31 @@ public class SessionImporterResumeTests : IDisposable {
             await SessionImporter.ImportSessionAsync(
                 client, _server.Url!, sessionPath, "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
                 TimeProvider.System, startLine: 2, strict: true));
+    }
+
+    [Test]
+    public async Task Strict_resume_stops_before_the_parent_lines_after_a_refused_subagent() {
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithBody(new JsonPartialMatcher($$"""{"agent_id":"{{Late}}"}""")))
+            .AtPriority(1)
+            .RespondWith(Response.Create().WithStatusCode(400));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .AtPriority(2)
+            .RespondWith(Response.Create().WithStatusCode(200));
+        RespondOk("/hooks/subagent-start");
+        RespondOk("/hooks/subagent-stop");
+        var sessionPath = await WriteSessionAsync();
+
+        using var client = new HttpClient();
+        await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await SessionImporter.ImportSessionAsync(
+                client, _server.Url!, sessionPath, "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+                TimeProvider.System, startLine: 2, strict: true));
+
+        var parentLines = Bodies("/hooks/transcript")
+            .Where(b => b["agent_id"] is null)
+            .SelectMany(b => b["line_numbers"]!.AsArray().Select(n => n!.GetValue<int>()))
+            .ToList();
+        await Assert.That(parentLines).IsEquivalentTo([2]);
+        await Assert.That(Bodies("/hooks/subagent-stop")).IsEmpty();
     }
 }
