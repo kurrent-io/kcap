@@ -78,21 +78,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4 }
-          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4 }
+          # `build: selection` compiles only what the leg's tests reach, and `analyzers: false` skips
+          # analysis. Both lean on Linux and Windows-others compiling and analysing the whole solution;
+          # nothing is compiled per OS, so a third full analysis on the metered macOS runner finds nothing new.
+          - { leg: ubuntu-latest, os: ubuntu-latest,  shard: all, modules: 3, tests: 4, build: all,       analyzers: true }
+          - { leg: getmac,        os: getmac,         shard: all, modules: 3, tests: 4, build: selection, analyzers: false }
           # Narrower: at three-by-four this leg spent a 20s service-readiness budget and a 1s
           # memory-fetch budget inside the code under test with nothing actually slow.
           # Split in two because at two modules the Windows test step took the sum of every suite
           # over two lanes, and the Daemon suite alone fills one of them (754s of 2,057s).
-          - { leg: windows-latest-daemon, os: windows-latest, shard: daemon, modules: 1, tests: 2 }
-          - { leg: windows-latest-others, os: windows-latest, shard: others, modules: 2, tests: 2 }
+          - { leg: windows-latest-daemon, os: windows-latest, shard: daemon, modules: 1, tests: 2, build: selection, analyzers: true }
+          - { leg: windows-latest-others, os: windows-latest, shard: others, modules: 2, tests: 2, build: all,       analyzers: true }
 
     steps:
       - uses: actions/checkout@v7
 
       # A selection runs through a solution filter, so the module and width caps apply to it unchanged.
-      # A shard keeps its part of the selection; an empty result skips the tests, and on the daemon
-      # shard everything else too, since the others shard builds the whole solution.
+      # A shard keeps its part of the selection; an empty result skips the tests, and on a
+      # `build: selection` leg the build too.
       - name: Pick the test solution
         id: tests
         shell: bash
@@ -128,7 +131,7 @@ jobs:
         run: '[ -n "${TMPDIR:-}" ] || echo "TMPDIR=/private/tmp" >> "$GITHUB_ENV"'
 
       - name: Setup .NET
-        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
+        if: matrix.build == 'all' || steps.tests.outputs.solution != ''
         uses: ./.github/actions/setup-dotnet
         with:
           cache: true
@@ -138,12 +141,14 @@ jobs:
       # Whole solution in every cached job: one OS-keyed immutable entry, so a job that
       # restored a subset would win the race and freeze the cache on it.
       - name: Restore solution
-        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
+        if: matrix.build == 'all' || steps.tests.outputs.solution != ''
         run: dotnet restore Capacitor.slnx
 
       - name: Build solution
-        if: matrix.shard != 'daemon' || steps.tests.outputs.solution != ''
-        run: dotnet build ${{ matrix.shard == 'daemon' && steps.tests.outputs.solution || 'Capacitor.slnx' }} --no-restore
+        if: matrix.build == 'all' || steps.tests.outputs.solution != ''
+        run: >
+          dotnet build ${{ matrix.build == 'all' && 'Capacitor.slnx' || steps.tests.outputs.solution }} --no-restore
+          ${{ !matrix.analyzers && '-p:RunAnalyzers=false' || '' }}
 
       # Plain-Node assertion scripts, no framework or npm install. Bash gives -e on every leg.
       - name: Run npm wrapper tests
