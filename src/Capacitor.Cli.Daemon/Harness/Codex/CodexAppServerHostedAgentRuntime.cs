@@ -531,7 +531,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         lock (_requestedCompactions) _requestedCompactions.Remove(dispatchId);
     }
 
-    // The app server records no message for a compaction it was asked for, so one is recorded as its item starts: it is
+    // The app server records no message for a compaction it was asked for, so one is recorded as its turn starts: it is
     // what retires the server's pending dispatch, and what the chat shows. On the read loop, the buffer's one writer.
     void RecordRequestedCompaction() {
         Guid dispatchId;
@@ -589,7 +589,8 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     void HandleNotification(AcpNotification n) {
         switch (n.Method) {
             case "turn/started":
-                _dispatcher.OnTurnStarted(n.Params is { } started ? started.Obj("turn")?.Str("id") : null);
+                if (_dispatcher.OnTurnStarted(n.Params is { } started ? started.Obj("turn")?.Str("id") : null) && _emitEnvelopeTranscript)
+                    RecordRequestedCompaction();
                 _clock?.Advance();
                 break;
             case "turn/completed": {
@@ -626,9 +627,6 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         // here (a canonical emit) — the intended lossless backpressure onto the app-server's stdout.
         // Gated on envelope-source ingestion (see _emitEnvelopeTranscript).
         if (_policy is { } policy) ObservePolicyFacts(policy, n.Method, n.Params);
-
-        if (_emitEnvelopeTranscript && n.Method == "item/started" && n.Params?.Obj("item")?.Str("type") == "contextCompaction")
-            RecordRequestedCompaction();
 
         if (_emitEnvelopeTranscript)
             foreach (var mapped in _mapper.Map(n.Method, n.Params)) {

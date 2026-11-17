@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Acp;
@@ -382,7 +383,7 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.DisposeAsync();
     }
 
-    /// <summary>The app server records no message for a compaction, so the runtime records the request as its item
+    /// <summary>The app server records no message for a compaction, so the runtime records the request as its turn
     /// starts, stamped with its dispatch, for the server to retire that dispatch by.</summary>
     [Test]
     public async Task An_accepted_compaction_is_recorded_as_its_dispatchs_message() {
@@ -403,6 +404,54 @@ public class CodexAppServerHostedAgentRuntimeTests {
         }
 
         await Assert.That(recorded?.Text).IsEqualTo("/compact");
+
+        await runtime.DisposeAsync();
+    }
+
+    /// <summary>A compaction Codex runs on its own inside the active turn is not the one asked for, which is recorded only
+    /// once its own turn starts.</summary>
+    [Test]
+    public async Task An_automatic_compaction_ahead_of_a_requested_one_is_not_recorded_as_it() {
+        var fake = new FakeCodexAppServer { HoldTurnOpen = true };
+        var (runtime, _, _) = Build(_ => fake, Launch(), emitEnvelopes: true);
+        await runtime.StartAsync(CancellationToken.None).WaitAsync(HangGuard);
+        await runtime.SendUserInputAsync("first").WaitAsync(HangGuard);
+        var dispatch = Guid.NewGuid();
+
+        var start = runtime.StartCompaction(dispatch);
+        await fake.SendNotificationAsync("item/started", new JsonObject {
+            ["threadId"] = fake.ThreadId, ["turnId"] = "turn-1",
+            ["item"]     = new JsonObject { ["type"] = "contextCompaction", ["id"] = "auto-1" },
+        });
+        // Usage notified after the automatic item marks the read loop as past it.
+        await fake.SendNotificationAsync("thread/tokenUsage/updated", new JsonObject {
+            ["threadId"] = fake.ThreadId, ["turnId"] = "turn-1",
+            ["tokenUsage"] = new JsonObject {
+                ["total"] = new JsonObject { ["inputTokens"] = 1, ["cachedInputTokens"] = 0, ["outputTokens"] = 1, ["reasoningOutputTokens"] = 0, ["totalTokens"] = 2 },
+                ["last"]  = new JsonObject { ["inputTokens"] = 1, ["cachedInputTokens"] = 0, ["outputTokens"] = 1, ["reasoningOutputTokens"] = 0, ["totalTokens"] = 2 },
+            },
+        });
+        var beforeTurn = new List<AcpEventEnvelope>();
+        var past = DateTime.UtcNow + HangGuard;
+        while (!beforeTurn.Any(e => e.Kind == AcpEventKind.TokenUsage) && DateTime.UtcNow < past) {
+            beforeTurn.AddRange(DrainAvailable(runtime));
+            await Task.Delay(10);
+        }
+        await Assert.That(beforeTurn.Any(e => e.Kind == AcpEventKind.TokenUsage)).IsTrue();
+        await Assert.That(beforeTurn.Any(e => e.DispatchId == dispatch)).IsFalse();
+
+        await fake.CompleteHeldTurnAsync();
+        await start.Finished!.WaitAsync(HangGuard);
+
+        var recorded = new List<AcpEventEnvelope>();
+        var deadline = DateTime.UtcNow + HangGuard;
+        while (recorded.Count == 0 && DateTime.UtcNow < deadline) {
+            recorded.AddRange(DrainAvailable(runtime).Where(e => e.Kind == AcpEventKind.UserMessage && e.DispatchId == dispatch));
+            if (recorded.Count == 0) await Task.Delay(10);
+        }
+
+        await Assert.That(recorded.Select(e => e.Text ?? "")).IsEquivalentTo(["/compact"]);
+        await Assert.That(fake.ReceivedMethods).Contains("thread/compact/start");
 
         await runtime.DisposeAsync();
     }

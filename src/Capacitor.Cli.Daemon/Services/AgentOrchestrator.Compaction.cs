@@ -4,9 +4,9 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 internal partial class AgentOrchestrator {
-    /// <summary>How long a compaction whose end the daemon never hears holds off the next one. A terminal Codex reports
-    /// no end at all, and a large Claude context takes a minute or two to compact.</summary>
-    internal static readonly TimeSpan CompactionHold = TimeSpan.FromMinutes(5);
+    /// <summary>How long a terminal compaction, whose end the daemon cannot tell, holds off the next one once typed: a
+    /// large Claude context takes a minute or two to compact, and the page waits as long for a reading.</summary>
+    internal static readonly TimeSpan CompactionHold = TimeSpan.FromMinutes(2);
 
     /// <summary>A server's request to compact an agent's context, answered like a dispatched input: acknowledged once
     /// the runtime has it, or rejected with the reason. It is refused while a question, permission prompt or terminal

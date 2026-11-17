@@ -113,13 +113,20 @@ internal sealed class CodexTurnInputDispatcher {
     }
 
     /// <summary>Fed from the <c>turn/started</c> notification: names the turn a compaction runs as, which its request's
-    /// response does not.</summary>
-    public void OnTurnStarted(string? turnId) {
-        if (turnId is null) return;
+    /// response does not. True when this is that turn.</summary>
+    public bool OnTurnStarted(string? turnId) {
+        if (turnId is null) return false;
         lock (_gate) {
-            if (_pending is Pending.Compact) _compactionTurnId ??= turnId;
-            else if (_lifecycle == Lifecycle.Compacting) _activeTurnId ??= turnId;
+            if (_pending is Pending.Compact && _compactionTurnId is null) {
+                _compactionTurnId = turnId;
+                return true;
+            }
+            if (_lifecycle == Lifecycle.Compacting && _activeTurnId is null) {
+                _activeTurnId = turnId;
+                return true;
+            }
         }
+        return false;
     }
 
     /// <summary>Completes when the dispatcher is fully settled — no turn active, nothing pending, queue

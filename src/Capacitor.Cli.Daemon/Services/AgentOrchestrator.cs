@@ -1294,10 +1294,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// The bridge's attributed notice that a hosted agent's session started. An id the daemon does
     /// not hold (torn down since the hook fired) is dropped.
     void HandleSessionStart(string agentId) {
-        if (!_agents.TryGetValue(agentId, out var agent)) return;
-
-        agent.Compaction?.NoteSessionStarted();
-        NoteSessionStarted(agent);
+        if (_agents.TryGetValue(agentId, out var agent)) NoteSessionStarted(agent);
     }
 
     void NoteSessionStarted(AgentInstance agent) {

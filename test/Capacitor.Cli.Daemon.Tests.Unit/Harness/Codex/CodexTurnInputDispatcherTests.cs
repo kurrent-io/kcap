@@ -28,7 +28,7 @@ public class CodexTurnInputDispatcherTests {
 
         compact.Accepted();
         await written.WaitAsync(Guard);
-        d.OnTurnStarted("compact-turn");
+        await Assert.That(d.OnTurnStarted("compact-turn")).IsTrue();
 
         var ack = d.EnqueueAsync("after");
         await Assert.That(sink.StartCount + sink.SteerCount).IsEqualTo(0);
@@ -55,6 +55,7 @@ public class CodexTurnInputDispatcherTests {
         var (written, _) = d.EnqueueCompaction();
         await Assert.That(sink.CompactCount).IsEqualTo(0);
         await Assert.That(sink.SteerCount).IsEqualTo(0);
+        await Assert.That(d.OnTurnStarted("turn-1")).IsFalse();
 
         d.OnTurnCompleted("turn-1");
         (await sink.NextCompact()).Accepted();
