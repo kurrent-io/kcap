@@ -728,7 +728,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         await Assert.That(throwingFactory.LastWorktreePath).IsNotNull();
         // ...under the repo's .capacitor/worktrees...
         await Assert.That(throwingFactory.LastWorktreePath!)
-            .StartsWith(Path.Combine(repoPath, ".capacitor", "worktrees"));
+            .StartsWith(Path.Combine(BorrowAuthorizer.Canonicalize(repoPath), ".capacitor", "worktrees"));
         // ...and the failed-launch cleanup removed it (owned behaviour unchanged).
         await Assert.That(Directory.Exists(throwingFactory.LastWorktreePath!)).IsFalse();
 
