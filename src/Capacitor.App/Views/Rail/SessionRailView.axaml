@@ -62,7 +62,7 @@
             <Setter Property="Margin" Value="0,2,0,0" />
         </Style>
         <Style Selector="Border.railGroup.workItem.expanded">
-            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="Background" Value="{StaticResource KcapRowHoverBrush}" />
         </Style>
         <Style Selector="Border.railGroup.workItem Button#RailWorkItemHeader">
             <Setter Property="Margin" Value="0" />
@@ -89,7 +89,7 @@
         <Style Selector="Button#RailWorkItemToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button#RailWorkItemToggle:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
         </Style>
-        <Style Selector="Button#RailWorkItemHeader:pointerover Button#RailWorkItemToggle, Button#RailWorkItemHeader:focus-visible Button#RailWorkItemToggle, Button#RailWorkItemToggle:focus-visible">
+        <Style Selector="Border.railGroup.workItem.expanded Button#RailWorkItemToggle, Button#RailWorkItemHeader:pointerover Button#RailWorkItemToggle, Button#RailWorkItemHeader:focus-visible Button#RailWorkItemToggle, Button#RailWorkItemToggle:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Panel#RailWorkItemRing">
