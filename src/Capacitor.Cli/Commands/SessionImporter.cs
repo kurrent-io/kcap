@@ -106,7 +106,7 @@ static class SessionImporter {
                     // Send agent lifecycle: start → transcript → stop
                     agentTypes.TryGetValue(agentId, out var agentType);
                     await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                        agentPath, cwd, transcriptPath, progress, time);
+                        agentPath, cwd, transcriptPath, progress, time, stopAtLoss);
                     sentAgents.Add(agentId);
                     agentIds.Add(agentId);
                 }
@@ -134,7 +134,7 @@ static class SessionImporter {
             if (!sentAgents.Contains(agentId)) {
                 agentTypes.TryGetValue(agentId, out var agentType);
                 await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                    agentPath, cwd, transcriptPath, progress, time);
+                    agentPath, cwd, transcriptPath, progress, time, stopAtLoss);
                 sentAgents.Add(agentId);
                 agentIds.Add(agentId);
             }
@@ -506,7 +506,8 @@ static class SessionImporter {
             string                     cwd,
             string                     sessionTranscriptPath,
             IProgress<ImportProgress>? progress,
-            TimeProvider               time
+            TimeProvider               time,
+            bool                       stopAtLoss
         ) {
         var resolvedAgentType = agentType ?? "task";
 
@@ -530,7 +531,7 @@ static class SessionImporter {
 
         progress?.Report(new SubagentStarted(agentId));
         var agentLines = await SendTranscriptBatches(
-            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress);
+            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress, stopAtLoss: stopAtLoss);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
         var agentStopHook = new JsonObject {

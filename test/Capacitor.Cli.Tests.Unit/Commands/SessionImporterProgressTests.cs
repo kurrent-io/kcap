@@ -281,6 +281,45 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(events.OfType<BatchDropped>().Count()).IsEqualTo(stopAtLoss ? 1 : 2);
     }
 
+    /// <summary>A one-session import stops at a refused subagent batch too: no later agent batch moves its watermark past
+    /// the lost lines, and no subagent-stop marks the agent finished.</summary>
+    [Test]
+    public async Task ImportSessionAsync_stops_at_a_refused_subagent_batch_when_asked() {
+        var agentId = Guid.NewGuid().ToString("N");
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .AtPriority(10)
+            .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithBody(b => b is not null && b.Contains($"\"agent_id\":\"{agentId}\"")))
+            .AtPriority(1)
+            .RespondWith(Response.Create().WithStatusCode(413));
+        _server.Given(Request.Create().WithPath("/hooks/subagent-start").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/subagent-stop").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp = new TempDir();
+        var sessionName = Guid.NewGuid().ToString("N");
+        var sessionPath = tmp.PathTo($"{sessionName}.jsonl");
+        var agentPath   = tmp.CreateDir(sessionName, "subagents").PathTo($"agent-{agentId}.jsonl");
+
+        await File.WriteAllLinesAsync(sessionPath, [
+            """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"before"}}""",
+            $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""",
+        ]);
+        await File.WriteAllLinesAsync(agentPath, Enumerable.Range(0, 150).Select(_ => LineOf(10)));
+
+        var events = new List<ImportProgress>();
+        using var client = new HttpClient();
+        Task Import() => SessionImporter.ImportSessionAsync(
+            client, _server.Url!, sessionPath, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, new SyncProgress<ImportProgress>(events.Add), stopAtLoss: true);
+
+        await Assert.That(Import).Throws<SessionImporter.TranscriptDeliveryAbortedException>();
+
+        await Assert.That(events.OfType<BatchDropped>().Count(d => d.AgentId == agentId)).IsEqualTo(1);
+        await Assert.That(_server.LogEntries.Count(e => e.RequestMessage.Path == "/hooks/subagent-stop")).IsEqualTo(0);
+    }
+
     /// <summary>A skipped line is named as an editor counts it, like the other import warnings, while the record keeps
     /// the wire index.</summary>
     [Test]
