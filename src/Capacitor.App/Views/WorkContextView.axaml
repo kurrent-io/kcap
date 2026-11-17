@@ -224,14 +224,27 @@
             </Panel>
         </DataTemplate>
         <DataTemplate x:Key="PartItem" x:DataType="vm:WorkContextPartViewModel">
-            <StackPanel Orientation="Horizontal" Spacing="9" ToolTip.Tip="{Binding MarkTip}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9" Background="Transparent" ToolTip.Tip="{Binding MarkTip}">
                 <Panel Width="12" Height="16" VerticalAlignment="Center">
-                    <ContentControl Content="{Binding Mark}" ContentTemplate="{StaticResource PartMark}" VerticalAlignment="Center" />
+                    <ContentControl Content="{Binding Mark}" ContentTemplate="{StaticResource PartMark}" VerticalAlignment="Center"
+                                    IsVisible="{Binding !HasStatus}" />
+                    <views:AppIcon Kind="{Binding StatusIcon}" Size="12" VerticalAlignment="Center" IsVisible="{Binding HasStatus}"
+                                   Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                 </Panel>
-                <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" TextWrapping="Wrap"
+                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" LineHeight="16" TextWrapping="Wrap"
                            VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}"
                            Classes.settled="{Binding IsSettled}" />
-            </StackPanel>
+                <Border Grid.Column="2" Background="{StaticResource KcapSelectionBrush}" CornerRadius="4" Padding="6,1"
+                        VerticalAlignment="Center">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="HasStatus" />
+                            <Binding Path="IsThisSession" />
+                        </MultiBinding>
+                    </Border.IsVisible>
+                    <TextBlock Text="this session" FontSize="11" LineHeight="16" Foreground="{StaticResource KcapTextBrush}" />
+                </Border>
+            </Grid>
         </DataTemplate>
         <DataTemplate x:Key="RunItem" x:DataType="vm:RunRow">
             <!-- Only a subagent whose id is known opens. Any other row is disabled, so it is neither a tab stop nor
@@ -330,6 +343,8 @@
                                 <TextBlock x:Name="OverviewText" Text="{Binding Overview}" FontSize="13" LineHeight="19"
                                            Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding Overview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock x:Name="PartsProgressText" Text="{Binding PartsProgress}" FontSize="12"
+                                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsPartsProgress}" />
                                 <TextBlock x:Name="PartOfLine" Text="{Binding PartOfTitle, StringFormat='Part of {0}'}" FontSize="12"
                                            Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding PartOfTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -549,6 +564,21 @@
                         </Border>
                     </StackPanel>
                 </StackPanel>
+
+                <Border x:Name="WaitingOnThisPartBlock" Margin="0,18,0,0" Background="{StaticResource KcapWarningDimBrush}"
+                        CornerRadius="7" Padding="12,10" IsVisible="{Binding HasWaitingOnThisPart}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="WAITING ON THIS PART" Classes="cardEyebrow" Foreground="{StaticResource KcapWarningBrush}" />
+                        <ItemsControl ItemsSource="{Binding WaitingOnThisPart}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Text="{Binding}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                               Foreground="{StaticResource KcapWarningBrush}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
 
                 <StackPanel x:Name="IssueSection" Margin="0,18,0,0" IsVisible="{Binding HasSeparateIssue}">
                     <Button x:Name="IssueHeader" Classes="sectionHeader"

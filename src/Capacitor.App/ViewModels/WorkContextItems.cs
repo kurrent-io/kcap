@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reactive;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -9,18 +10,23 @@ namespace Capacitor.App.ViewModels;
 public enum WorkContextPartMark { Settled, ThisSession, Unknown }
 
 /// One declared part: settled by the server's milestone, else the one this session is attached
-/// to, else unknown.
-public sealed class WorkContextPartViewModel(string title, WorkContextPartMark mark) {
+/// to, else unknown. A work items v2 server also gives it a <see cref="Status"/>, which the row shows in place of the mark.
+public sealed class WorkContextPartViewModel(string title, WorkContextPartMark mark, WorkStatus? status = null) {
     public string Title { get; } = title;
     public WorkContextPartMark Mark { get; } = mark;
+    public WorkStatus? Status { get; } = status;
+    public bool HasStatus => Status is not null;
+    public LucideIconKind StatusIcon => (Status ?? WorkStatus.Open).Icon();
+    public bool IsDone => Status is { } s ? s == WorkStatus.Done : IsSettled;
     public bool IsSettled => Mark == WorkContextPartMark.Settled;
     public bool IsThisSession => Mark == WorkContextPartMark.ThisSession;
     /// Purple is location (this session), green is settled — tip names the mark so colour is not alone.
-    public string MarkTip => Mark switch {
-        WorkContextPartMark.Settled => "Completed — settled on this work item.",
-        WorkContextPartMark.ThisSession => "In progress in this session.",
-        _ => "Not yet settled.",
-    };
+    public string MarkTip => Status is { } status ? (IsThisSession ? $"{status.Label()}, this session's part." : status.Label())
+        : Mark switch {
+            WorkContextPartMark.Settled => "Completed — settled on this work item.",
+            WorkContextPartMark.ThisSession => "In progress in this session.",
+            _ => "Not yet settled.",
+        };
 }
 
 /// A pull-request or issue card. The URL is server-returned, so it crosses the same trust boundary

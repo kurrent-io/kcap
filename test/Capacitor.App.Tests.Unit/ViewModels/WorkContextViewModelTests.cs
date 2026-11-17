@@ -1076,6 +1076,72 @@ public class WorkContextViewModelTests {
         });
     }
 
+    static WorkContextPartDto PartStatus(string id, string title, string status, string? waitsOn = null, params string[] sessions) =>
+        new() {
+            WorkItemId = id, Title = title, Status = status, SessionIds = [.. sessions],
+            WaitsOn = waitsOn is null ? [] : [new WorkItemRefDto { WorkItemId = waitsOn, Title = "" }],
+        };
+
+    static WorkContextRead PartsRead() =>
+        ReadyWith(Row("p3", "part"), Item(id: "p3", title: "List every decision waiting on you", enriched: null, key: null),
+            Topology() with { PartOf = new WorkItemRefDto { WorkItemId = "w1", Title = "Approve requests from your phone" } }) with {
+            Parts = new WorkContextPartsDto {
+                WorkItem = new WorkItemRefDto { WorkItemId = "w1", Title = "Approve requests from your phone" },
+                Parts = [
+                    PartStatus("p1", "Push approval notifications", "done"),
+                    PartStatus("p2", "Send a deny reason back to the agent", "in_progress"),
+                    PartStatus("p3", "List every decision waiting on you", "in_review", null, SessionB, SessionA),
+                    PartStatus("p4", "Approve from the lock screen", "blocked", waitsOn: "p3"),
+                    PartStatus("p5", "Manage allow rules from any client", "open"),
+                    PartStatus("p6", "Show approvals in the watch app", "done"),
+                ],
+            },
+        };
+
+    /// A work items v2 server's parts read makes the card the work item's: its parts flat with their statuses, the
+    /// session's own part marked, and the parts waiting on it in place of the topology's part-of and blockers.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_parts_read_lists_parts_flat_marks_this_sessions_part_and_names_the_parts_waiting_on_it() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Source.Enqueue(PartsRead());
+
+            await h.PushAsync(Dto());
+
+            await Assert.That(h.Vm.Title).IsEqualTo("Approve requests from your phone");
+            await Assert.That(h.Vm.PartsProgress).IsEqualTo("2 of 6 parts done");
+            await Assert.That(h.Vm.ShowsPartsProgress).IsTrue();
+            await Assert.That(h.Vm.Parts.Select(p => p.Status)).IsEquivalentTo(new WorkStatus?[] {
+                WorkStatus.Done, WorkStatus.InProgress, WorkStatus.InReview, WorkStatus.Blocked, WorkStatus.Open, WorkStatus.Done,
+            }, CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Parts.Where(p => p.IsThisSession).Select(p => p.Title))
+                .IsEquivalentTo(new[] { "List every decision waiting on you" });
+            await Assert.That(h.Vm.WaitingOnThisPart).IsEquivalentTo(new[] { "Approve from the lock screen" });
+            await Assert.That(h.Vm.PartOfTitle).IsNull();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_failed_parts_read_keeps_the_last_parts_stale() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Source.Enqueue(PartsRead());
+            await h.PushAsync(Dto());
+            h.Source.Enqueue(PartsRead() with { Parts = null, PartsFailed = true });
+
+            await h.TickAsync();
+
+            await Assert.That(h.Vm.IsStale).IsTrue();
+            await Assert.That(h.Vm.Title).IsEqualTo("Approve requests from your phone");
+            await Assert.That(h.Vm.Parts.Count).IsEqualTo(6);
+            await Assert.That(h.Vm.WaitingOnThisPart).IsEquivalentTo(new[] { "Approve from the lock screen" });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_settled_part_this_session_is_attached_to_counts_as_settled_and_one_part_reads_singular() {

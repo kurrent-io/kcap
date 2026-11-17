@@ -9,6 +9,7 @@ public class WorkContextReaderTests {
         public WorkContextOutcome<List<SessionWorkItemAssignmentDto>> Assignments = new(200, [], null);
         public WorkContextOutcome<WorkItemDto> Item = new(200, new WorkItemDto { WorkItemId = "w1", Title = "T" }, null);
         public WorkContextOutcome<WorkItemTopologyDto> Topology = new(200, new WorkItemTopologyDto(), null);
+        public WorkContextOutcome<WorkContextPartsDto> Parts = new(404, null, null);
         public WorkContextOutcome<SessionSummaryDto> Summary = new(200, new SessionSummaryDto { SessionId = "s1" }, null);
         public WorkContextOutcome<ViewerIdentityDto> Viewer = new(200, new ViewerIdentityDto { UserId = "user_a", AvatarUrl = "https://example.test/a.png" }, null);
         public readonly List<string> Calls = [];
@@ -31,6 +32,11 @@ public class WorkContextReaderTests {
         public Task<WorkContextOutcome<WorkItemTopologyDto>> GetTopologyAsync(string workItemId, CancellationToken ct) {
             Calls.Add($"topology:{workItemId}");
             return Task.FromResult(Topology);
+        }
+
+        public Task<WorkContextOutcome<WorkContextPartsDto>> GetPartsAsync(string workItemId, CancellationToken ct) {
+            Calls.Add($"parts:{workItemId}");
+            return Task.FromResult(Parts);
         }
 
         public async Task<WorkContextOutcome<SessionSummaryDto>> GetSessionSummaryAsync(string sessionId, CancellationToken ct) {
@@ -70,6 +76,23 @@ public class WorkContextReaderTests {
         await Assert.That(read.SummaryFailed).IsFalse();
         await Assert.That(channel.Calls).Contains("item:w1");
         await Assert.That(channel.Calls).Contains("topology:w1");
+    }
+
+    /// A 404 is a server without work items version 2, so the read stays ready without parts and is not marked failed.
+    [Test]
+    [Arguments(200, true, false)]
+    [Arguments(404, false, false)]
+    [Arguments(503, false, true)]
+    public async Task The_parts_read_carries_parts_and_fails_only_on_a_status_other_than_404(int status, bool hasParts, bool failed) {
+        var body = status == 200 ? new WorkContextPartsDto { WorkItem = new WorkItemRefDto { WorkItemId = "w0", Title = "Root" } } : null;
+        var channel = new ScriptedChannel { Assignments = new(200, [Row("w1", primary: true)], null), Parts = new(status, body, null) };
+
+        var read = await Read(channel);
+
+        await Assert.That(read.Kind).IsEqualTo(WorkContextReadKind.Ready);
+        await Assert.That(channel.Calls).Contains("parts:w1");
+        await Assert.That(read.Parts is not null).IsEqualTo(hasParts);
+        await Assert.That(read.PartsFailed).IsEqualTo(failed);
     }
 
     [Test]

@@ -39,6 +39,26 @@ public sealed record WorkItemTopologyDto {
     [JsonPropertyName("item")]       public WorkItemRefDto?               Item      { get; init; }
 }
 
+/// The subset of <c>GET /api/work-items/{id}/parts</c> the sidebar reads. Only a work items v2 server maps the route,
+/// and a part's id is served its work item. <see cref="WorkContextPartDto.SessionIds"/> holds only sessions the viewer can see.
+public sealed record WorkContextPartsDto {
+    List<WorkContextPartDto> _parts = [];
+
+    [JsonPropertyName("work_item")] public required WorkItemRefDto      WorkItem { get; init; }
+    [JsonPropertyName("parts")]     public List<WorkContextPartDto>     Parts    { get => _parts; init => _parts = value ?? []; }
+}
+
+public sealed record WorkContextPartDto {
+    List<WorkItemRefDto> _waitsOn = [];
+    List<string> _sessionIds = [];
+
+    [JsonPropertyName("work_item_id")] public required string       WorkItemId { get; init; }
+    [JsonPropertyName("title")]        public required string       Title      { get; init; }
+    [JsonPropertyName("status")]       public string                Status     { get; init; } = "";
+    [JsonPropertyName("waits_on")]     public List<WorkItemRefDto>  WaitsOn    { get => _waitsOn; init => _waitsOn = value ?? []; }
+    [JsonPropertyName("session_ids")]  public List<string>          SessionIds { get => _sessionIds; init => _sessionIds = value ?? []; }
+}
+
 public sealed record SessionRepositoryDto {
     [JsonPropertyName("repo_hash")]  public required string RepoHash  { get; init; }
     [JsonPropertyName("owner")]      public required string Owner     { get; init; }
