@@ -664,12 +664,20 @@ static partial class ProcessHelpers {
             Func<int, (int ppid, IReadOnlyList<string> names)?> lookup,
             int                                                 maxHops = 16
         ) {
-        int? found = null;
-        var  pid   = startPid;
+        int?    found   = null;
+        string? edition = null;
+        var     pid     = startPid;
 
         for (var hop = 0; hop < maxHops && pid > 1; hop++) {
             if (lookup(pid) is not { } info) break;
-            if (info.names.Any(IsVsCodeProcessName)) found = pid;
+
+            var stem = info.names.Select(VsCodeEdition).FirstOrDefault(s => s is not null);
+
+            // The VS Code this hook runs under ends where its own processes do: one launched from another's terminal
+            // has that one above it, past a shell.
+            if (found is not null && !string.Equals(stem, edition, StringComparison.OrdinalIgnoreCase)) break;
+
+            if (stem is not null) (found, edition) = (pid, stem);
 
             pid = info.ppid;
         }
@@ -677,11 +685,11 @@ static partial class ProcessHelpers {
         return found;
     }
 
-    static bool IsVsCodeProcessName(string name) {
+    static string? VsCodeEdition(string name) {
         var basename = name[(name.LastIndexOfAny(['/', '\\']) + 1)..];
         var stem     = basename.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? basename[..^4] : basename;
 
-        return VsCodeProcessNames.Contains(stem, StringComparer.OrdinalIgnoreCase);
+        return VsCodeProcessNames.FirstOrDefault(n => n.Equals(stem, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

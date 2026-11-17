@@ -66,6 +66,9 @@ public class CodingAgentPidResolverTests {
         yield return () => ([(90, 50, "sh"), (50, 20, "Code Helper (Plugin)"), (20, 1, "/Applications/Visual Studio Code.app/Contents/MacOS/Code")], 20);
         // Linux: every process is code.
         yield return () => ([(90, 50, "sh"), (50, 20, "code"), (20, 10, "/usr/share/code/code"), (10, 1, "systemd")], 20);
+        // A VS Code started from another one's terminal: the session belongs to the inner one, whichever edition is outside.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, "Code - Insiders.exe"), (20, 15, "Code - Insiders.exe"), (15, 12, "pwsh.exe"), (12, 10, "Code.exe"), (10, 5, "Code.exe"), (5, 1, "explorer.exe")], 20);
+        yield return () => ([(90, 50, "sh"), (50, 20, "Code Helper (Plugin)"), (20, 15, "Code"), (15, 12, "-zsh"), (12, 10, "Code Helper"), (10, 1, "Code")], 20);
         // A remote extension host, or a chain that cannot be read past the shell.
         yield return () => ([(90, 50, "sh"), (50, 20, "node"), (20, 1, "sshd")], null);
         yield return () => ([(90, 50, "powershell.exe")], null);
