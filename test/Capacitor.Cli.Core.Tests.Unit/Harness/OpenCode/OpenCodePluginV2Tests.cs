@@ -74,14 +74,15 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).DoesNotContain("v2.children.add(");
     }
 
-    /// <summary>A start whose kcap did not exit cleanly (missing from PATH, crashed, hung) leaves the
-    /// session unrecorded, so it must not read as started: a later event retries it.</summary>
+    /// <summary>A start whose kcap finished badly or never launched leaves the session unrecorded, so a
+    /// later event retries it. A timed-out one may still be running and posting, so it is not retried:
+    /// that would overlap two starts.</summary>
     [Test]
-    public async Task A_failed_start_is_retried() {
+    public async Task A_failed_start_is_retried_but_a_timed_out_one_is_not() {
         var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
 
-        await Assert.That(Content).Contains("ok: res?.exitCode === 0,");
-        await Assert.That(gate).Contains("if (!result.ok) {");
+        await Assert.That(Content).Contains("failed: res !== null && res?.exitCode !== 0,");
+        await Assert.That(gate).Contains("if (result.failed) {");
         await Assert.That(gate).Contains("v2.started.delete(sid)");
     }
 

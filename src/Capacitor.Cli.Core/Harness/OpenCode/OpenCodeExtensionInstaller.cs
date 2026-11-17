@@ -76,9 +76,10 @@ public static class OpenCodeExtensionInstaller {
         // `.quiet()` keeps the child's output off OpenCode's own stdio while still handing it back:
         // session-start uses stdout as a DATA channel for the team-memory fragment. Bounded so a hung
         // kcap can never stall OpenCode.
-        // `ok` is false when kcap did not run to a zero exit in time (missing from PATH, crashed, hung).
+        // `failed` means kcap finished without a zero exit, or never launched (missing from PATH). A
+        // timeout is not a failure: the race stops waiting, not the process, which may still post.
         function kcapCommand($: any) {
-          return async (args: string[]): Promise<{ ok: boolean; out: string }> => {
+          return async (args: string[]): Promise<{ failed: boolean; out: string }> => {
             try {
               const res: any = await Promise.race([
                 $`kcap ${args}`.quiet().nothrow(),
@@ -86,11 +87,11 @@ public static class OpenCodeExtensionInstaller {
               ])
               const out = res?.stdout
               return {
-                ok: res?.exitCode === 0,
+                failed: res !== null && res?.exitCode !== 0,
                 out: typeof out === "string" ? out : out ? out.toString() : "",
               }
             } catch {
-              return { ok: false, out: "" }
+              return { failed: true, out: "" }
             }
           }
         }
@@ -680,7 +681,7 @@ public static class OpenCodeExtensionInstaller {
               if (where) args.push("--cwd", String(where))
               if (ctx.app?.version) args.push("--version", String(ctx.app.version))
               const result = await runKcap(args)
-              if (!result.ok) {
+              if (result.failed) {
                 // Retried by a later event, like a failed lookup: the session must not read as recorded.
                 v2.started.delete(sid)
                 v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
