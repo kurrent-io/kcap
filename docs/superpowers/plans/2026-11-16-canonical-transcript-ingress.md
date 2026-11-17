@@ -27,7 +27,7 @@
 
 ## Review Focus
 
-1. A transcript shorter than the resume line, or rewritten since (Claude rewrites on compaction): the replay is incomplete, so the producer sends raw lines; it does not throw or stall.
+1. A transcript missing or shorter than the resume line: the replay is incomplete, so the producer sends raw lines; it does not throw or stall. A rewrite that keeps the file at least that long is not detected, as on the raw path, which resumes by line number alone.
 2. One line larger than the chunk limit (a pasted image): it still goes out, as a batch of one line.
 3. The server refuses a chunk as unsupported in the middle of a split read: that chunk and the rest go raw, with the same observed commits and `more_follows`.
 4. A subagent transcript (`agentId` set, sidechain records): no title sightings and no turn end are sent.
@@ -351,7 +351,7 @@ public sealed class IngestCapability(HttpClient client, string baseUrl, TimeProv
 public sealed class CanonicalRoute {
     public static CanonicalRoute? For(string? vendor, string sessionId, string? agentId, bool serverSupports);  // null → send raw
     public bool Active { get; }                                           // false after FallBack
-    public Task ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct);  // raw lines, shared read, missing or short file → stops quietly
+    public Task<bool> ReplayAsync(string transcriptPath, int throughLineExclusive, CancellationToken ct);  // raw lines, shared read; false when a line before the bound was not replayed
     public CanonicalTranscriptBatch Encode(TranscriptBatch raw, DateTimeOffset receivedAt);
     public void Acknowledged();
     public void FallBack();
