@@ -29,6 +29,8 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill --dry-run")]
     [Arguments("gh pr create --fill || gh pr view --json url --jq .url")]
     [Arguments("gh pr view --json url --jq .url || gh pr create --fill")]
+    [Arguments("gh pr view --json url --jq .url || (cd repo; gh pr create --fill)")]
+    [Arguments("gh pr view --json url --jq .url || { cd repo; gh pr create --fill; }")]
     [Arguments("gh pr view --json url --jq .url || bash -c 'gh pr create --fill'")]
     [Arguments("gh pr view --json url --jq .url || url=$(gh pr create --fill) && echo \"$url\"")]
     [Arguments("gh pr create --fill; gh pr view --json url --jq .url")]

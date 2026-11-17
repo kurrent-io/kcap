@@ -92,13 +92,17 @@ public static partial class PrCreateCommand {
     }
 
     /// <summary>False when an <c>||</c> since the last <c>;</c> or newline may skip it: after
-    /// <c>gh pr view … || gh pr create</c>, a successful run printing a URL is the view's.</summary>
+    /// <c>gh pr view … || gh pr create</c>, a successful run printing a URL is the view's. The split flattens
+    /// groups, so with one in play a <c>;</c> may sit inside a group an outer <c>||</c> skips, and any
+    /// <c>||</c> before it counts.</summary>
     static bool RunsUnconditionally(List<ShellCommand> commands, int k) {
+        var grouped = commands.Take(k + 1).Any(c => c.Joiner.AsSpan().IndexOfAny('(', ')') >= 0 || c.Words is ["{", ..] or ["}", ..]);
+
         for (var j = k; j > 0; j--) {
-            switch (commands[j].Joiner) {
-                case "||":         return false;
-                case ";" or "\n": return true;
-            }
+            var joiner = commands[j].Joiner;
+
+            if (joiner.Contains("||", StringComparison.Ordinal)) return false;
+            if (!grouped && joiner.AsSpan().IndexOfAny(';', '\n') >= 0) return true;
         }
 
         return true;
@@ -263,7 +267,7 @@ public static partial class PrCreateCommand {
                 commands.Add(current);
                 current = new ShellCommand(joiner);
             } else {
-                current.Joiner = joiner;
+                current.Joiner += joiner;
             }
         }
     }
@@ -322,7 +326,8 @@ public static partial class PrCreateCommand {
         return end;
     }
 
-    /// <param name="joiner">The operator that ran it after the command before: <c>&amp;&amp;</c>, <c>||</c>, <c>;</c>, a newline.</param>
+    /// <param name="joiner">The operators between it and the command before, in order: <c>&amp;&amp;</c>, <c>||</c>, <c>;</c>,
+    /// a newline, a paren.</param>
     sealed class ShellCommand(string joiner) {
         public List<string> Words   { get; } = [];
         public List<string> Scripts { get; } = [];
