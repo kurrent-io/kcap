@@ -649,6 +649,41 @@ static partial class ProcessHelpers {
         return null;
     }
 
+    /// <summary>VS Code above this process, or null: see <see cref="ResolveVsCodeHostPid"/>.</summary>
+    public static int? GetVsCodeHostPid() => ResolveVsCodeHostPid(Environment.ProcessId, GetProcessInfo);
+
+    static readonly string[] VsCodeProcessNames = ["Code", "Code - Insiders", "code-insiders"];
+
+    /// <summary>
+    /// The topmost VS Code process on the chain from <paramref name="startPid"/>, or null. A VS Code Local chat lives as
+    /// long as VS Code, and its hooks run under a window's extension host, which a reload or a closed window ends. On
+    /// Windows and Linux that host shares the main process's name, so only the topmost match is VS Code itself.
+    /// </summary>
+    internal static int? ResolveVsCodeHostPid(
+            int                                                 startPid,
+            Func<int, (int ppid, IReadOnlyList<string> names)?> lookup,
+            int                                                 maxHops = 16
+        ) {
+        int? found = null;
+        var  pid   = startPid;
+
+        for (var hop = 0; hop < maxHops && pid > 1; hop++) {
+            if (lookup(pid) is not { } info) break;
+            if (info.names.Any(IsVsCodeProcessName)) found = pid;
+
+            pid = info.ppid;
+        }
+
+        return found;
+    }
+
+    static bool IsVsCodeProcessName(string name) {
+        var basename = name[(name.LastIndexOfAny(['/', '\\']) + 1)..];
+        var stem     = basename.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? basename[..^4] : basename;
+
+        return VsCodeProcessNames.Contains(stem, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Returns <c>(ppid, names)</c> for an arbitrary live PID, or null if the process
     /// can't be inspected (gone, access denied, or unsupported platform). Feeds the
