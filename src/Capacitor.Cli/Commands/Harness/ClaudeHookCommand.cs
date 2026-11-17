@@ -545,7 +545,10 @@ public sealed class ClaudeHookCommand(
         if (created is null) {
             // The degraded arm bypasses HandleCore, so its disabled/exclusion gates must run here.
             var activeProfile = profiles.Effective;
-            if (await ShouldSuppressCaptureAsync(sessionId, body, command, activeProfile, budget)) return 0;
+            if (await ShouldSuppressCaptureAsync(sessionId, body, command, activeProfile, budget)) {
+                if (command == "session-start" && sessionId is not null) DisabledSessions.Exclude(sessionId, config);
+                return 0;
+            }
 
             // Auth/client creation exceeded the hook budget (hung /auth/config or refresh during an
             // outage). The watcher and the spool need no client — start capture and persist the
@@ -716,13 +719,26 @@ public sealed class ClaudeHookCommand(
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            // A person's marker stays for good, so it withholds the spans whether or not this discard takes them.
-            if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId);
+            if (command == "session-end") DiscardAtEnd(canonicalSessionId);
             return true;
         }
 
         return command is not null
             && await IsSessionExcludedAsync(activeProfile, body, budget);
+    }
+
+    void ExcludeRun(string body) {
+        try {
+            if (JsonNode.Parse(body)?["session_id"]?.GetValue<string>() is { } sessionId) DisabledSessions.Exclude(sessionId, config);
+        } catch {
+            // No id to mark: later hooks re-run the scope probe instead.
+        }
+    }
+
+    // An exclusion withholds the spans until they are gone, so it lifts only once the discard took them; a person's
+    // marker stays whatever the discard does.
+    void DiscardAtEnd(string sessionId) {
+        if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
     }
 
     internal async Task<bool> IsSessionExcludedAsync(Profile? profile, string body, HookBudget budget) {
@@ -837,7 +853,7 @@ public sealed class ClaudeHookCommand(
             var disabledSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
-                if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId);
+                if (command == "session-end") DiscardAtEnd(disabledSessionId);
 
                 return 0;
             }
@@ -906,8 +922,10 @@ public sealed class ClaudeHookCommand(
         // visibility were being ignored.
         var activeProfile = profiles.Effective;
 
-        // Silently exit for excluded repos/paths (see IsSessionExcludedAsync).
+        // Excluded at its start, a session is marked and stays quiet until it ends, wherever its cwd moves; the
+        // marker is all the title prompt reads.
         if (await IsSessionExcludedAsync(activeProfile, body, budget)) {
+            if (command == "session-start") ExcludeRun(body);
             return 0;
         }
         HookTiming.Mark("scope");
