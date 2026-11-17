@@ -26,7 +26,8 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     public Task<int> RunAsync() {
         var repository = new CwdRepository(config, workdir.Path, router, time);
         var server     = new McpServerDescriptor("kcap-workitems", "workitems",
-            InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable)), BuildToolsList());
+            InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable), profiles.Effective?.DisableNextWorkNudge is true),
+            BuildToolsList());
 
         return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
             (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, () => repository.GetHashAsync(client, baseUrl)));
@@ -50,8 +51,10 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         "(reopen_loose_end undoes a mistaken close), or hand the work back with release_loose_end. A claim " +
         "refusal is not permission to dismiss, close, or launch a duplicate.";
 
-    /// <summary>A headless run's answer is its output, so it is not told to present next work.</summary>
-    internal static string InstructionsFor(bool headless) => headless ? DeclarationInstructions : ServerInstructions;
+    /// <summary>A headless run's answer is its output, and <c>disable_nextwork_nudge</c> opts out of
+    /// unprompted next work, so neither is told to present it; asked-for next work still uses get_next_work.</summary>
+    internal static string InstructionsFor(bool headless, bool nextWorkNudgeDisabled = false) =>
+        headless || nextWorkNudgeDisabled ? DeclarationInstructions : ServerInstructions;
 
     internal async Task<string> HandleToolCallAsync(
             JsonNode                 id,

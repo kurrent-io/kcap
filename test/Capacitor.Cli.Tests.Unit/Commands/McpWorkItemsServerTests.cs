@@ -452,6 +452,16 @@ public class McpWorkItemsServerTests {
         await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false)).IsEqualTo(McpWorkItemsServer.ServerInstructions);
     }
 
+    [Test]
+    public async Task Disabling_the_next_work_nudge_drops_the_completion_rule_but_keeps_asked_for_next_work() {
+        var instructions = McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: true);
+
+        await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+        await Assert.That(instructions).Contains("call get_next_work first");
+        await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: false))
+            .IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
     // ── declared breakdown + relations ───────────────────────────────────────
 
     [Test]
