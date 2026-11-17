@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
 using System.Diagnostics;
@@ -533,6 +534,56 @@ public class RecorderHostTests {
         await Assert.That(ended.EndedIdle).IsTrue();
         await Assert.That(ended.SourceEnded).IsTrue();
     }
+
+    /// <summary>The plugin's heartbeat is what says a shared v2 server runs the session, and deleting it on the idle end
+    /// is what tells the plugin to start the session again on its next event.</summary>
+    [Test]
+    public async Task An_opencode_session_with_a_plugin_heartbeat_ends_idle_without_a_turn_and_drops_the_heartbeat() {
+        var source    = OpenCodeSource("ses_idle");
+        var heartbeat = OpenCodeSessionHeartbeat.PathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+        var host = NewHost(watched: false);
+
+        host.TryAdd(source);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the idle end", TimeSpan.FromMinutes(5));
+
+        await Assert.That(_ended.Single().EndedIdle).IsTrue();
+        await Assert.That(File.Exists(heartbeat)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_fresh_plugin_heartbeat_holds_an_opencode_session_open() {
+        var source    = OpenCodeSource("ses_busy");
+        var heartbeat = OpenCodeSessionHeartbeat.PathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+        var host  = NewHost(watched: false);
+        var until = _time.GetUtcNow() + TimeSpan.FromHours(2);
+
+        host.TryAdd(source);
+        await Eventually(() => {
+            WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+
+            return _time.GetUtcNow() >= until && Ticks(source.Key) > 10;
+        }, "two hours of plugin events", TimeSpan.FromMinutes(5));
+
+        await Assert.That(host.ActiveKeys).Contains(source.Key);
+    }
+
+    /// <summary>v1, and a v2 server private to one run, write no heartbeat: their session ends when the process does.</summary>
+    [Test]
+    public async Task An_opencode_session_without_a_plugin_heartbeat_does_not_end_idle() {
+        var source = OpenCodeSource("ses_v1");
+        var host   = NewHost(watched: false);
+        var until  = _time.GetUtcNow() + TimeSpan.FromHours(2);
+
+        host.TryAdd(source);
+        await Eventually(() => _time.GetUtcNow() >= until && Ticks(source.Key) > 10, "two quiet hours", TimeSpan.FromMinutes(5));
+
+        await Assert.That(host.ActiveKeys).Contains(source.Key);
+    }
+
+    RecordingSource OpenCodeSource(string sessionId) =>
+        new(sessionId, null, Tmp.CreateFile($"{sessionId}.jsonl", """{"type":"session_title","title":"Fix the build"}""" + "\n"), "opencode", null);
 
     [Test]
     public async Task The_owner_hears_a_source_lost_its_claim() {

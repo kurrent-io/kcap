@@ -22,7 +22,8 @@ namespace Capacitor.Cli.Commands.Harness;
 /// ensure the watcher is running (vendor=opencode) tailing the JSONL file the
 /// plugin writes. The watcher owns session-end: <c>GetCodingAgentPid("opencode")</c>
 /// passes the opencode pid as <c>--parent-pid</c>, so the watcher POSTs
-/// /hooks/session-end/opencode when opencode exits. The plugin re-fires
+/// /hooks/session-end/opencode when opencode exits, or on idle for a session an OpenCode v2 server shared
+/// across sessions runs (<see cref="Capacitor.Cli.Core.Harness.OpenCode.OpenCodeSessionHeartbeat"/>). The plugin re-fires
 /// session-start cheaply on each session.idle — the server's deterministic
 /// lifecycle id collapses the repeats and <see cref="WatcherManager.EnsureWatcherRunning"/>
 /// is a no-op once live.

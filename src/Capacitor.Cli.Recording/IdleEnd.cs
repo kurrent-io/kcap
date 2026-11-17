@@ -90,6 +90,7 @@ internal static class IdleEnd {
             "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
             "cursor"                          => ResolveCursorIdleCeiling(env("KCAP_CURSOR_IDLE_CEILING_MINUTES")),
             "copilot"                         => ResolveCodexIdleTimeout(env("KCAP_COPILOT_IDLE_MINUTES")),
+            "opencode"                        => ResolveCodexIdleTimeout(env("KCAP_OPENCODE_IDLE_MINUTES")),
             "claude" when !isSessionWatcher   => ResolveClaudeSubagentIdleCeiling(env("KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES")),
             "codex" when !isSessionWatcher    => ResolveCodexSubagentReapCeiling(env("KCAP_CODEX_SUBAGENT_REAP_MINUTES")),
             _                                 => ResolveCodexIdleTimeout(env("KCAP_CODEX_IDLE_MINUTES")),
@@ -132,36 +133,40 @@ internal static class IdleEnd {
         //   copilot           — a SESSION with no end signal only: VS Code Local, which has no
         //                       session-end hook and whose VS Code can run for days, or one whose host was
         //                       not found. A Copilot-harness session with both has the same ceiling-end risk as Claude's session watcher.
+        //   opencode          — a SESSION with no end signal only: one run by an OpenCode v2 server shared
+        //                       across sessions, which outlives them all. v1 and a `--standalone` run's
+        //                       private server exit with the session, so their watchdog fires.
         var eligible = vendor switch {
-            "codex" or "cursor" => true,
-            "antigravity"       => isSessionWatcher,
-            "claude"            => !isSessionWatcher,
-            "copilot"           => isSessionWatcher && noEndSignal,
-            _                   => false,
+            "codex" or "cursor"     => true,
+            "antigravity"           => isSessionWatcher,
+            "claude"                => !isSessionWatcher,
+            "copilot" or "opencode" => isSessionWatcher && noEndSignal,
+            _                       => false,
         };
 
         if (!eligible) return false;
 
         // A child watcher never buffers, so requiring ThresholdReached would make it permanently
         // ineligible. A session watcher keeps the gate: a session nobody has taken a turn in has not
-        // gone idle, and its end comes from the parent's exit instead. A Local session follows VS Code, which
-        // can run for days, so idling ends it too, with or without a turn.
+        // gone idle, and its end comes from the parent's exit instead. A session with no end signal follows a
+        // host that can run for days, so idling ends it too, with or without a turn.
         if (isSessionWatcher && !thresholdReached && !noEndSignal) return false;
 
         return now - lastActivityAt - disconnectedSinceActivity > idleTimeout && !toolInFlight;
     }
 
     /// <summary>
-    /// Cursor's idle clock is the later of transcript activity and the hook heartbeat, since every Cursor
-    /// hook touches the heartbeat whether or not the transcript moved, and a session still firing hooks must
-    /// not idle-exit. For every other vendor the caller passes no heartbeat.
+    /// The idle clock of Cursor and OpenCode is the later of transcript activity and the hook heartbeat, since
+    /// every Cursor hook, and every OpenCode v2 session event the plugin sees, touches the heartbeat whether or not
+    /// the transcript moved, and a session still firing them must not idle-exit. For every other vendor the caller
+    /// passes no heartbeat.
     /// </summary>
     internal static DateTimeOffset ResolveCursorIdleClock(
             string          vendor,
             DateTimeOffset  lastActivityAt,
             DateTimeOffset? hookHeartbeatAt
         ) =>
-        vendor == "cursor" && hookHeartbeatAt is { } hb && hb > lastActivityAt
+        vendor is "cursor" or "opencode" && hookHeartbeatAt is { } hb && hb > lastActivityAt
             ? hb
             : lastActivityAt;
 }

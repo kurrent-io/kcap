@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Recording.Harness.Antigravity;
@@ -235,20 +236,25 @@ public sealed class TranscriptRecorder(
 
                 // Keyed on the child's own session id for a child watcher: each Cursor hook touches its own raw
                 // session id, and sessionId here is the parent's.
-                var cursorIdleClockAt = IdleEnd.ResolveCursorIdleClock(
-                    vendor, State.LastActivityAt,
-                    vendor == "cursor" ? WatcherHeartbeat.Read(_markers.HeartbeatPath(agentId ?? sessionId)) : null);
+                var hookHeartbeatAt = vendor switch {
+                    "cursor"   => WatcherHeartbeat.Read(_markers.HeartbeatPath(agentId ?? sessionId)),
+                    "opencode" => WatcherHeartbeat.Read(OpenCodeSessionHeartbeat.PathFor(TranscriptPath)),
+                    _          => null,
+                };
+
+                var idleClockAt = IdleEnd.ResolveCursorIdleClock(vendor, State.LastActivityAt, hookHeartbeatAt);
 
                 if (IdleEnd.ShouldEndOnIdle(
                         vendor,
                         isSessionWatcher: agentId is null,
                         State.ThresholdReached,
-                        cursorIdleClockAt,
+                        idleClockAt,
                         time.GetUtcNow(),
                         idleTimeout,
                         // A tool awaiting its result suppresses idle-end: Codex tracks call_ids,
                         // Antigravity counts PLANNER_RESPONSE calls vs result steps, Claude tracks
                         // tool_use ids awaiting their tool_result, Copilot Local tracks toolCallIds.
+                        // OpenCode's plugin keeps its heartbeat fresh while a tool runs instead.
                         toolInFlight: vendor switch {
                             "antigravity" => State.PendingAntigravityToolCalls > 0,
                             "claude"      => State.PendingClaudeToolCalls.Count > 0,
@@ -256,9 +262,15 @@ public sealed class TranscriptRecorder(
                             _             => State.PendingCodexToolCalls.Count > 0,
                         },
                         disconnectedSinceActivity: State.AccumulatedDisconnected,
-                        noEndSignal: vendor == "copilot" && (State.CopilotHostMissing || CopilotPaths.IsVsCodeLocalTranscript(TranscriptPath)))) {
+                        noEndSignal: vendor switch {
+                            "copilot"  => State.CopilotHostMissing || CopilotPaths.IsVsCodeLocalTranscript(TranscriptPath),
+                            "opencode" => hookHeartbeatAt is not null,
+                            _          => false,
+                        })) {
                     log($"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
                     EndedIdle = true;
+
+                    if (vendor == "opencode") OpenCodeSessionHeartbeat.Delete(TranscriptPath);
                     _stop.Cancel();
 
                     break;
@@ -1080,7 +1092,9 @@ public sealed class TranscriptRecorder(
                 CopilotLocalUsage.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, _copilotLocalWarnings.Write);
             }
 
-            if (newLines.Count > 0) {
+            // A session watcher below the threshold re-reads its buffered lines every poll; only lines past them are
+            // activity, or a session that never takes a turn could never go idle.
+            if (newLines.Count > 0 && (agentId is not null || state.ThresholdReached || linesRead > state.LinesReadAhead)) {
                 state.LastActivityAt          = time.GetUtcNow();
                 // New activity restarts the idle measure, so discard disconnected time accrued
                 // before it (draining only happens while connected, so DisconnectedSince is null).
