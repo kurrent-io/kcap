@@ -111,6 +111,7 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).Contains("await v2Wait(sid, gate)");
         await Assert.That(V2).Contains("if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return");
         await Assert.That(Between(V2, "async function onEvent(", "ctx.session.hook(")).DoesNotContain("await ensureStarted(");
+        await Assert.That(Between(V2, "function ensureStarted(", "async function onEvent(")).Contains("flushTitle(sid)");
         await Assert.That(V2).Contains("{ type: \"session_title\", title }");
     }
 

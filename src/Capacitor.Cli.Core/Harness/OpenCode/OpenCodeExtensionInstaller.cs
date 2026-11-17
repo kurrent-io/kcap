@@ -702,6 +702,7 @@ public static class OpenCodeExtensionInstaller {
                 const evicted = v2Remember(v2.memory, sid, fragment)
                 if (evicted) v2.started.delete(evicted)
               }
+              flushTitle(sid)
               return true
             })()
 
@@ -735,17 +736,25 @@ public static class OpenCodeExtensionInstaller {
             const gate = ensureStarted(sid, ev?.location?.directory)
             await v2Wait(sid, gate)
             if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return
+            flushTitle(sid)
+          }
+
+          // Called by the event that brought the title and by the start that proves the session, so a
+          // title outlives a start slower than any one event's wait.
+          function flushTitle(sid: string) {
             const pending = v2.pendingTitle.get(sid)
             if (!pending) return
+            v2.pendingTitle.delete(sid)
             const { title, time } = pending
-            if (/^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) {
-              if (v2.pendingTitle.get(sid) === pending) v2.pendingTitle.delete(sid)
-              return
-            }
+            if (/^New session - \d{4}-/.test(title) || v2.lastTitle.get(sid) === title) return
             const line: any = { type: "session_title", title }
             if (typeof time === "number") line.time = time
-            appendFileSync(file(sid), JSON.stringify(line) + "\n")
-            if (v2.pendingTitle.get(sid) === pending) v2.pendingTitle.delete(sid)
+            try {
+              appendFileSync(file(sid), JSON.stringify(line) + "\n")
+            } catch {
+              if (!v2.pendingTitle.has(sid)) v2Remember(v2.pendingTitle, sid, pending)
+              return
+            }
             v2Remember(v2.lastTitle, sid, title)
           }
 
