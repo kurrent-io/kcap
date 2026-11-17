@@ -97,6 +97,10 @@
 
                         <views:SessionSearchView x:Name="SearchCover" IsVisible="{Binding IsSearchOpen}" />
 
+                        <Panel x:Name="DriverCover" IsVisible="{Binding IsDriverOpen}">
+                            <views:DriverView DataContext="{Binding Driver}" />
+                        </Panel>
+
                         <Border x:Name="SwitchCover" Background="{StaticResource KcapCanvasBrush}" IsVisible="False">
                             <views:StillImage x:Name="SwitchCoverStill" />
                         </Border>

@@ -18,6 +18,8 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Driver;
+using Capacitor.App.ViewModels.Driver;
 using Capacitor.App.Services.Composer;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
@@ -1304,6 +1306,7 @@ public partial class App : Application {
         var webView = new WebViewAvailability();
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
+        var driverSwitch = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.Driver);
         var drafts = new ComposerDrafts();
         var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
@@ -1427,7 +1430,10 @@ public partial class App : Application {
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
                 harnessesSettingsAction: _openHarnessesSettings,
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
-                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, nextWorkEnabled: () => launcherNextWork.IsOn))),
+                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers,
+                driver: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new DriverApi(sessionHttp, profiles),
+                pendingPermissions: permissions.Pending, driverEnabled: () => driverSwitch.IsOn,
+                nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
@@ -2327,6 +2333,8 @@ public partial class App : Application {
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
             IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
+            IDriverApi? driver = null, IObservable<IChangeSet<PendingPermissionRequest, string>>? pendingPermissions = null,
+            Func<bool>? driverEnabled = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
@@ -2446,6 +2454,14 @@ public partial class App : Application {
             LocalStack = localStack,
             Web = web,
         };
+        if (driver is not null) {
+            var shell = vm;
+            shell.AttachDriver(
+                new DriverViewModel(driver, time, resolvedDirectory.Rows.Connect(), pendingPermissions,
+                    openAgent: id => shell.OpenSession(id), openUrl: openUrl),
+                Observable.Interval(TimeSpan.FromSeconds(5)).StartWith(0L)
+                    .Select(_ => driverEnabled?.Invoke() == true).DistinctUntilChanged());
+        }
         var window = adopt?.Window ?? new MainWindow();
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();

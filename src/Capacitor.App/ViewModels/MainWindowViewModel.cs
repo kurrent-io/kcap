@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Update;
 using Capacitor.App.Views;
+using Capacitor.App.ViewModels.Driver;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.PullRequests;
@@ -245,6 +246,46 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
+    /// Null until the app attaches one; shown while its experimental switch is on.
+    public DriverViewModel? Driver { get; private set; }
+
+    /// The Driver covers the main area like search does; CurrentWorkspace and its watches carry on beneath it.
+    public bool IsDriverOpen {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public bool IsDriverAvailable {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public ReactiveCommand<Unit, Unit> OpenDriverCommand { get; }
+    public ReactiveCommand<Unit, Unit> CloseDriverCommand { get; }
+
+    public void AttachDriver(DriverViewModel driver, IObservable<bool> enabled) {
+        Driver = driver;
+        this.RaisePropertyChanged(nameof(Driver));
+        enabled.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(on => {
+            IsDriverAvailable = on;
+            if (!on) CloseDriver();
+        });
+    }
+
+    void OpenDriver() {
+        if (Driver is null || !IsDriverAvailable) return;
+        CloseSearch();
+        IsDriverOpen = true;
+        Driver.Activate();
+        _navigation.Bump();
+    }
+
+    void CloseDriver() {
+        if (!IsDriverOpen) return;
+        IsDriverOpen = false;
+        Driver?.Deactivate();
+    }
+
     public ReactiveCommand<Unit, Unit> OpenSearchCommand { get; }
     public ReactiveCommand<Unit, Unit> DismissSearchCommand { get; }
 
@@ -450,6 +491,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         Search?.Closed.Subscribe(_ => IsSearchOpen = false);
         if (Search is { } page) page.WhenAnyValue(x => x.ListState).Subscribe(_ => this.RaisePropertyChanged(nameof(SearchShowsSignIn)));
         OpenSearchCommand = ReactiveCommand.Create(OpenSearch);
+        OpenDriverCommand = ReactiveCommand.Create(OpenDriver);
+        CloseDriverCommand = ReactiveCommand.Create(CloseDriver);
         DismissSearchCommand = ReactiveCommand.Create(CloseSearch);
         var canRefreshWork = Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(CanRefreshOpenWork))
@@ -800,6 +843,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         var from = Here();
         if (!OpenSessionCore(agentId, origin, revealInRail: true)) return false;
         CloseSearch();
+        CloseDriver();
         ReleasePinUnless(sessionId ?? SessionOfOpen());
         if (record) RecordLeaving(from);
         return true;
@@ -829,6 +873,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             ? row.Value : null;
         var from = Here();
         CloseSearch();
+        CloseDriver();
         CloseWorkspace();
         RecordLeaving(from);
         if (onLauncher) _launcherNudges.OnNext(Unit.Default);
@@ -836,6 +881,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     }
 
     void OpenSearch() {
+        CloseDriver();
         if (IsSearchOpen) {
             _searchFocusRequests.OnNext(Unit.Default);
             return;

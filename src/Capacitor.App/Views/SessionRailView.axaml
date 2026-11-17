@@ -188,6 +188,15 @@
                     </DockPanel>
                 </Button>
 
+                <Button x:Name="RailDriverButton" Classes="kcapGhost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Margin="10,0,10,8" Padding="11,6" Command="{Binding OpenDriverCommand}" IsVisible="{Binding IsDriverAvailable}"
+                        Classes.active="{Binding IsDriverOpen}" AutomationProperties.Name="Driver">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <views:AppIcon Kind="LayoutDashboard" Size="14" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="Driver" FontSize="13" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4" Margin="10,0,10,8">
                     <Button x:Name="RailSearchButton" Classes="kcapField" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                             Command="{Binding OpenSearchCommand}" AutomationProperties.Name="Search sessions">
