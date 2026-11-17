@@ -54,7 +54,7 @@ public static partial class PrCreateCommand {
         for (var k = commands.Count - 1; k >= 0; k--) {
             var command = commands[k];
 
-            if (Inspect(command.Words, out var shellScript, out var invocationRepo)) {
+            if (Inspect(command, out var shellScript, out var invocationRepo)) {
                 if (k != commands.Count - 1 || !RunsUnconditionally(commands, k)) return false;
 
                 repo = invocationRepo;
@@ -70,7 +70,7 @@ public static partial class PrCreateCommand {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
                             && RunsUnconditionally(commands, k)
-                            && (wrapsShell && k == commands.Count - 1 && !command.Words.Any(RedirectsStdout) || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
+                            && (wrapsShell && k == commands.Count - 1 && command.StdoutRedirects.Count == 0 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
                 repo = nestedRepo;
@@ -125,16 +125,13 @@ public static partial class PrCreateCommand {
         return true;
     }
 
-    /// <summary><c>&gt;file</c>, <c>1&gt;&gt;file</c>: the create's URL never reaches the output, so a URL printed
-    /// earlier would read as its own. <c>2&gt;&amp;1</c> and <c>2&gt;file</c> leave stdout alone.</summary>
-    static bool RedirectsStdout(string word) => word.StartsWith('>') || word.StartsWith("1>", StringComparison.Ordinal);
-
     /// <summary>The variable of a bare <c>NAME=$(…)</c>, whose exit status is the substitution's. Any other command
     /// holding one, such as <c>echo "$(gh pr create)"</c>, succeeds however the create fared.</summary>
     static string? AssignedVariable(ShellCommand command) =>
         command.Words is [var target] && target.EndsWith('=') && Assignment().IsMatch(target) ? target[..^1] : null;
 
-    static bool Inspect(List<string> words, out string? script, out string? repo) {
+    static bool Inspect(ShellCommand command, out string? script, out string? repo) {
+        var words = command.Words;
         script = null;
         repo   = null;
 
@@ -161,7 +158,7 @@ public static partial class PrCreateCommand {
         for (var j = i + 3; j < words.Count; j++) {
             var arg = words[j];
 
-            if (arg == "--dry-run" || RedirectsStdout(arg)) return false;
+            if (arg == "--dry-run" || command.StdoutRedirects.Contains(j)) return false;
 
             if (arg is "--repo" or "-R") {
                 if (j + 1 < words.Count) repo = words[++j];
@@ -185,6 +182,7 @@ public static partial class PrCreateCommand {
         var word     = new StringBuilder();
         var inWord   = false;
         var parens   = 0;
+        var stdoutRedirect = false;
         var heredocs = new Queue<(string Word, bool StripTabs)>();
 
         while (i < text.Length) {
@@ -257,6 +255,7 @@ public static partial class PrCreateCommand {
                     i += heredoc.Length;
                     break;
                 case '>' or '<':
+                    if (c == '>' && (word.Length == 0 || word is ['1'])) stdoutRedirect = true;
                     word.Append(c);
                     inWord = true;
                     i++;
@@ -276,9 +275,11 @@ public static partial class PrCreateCommand {
         void EndWord() {
             if (!inWord) return;
 
+            if (stdoutRedirect) current.StdoutRedirects.Add(current.Words.Count);
             current.Words.Add(word.ToString());
             word.Clear();
-            inWord = false;
+            inWord         = false;
+            stdoutRedirect = false;
         }
 
         void EndCommand(string joiner) {
@@ -353,6 +354,10 @@ public static partial class PrCreateCommand {
         public List<string> Words   { get; } = [];
         public List<string> Scripts { get; } = [];
         public string       Joiner  { get; set; } = joiner;
+
+        /// <summary>The words that send stdout elsewhere (<c>&gt;file</c>, <c>1&gt;&gt;file</c>), so a URL printed
+        /// earlier would read as the create's. Only unquoted syntax counts; <c>2&gt;&amp;1</c> leaves stdout alone.</summary>
+        public HashSet<int> StdoutRedirects { get; } = [];
     }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]
