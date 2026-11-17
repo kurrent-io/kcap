@@ -75,6 +75,36 @@
         <Style Selector="Border.railGroup.workItem.expanded Button#RailWorkItemHeader">
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
+        <Style Selector="Button#RailWorkItemToggle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button#RailWorkItemToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button#RailWorkItemToggle:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button#RailWorkItemHeader:pointerover Button#RailWorkItemToggle, Button#RailWorkItemHeader:focus-visible Button#RailWorkItemToggle, Button#RailWorkItemToggle:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Panel#RailWorkItemRing">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button#RailWorkItemHeader:pointerover Panel#RailWorkItemRing, Button#RailWorkItemHeader:focus-visible Panel#RailWorkItemRing">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Border.railGroup.workItem.expanded Panel#RailWorkItemRing">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <Style Selector="Panel.chevronTurn">
             <Setter Property="RenderTransform" Value="rotate(0deg)" />
             <Setter Property="Transitions">
@@ -600,20 +630,27 @@
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
                                     <StackPanel>
-                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" IsVisible="{Binding IsWorkItem}" Command="{Binding ToggleCommand}"
-                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="9,0"
-                                                ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
-                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" IsVisible="{Binding IsWorkItem}"
+                                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding WorkItemId}" Click="OnWorkItemHeaderClick"
+                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                                Padding="9,0,0,0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding Label}">
+                                            <Grid ColumnDefinitions="*,34">
                                                 <TextBlock x:Name="RailWorkItemTitle" Text="{Binding Label}" FontSize="14"
                                                            Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                                <Panel Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center">
+                                                <Panel x:Name="RailWorkItemRing" Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center">
                                                     <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2" />
                                                     <Arc x:Name="RailWorkItemProgress" StartAngle="-90" SweepAngle="{Binding PartsSweep}"
                                                          Stroke="{StaticResource KcapMutedBrush}" StrokeThickness="2" StrokeLineCap="Round" />
                                                 </Panel>
-                                                <Panel Grid.Column="2" Classes="chevronTurn" Width="14" Height="14" VerticalAlignment="Center">
-                                                    <views:AppIcon Kind="ChevronRight" Size="14" Classes="chevron" />
-                                                </Panel>
+                                                <Button x:Name="RailWorkItemToggle" Grid.Column="1" Command="{Binding ToggleCommand}"
+                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Padding="0"
+                                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                        AutomationProperties.Name="{Binding ToggleAccessibleName}">
+                                                    <Panel Classes="chevronTurn" Width="14" Height="14">
+                                                        <views:AppIcon Kind="ChevronRight" Size="14" Classes="chevron" />
+                                                    </Panel>
+                                                </Button>
                                             </Grid>
                                         </Button>
                                         <Button Classes="sectionHeader expandable railRepoHeader" Command="{Binding ToggleCommand}" IsVisible="{Binding ShowsHeader}"
@@ -699,15 +736,13 @@
                         </ItemsControl.ItemTemplate>
                     </rail:RailList>
                     <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
-                                Margin="8,8,8,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <Button x:Name="RailShowMoreButton" Classes="kcapGhost" Content="Load more ended sessions" Command="{Binding ShowMoreCommand}"
-                                IsVisible="{Binding ShowsShowMore}" HorizontalAlignment="Stretch" Padding="10,5" FontSize="12.5" />
-                        <TextBlock x:Name="RailLoadedText" Text="{Binding LoadedText}" Classes="railMeta" Foreground="{StaticResource KcapFaintBrush}"
-                                   TextWrapping="Wrap" Margin="8,0" IsVisible="{Binding LoadedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                Margin="0,4,0,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <Button x:Name="RailShowMoreButton" Classes="kcapGhost kcapQuiet" Content="Show more" Command="{Binding ShowMoreCommand}"
+                                IsVisible="{Binding ShowsShowMore}" HorizontalAlignment="Left" Padding="9,5" />
                         <TextBlock x:Name="RailCapNote" Text="{x:Static vm:SessionRailViewModel.CapNote}" Classes="railMeta"
-                                   Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap" IsVisible="{Binding AtCap}" />
+                                   Foreground="{StaticResource KcapFaintBrush}" Margin="9,0" TextWrapping="Wrap" IsVisible="{Binding AtCap}" />
                         <TextBlock x:Name="RailLiveNotShownText" Text="{Binding LiveNotShownText}" Classes="railMeta"
-                                   Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapFaintBrush}" Margin="9,0" TextWrapping="Wrap"
                                    IsVisible="{Binding LiveNotShownText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>
                 </StackPanel>

@@ -122,6 +122,10 @@ public partial class SessionRailView : UserControl {
     // parent and clears inherited DataContext on its rows, so capture and run Command here.
     void OnHelpFlyoutItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailHelpButton, sender, e);
 
+    void OnWorkItemHeaderClick(object? sender, RoutedEventArgs e) {
+        if (e.Source == sender && sender is Control { DataContext: RailGroupViewModel group }) group.Expand();
+    }
+
     void OnGroupPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailGroupButton, sender, e);
 
     void OnSortPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailSortButton, sender, e);
