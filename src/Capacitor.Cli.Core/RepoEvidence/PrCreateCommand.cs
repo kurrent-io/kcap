@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// <summary>
 /// Finds a <c>gh pr create</c> a shell would run in a command line, and whose output is the line's output. Quoted
 /// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
-/// describing it — does not match. A create must be the last command run: after
+/// describing it — does not match. A create must be the last command run, and one no <c>||</c> can skip: after
 /// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
 /// A substitution holding one must be the whole of a variable assignment, and only an echo of that variable,
 /// joined by <c>&amp;&amp;</c>, may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
@@ -55,7 +55,7 @@ public static partial class PrCreateCommand {
             var command = commands[k];
 
             if (Inspect(command.Words, out var shellScript, out var invocationRepo)) {
-                if (k != commands.Count - 1) return false;
+                if (k != commands.Count - 1 || !RunsUnconditionally(commands, k)) return false;
 
                 repo = invocationRepo;
                 return true;
@@ -69,6 +69,7 @@ public static partial class PrCreateCommand {
             foreach (var script in command.Scripts) {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
+                            && RunsUnconditionally(commands, k)
                             && (wrapsShell || AssignedVariable(command) is not null)
                             && (k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
@@ -88,6 +89,19 @@ public static partial class PrCreateCommand {
         if (AssignedVariable(assignment) is not { } name) return false;
 
         return echo is { Joiner: "&&", Scripts.Count: 0, Words: ["echo", var value] } && (value == "$" + name || value == "${" + name + "}");
+    }
+
+    /// <summary>False when an <c>||</c> since the last <c>;</c> or newline may skip it: after
+    /// <c>gh pr view … || gh pr create</c>, a successful run printing a URL is the view's.</summary>
+    static bool RunsUnconditionally(List<ShellCommand> commands, int k) {
+        for (var j = k; j > 0; j--) {
+            switch (commands[j].Joiner) {
+                case "||":         return false;
+                case ";" or "\n": return true;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>The variable of a bare <c>NAME=$(…)</c>, whose exit status is the substitution's. Any other command
