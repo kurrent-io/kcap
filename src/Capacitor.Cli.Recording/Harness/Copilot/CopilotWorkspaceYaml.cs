@@ -17,6 +17,7 @@ public sealed record CopilotWorkspaceYaml(
             if (!File.Exists(path)) return null;
 
             string? cwd        = null;
+            string? gitRoot    = null;
             string? name       = null;
             string? repository = null;
             string? branch     = null;
@@ -42,13 +43,15 @@ public sealed record CopilotWorkspaceYaml(
                     case "name":       name = value; break;
                     case "repository": repository = value; break;
                     case "branch":     branch = value; break;
+                    case "git_root":   gitRoot = value; break;
                     case "user_named": userNamed = value == "true"; break;
                     case "created_at": createdAt = ParseTimestamp(value); break;
                     case "updated_at": updatedAt = ParseTimestamp(value); break;
                 }
             }
 
-            return new CopilotWorkspaceYaml(cwd, name, userNamed, createdAt, updatedAt, repository, branch);
+            // The repository root Copilot ran in stands in for a cwd it did not record.
+            return new CopilotWorkspaceYaml(cwd ?? gitRoot, name, userNamed, createdAt, updatedAt, repository, branch);
         } catch {
             return null;
         }
