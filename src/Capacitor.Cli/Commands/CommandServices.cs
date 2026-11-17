@@ -176,6 +176,7 @@ public static class CommandServices {
         services.AddTransient<McpFlowsServer>();
         services.AddTransient<McpMemoryServer>();
         services.AddTransient<McpSessionsServer>();
+        services.AddTransient<McpCaptureScope>();
         services.AddTransient<McpWorkItemsServer>();
         services.AddTransient<McpPlansServer>();
         services.AddTransient<McpHandoffServer>();

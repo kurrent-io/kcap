@@ -741,28 +741,8 @@ public sealed class ClaudeHookCommand(
         if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
     }
 
-    internal async Task<bool> IsSessionExcludedAsync(Profile? profile, string body, HookBudget budget) {
-        if (await RepoExclusion.IsOutOfScopeAsync(router, config, body,
-                                                  profile?.AllowedRepos, profile?.ExcludedRepos, clock.Time, budget.Remaining)) {
-            return true;
-        }
-
-        if (profile?.AllowedPaths is { Length: > 0 } || profile?.ExcludedPaths is { Length: > 0 }) {
-            string? cwd;
-
-            try {
-                cwd = JsonNode.Parse(body)?["cwd"]?.GetValue<string>();
-            } catch {
-                // A body we cannot read yields no cwd rather than a verdict: a denylist shrugs at
-                // that, an allowlist does not admit it. Deciding here would hand both the same answer.
-                cwd = null;
-            }
-
-            if (PathExclusion.IsOutOfScope(cwd, profile?.AllowedPaths, profile?.ExcludedPaths, home)) return true;
-        }
-
-        return false;
-    }
+    internal Task<bool> IsSessionExcludedAsync(Profile? profile, string body, HookBudget budget) =>
+        SessionScope.IsOutOfScopeAsync(router, config, home, profile, body, clock.Time, budget.Remaining);
 
     internal async Task<int> HandleCore(HttpClient client, AuthStatus authStatus, HookSpool spool,
         TextReader stdin,

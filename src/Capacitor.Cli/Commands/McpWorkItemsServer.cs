@@ -20,16 +20,17 @@ namespace Capacitor.Cli.Commands;
 /// next-work tools need the cwd's repository (when the caller omits repo_hash); it is resolved lazily and
 /// never for the others.</summary>
 sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, TokenStore tokens, ICapacitorHttpClient http,
-        TelemetryStartup startup, GitProviderRouter router, WorkingDirectory workdir, TimeProvider time) {
+        TelemetryStartup startup, GitProviderRouter router, WorkingDirectory workdir, McpCaptureScope scope, TimeProvider time) {
     internal const string NotLoggedInMessage = AuthRejectionNotice.NotLoggedIn;
 
-    public Task<int> RunAsync() {
-        var repository = new CwdRepository(config, workdir.Path, router, time);
-        var server     = new McpServerDescriptor("kcap-workitems", "workitems",
-            InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable), profiles.Effective?.DisableNextWorkNudge is true),
-            BuildToolsList());
+    public async Task<int> RunAsync() {
+        var repository   = new CwdRepository(config, workdir.Path, router, time);
+        var instructions = await scope.IsOutOfScopeAsync()
+            ? OutOfScopeInstructions
+            : InstructionsFor(ClaudeEntrypoint.IsHeadless(Environment.GetEnvironmentVariable), profiles.Effective?.DisableNextWorkNudge is true);
+        var server = new McpServerDescriptor("kcap-workitems", "workitems", instructions, BuildToolsList());
 
-        return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
+        return await McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
             (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, () => repository.GetHashAsync(client, baseUrl)));
     }
 
@@ -50,6 +51,14 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         "claim_loose_end and keep its claim_id; pass it when you close it with close_loose_end " +
         "(reopen_loose_end undoes a mistaken close), or hand the work back with release_loose_end. A claim " +
         "refusal is not permission to dismiss, close, or launch a duplicate.";
+
+    /// <summary>A session outside the capture scope is never sent to the server, so every declaration against it would
+    /// be refused; only next work the user asks for is left.</summary>
+    internal const string OutOfScopeInstructions =
+        "This session is outside kcap's capture scope and is not recorded, so nothing can be attached to it or " +
+        "declared against it. When the user asks for new work, call get_next_work first and answer from it, citing " +
+        "its because-clauses; trackers and memory are context, not a substitute. A declined suggestion: " +
+        "dismiss_next_work (restore_next_work undoes it).";
 
     /// <summary>A headless run's answer is its output, and <c>disable_nextwork_nudge</c> opts out of
     /// unprompted next work, so neither is told to present it; asked-for next work still uses get_next_work.</summary>

@@ -14,7 +14,7 @@ public class McpWorkItemEvalToolsTests {
 
     McpWorkItemsServer Server(TimeProvider? time = null) =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root), new FixedCapacitorHttpClient(), NoTelemetry.Startup,
-            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), time ?? TimeProvider.System);
+            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), time ?? TimeProvider.System);
 
     sealed class Handler(HttpStatusCode status, string body) : HttpMessageHandler {
         public int         Calls  { get; private set; }
