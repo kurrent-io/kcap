@@ -97,7 +97,6 @@ public class ContextHostTests {
 
     sealed class Host : IDisposable {
         readonly IdeRpcLoop _loop;
-        readonly Task _run;
         int _lastId;
 
         public Host() {
@@ -108,7 +107,7 @@ public class ContextHostTests {
             _loop = new IdeRpcLoop(Input, Output);
             Ide.Attach(_loop);
             Context.Attach(_loop);
-            _run = _loop.RunAsync(CancellationToken.None);
+            _ = _loop.RunAsync(CancellationToken.None);
         }
 
         public FakeDaemonClientService Daemon { get; } = new();

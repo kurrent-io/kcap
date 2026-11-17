@@ -48,7 +48,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             if (changed) PullRequests?.PrimaryRepositoryChanged();
         }
     }
-    internal static readonly TimeSpan PollInterval = Capacitor.Client.WorkContextTiming.PollInterval;
+    internal static readonly TimeSpan PollInterval = WorkContextTiming.PollInterval;
     internal const double CompactThreshold = 80;
     internal static readonly TimeSpan CompactPollInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan CompactPollLimit = TimeSpan.FromMinutes(2);
