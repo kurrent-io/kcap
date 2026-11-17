@@ -327,6 +327,7 @@ public sealed partial class WorkContextViewModel {
 
     void ClearServerProjections() {
         ClearCard();
+        ClearSuggestion();
         _summaryPrs.Clear();
         _links.Clear();
         RaiseRelated();
@@ -410,8 +411,10 @@ public sealed partial class WorkContextViewModel {
             ApplyLinks(read);
             Phase = WorkContextPhase.NoWorkItem;
             IsStale = read.SummaryFailed;
+            ReadSuggestion();
             return;
         }
+        ClearSuggestion();
 
         var requested = read.Primary.WorkItemId;
         var served = read.Item?.WorkItemId;

@@ -677,6 +677,8 @@
                                                                         <TextBlock x:Name="SessionPartLabel" Text="{Binding PartLabel}" Classes="railMeta" MaxWidth="160" Margin="0,0,6,0"
                                                                                    IsVisible="{Binding PartLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                                                    TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapMutedBrush}" />
+                                                                        <TextBlock x:Name="SessionSuggestedLabel" Text="{x:Static vm:RailSessionViewModel.SuggestedLabel}" Classes="railMeta"
+                                                                                   Margin="0,0,6,0" IsVisible="{Binding IsSuggested}" Foreground="{StaticResource KcapInfoBrush}" />
                                                                     <TextBlock x:Name="SessionMeta" Text="{Binding Meta}" Classes="railMeta" MaxWidth="180"
                                                                                IsVisible="{Binding Meta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                                                TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"

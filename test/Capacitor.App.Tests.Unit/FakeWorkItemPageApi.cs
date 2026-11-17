@@ -9,6 +9,10 @@ namespace Capacitor.App.Tests.Unit;
 sealed class FakeWorkItemPageApi : IWorkItemPageApi {
     readonly Subject<ReactiveUnit> _changed = new();
     public IObservable<ReactiveUnit> Changed => _changed;
+    public IObservable<IReadOnlySet<string>> SuggestedSessions { get; } = new BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>());
+    /// What the suggestion read answers; a recorded accept or dismiss clears it, as the server stops suggesting.
+    public WorkItemSuggestionDto? Suggestion { get; set; }
+    public List<(string Answer, string WorkItemId, string SessionId)> SuggestionAnswers { get; } = [];
     public WorkItemPartsDto? Read { get; set; }
     public bool Records { get; set; } = true;
     public List<(string Id, string? Status)> StatusesSet { get; } = [];
@@ -48,6 +52,18 @@ sealed class FakeWorkItemPageApi : IWorkItemPageApi {
 
     public Task<bool> RemoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) {
         Removals.Add((workItemId, sessionId));
+        return Answer();
+    }
+
+    public Task<WorkItemSuggestionDto?> ReadSuggestionAsync(string sessionId, CancellationToken ct) => Task.FromResult(Suggestion);
+
+    public Task<bool> AcceptSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) => AnswerSuggestion("accept", workItemId, sessionId);
+
+    public Task<bool> DismissSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) => AnswerSuggestion("dismiss", workItemId, sessionId);
+
+    Task<bool> AnswerSuggestion(string answer, string workItemId, string sessionId) {
+        SuggestionAnswers.Add((answer, workItemId, sessionId));
+        if (Records) Suggestion = null;
         return Answer();
     }
 

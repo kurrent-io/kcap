@@ -69,6 +69,30 @@ public class SessionRailWorkItemTests {
         });
     }
 
+    /// A suggestion marks a session under its day, and goes once the session leaves the suggested set; a session
+    /// already in a work item never shows one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_session_with_a_suggestion_says_so_under_its_day() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var suggested = new System.Reactive.Subjects.BehaviorSubject<IReadOnlySet<string>>(new HashSet<string> { "build", "prune" });
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System,
+                readWorkItems: Reads(new RailWorkItems(true, [Approve])), suggestedSessions: suggested);
+            directory.Rows.AddOrUpdate([Session("build"), Session("prune")]);
+            await rail.SetProjectCommand.Execute(Kcap);
+            await WorkspaceFixtures.WaitUntilAsync(() => rail.ShowsWorkItems, what: "the work items read");
+            await rail.Groups[0].ToggleCommand.Execute();
+
+            var prune = rail.Groups[1].Sessions.Single();
+            await Assert.That(prune.IsSuggested).IsTrue();
+            await Assert.That(rail.Groups[0].Sessions.Single().IsSuggested).IsFalse();
+
+            suggested.OnNext(new HashSet<string>());
+            await Assert.That(prune.IsSuggested).IsFalse();
+        });
+    }
+
     /// The viewer sees none of its sessions, yet the work item is listed with the same progress.
     [Test]
     [NotInParallel("AvaloniaSession")]

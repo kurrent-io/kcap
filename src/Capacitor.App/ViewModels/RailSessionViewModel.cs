@@ -5,6 +5,7 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using ReactiveUI.Reactive;
@@ -79,6 +80,10 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     string? _partLabel;
     /// The part of the work item the row sits under, which takes the repository's place on the row.
     public string? PartLabel { get => _partLabel; private set => this.RaiseAndSetIfChanged(ref _partLabel, value); }
+    public const string SuggestedLabel = "Suggested work item";
+    readonly ObservableAsPropertyHelper<bool> _isSuggested;
+    /// kcap suggests a work item for this session in none.
+    public bool IsSuggested => _isSuggested.Value;
     /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
     bool _isStarting;
     public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
@@ -122,7 +127,8 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             IObservable<bool>? localOnAppServer = null, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             IObservable<Unit>? ageTicks = null,
             Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
-            IObservable<RailSort>? sort = null, IObservable<string>? part = null) {
+            IObservable<RailSort>? sort = null, IObservable<string>? part = null,
+            IObservable<IReadOnlySet<string>>? suggested = null) {
         _time = time;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
         Id = row.Id;
@@ -176,6 +182,11 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
 
         part?.Subscribe(label => PartLabel = label).DisposeWith(_disposables);
+        _isSuggested = (suggested ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
+            .CombineLatest(_row, (sessions, current) => SessionIds.Canonical(current.SessionId) is { } id && sessions.Contains(id))
+            .DistinctUntilChanged()
+            .ToProperty(this, x => x.IsSuggested, initialValue: false)
+            .DisposeWith(_disposables);
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
                 part is null && mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } label && label != RepoIdentity.NoRepository.Label)
             .ToProperty(this, x => x.ShowsRepo, initialValue: false)

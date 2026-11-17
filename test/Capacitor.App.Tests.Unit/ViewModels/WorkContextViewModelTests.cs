@@ -1204,6 +1204,50 @@ public class WorkContextViewModelTests {
         });
     }
 
+    /// A session in no work item shows kcap's suggestion with its reason. Adding or dismissing it answers the server for
+    /// this session and takes the card away; a refused answer keeps the card and says so.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_suggestion_shows_on_a_session_in_no_work_item_and_goes_away_once_answered() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var suggestion = new Capacitor.Remote.Models.WorkItemSuggestionDto {
+                WorkItemId = "w1", Title = "Approve requests from your phone", Reason = "Matches its goal: answer permissions from your phone.",
+            };
+            h.WorkItems.Suggestion = suggestion;
+            h.Source.Default = Ready();
+            await h.PushAsync(Dto());
+            await WaitUntilAsync(() => h.Vm.HasSuggestion, what: "the suggestion read");
+
+            await Assert.That(h.Vm.SuggestionTitle).IsEqualTo("Approve requests from your phone");
+            await Assert.That(h.Vm.SuggestionReason).IsEqualTo("Matches its goal: answer permissions from your phone.");
+
+            h.WorkItems.Records = false;
+            await h.Vm.AcceptSuggestionCommand.Execute();
+            await Assert.That(h.Vm.HasSuggestion).IsTrue();
+            await Assert.That(h.Notifier.Notified).IsEquivalentTo(["Couldn't add the session to the work item"]);
+
+            h.WorkItems.Records = true;
+            await h.Vm.AcceptSuggestionCommand.Execute();
+            await Assert.That(h.Vm.HasSuggestion).IsFalse();
+
+            h.WorkItems.Suggestion = suggestion;
+            await h.TickAsync();
+            await WaitUntilAsync(() => h.Vm.HasSuggestion, what: "the suggestion read again");
+            await h.Vm.DismissSuggestionCommand.Execute();
+            await Assert.That(h.Vm.HasSuggestion).IsFalse();
+            await Assert.That(h.WorkItems.SuggestionAnswers).IsEquivalentTo(
+                [("accept", "w1", SessionA), ("accept", "w1", SessionA), ("dismiss", "w1", SessionA)], CollectionOrdering.Matching);
+
+            h.WorkItems.Suggestion = suggestion;
+            h.Source.Default = PartsRead();
+            await h.Vm.RefreshCommand.Execute();
+            await WaitUntilAsync(() => h.Vm.Phase == WorkContextPhase.Ready, what: "the session on its work item");
+            await Assert.That(h.Vm.HasSuggestion).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_settled_part_this_session_is_attached_to_counts_as_settled_and_one_part_reads_singular() {

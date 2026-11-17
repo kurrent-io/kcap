@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+using System.Net;
 using System.Net.Http.Json;
 using System.Reactive;
 using System.Reactive.Subjects;
@@ -13,6 +15,9 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
     static RemoteModelsJsonContext Json => RemoteModelsJsonContext.Default;
     readonly Subject<Unit> _changed = new();
     public IObservable<Unit> Changed => _changed;
+    readonly BehaviorSubject<IReadOnlySet<string>> _suggested = new(FrozenSet<string>.Empty);
+    readonly Lock _suggestedGate = new();
+    public IObservable<IReadOnlySet<string>> SuggestedSessions => _suggested;
 
     public async Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) {
         WorkItemPartsDto? body = null;
@@ -44,6 +49,41 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
 
     public Task<bool> RemoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "sessions/remove"), new WorkItemSessionRequestDto(sessionId), Json.WorkItemSessionRequestDto, ct);
+
+    public async Task<WorkItemSuggestionDto?> ReadSuggestionAsync(string sessionId, CancellationToken ct) {
+        WorkItemSuggestionDto? body = null;
+        var answered = await SendAsync(ApiRoutes.SessionSuggestion(sessionId), (client, url) => client.GetAsync(url, ct), async response => {
+            if (response.StatusCode != HttpStatusCode.NoContent)
+                body = await response.Content.ReadFromJsonAsync(Json.WorkItemSuggestionDto, ct).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
+        if (answered) MarkSuggested(sessionId, body is not null);
+        return body;
+    }
+
+    public Task<bool> AcceptSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) =>
+        AnswerSuggestionAsync(ApiRoutes.WorkItem(workItemId, "suggestion/accept"), sessionId, ct);
+
+    public Task<bool> DismissSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) =>
+        AnswerSuggestionAsync(ApiRoutes.WorkItem(workItemId, "suggestion/dismiss"), sessionId, ct);
+
+    async Task<bool> AnswerSuggestionAsync(string route, string sessionId, CancellationToken ct) {
+        var recorded = await SendAsync(route,
+            (client, url) => client.PostAsJsonAsync(url, new WorkItemSessionRequestDto(sessionId), Json.WorkItemSessionRequestDto, ct), null, ct).ConfigureAwait(false);
+        if (!recorded) return false;
+        MarkSuggested(sessionId, false);
+        _changed.OnNext(Unit.Default);
+        return true;
+    }
+
+    void MarkSuggested(string sessionId, bool suggested) {
+        if (SessionIds.Canonical(sessionId) is not { } id) return;
+        lock (_suggestedGate) {
+            var current = _suggested.Value;
+            if (current.Contains(id) == suggested) return;
+            _suggested.OnNext(suggested ? current.Append(id).ToFrozenSet(StringComparer.Ordinal)
+                : current.Where(s => s != id).ToFrozenSet(StringComparer.Ordinal));
+        }
+    }
 
     Task<bool> PostAsync<T>(string route, T body, JsonTypeInfo<T> type, CancellationToken ct) =>
         ChangeAsync(route, (client, url) => client.PostAsJsonAsync(url, body, type, ct), null, ct);

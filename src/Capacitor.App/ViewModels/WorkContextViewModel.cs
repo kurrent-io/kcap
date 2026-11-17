@@ -221,6 +221,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(IsReady));
             this.RaisePropertyChanged(nameof(ShowsSignIn));
             this.RaisePropertyChanged(nameof(ShowsRetry));
+            this.RaisePropertyChanged(nameof(HasSuggestion));
             RaiseRelated();
         }
     }
@@ -389,6 +390,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _runs.Changed += RefreshRuns;
         InitializeProjections();
         InitializePartChip(workItems, sessionTitle, notifier);
+        InitializeSuggestion();
         OpenRunCommand = ReactiveCommand.Create<RunRow>(row => { if (row.CanOpen) RunOpened?.Invoke(row); });
         _disposables.Add(OpenRunCommand);
         _disposables.Add(_hasSessionChanges);

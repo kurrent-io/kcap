@@ -290,7 +290,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Func<string, Task<RailPreferences>>? bindUserPreferences = null,
             IObservable<IReadOnlyList<RailProject>>? projects = null,
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
-            IObservable<Unit>? workItemsChanged = null) {
+            IObservable<Unit>? workItemsChanged = null,
+            IObservable<IReadOnlySet<string>>? suggestedSessions = null) {
         _directory = directory;
         _sessions = sessions;
         _persist = persistPreferences;
@@ -350,6 +351,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
         var answering = (agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
+        var suggested = suggestedSessions?.ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
         var attentionFilter = pending.CombineLatest(answering, (permissions, answers) =>
             (Func<AgentRow, bool>)(row => SessionStatusDots.NeedsAttention(row) || permissions.Contains(row.Id) || answers.Contains(row.Id)));
         _attention = directory.Rows.Connect()
@@ -439,7 +441,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         if (expanded) _collapsed.Remove(g.Key);
                         else _collapsed.Add(g.Key);
                         Persist();
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial);
+                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, suggested: suggested);
             });
         var workItemGroups = _workItems.Connect()
             .TransformWithInlineUpdate(item => {

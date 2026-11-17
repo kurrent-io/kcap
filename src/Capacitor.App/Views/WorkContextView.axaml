@@ -438,6 +438,23 @@
                                          AutomationProperties.Name="Loading work context" />
                             <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="13" LineHeight="19"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
+                            <Border x:Name="SuggestionCard" Background="{StaticResource KcapInfoDimBrush}" CornerRadius="7" Padding="12,10"
+                                    IsVisible="{Binding HasSuggestion}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="SUGGESTED WORK ITEM" Classes="cardEyebrow" Foreground="{StaticResource KcapInfoBrush}" />
+                                    <TextBlock x:Name="SuggestionTitleText" Text="{Binding SuggestionTitle}" FontSize="13" FontWeight="SemiBold"
+                                               TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                                    <TextBlock Text="{Binding SuggestionReason}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                               Foreground="{StaticResource KcapMutedBrush}"
+                                               IsVisible="{Binding SuggestionReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                                        <Button x:Name="AcceptSuggestionButton" Classes="kcapChip" Content="Add to work item"
+                                                Command="{Binding AcceptSuggestionCommand}" />
+                                        <Button x:Name="DismissSuggestionButton" Classes="kcapChip" Content="Dismiss"
+                                                Command="{Binding DismissSuggestionCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                             <Button x:Name="SignInButton" Classes="kcapPrimary" Content="Sign in" Command="{Binding SignInCommand}" IsVisible="{Binding ShowsSignIn}"
                                     Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
                                     FontWeight="SemiBold" CornerRadius="7" Padding="13,5" HorizontalAlignment="Left" />

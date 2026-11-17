@@ -2438,7 +2438,8 @@ public partial class App : Application {
                 .Where(list => list is not null)
                 .Select(list => list!),
             readWorkItems: sessions is null ? null : readWorkItems,
-            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default).Merge(workItemPages?.Changed ?? Observable.Never<Unit>()));
+            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default).Merge(workItemPages?.Changed ?? Observable.Never<Unit>()),
+            suggestedSessions: workItemPages?.SuggestedSessions);
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(
