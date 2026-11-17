@@ -517,7 +517,7 @@ public sealed class StatusCommand(
 
     static async Task<List<DaemonEntry>> WithStartingAsync(DaemonStore store, List<DaemonEntry> entries, TimeProvider time) {
         for (var i = 0; i < entries.Count; i++) {
-            if (entries[i].Alive && await LocalControlProbe.StartingAsync(store, entries[i].Name, time, StartingProbeBudget) == true)
+            if (entries[i].Alive && await LocalControlProbe.StartingAsync(store, entries[i].Name, entries[i].Pid, time, StartingProbeBudget) == true)
                 entries[i] = entries[i] with { Starting = true };
         }
 

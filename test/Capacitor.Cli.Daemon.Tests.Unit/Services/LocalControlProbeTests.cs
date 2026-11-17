@@ -1,6 +1,8 @@
 using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -37,6 +39,23 @@ public class LocalControlProbeTests {
         var r = await LocalControlProbe.ProbeAsync(daemons.Store, "no-such-daemon-xyz", TimeProvider.System, TimeSpan.FromMilliseconds(500));
         await Assert.That(r.Reachable).IsFalse();
         await Assert.That(r.Hello).IsNull();
+    }
+
+    /// <summary>A same-named daemon can replace the recorded one between reading its PID file and probing the socket;
+    /// its starting reply must not be pinned on the recorded process.</summary>
+    [Test]
+    public async Task Starting_probe_counts_only_a_reply_from_the_expected_process() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var fixture = new OrchestratorFixture(Config, Home, "starting-pid");
+        using var socket   = new LocalControlSocket(fixture.Config);
+        using var listener = new StartingLocalControl(fixture.Config, NullLogger<StartingLocalControl>.Instance);
+        listener.Start(socket.Bind(), cts.Token);
+
+        var store = fixture.Daemons.Store;
+        var self  = Environment.ProcessId;
+
+        await Assert.That(await LocalControlProbe.StartingAsync(store, "starting-pid", self, TimeProvider.System, TimeSpan.FromSeconds(5), cts.Token)).IsTrue();
+        await Assert.That(await LocalControlProbe.StartingAsync(store, "starting-pid", self + 1, TimeProvider.System, TimeSpan.FromSeconds(5), cts.Token)).IsNull();
     }
 
     // ---- a reachable peer answering well-formed-but-structurally-degenerate JSON ----

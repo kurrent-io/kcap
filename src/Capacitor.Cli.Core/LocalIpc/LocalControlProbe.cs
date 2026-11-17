@@ -24,8 +24,10 @@ public sealed record ProbeResult(
 public static class LocalControlProbe {
     /// <summary>Whether the daemon answers as one still probing its vendors: true while it is starting, false once it is
     /// ready, null when nothing answers within <paramref name="timeout"/>.</summary>
+    /// <param name="expectedPid">The process the caller recorded under this name. A reply from any other process, such as
+    /// a same-named daemon that replaced it, reads as no answer, so its state is never pinned on the recorded one.</param>
     public static async Task<bool?> StartingAsync(
-            DaemonStore store, string daemonName, TimeProvider time, TimeSpan timeout, CancellationToken ct = default) {
+            DaemonStore store, string daemonName, int? expectedPid, TimeProvider time, TimeSpan timeout, CancellationToken ct = default) {
         using var timeoutCts = new CancellationTokenSource(timeout, time);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
@@ -36,7 +38,10 @@ public static class LocalControlProbe {
             var frame = await FrameCodec.ReadAsync(conn, linkedCts.Token);
             if (frame?.Type != FrameType.HelloReply) return null;
 
-            return JsonSerializer.Deserialize(frame.Text, HelloIpcJsonContext.Default.HelloReplyDto)?.Starting == true;
+            var reply = JsonSerializer.Deserialize(frame.Text, HelloIpcJsonContext.Default.HelloReplyDto);
+            if (reply is null || expectedPid is null || reply.Pid != expectedPid) return null;
+
+            return reply.Starting == true;
         } catch (Exception ex) when (IsProbeFailure(ex, ct)) {
             return null;
         }
