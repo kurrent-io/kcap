@@ -37,19 +37,41 @@ public class OpenCodePluginV2Tests {
             .IsGreaterThan(V2.IndexOf("if (!shell) return", StringComparison.Ordinal));
     }
 
-    /// <summary>Only a session the server reports without a parent is started; a lookup failure starts
-    /// nothing and a later event retries, a bounded number of times.</summary>
+    /// <summary>Only a session the server reports without a parent is started; a failed lookup starts
+    /// nothing, and a later event retries it after a pause rather than never.</summary>
     [Test]
     public async Task A_session_starts_only_once_proven_top_level() {
         var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
 
-        await Assert.That(gate).Contains("try { info = await ctx.session.get({ sessionID: sid }) } catch { return false }");
-        await Assert.That(gate).Contains("if (info.parentID) { v2.children.add(sid); return false }");
-        await Assert.That(gate).Contains("if (attempts >= V2_START_ATTEMPTS) return Promise.resolve(false)");
+        await Assert.That(gate).Contains("try { info = await ctx.session.get({ sessionID: sid }) } catch {}");
+        await Assert.That(gate).Contains("if (!info?.id) { v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS); return false }");
+        await Assert.That(gate).Contains("if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }");
         await Assert.That(gate).Contains("\"hook\", \"--opencode\", \"--event\", \"session-start\"");
         await Assert.That(gate).Contains("\"--memory-contract\", \"1\"");
         await Assert.That(gate).Contains("if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid))");
-        await Assert.That(V2).Contains("if (type === \"session.created\" && data?.parentID) { v2.children.add(sid); return }");
+        await Assert.That(V2).Contains("if (type === \"session.created\" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }");
+    }
+
+    /// <summary>A session is marked started before its lifecycle post returns, so a caller must find the
+    /// in-flight start first: otherwise the first request misses the index and a tool call is stamped
+    /// before the session exists on the server.</summary>
+    [Test]
+    public async Task An_in_flight_start_is_waited_for_before_it_reads_as_started() {
+        var gate = Between(V2, "function ensureStarted(", "async function onEvent(");
+
+        await Assert.That(gate.IndexOf("v2.pendingStart.get(sid)", StringComparison.Ordinal))
+            .IsLessThan(gate.IndexOf("if (v2.started.has(sid)) return Promise.resolve(true)", StringComparison.Ordinal));
+        await Assert.That(V2).Contains("if (pending) await v2Wait(pending)");
+    }
+
+    /// <summary>The server process outlives its sessions, most of which never send session.deleted, so
+    /// every per-session collection is bounded.</summary>
+    [Test]
+    public async Task Session_state_is_bounded() {
+        await Assert.That(Content).Contains("started: new Map<string, true>()");
+        await Assert.That(Content).Contains("children: new Map<string, true>()");
+        await Assert.That(V2).DoesNotContain("v2.started.add(");
+        await Assert.That(V2).DoesNotContain("v2.children.add(");
     }
 
     /// <summary>v2 transcripts are not captured yet: the session's file only ever gets title lines.</summary>

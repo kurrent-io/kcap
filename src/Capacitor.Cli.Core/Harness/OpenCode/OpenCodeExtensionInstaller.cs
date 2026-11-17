@@ -607,21 +607,23 @@ public static class OpenCodeExtensionInstaller {
         // event-sourced and not captured here: the session's JSONL file only ever holds title lines.
 
         const v2 = {
-          started: new Set<string>(),
-          children: new Set<string>(),
+          started: new Map<string, true>(),
+          children: new Map<string, true>(),
           memory: new Map<string, string>(),
           pendingStart: new Map<string, Promise<boolean>>(),
-          attempts: new Map<string, number>(),
+          retryAt: new Map<string, number>(),
           lastTitle: new Map<string, string>(),
         }
         const V2_MAX_SESSIONS = 64
-        const V2_START_ATTEMPTS = 3
+        // Ids only, so a wider bound; an evicted session is classified, and at worst started, again.
+        const V2_MAX_IDS = 1024
+        const V2_RETRY_MS = 5000
         const V2_WAIT_MS = 10000
 
         // Bounded: most sessions end without a session.deleted, and the server process outlives them.
-        function v2Remember<V>(map: Map<string, V>, key: string, value: V) {
+        function v2Remember<V>(map: Map<string, V>, key: string, value: V, max = V2_MAX_SESSIONS) {
           map.delete(key)
-          if (map.size >= V2_MAX_SESSIONS) {
+          if (map.size >= max) {
             const oldest = map.keys().next()
             if (!oldest.done) map.delete(oldest.value)
           }
@@ -642,24 +644,23 @@ public static class OpenCodeExtensionInstaller {
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
 
-          // Fails closed like v1: only a session the server reports without a parent is top-level, and a
-          // failed lookup is retried by a later event, a bounded number of times.
+          // Fails closed like v1: only a session the server reports without a parent is top-level. A
+          // failed lookup is retried by a later event, at most once per V2_RETRY_MS. The in-flight start
+          // is checked first, so a caller waits for the lifecycle post rather than seeing it as done.
           function ensureStarted(sid: string, cwd?: string): Promise<boolean> {
-            if (v2.started.has(sid)) return Promise.resolve(true)
-            if (v2.children.has(sid)) return Promise.resolve(false)
             const existing = v2.pendingStart.get(sid)
             if (existing) return existing
-            const attempts = v2.attempts.get(sid) ?? 0
-            if (attempts >= V2_START_ATTEMPTS) return Promise.resolve(false)
-            v2Remember(v2.attempts, sid, attempts + 1)
+            if (v2.started.has(sid)) return Promise.resolve(true)
+            if (v2.children.has(sid)) return Promise.resolve(false)
+            if ((v2.retryAt.get(sid) ?? 0) > Date.now()) return Promise.resolve(false)
 
             const gate = (async () => {
               let info: any
-              try { info = await ctx.session.get({ sessionID: sid }) } catch { return false }
-              if (!info?.id) return false
-              if (info.parentID) { v2.children.add(sid); return false }
-              if (v2.started.has(sid)) return true
-              v2.started.add(sid)
+              try { info = await ctx.session.get({ sessionID: sid }) } catch {}
+              if (!info?.id) { v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS); return false }
+              v2.retryAt.delete(sid)
+              if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }
+              v2Remember(v2.started, sid, true, V2_MAX_IDS)
               try { mkdirSync(dir, { recursive: true }); appendFileSync(file(sid), "") } catch {}
               const args = ["hook", "--opencode", "--event", "session-start", "--session", sid,
                             "--file", file(sid), "--memory-contract", "1"]
@@ -684,11 +685,13 @@ public static class OpenCodeExtensionInstaller {
             if (typeof type !== "string" || !sid) return
             if (type === "session.deleted") {
               v2.memory.delete(sid)
-              v2.attempts.delete(sid)
+              v2.started.delete(sid)
+              v2.children.delete(sid)
+              v2.retryAt.delete(sid)
               v2.lastTitle.delete(sid)
               return
             }
-            if (type === "session.created" && data?.parentID) { v2.children.add(sid); return }
+            if (type === "session.created" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }
             if (v2.children.has(sid)) return
             const started = await ensureStarted(sid, ev?.location?.directory)
             if (!started || type !== "session.renamed") return
@@ -726,7 +729,7 @@ public static class OpenCodeExtensionInstaller {
               if (!input || typeof input !== "object") return
               if (input.session_id !== undefined && input.session_id !== null && input.session_id !== "") return
               const pending = v2.pendingStart.get(sid)
-              if (!v2.started.has(sid) && pending) await v2Wait(pending)
+              if (pending) await v2Wait(pending)
               if (!v2.started.has(sid) || v2.children.has(sid)) return
               input.session_id = sid
             } catch {
