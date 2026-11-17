@@ -69,6 +69,8 @@ public class CodingAgentPidResolverTests {
         // A VS Code started from another one's terminal: the session belongs to the inner one, whichever edition is outside.
         yield return () => ([(90, 50, "powershell.exe"), (50, 20, "Code - Insiders.exe"), (20, 15, "Code - Insiders.exe"), (15, 12, "pwsh.exe"), (12, 10, "Code.exe"), (10, 5, "Code.exe"), (5, 1, "explorer.exe")], 20);
         yield return () => ([(90, 50, "sh"), (50, 20, "Code Helper (Plugin)"), (20, 15, "Code"), (15, 12, "-zsh"), (12, 10, "Code Helper"), (10, 1, "Code")], 20);
+        // VS Code started by a launcher that has since exited: the main process's parent cannot be read.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, "Code.exe"), (20, 7, "Code.exe")], 20);
         // A remote extension host, or a chain that cannot be read past the shell.
         yield return () => ([(90, 50, "sh"), (50, 20, "node"), (20, 1, "sshd")], null);
         yield return () => ([(90, 50, "powershell.exe")], null);

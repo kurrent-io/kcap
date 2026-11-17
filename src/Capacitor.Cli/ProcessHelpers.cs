@@ -669,6 +669,8 @@ static partial class ProcessHelpers {
         var     pid     = startPid;
 
         for (var hop = 0; hop < maxHops && pid > 1; hop++) {
+            // An unreadable parent above a match is usually the launcher that started VS Code and has exited, while
+            // VS Code's own processes, all the user's, read fine.
             if (lookup(pid) is not { } info) break;
 
             var stem = info.names.Select(VsCodeEdition).FirstOrDefault(s => s is not null);
