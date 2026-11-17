@@ -695,7 +695,12 @@ public class AgentOrchestratorBorrowLaunchTests {
 
     [Test]
     public async Task Owned_launch_still_creates_and_on_failure_removes_the_worktree() {
-        using var repoPath = GitRepo.CreateWithCommit();
+        // The orchestrator resolves the repository path, so a Mac's /var temp root would come back as /private/var.
+        using var tmp = new TempDir();
+        var repo = GitRepo.InitIn(new TempDirHandle(tmp.GetResolvedPath()), "repo");
+        repo.CreateFile("README.md", "test");
+        repo.CommitAll("initial");
+        string repoPath = repo.Path;
 
         var server          = new CaptureServerConnection();
         var ptyFactory      = new SpyPtyProcessFactory();
