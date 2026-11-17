@@ -262,16 +262,12 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     void RefreshMeta(AgentRow row) => Meta = IsStarting ? LaunchStages.Label(row.LaunchStage) : MetaFor(row);
 
     /// Every row shows the time the rail sorts by, in one format: when the session started under
-    /// Created, when it was last active otherwise. An ended row adds how long it ran; a live one its
-    /// kind and borrow notes, and its subagents. A remote registry row's registration time is neither,
-    /// so it shows no time.
+    /// Created, when it was last active otherwise. A live row adds its kind and borrow notes, and its
+    /// subagents. A remote registry row's registration time is neither, so it shows no time.
     string MetaFor(AgentRow row) {
         var created = AsUtc(row.CreatedAt);
-        if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
-            var ended = AsUtc(endedRaw);
-            var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
-            return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";
-        }
+        if (row.IsEndedSession && row.EndedAt is { } endedRaw)
+            return Since(_sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw));
         var kind = row.Kind is "agent" or "session" or AgentActionService.AttachedKind ? null : row.Kind;
         var borrowed = row.WorkLocation == WorkLocationText.Borrowed ? "borrowed" : null;
         var age = row.Origin == AgentOrigin.Remote ? null

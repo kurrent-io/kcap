@@ -23,7 +23,7 @@ public sealed class WorkContextPartViewModel(string title, WorkContextPartMark m
     /// Purple is location (this session), green is settled — tip names the mark so colour is not alone.
     public string MarkTip => Status is { } status ? (IsThisSession ? $"{status.Label()}, this session's part." : status.Label())
         : Mark switch {
-            WorkContextPartMark.Settled => "Completed — settled on this work item.",
+            WorkContextPartMark.Settled => "Completed, settled on this work item.",
             WorkContextPartMark.ThisSession => "In progress in this session.",
             _ => "Not yet settled.",
         };

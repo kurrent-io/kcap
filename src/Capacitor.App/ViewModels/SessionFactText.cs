@@ -5,7 +5,7 @@ namespace Capacitor.App.ViewModels;
 
 /// The SESSION section's server-derived facts in words, matching the web's session figures.
 public static class SessionFactText {
-    public const string Unknown = "—";
+    public const string Unknown = "Unknown";
 
     /// "12.3k in · 4.5k out": cache reads and writes are left out, they dwarf the real traffic.
     public static string Tokens(SessionStatsDto? stats) =>

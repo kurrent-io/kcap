@@ -258,7 +258,7 @@ public class RailSessionViewModelTests {
             await Assert.That(older.Status.Kind).IsEqualTo(AgentStatusKind.Other);
             await Assert.That(older.Status.Label).IsEqualTo("Running");
             await Assert.That(older.Status.ShowsRing).IsTrue();
-            await Assert.That(older.Status.ShowsDash).IsFalse();
+            await Assert.That(older.Status.HasGlyph).IsTrue();
             await Assert.That(older.Status.Pulses).IsFalse();
         });
     }
@@ -537,7 +537,7 @@ public class RailSessionViewModelTests {
             await Assert.That(row.IsServer).IsTrue();
             await Assert.That(row.IsEnded).IsTrue();
             await Assert.That(row.IsTerminalSession).IsFalse();
-            await Assert.That(row.Meta).IsEqualTo("2h ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("2h ago");
             await Assert.That(row.Status.Ended).IsTrue();
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Done);
         });
@@ -553,7 +553,7 @@ public class RailSessionViewModelTests {
             using var row = new RailSessionViewModel(local, new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(Ended.AddDays(3).AddMinutes(30)));
 
-            await Assert.That(row.Meta).IsEqualTo("3d ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("3d ago");
         });
     }
 
@@ -564,7 +564,7 @@ public class RailSessionViewModelTests {
             using var row = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(new DateTime(2026, 10, 25, 9, 0, 0, DateTimeKind.Utc)));
 
-            await Assert.That(row.Meta).IsEqualTo("2d 16h ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("2d 16h ago");
         });
     }
 
@@ -600,11 +600,11 @@ public class RailSessionViewModelTests {
             using var live = new RailSessionViewModel(ServerRow(status: "active") with { LastActivityAt = Ended },
                 new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, time, sort: sort);
 
-            await Assert.That(ended.Meta).IsEqualTo("2h ago · 3h 52m");
+            await Assert.That(ended.Meta).IsEqualTo("2h ago");
             await Assert.That(live.Meta).IsEqualTo("2h ago");
 
             sort.OnNext(RailSort.Created);
-            await Assert.That(ended.Meta).IsEqualTo("5h 52m ago · 3h 52m");
+            await Assert.That(ended.Meta).IsEqualTo("5h 52m ago");
             await Assert.That(live.Meta).IsEqualTo("5h 52m ago");
         });
     }
@@ -618,7 +618,7 @@ public class RailSessionViewModelTests {
             using var row = new RailSessionViewModel(ServerRow() with { LastActivityAt = Ended.AddHours(-1) },
                 new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, At(Ended.AddHours(2)));
 
-            await Assert.That(row.Meta).IsEqualTo("3h ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("3h ago");
         });
     }
 
@@ -633,8 +633,8 @@ public class RailSessionViewModelTests {
             using var overAWeek = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(Ended.AddDays(8)));
 
-            await Assert.That(day.Meta).IsEqualTo("1d 6h ago · 3h 52m");
-            await Assert.That(overAWeek.Meta).IsEqualTo("1w ago · 3h 52m");
+            await Assert.That(day.Meta).IsEqualTo("1d 6h ago");
+            await Assert.That(overAWeek.Meta).IsEqualTo("1w ago");
         });
     }
 

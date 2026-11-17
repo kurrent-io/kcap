@@ -74,7 +74,7 @@ public class SessionStatusDotsTests {
         var local = SessionStatusDots.ForRow(Local("a1", awaiting: true), pending: false);
         await Assert.That(remote.Kind).IsEqualTo(local.Kind);
         await Assert.That(remote.ShowsClock).IsTrue();
-        await Assert.That(remote.ShowsDash).IsFalse();
+        await Assert.That(remote.HasGlyph).IsTrue();
         await Assert.That(remote.IsWarning).IsTrue();
         // Presentation parity does not fabricate the local daemon's input/attention facts.
         await Assert.That(row.AwaitingInput).IsNull();
@@ -187,13 +187,13 @@ public class SessionStatusDotsTests {
         var done = SessionStatusDots.ForRow(Local("a", status: "Completed"), pending: false);
         await Assert.That(done.Kind).IsEqualTo(AgentStatusKind.Done);
         await Assert.That(done.Label).IsEqualTo("Done");
-        await Assert.That(done.ShowsDash).IsTrue();
+        await Assert.That(done.HasGlyph).IsFalse();
         await Assert.That(done.ShowsRing).IsFalse();
     }
 
     /// A removed remote row republishes its last word, Running, as ended: it must read settled.
     [Test]
-    public async Task An_ended_running_session_shows_the_dash_not_the_ring() {
+    public async Task An_ended_running_session_shows_no_ring() {
         var live = SessionStatusDots.Present("Running", null, false, null, false, null, null, null);
         var ended = SessionStatusDots.Present("Running", null, false, null, false, null, null, null, ended: true);
 
@@ -201,7 +201,7 @@ public class SessionStatusDotsTests {
         await Assert.That(ended.Label).IsEqualTo("Running");
         await Assert.That(ended.ShowsRing).IsFalse();
         await Assert.That(ended.IsInFlight).IsFalse();
-        await Assert.That(ended.ShowsDash).IsTrue();
+        await Assert.That(ended.HasGlyph).IsFalse();
     }
 
     [Test]

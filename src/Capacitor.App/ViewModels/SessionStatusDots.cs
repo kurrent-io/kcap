@@ -172,7 +172,7 @@ public static class SessionStatusDots {
             if (item.Status.Facts.Count > 1)
                 detail = string.Join('\n', item.Status.Facts.Skip(1).Select(fact =>
                     fact.HasCaption ? $"{fact.Caption}\n{fact.Text}" : fact.Text));
-            facts.Add(new($"{who} — {sentence}", detail));
+            facts.Add(new($"{who}: {sentence}", detail));
         }
         return surfaced[0].Status with { Tip = FormatTip(facts), Facts = facts };
     }

@@ -83,7 +83,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     long _compactStartedAt;
     AgentStatusDto? _dto;
 
-    string _repository = "—";
+    string _repository = SessionFactText.Unknown;
     public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
     string? _repositoryPath;
     public string? RepositoryPath {
@@ -94,7 +94,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
-    string _worktree = "—";
+    string _worktree = SessionFactText.Unknown;
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;
     public string? WorktreePath {
@@ -105,7 +105,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyWorktree => !string.IsNullOrEmpty(_worktreePath);
-    string _branch = "—";
+    string _branch = SessionFactText.Unknown;
     public string Branch {
         get => _branch;
         private set {
@@ -113,8 +113,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(CanCopyBranch));
         }
     }
-    public bool CanCopyBranch => _branch != "—";
-    string _harness = "—";
+    public bool CanCopyBranch => _branch != SessionFactText.Unknown;
+    string _harness = SessionFactText.Unknown;
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
     string _tokens = SessionFactText.Unknown;
     public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
@@ -275,7 +275,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     // The daemon reports the branch the worktree was cut on; HEAD knows a switch made since.
     void ResolveBranch(bool refresh = false) {
         if (_isRemote) {
-            Branch = FirstNonBlank(_reportedBranch, _storedBranch) ?? "—";
+            Branch = FirstNonBlank(_reportedBranch, _storedBranch) ?? SessionFactText.Unknown;
             return;
         }
         var state = (Path: WorktreePath, Reported: _reportedBranch);
@@ -283,7 +283,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             if (refresh) _branchReader.Refresh();
             return;
         }
-        Branch = string.IsNullOrWhiteSpace(_reportedBranch) ? "—" : _reportedBranch;
+        Branch = string.IsNullOrWhiteSpace(_reportedBranch) ? SessionFactText.Unknown : _reportedBranch;
         _branchReader.Switch(state);
     }
 
@@ -367,9 +367,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
             (state, ct) => Task.Run(() => {
                 var branch = GitRepository.CurrentBranch(state.Path) ?? state.Reported;
-                return string.IsNullOrWhiteSpace(branch) ? "—" : branch;
+                return string.IsNullOrWhiteSpace(branch) ? SessionFactText.Unknown : branch;
             }, ct),
-            _ => string.IsNullOrWhiteSpace(_reportedBranch) ? "—" : _reportedBranch,
+            _ => string.IsNullOrWhiteSpace(_reportedBranch) ? SessionFactText.Unknown : _reportedBranch,
             branch => Branch = branch,
             "checkout branch");
         _reader = new SingleFlightReader<string, WorkContextRead>(
@@ -517,7 +517,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         var checkout = _isRemote ? dto.WorktreePath : CheckoutLabel.CheckoutPathFor(dto);
         WorktreePath = checkout;
         Worktree = checkout is null
-            ? "—"
+            ? SessionFactText.Unknown
             : CheckoutLabel.Format(checkout, dto.RepoPath ?? "") + (dto.WorkLocation == WorkLocationText.Borrowed ? " · borrowed" : "");
         _reportedBranch = dto.Branch;
         ResolveBranch();

@@ -43,16 +43,13 @@ public class WorkContextViewModelTests {
         public bool CanSend { get; set; } = true;
         public bool SendResult { get; set; } = true;
         public List<string> Sent { get; } = [];
-        public FakeWorkItemPageApi WorkItems { get; } = new();
-        public RecordingNotifier Notifier { get; } = new();
         public WorkContextViewModel Vm { get; }
 
         public Harness(bool isRemote = false, WorkContextLayout? layout = null) {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, () => SignInRequests++, SignIn, OpenedWorkItems.Add, Plans, PlanActivity,
                 isRemote: isRemote, serverLane: Lane,
-                canSendToAgent: () => CanSend, sendToAgent: text => { Sent.Add(text); return Task.FromResult(SendResult); }, layout: layout,
-                workItems: WorkItems, sessionTitle: () => "Build the waiting list", notifier: Notifier);
+                canSendToAgent: () => CanSend, sendToAgent: text => { Sent.Add(text); return Task.FromResult(SendResult); }, layout: layout);
         }
 
         public Task PlanSettledAsync() => Vm.Plan.PendingReadForTesting ?? Task.CompletedTask;
@@ -221,7 +218,7 @@ public class WorkContextViewModelTests {
 
             await h.PushAsync(dto);
 
-            await Assert.That(h.Vm.Branch).IsEqualTo("—");
+            await Assert.That(h.Vm.Branch).IsEqualTo(SessionFactText.Unknown);
             await Assert.That(h.Vm.Worktree).IsEqualTo("main checkout · borrowed");
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await h.Vm.TeardownAsync();
@@ -236,8 +233,8 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             await h.PushAsync(Dto(sessionId: null, branch: null) with { WorktreePath = null, RepoPath = null });
 
-            await Assert.That(h.Vm.Worktree).IsEqualTo("—");
-            await Assert.That(h.Vm.Branch).IsEqualTo("—");
+            await Assert.That(h.Vm.Worktree).IsEqualTo(SessionFactText.Unknown);
+            await Assert.That(h.Vm.Branch).IsEqualTo(SessionFactText.Unknown);
             await Assert.That(h.Vm.CanCopyRepository).IsFalse();
             await Assert.That(h.Vm.CanCopyWorktree).IsFalse();
             await Assert.That(h.Vm.CanCopyBranch).IsFalse();
@@ -272,7 +269,7 @@ public class WorkContextViewModelTests {
     [Arguments("claude", null, "main", "main")]
     [Arguments("codex", null, "main", "main")]
     [Arguments("codex", "release", "main", "release")]
-    [Arguments("codex", null, null, "—")]
+    [Arguments("codex", null, null, SessionFactText.Unknown)]
     public async Task A_session_only_row_without_a_listed_branch_shows_the_stored_one(
             string vendor, string? repoBranch, string? primaryBranch, string expected) {
         await RunOnUiAsync(async () => {
@@ -308,7 +305,7 @@ public class WorkContextViewModelTests {
 
             await h.Vm.RefreshCommand.Execute();
             await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
-            await WaitUntilAsync(() => h.Vm.Branch == "—", what: "stored branch cleared");
+            await WaitUntilAsync(() => h.Vm.Branch == SessionFactText.Unknown, what: "stored branch cleared");
             await h.Vm.TeardownAsync();
         });
     }
@@ -1075,175 +1072,6 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.BlockedBy[0]).IsEqualTo("Pin the helper");
             await Assert.That(h.Vm.HasBlockers).IsTrue();
             await Assert.That(h.Vm.CycleNote).IsEqualTo("Dependencies could not be fully resolved");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    static WorkContextPartDto PartStatus(string id, string title, string status, string? waitsOn = null, params string[] sessions) =>
-        new() {
-            WorkItemId = id, Title = title, Status = status, SessionIds = [.. sessions],
-            WaitsOn = waitsOn is null ? [] : [new WorkItemRefDto { WorkItemId = waitsOn, Title = "" }],
-        };
-
-    static WorkContextRead PartsRead() =>
-        ReadyWith(Row("p3", "part"), Item(id: "p3", title: "List every decision waiting on you", enriched: null, key: null),
-            Topology() with { PartOf = new WorkItemRefDto { WorkItemId = "w1", Title = "Approve requests from your phone" } }) with {
-            Parts = new WorkContextPartsDto {
-                WorkItem = new WorkItemRefDto { WorkItemId = "w1", Title = "Approve requests from your phone" },
-                Parts = [
-                    PartStatus("p1", "Push approval notifications", "done"),
-                    PartStatus("p2", "Send a deny reason back to the agent", "in_progress"),
-                    PartStatus("p3", "List every decision waiting on you", "in_review", null, SessionB, SessionA),
-                    PartStatus("p4", "Approve from the lock screen", "blocked", waitsOn: "p3"),
-                    PartStatus("p5", "Manage allow rules from any client", "open"),
-                    PartStatus("p6", "Show approvals in the watch app", "done"),
-                ],
-            },
-        };
-
-    /// A work items v2 server's parts read makes the card the work item's: its parts flat with their statuses, the
-    /// session's own part marked, and the parts waiting on it in place of the topology's part-of and blockers.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_parts_read_lists_parts_flat_marks_this_sessions_part_and_names_the_parts_waiting_on_it() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(PartsRead());
-
-            await h.PushAsync(Dto());
-
-            await Assert.That(h.Vm.Title).IsEqualTo("Approve requests from your phone");
-            await Assert.That(h.Vm.PartsProgress).IsEqualTo("2 of 6 parts done");
-            await Assert.That(h.Vm.ShowsPartsProgress).IsTrue();
-            await Assert.That(h.Vm.Parts.Select(p => p.Status)).IsEquivalentTo(new WorkStatus?[] {
-                WorkStatus.Done, WorkStatus.InProgress, WorkStatus.InReview, WorkStatus.Blocked, WorkStatus.Open, WorkStatus.Done,
-            }, CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Parts.Where(p => p.IsThisSession).Select(p => p.Title))
-                .IsEquivalentTo(new[] { "List every decision waiting on you" });
-            await Assert.That(h.Vm.WaitingOnThisPart).IsEquivalentTo(new[] { "Approve from the lock screen" });
-            await Assert.That(h.Vm.PartOfTitle).IsNull();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_failed_parts_read_keeps_the_last_parts_stale() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(PartsRead());
-            await h.PushAsync(Dto());
-            h.Source.Enqueue(PartsRead() with { Parts = null, PartsFailed = true });
-
-            await h.TickAsync();
-
-            await Assert.That(h.Vm.IsStale).IsTrue();
-            await Assert.That(h.Vm.Title).IsEqualTo("Approve requests from your phone");
-            await Assert.That(h.Vm.Parts.Count).IsEqualTo(6);
-            await Assert.That(h.Vm.WaitingOnThisPart).IsEquivalentTo(new[] { "Approve from the lock screen" });
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    /// The header's part chip names the session's part with its status, or "No part" on the work item itself, and its
-    /// menu lists every part with a check on the current one. A server without parts shows no chip.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_part_chip_shows_the_sessions_part_and_lists_every_part_with_the_current_one_checked() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(PartsRead());
-            await h.PushAsync(Dto());
-
-            await Assert.That(h.Vm.ShowsPartChip).IsTrue();
-            await Assert.That(h.Vm.PartChipLabel).IsEqualTo("List every decision waiting on you");
-            await Assert.That(h.Vm.PartChipStatus).IsEqualTo(WorkStatus.InReview);
-            await Assert.That(h.Vm.PartOptions.Select(o => (o.WorkItemId, o.IsCurrent))).IsEquivalentTo(new[] {
-                ("p1", false), ("p2", false), ("p3", true), ("p4", false), ("p5", false), ("p6", false), ("w1", false),
-            }, CollectionOrdering.Matching);
-            await Assert.That(h.Vm.PartOptions[^1].Title).IsEqualTo(WorkContextViewModel.OnWorkItemLabel);
-
-            var onItem = PartsRead();
-            h.Source.Enqueue(onItem with { Parts = onItem.Parts! with { Parts = [.. onItem.Parts!.Parts.Select(p => p with { SessionIds = [] })] } });
-            await h.TickAsync();
-            await Assert.That(h.Vm.PartChipLabel).IsEqualTo(WorkContextViewModel.NoPartLabel);
-            await Assert.That(h.Vm.PartChipStatus).IsNull();
-            await Assert.That(h.Vm.PartOptions[^1].IsCurrent).IsTrue();
-
-            h.Source.Enqueue(PartsRead() with { Parts = null });
-            await h.TickAsync();
-            await Assert.That(h.Vm.ShowsPartChip).IsFalse();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    /// Each pick goes to the server for this session: a move to the part, a new part named after the session and a move
-    /// into it, or a removal from the whole work item. A recorded change reads the panel again; a refused one says so.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_part_chip_moves_the_session_makes_a_part_from_it_and_removes_it() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Default = PartsRead();
-            await h.PushAsync(Dto());
-            var reads = h.Source.Requested.Count;
-
-            await h.Vm.MoveToPartCommand.Execute(h.Vm.PartOptions.Single(o => o.IsCurrent));
-            await h.Vm.MoveToPartCommand.Execute(h.Vm.PartOptions[1]);
-            await h.Vm.NewPartFromSessionCommand.Execute();
-            await h.Vm.RemoveFromWorkItemCommand.Execute();
-            await WaitUntilAsync(() => h.Source.Requested.Count > reads, what: "the panel to read again");
-            h.WorkItems.Records = false;
-            await h.Vm.RemoveFromWorkItemCommand.Execute();
-
-            await Assert.That(h.WorkItems.Moves).IsEquivalentTo([("p2", SessionA), ("part-1", SessionA)], CollectionOrdering.Matching);
-            await Assert.That(h.WorkItems.PartsAdded).IsEquivalentTo([("w1", "Build the waiting list")]);
-            await Assert.That(h.WorkItems.Removals).IsEquivalentTo([("w1", SessionA), ("w1", SessionA)]);
-            await Assert.That(h.Notifier.Notified).IsEquivalentTo(["Couldn't remove the session from the work item"]);
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    /// A session in no work item shows kcap's suggestion with its reason. Adding or dismissing it answers the server for
-    /// this session and takes the card away; a refused answer keeps the card and says so.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_suggestion_shows_on_a_session_in_no_work_item_and_goes_away_once_answered() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            var suggestion = new Capacitor.Remote.Models.WorkItemSuggestionDto {
-                WorkItemId = "w1", Title = "Approve requests from your phone", Reason = "Matches its goal: answer permissions from your phone.",
-            };
-            h.WorkItems.Suggestion = suggestion;
-            h.Source.Default = Ready();
-            await h.PushAsync(Dto());
-            await WaitUntilAsync(() => h.Vm.HasSuggestion, what: "the suggestion read");
-
-            await Assert.That(h.Vm.SuggestionTitle).IsEqualTo("Approve requests from your phone");
-            await Assert.That(h.Vm.SuggestionReason).IsEqualTo("Matches its goal: answer permissions from your phone.");
-
-            h.WorkItems.Records = false;
-            await h.Vm.AcceptSuggestionCommand.Execute();
-            await Assert.That(h.Vm.HasSuggestion).IsTrue();
-            await Assert.That(h.Notifier.Notified).IsEquivalentTo(["Couldn't add the session to the work item"]);
-
-            h.WorkItems.Records = true;
-            await h.Vm.AcceptSuggestionCommand.Execute();
-            await Assert.That(h.Vm.HasSuggestion).IsFalse();
-
-            h.WorkItems.Suggestion = suggestion;
-            await h.TickAsync();
-            await WaitUntilAsync(() => h.Vm.HasSuggestion, what: "the suggestion read again");
-            await h.Vm.DismissSuggestionCommand.Execute();
-            await Assert.That(h.Vm.HasSuggestion).IsFalse();
-            await Assert.That(h.WorkItems.SuggestionAnswers).IsEquivalentTo(
-                [("accept", "w1", SessionA), ("accept", "w1", SessionA), ("dismiss", "w1", SessionA)], CollectionOrdering.Matching);
-
-            h.WorkItems.Suggestion = suggestion;
-            h.Source.Default = PartsRead();
-            await h.Vm.RefreshCommand.Execute();
-            await WaitUntilAsync(() => h.Vm.Phase == WorkContextPhase.Ready, what: "the session on its work item");
-            await Assert.That(h.Vm.HasSuggestion).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }

@@ -213,7 +213,7 @@ public class RemoteSessionViewModelTests {
             await Assert.That(vm.WorkContext.Title).IsEqualTo("First task");
             await Assert.That(vm.WorkContext.Repository).IsEqualTo("repository");
             await Assert.That(vm.WorkContext.WorktreePath).IsNull();
-            await Assert.That(vm.WorkContext.Branch).IsEqualTo("—");
+            await Assert.That(vm.WorkContext.Branch).IsEqualTo(SessionFactText.Unknown);
             await Assert.That(vm.WorkContext.PullRequests).IsSameReferenceAs(vm.PullRequests);
             await Assert.That(plans.Requested).Contains("s1");
 
@@ -263,7 +263,7 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.ServerRow() with { AccessLevel = "overview", Branch = null });
             try {
                 await WaitUntilAsync(() => vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, what: "summary read");
-                await Assert.That(vm.WorkContext.Branch).IsEqualTo("—");
+                await Assert.That(vm.WorkContext.Branch).IsEqualTo(SessionFactText.Unknown);
             } finally { await vm.TeardownAsync(); }
         });
     }
@@ -337,7 +337,7 @@ public class RemoteSessionViewModelTests {
                 await WaitUntilAsync(() => vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, what: "summary read");
                 await Assert.That(vm.WorkContext.Repository).IsEqualTo("shop-api");
                 await Assert.That(vm.WorkContext.WorktreePath).IsEqualTo("/dev/shop-api/wt/agent-1");
-                await Assert.That(vm.WorkContext.Worktree).IsNotEqualTo("—");
+                await Assert.That(vm.WorkContext.Worktree).IsNotEqualTo(SessionFactText.Unknown);
                 await Assert.That(vm.WorkContext.Branch).IsEqualTo("kcap/agent-1");
                 await Assert.That(vm.WorkContext.PhaseNote).IsEqualTo(WorkContextViewModel.NoWorkItemNote);
             } finally { await vm.TeardownAsync(); }
