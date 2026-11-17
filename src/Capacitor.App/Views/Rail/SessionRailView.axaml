@@ -119,9 +119,6 @@
         <Style Selector="TextBlock.rowTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="Button.railRow:pointerover TextBlock.rowTitle, Button.railRow.selected TextBlock.rowTitle, Button.railRow.marked TextBlock.rowTitle, Button.railRow.attention TextBlock.rowTitle">
-            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        </Style>
         <Style Selector="Button.railRow.attention TextBlock.rowTitle">
             <Setter Property="FontWeight" Value="Medium" />
         </Style>
