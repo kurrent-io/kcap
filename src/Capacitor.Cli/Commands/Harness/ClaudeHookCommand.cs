@@ -849,13 +849,16 @@ public sealed class ClaudeHookCommand(
         }
 
         // Check if session is disabled — skip all server communication.
+        var excludedRun = false;
         try {
             var disabledSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
                 if (command == "session-end") DiscardAtEnd(disabledSessionId);
 
-                return 0;
+                // A hosted agent still needs its permission decision in an excluded run; only a person's disable drops it.
+                if (command != "permission-request" || DisabledSessions.IsDisabledByPerson(disabledSessionId, config)) return 0;
+                excludedRun = true;
             }
         } catch {
             // Best effort — don't fail if JSON parsing fails.
@@ -865,12 +868,11 @@ public sealed class ClaudeHookCommand(
         // repo/path exclusion gates run further below (AFTER this dispatch), so the watcher
         // self-heal — which would start uploading the transcript — must apply them HERE first;
         // otherwise a permission prompt in an excluded project spawns a watcher that
-        // session-start intentionally skipped (data leak). Disabled sessions already returned
-        // above. The permission record/long-poll itself is unaffected: hosted agents need the
-        // decision regardless of exclusion.
+        // session-start intentionally skipped (data leak). The permission record/long-poll itself
+        // is unaffected: hosted agents need the decision regardless of exclusion.
         if (command == "permission-request") {
             var permProfile = profiles.Effective;
-            var selfHeal    = !await IsSessionExcludedAsync(permProfile, body, budget);
+            var selfHeal    = !excludedRun && !await IsSessionExcludedAsync(permProfile, body, budget);
 
             // Read after the watcher self-heal inside Handle, which spends from the same budget.
             return await new PermissionRequestCommand(config, profiles, hosted, http, watchers, clock.Time)
