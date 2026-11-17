@@ -263,7 +263,7 @@ public sealed class ConfigCommand(
         Console.Error.WriteLine("  default_visibility          Default session visibility (private, project, org_public, public)");
         Console.Error.WriteLine("  disable_session_guidelines  Skip injecting recurring-lessons context at SessionStart (true/false)");
         Console.Error.WriteLine("  disable_workitems_nudge     Skip injecting the work-items nudge at SessionStart (true/false)");
-        Console.Error.WriteLine("  disable_nextwork_nudge      Skip the next-work list at SessionStart and the completion nudge (true/false)");
+        Console.Error.WriteLine("  disable_nextwork_nudge      Skip the next-work list at SessionStart, the completion nudge and the kcap-workitems MCP rule to present next work, from the next session (true/false)");
         Console.Error.WriteLine("  disable_first_run_notice    Skip the one-shot notice in the first session after setup (true/false)");
         Console.Error.WriteLine("  disable_coordination_notices  Skip injecting coordination notices (others' overlapping work) at SessionStart (true/false)");
         Console.Error.WriteLine("  disable_harness_nudge       Skip new-harness setup nudges (in-session + CLI stderr) (true/false)");
