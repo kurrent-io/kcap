@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
 /// describing it — does not match. A create must be the last command run: after
 /// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
-/// A substitution holding one must be its command's only one, and only an echo of the variable it was assigned to,
+/// A substitution holding one must be the whole of a variable assignment, and only an echo of that variable,
 /// joined by <c>&amp;&amp;</c>, may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
 /// </summary>
 public static partial class PrCreateCommand {
@@ -63,11 +63,13 @@ public static partial class PrCreateCommand {
 
             if (depth >= MaxDepth) continue;
 
-            if (shellScript is not null) command.Scripts.Add(shellScript);
+            var wrapsShell = shellScript is not null;
+            if (wrapsShell) command.Scripts.Add(shellScript!);
 
             foreach (var script in command.Scripts) {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
+                            && (wrapsShell || AssignedVariable(command) is not null)
                             && (k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
@@ -83,11 +85,15 @@ public static partial class PrCreateCommand {
     /// only once it succeeded. After <c>||</c>, <c>;</c> or a newline, or echoing anything else, it can print a URL the
     /// create never did.</summary>
     static bool EchoesAssignment(ShellCommand assignment, ShellCommand echo) {
-        if (assignment.Words is not [var target] || !target.EndsWith('=') || !Assignment().IsMatch(target)) return false;
+        if (AssignedVariable(assignment) is not { } name) return false;
 
-        var name = target[..^1];
         return echo is { Joiner: "&&", Scripts.Count: 0, Words: ["echo", var value] } && (value == "$" + name || value == "${" + name + "}");
     }
+
+    /// <summary>The variable of a bare <c>NAME=$(…)</c>, whose exit status is the substitution's. Any other command
+    /// holding one, such as <c>echo "$(gh pr create)"</c>, succeeds however the create fared.</summary>
+    static string? AssignedVariable(ShellCommand command) =>
+        command.Words is [var target] && target.EndsWith('=') && Assignment().IsMatch(target) ? target[..^1] : null;
 
     static bool Inspect(List<string> words, out string? script, out string? repo) {
         script = null;
