@@ -108,6 +108,7 @@ public class PrCreateCommandTests {
 
     [Test]
     [Arguments("cd /work/app && gh pr create --fill 2>&1 | tail -5", true)]
+    [Arguments("cd /work && cd app; gh pr create --fill 2>&1 | tail -5", true)]
     [Arguments("gh pr create --fill 2>&1 | tail -n 3", true)]
     [Arguments("gh pr create --fill | head -20", true)]
     [Arguments("gh pr create --fill | tail", true)]
@@ -127,6 +128,9 @@ public class PrCreateCommandTests {
     [Arguments("gh pr create --fill | tail -c 60")]
     [Arguments("gh pr create --fill | tail -n +2")]
     [Arguments("gh pr create --fill | tail -2 < /tmp/old-pr-url")]
+    [Arguments("printf '%s\\n' https://github.com/o/r/pull/1; gh pr create --fill 2>&1 | tail -2")]
+    [Arguments("gh pr create --fill 2>/dev/null | tail -2")]
+    [Arguments("echo https://github.com/o/r/pull/1; url=$(gh pr create --fill 2>&1 | tail -2) && echo \"$url\"")]
     [Arguments("gh pr create --fill | tail -2 <<EOF\nhttps://github.com/o/r/pull/1\nEOF")]
     [Arguments("gh pr create --fill | tail -1 | cat")]
     [Arguments("gh pr create --fill | tail -1 > out.txt")]

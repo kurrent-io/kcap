@@ -12,7 +12,8 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// joined by <c>&amp;&amp;</c> (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>), so its URL reaches the output.
 /// The one thing that may follow a create is a pipe into a <c>tail</c> or <c>head</c> keeping two lines or more
 /// (<c>gh pr create … 2&gt;&amp;1 | tail -5</c>), which agents use to trim output; the run's exit status is then the
-/// filter's, which the match reports as filtered.
+/// filter's, which the match reports as filtered. Such a create must keep its stderr, where gh says a PR already
+/// exists, and follow nothing but a <c>cd</c>.
 /// </summary>
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
@@ -67,6 +68,7 @@ public static partial class PrCreateCommand {
             if (Inspect(command, out var shellScript, out var invocationRepo)) {
                 filtered = k == commands.Count - 2 && IsLineFilter(commands[k + 1]);
                 if (k != commands.Count - 1 && !filtered || !RunsUnconditionally(commands, k)) return false;
+                if (filtered && (command.DiscardsStderr || !OnlyChangesDirectory(commands, k))) return false;
 
                 repo = invocationRepo;
                 return true;
@@ -84,6 +86,8 @@ public static partial class PrCreateCommand {
                             && (wrapsShell && k == commands.Count - 1 && !command.RedirectsStdout || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
+                if (nestedFiltered && !OnlyChangesDirectory(commands, k)) return false;
+
                 repo     = nestedRepo;
                 filtered = nestedFiltered;
                 return true;
@@ -92,6 +96,11 @@ public static partial class PrCreateCommand {
 
         return false;
     }
+
+    /// <summary>A filtered create's run succeeds whatever gh did, so nothing before it may print a URL that would then
+    /// read as its own: only <c>cd</c> may come first.</summary>
+    static bool OnlyChangesDirectory(List<ShellCommand> commands, int k) =>
+        commands.Take(k).All(c => c is { Scripts.Count: 0, RedirectsStdout: false, Words: ["cd", ..] });
 
     /// <summary><c>| tail -5</c>, <c>| head -n 20</c>: a filter reading only its input and keeping at least two lines,
     /// so what it prints is the create's own output with gh's "already exists:" line, the one before the URL, in view.
@@ -330,6 +339,7 @@ public static partial class PrCreateCommand {
             if (redirect) {
                 current.RedirectsStdout |= stdoutRedirect;
                 current.ReadsElsewhere  |= word.ToString().Contains('<');
+                current.DiscardsStderr  |= word.ToString() is var text && text.StartsWith("2>", StringComparison.Ordinal) && text != "2>&1";
                 redirectTarget          =  word[^1] is '>' or '<' or '&';
             } else if (redirectTarget) {
                 redirectTarget = false;
@@ -354,6 +364,7 @@ public static partial class PrCreateCommand {
             } else {
                 current.RedirectsStdout = false;
                 current.ReadsElsewhere  = false;
+                current.DiscardsStderr  = false;
                 if (joiner != "\n" || !current.Joiner.EndsWith('&') && !current.Joiner.EndsWith('|')) current.Joiner += joiner;
             }
 
@@ -428,6 +439,9 @@ public static partial class PrCreateCommand {
 
         /// <summary>Whether its stdin comes from a file or heredoc rather than the pipe before it.</summary>
         public bool ReadsElsewhere { get; set; }
+
+        /// <summary>Whether it sends stderr anywhere but stdout, where gh reports a refused create.</summary>
+        public bool DiscardsStderr { get; set; }
     }
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*=")]
