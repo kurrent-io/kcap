@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
+using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.RepoEvidence;
@@ -17,6 +18,7 @@ public static class CreatedPullRequestAdapters {
         "gemini"  => GeminiCreatedPullRequestAdapter.Instance,
         "grok"    => GrokCreatedPullRequestAdapter.Instance,
         "kiro"    => KiroCreatedPullRequestAdapter.Instance,
+        "muse"    => MuseCreatedPullRequestAdapter.Instance,
         "pi"      => PiCreatedPullRequestAdapter.Instance,
         _         => null,
     };
