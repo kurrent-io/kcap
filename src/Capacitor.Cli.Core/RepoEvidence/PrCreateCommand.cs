@@ -8,8 +8,8 @@ namespace Capacitor.Cli.Core.RepoEvidence;
 /// text, heredoc bodies and comments are not commands, so a line that only mentions one — an echo, a PR body
 /// describing it — does not match. A create must be the last command run, and one no <c>||</c> can skip: after
 /// <c>gh pr create || gh pr view</c> the output and exit status are the view's, which prints an existing PR's URL.
-/// A substitution holding one must be the whole of a variable assignment, and only an echo of that variable,
-/// joined by <c>&amp;&amp;</c>, may follow it (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>).
+/// A substitution holding one must be the whole of a variable assignment followed only by an echo of that variable,
+/// joined by <c>&amp;&amp;</c> (<c>url=$(gh pr create …) &amp;&amp; echo "$url"</c>), so its URL reaches the output.
 /// </summary>
 public static partial class PrCreateCommand {
     const int MaxDepth = 4;
@@ -70,8 +70,7 @@ public static partial class PrCreateCommand {
                 if (!Search(script, depth + 1, out var nestedRepo)) continue;
                 var accepted = command.Scripts.Count == 1
                             && RunsUnconditionally(commands, k)
-                            && (wrapsShell || AssignedVariable(command) is not null)
-                            && (k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
+                            && (wrapsShell && k == commands.Count - 1 || k == commands.Count - 2 && EchoesAssignment(command, commands[k + 1]));
                 if (!accepted) return false;
 
                 repo = nestedRepo;
@@ -126,6 +125,10 @@ public static partial class PrCreateCommand {
         return true;
     }
 
+    /// <summary><c>&gt;file</c>, <c>1&gt;&gt;file</c>: the create's URL never reaches the output, so a URL printed
+    /// earlier would read as its own. <c>2&gt;&amp;1</c> and <c>2&gt;file</c> leave stdout alone.</summary>
+    static bool RedirectsStdout(string word) => word.StartsWith('>') || word.StartsWith("1>", StringComparison.Ordinal);
+
     /// <summary>The variable of a bare <c>NAME=$(…)</c>, whose exit status is the substitution's. Any other command
     /// holding one, such as <c>echo "$(gh pr create)"</c>, succeeds however the create fared.</summary>
     static string? AssignedVariable(ShellCommand command) =>
@@ -158,7 +161,7 @@ public static partial class PrCreateCommand {
         for (var j = i + 3; j < words.Count; j++) {
             var arg = words[j];
 
-            if (arg == "--dry-run") return false;
+            if (arg == "--dry-run" || RedirectsStdout(arg)) return false;
 
             if (arg is "--repo" or "-R") {
                 if (j + 1 < words.Count) repo = words[++j];
