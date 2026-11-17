@@ -480,9 +480,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         else _openWorkItems.Remove(key);
                     }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item,
                     marked: _marked);
-            }, (group, item) => group.UpdateWorkItem(item));
-        groups.Or(workItemGroups)
+            }, (group, item) => group.UpdateWorkItem(item))
             .DisposeMany()
+            .FilterOnObservable(group => group.HasSessions);
+        groups.DisposeMany()
+            .Or(workItemGroups)
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()
             .DisposeWith(_disposables);

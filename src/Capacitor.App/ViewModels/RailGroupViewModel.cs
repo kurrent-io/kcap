@@ -61,6 +61,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
     public ReadOnlyObservableCollection<RailSessionViewModel> Sessions { get; }
+    public IObservable<bool> HasSessions { get; }
 
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<bool> _expanded;
@@ -96,6 +97,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         if (workItem is not null) UpdateWorkItem(workItem);
 
         var group = rows.AsObservableCache().DisposeWith(_disposables);
+        HasSessions = group.CountChanged.Select(count => count > 0).DistinctUntilChanged();
         var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
         var pendingHere = query.CombineLatest(agentsWithPending, (rows, pending) =>
                 rows.Items.Where(row => pending.Contains(row.Id)).Select(row => row.Id).ToHashSet(StringComparer.Ordinal))
