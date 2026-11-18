@@ -56,16 +56,24 @@ public static class SessionRowMenu {
             e.Handled = true;
             flyout.Hide();
         }, RoutingStrategies.Bubble);
+        // A row revised while the menu is open, by a session id arriving or an agent ending, updates its items in place.
+        var watched = new List<IDisposable>();
+        void Unwatch() {
+            foreach (var subscription in watched) subscription.Dispose();
+            watched.Clear();
+        }
         flyout.Opening += (_, _) => {
+            Unwatch();
             if (flyout.Target?.DataContext is not RailSessionViewModel { HasMenu: true } row) {
                 flyout.Hide();
                 return;
             }
             foreach (var (button, item) in buttons) {
                 button.Content = item.Label(row);
-                button.IsEnabled = ((System.Windows.Input.ICommand)item.Command(row)).CanExecute(null);
+                watched.Add(item.Command(row).CanExecute.Subscribe(can => button.IsEnabled = can));
             }
         };
+        flyout.Closed += (_, _) => Unwatch();
         flyout.Opened += (_, _) => buttons.Select(b => b.Button).FirstOrDefault(b => b.IsEffectivelyEnabled)?.Focus();
         return flyout;
     }

@@ -65,6 +65,20 @@ public class RailSessionActionsTests {
         await Assert.That(RailSessionActions.CanTerminate(row)).IsEqualTo(can);
     }
 
+    public static IEnumerable<Func<(AgentRow Row, bool Can)>> Deletable() {
+        yield return () => (Row(AgentOrigin.Local), true);
+        yield return () => (Row(AgentOrigin.Server, ownerIsViewer: true, status: "Completed"), true);
+        yield return () => (Row(AgentOrigin.Server, ownerIsViewer: true), false);
+        yield return () => (Row(AgentOrigin.Remote, ownerIsViewer: true), false);
+    }
+
+    /// `kcap disable` stops only this machine's recorders; another machine's live recorder would send rows back.
+    [Test]
+    [MethodDataSource(nameof(Deletable))]
+    public async Task Delete_waits_for_a_session_live_elsewhere_to_end(AgentRow row, bool can) {
+        await Assert.That(RailSessionActions.CanDelete(row)).IsEqualTo(can);
+    }
+
     [Test]
     public async Task Rename_opens_the_row_on_its_own_lane() {
         var h = new Harness();

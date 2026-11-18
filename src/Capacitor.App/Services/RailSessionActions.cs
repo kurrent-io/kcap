@@ -19,6 +19,11 @@ public sealed class RailSessionActions(
         row is { Origin: not AgentOrigin.Pending, IsPlaceholder: false, SessionId.Length: > 0 }
         && (row.Origin == AgentOrigin.Local || row.OwnerIsViewer == true);
 
+    /// `kcap disable` stops only this machine's recorders, and a send that lands after the deletion brings rows
+    /// back, so a session still live on another machine is not offered for deletion until it ends.
+    public static bool CanDelete(AgentRow row) =>
+        OwnsSession(row) && (row.Origin == AgentOrigin.Local || row.IsEndedSession);
+
     /// A running agent a daemon hosts for the signed-in user; a terminal session no daemon hosts has nothing to stop.
     public static bool CanTerminate(AgentRow row) =>
         row is { Origin: AgentOrigin.Local or AgentOrigin.Remote or AgentOrigin.Pending, IsPlaceholder: false }
@@ -37,7 +42,7 @@ public sealed class RailSessionActions(
     }
 
     public async Task DeleteAsync(AgentRow row, string label) {
-        if (!OwnsSession(row) || !await confirmDelete(label).ConfigureAwait(false)) return;
+        if (!CanDelete(row) || !await confirmDelete(label).ConfigureAwait(false)) return;
         var result = await RunAsync(disable, row.SessionId!).ConfigureAwait(false);
         notifier.Notify(DeleteOutcome(label, result).TrimEnd('.'));
         if (refresh is not null) {

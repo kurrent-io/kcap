@@ -207,11 +207,12 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         HasMenu = actions is not null;
         var owned = _row.Select(r => actions is not null && RailSessionActions.OwnsSession(r));
         var running = _row.Select(r => actions is not null && RailSessionActions.CanTerminate(r));
+        var deletable = _row.Select(r => actions is not null && RailSessionActions.CanDelete(r));
         RenameCommand = ReactiveCommand.Create(() => actions?.Rename(_row.Value), owned).DisposeWith(_disposables);
         MakePrivateCommand = ReactiveCommand.CreateFromTask(
             () => actions?.MakePrivateAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, owned).DisposeWith(_disposables);
         DeleteCommand = ReactiveCommand.CreateFromTask(
-            () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, owned).DisposeWith(_disposables);
+            () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
         TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
     }
 
