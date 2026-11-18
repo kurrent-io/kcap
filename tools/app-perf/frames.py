@@ -1,0 +1,40 @@
+"""Shared by the report scripts: OCR a run's frames and find the first one containing a string."""
+import json
+import os
+import re
+import subprocess
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def ocr_frames(frames_dir):
+    """[(capture_start, text)] in time order, cached beside the frames as ocr.jsonl."""
+    cache = os.path.join(frames_dir, "ocr.jsonl")
+    files = sorted(f for f in os.listdir(frames_dir) if f.endswith(".jpg"))
+    if not os.path.exists(cache):
+        paths = [os.path.join(frames_dir, f) for f in files]
+        with open(cache, "w") as out:
+            for i in range(0, len(paths), 40):
+                out.write(subprocess.run([os.path.join(HERE, "ocr"), *paths[i:i + 40]], check=True,
+                                         capture_output=True, text=True).stdout)
+    rows = [json.loads(line) for line in open(cache) if line.startswith("{")]
+    frames = []
+    for row in rows:
+        start = float(os.path.basename(row["file"])[:-4])
+        frames.append((start, "\n".join(row["lines"])))
+    frames.sort()
+    return frames
+
+
+def first_seen(frames, needle):
+    """(start of the first frame showing needle, start of the frame before it): the event fell between the two.
+    A needle starting with re: is a case-insensitive regular expression; OCR misreads punctuation, so anchor on
+    digits and letters."""
+    match = (re.compile(needle[3:], re.I).search if needle.startswith("re:")
+             else lambda text: needle.lower() in text.lower())
+    previous = None
+    for start, text in frames:
+        if match(text):
+            return start, previous
+        previous = start
+    return None, None
