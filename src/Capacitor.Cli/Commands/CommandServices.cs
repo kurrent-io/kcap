@@ -121,6 +121,7 @@ public static class CommandServices {
         services.AddTransient<CurateCommand>();
         services.AddTransient<MemoriesCommand>();
         services.AddTransient<ArtefactCommand>();
+        services.AddTransient<SharingCommand>();
         services.AddTransient<DaemonCommands>();
         services.AddTransient<ErrorsCommand>();
         services.AddTransient<SetTitleCommand>();
@@ -183,6 +184,7 @@ public static class CommandServices {
         services.AddTransient<McpHandoffServer>();
         services.AddTransient<McpAnalyticsServer>();
         services.AddTransient<McpArtefactsServer>();
+        services.AddTransient<McpSharingServer>();
         services.AddTransient<McpKnowledgeServer>();
         services.AddTransient(sp => new McpPassServer(
             sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>(),

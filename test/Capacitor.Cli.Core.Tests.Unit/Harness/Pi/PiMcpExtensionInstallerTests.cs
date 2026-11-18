@@ -34,7 +34,7 @@ public class PiMcpExtensionInstallerTests {
 
         // Async factory (pi awaits it before session_start → tools ready turn 1).
         await Assert.That(content).Contains("export default async function");
-        await Assert.That(content).Contains("const KCAP_MCP_SERVERS = [\"review\", \"sessions\", \"flows\", \"memory\", \"workitems\", \"plans\", \"handoff\", \"pages\", \"analytics\", \"knowledge\", \"pass\"];");
+        await Assert.That(content).Contains("const KCAP_MCP_SERVERS = [\"review\", \"sessions\", \"flows\", \"memory\", \"workitems\", \"plans\", \"handoff\", \"pages\", \"sharing\", \"analytics\", \"knowledge\", \"pass\"];");
         // MCP handshake incl. the mandatory notifications/initialized.
         await Assert.That(content).Contains("initialize");
         await Assert.That(content).Contains("notifications/initialized");

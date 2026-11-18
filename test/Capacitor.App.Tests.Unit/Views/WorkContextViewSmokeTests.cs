@@ -109,7 +109,7 @@ public class WorkContextViewSmokeTests {
             await Assert.That(host.Find<Control>("PagesSection").IsEffectivelyVisible).IsFalse();
 
             host.Artefacts.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
-                new ArtefactDto("p1", "Findings", "u1", "org", 1, host.Time.GetUtcNow(), true, "https://kcap.test/pages/p1"),
+                new ArtefactDto("p1", "Findings", "u1", "org", 1, host.Time.GetUtcNow(), true, null, null, "https://kcap.test/pages/p1"),
             ]));
             host.Vm.Artefacts.Refresh();
             await (host.Vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);

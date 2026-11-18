@@ -33,6 +33,7 @@ public static class CapacitorHttpServices {
         services.AddSingleton<IRepositoriesApi, RepositoriesApi>();
         services.AddSingleton<IFeedbackApi, FeedbackApi>();
         services.AddSingleton<IArtefactsApi, ArtefactsApi>();
+        services.AddSingleton<ISharingApi, SharingApi>();
         services.AddSingleton<IPassesApi, PassesApi>();
         services.AddSingleton<IMachinesApi, MachinesApi>();
         services.AddSingleton<IReviewApi, ReviewApi>();

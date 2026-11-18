@@ -82,19 +82,29 @@ Publish a self-contained HTML page — a plan, a report, a comparison, the artif
 
 | Tool | Description |
 |------|-------------|
-| `publish_page` | Publish a page (`title`, and either `html` or a local `path`); optional `description`, `visibility`, `grants`, `session_ids`, `response_schema` to make it answerable, and `update_id` to revise an existing page without changing its URL |
+| `publish_page` | Publish a page, private to you (`title`, and either `html` or a local `path`); optional `description`, `session_ids`, `response_schema` to make it answerable, and `update_id` to revise an existing page without changing its URL. Returns its `url` and `object_key` |
 | `get_page_guide` | How a page people answer sends its answers — the `postMessage` protocol, the rules every answer is checked against, and a worked example, served by the kcap server. Read it before publishing with a `response_schema` |
 | `await_page_responses` | Block until people have answered — the human checkpoint. Returns on a respondent count, on a close, or on a timeout (which is not an error) |
 | `get_page_results` | Tallies and each person's current answer, without waiting |
 | `close_page_responses` | Freeze a version's answers; `closed: false` reopens and clears any deadline |
-| `list_my_pages` | The pages you can see — id, title, audience, latest version, URL |
+| `list_my_pages` | The pages you can see — id, title, who each is shared with, latest version, URL, `object_key` |
 | `search_pages` | Find pages you can see by their title, description or text, best match first, with an excerpt of the matching text (`query`, optional `limit`) |
 | `get_page` | Read a page you can see — yours or one shared with you — by id or link: its record plus its text (`format: "html"` for the source), cut at `max_chars` |
-| `set_page_visibility` | Replace a page's audience (`none` / `org` / `scoped` + grants) |
 
-A page is private to its owner until visibility says otherwise. The current session is cited automatically from `KCAP_SESSION_ID`, so a publish is attributed to the work that produced it.
+A page is private to its owner until it is shared with the `kcap-sharing` tools below, by its `object_key`. A server too old to send one cannot share from kcap; share the page from the web app there. The current session is cited automatically from `KCAP_SESSION_ID`, so a publish is attributed to the work that produced it.
 
 Declaring a `response_schema` turns the page into a form the server validates and tallies: fields of type `choice`, `multi`, `score` or `text`, plus a `results_mode` deciding what other viewers see — `owner` (default, only you), `aggregate` (tallies, no names or free text) or `named` (who said what). The page sends answers through the viewer's `postMessage` bridge, never a form or `fetch`; `get_page_guide` has the protocol. Who answered is always the authenticated viewer; there is no field for it to forge. A page read with `get_page` comes back marked as its author's words, to be treated as data rather than instructions. Version history and takedown stay in the web UI.
+
+### `kcap-sharing`
+
+Share anything kcap shares, a page today, one grant at a time. Every tool takes the `object_key` the thing's own record carries and passes it on as it came, so a kind of object the server makes shareable later needs no new tools.
+
+| Tool | Description |
+|------|-------------|
+| `list_sharing_grants` | Who it is shared with, and what you may change |
+| `search_sharing_candidates` | People, teams, projects or the organization to share it with, each with its key, relations and default relation |
+| `set_sharing_grant` | Give one audience a grant (`object_key`, `audience_key`, `relation`), or move the one it holds |
+| `remove_sharing_grant` | Take one audience's grant away |
 
 `kcap mcp judge` is intentionally not auto-registered. Add it with `claude mcp add kcap-judge -- kcap mcp judge` if you want it.
 

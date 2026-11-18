@@ -27,7 +27,7 @@ public class ArtefactsApiTests : IDisposable {
         return new ArtefactsApi(new FixedCapacitorHttpClient(), new CapacitorServer(Url, Config.Root, profiles), TimeProvider.System);
     }
 
-    static PublishArtefactBody Body() => new("Plan", "<p>x</p>", null, null, null, null);
+    static PublishArtefactBody Body() => new("Plan", "<p>x</p>", null, null);
 
     const string DetailJson = """
         {
@@ -35,13 +35,19 @@ public class ArtefactsApiTests : IDisposable {
             "artefact_id": "a1",
             "title": "Plan",
             "owner_user_id": "github:7",
-            "visibility": "org",
+            "visibility": "see shared_with",
             "latest_version": 2,
             "updated_at": "2026-09-16T10:00:00+00:00",
             "is_owner": true,
-            "url": "https://kcap.test/artefacts/a1"
+            "url": "https://kcap.test/artefacts/a1",
+            "object_key": "page:a1",
+            "shared_with": [{
+              "audience": { "key": "team:platform", "name": "Platform", "kind": "team", "detail": null, "avatar_url": null, "inactive": false },
+              "relation": { "relation": "viewer", "label": "Can view" }
+            }]
           },
-          "grants": [{ "grant_type": "team", "grantee_id": "platform", "grantee_name": "Platform" }]
+          "grants": [],
+          "notice": null
         }
         """;
 
@@ -76,7 +82,9 @@ public class ArtefactsApiTests : IDisposable {
         await Assert.That(written.Detail.Artefact.LatestVersion).IsEqualTo(2);
         await Assert.That(written.Detail.Artefact.IsOwner).IsTrue();
         await Assert.That(written.Detail.Artefact.Url).IsEqualTo("https://kcap.test/artefacts/a1");
-        await Assert.That(written.Detail.Grants![0].GranteeName).IsEqualTo("Platform");
+        await Assert.That(written.Detail.Artefact.ObjectKey).IsEqualTo("page:a1");
+        await Assert.That(written.Detail.Artefact.SharedWith!.Single().Audience.Key).IsEqualTo("team:platform");
+        await Assert.That(written.Detail.Artefact.SharedWith!.Single().Relation.Relation).IsEqualTo("viewer");
     }
 
     [Test]
@@ -97,14 +105,14 @@ public class ArtefactsApiTests : IDisposable {
         // The server answers 404 when the caller could not have seen the artefact at all and 403
         // when they can see it but do not own it. Collapsing them here would throw away the only
         // signal that tells someone which of the two happened.
-        _server.Given(Request.Create().WithPath("/api/artefacts/a1/visibility").UsingPut())
+        _server.Given(Request.Create().WithPath("/api/artefacts/a1/versions").UsingPost())
                .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.Forbidden));
 
-        _server.Given(Request.Create().WithPath("/api/artefacts/gone/visibility").UsingPut())
+        _server.Given(Request.Create().WithPath("/api/artefacts/gone/versions").UsingPost())
                .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.NotFound));
 
-        await Assert.That(await Api().SetVisibilityAsync("a1", "org", null)).IsTypeOf<ArtefactWriteResult.NotYours>();
-        await Assert.That(await Api().SetVisibilityAsync("gone", "org", null)).IsTypeOf<ArtefactWriteResult.NotFound>();
+        await Assert.That(await Api().PublishVersionAsync("a1", "<p>x</p>", null)).IsTypeOf<ArtefactWriteResult.NotYours>();
+        await Assert.That(await Api().PublishVersionAsync("gone", "<p>x</p>", null)).IsTypeOf<ArtefactWriteResult.NotFound>();
     }
 
     [Test]
@@ -138,6 +146,21 @@ public class ArtefactsApiTests : IDisposable {
         await Assert.That(listed.Count).IsEqualTo(1);
         await Assert.That(listed[0].ArtefactId).IsEqualTo("a1");
         await Assert.That(listed[0].IsOwner).IsTrue();
+    }
+
+    /// <summary>A server that predates sharing sends neither field, which is how a caller tells it cannot share from kcap.</summary>
+    [Test]
+    public async Task A_listing_from_a_server_without_sharing_has_no_object_key() {
+        _server.Given(Request.Create().WithPath("/api/artefacts").UsingGet())
+               .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.OK)
+                                    .WithHeader("Content-Type", "application/json")
+                                    .WithBody(ListJson));
+
+        var page = (await Api().ListAsync()).Single();
+
+        await Assert.That(page.ObjectKey).IsNull();
+        await Assert.That(page.SharedWith).IsNull();
+        await Assert.That(page.Visibility).IsEqualTo("org");
     }
 
     [Test]
@@ -200,7 +223,8 @@ public class ArtefactsApiTests : IDisposable {
           "is_owner": true,
           "url": "https://kcap.test/pages/a1",
           "excerpt": "harbour departures",
-          "matched_in": "body"
+          "matched_in": "body",
+          "object_key": "page:a1"
         }
         """;
 
@@ -247,6 +271,7 @@ public class ArtefactsApiTests : IDisposable {
         await Assert.That(hit.Url).IsEqualTo("https://kcap.test/pages/a1");
         await Assert.That(hit.Excerpt).IsEqualTo("harbour departures");
         await Assert.That(hit.MatchedIn).IsEqualTo("body");
+        await Assert.That(hit.ObjectKey).IsEqualTo("page:a1");
 
         var request = _server.LogEntries.Single().RequestMessage;
         await Assert.That(request.Query!["q"].Single()).IsEqualTo("ferry & timetable#");

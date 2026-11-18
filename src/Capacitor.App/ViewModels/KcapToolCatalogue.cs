@@ -14,7 +14,6 @@ public static class KcapToolCatalogue {
     internal static readonly KcapToolEntry[] Entries = [
         // pages
         new("publish_page",              ToolCategory.Artefact, "Published page",           "title",  ToolCardKind.Page),
-        new("set_page_visibility",       ToolCategory.Artefact, "Shared page",              "visibility"),
         new("await_page_responses",      ToolCategory.Artefact, "Waiting for answers",      null),
         new("get_page_results",          ToolCategory.Artefact, "Read answers",             null),
         new("close_page_responses",      ToolCategory.Artefact, "Closed answers",           null),
@@ -22,13 +21,19 @@ public static class KcapToolCatalogue {
         new("search_pages",              ToolCategory.Artefact, "Searched pages",           "query"),
         new("get_page",                  ToolCategory.Artefact, "Read page",                null),
         new("get_page_guide",            ToolCategory.Artefact, "Read the page guide",      null),
-        // the same tools under their artefact names, which recorded transcripts still carry
+        // tools recorded transcripts still carry: set_page_visibility, and the page tools under their artefact names
+        new("set_page_visibility",       ToolCategory.Artefact, "Shared page",              "visibility"),
         new("publish_artefact",          ToolCategory.Artefact, "Published page",           "title",  ToolCardKind.Page),
         new("set_artefact_visibility",   ToolCategory.Artefact, "Shared page",              "visibility"),
         new("await_artefact_responses",  ToolCategory.Artefact, "Waiting for answers",      null),
         new("get_artefact_results",      ToolCategory.Artefact, "Read answers",             null),
         new("close_artefact_responses",  ToolCategory.Artefact, "Closed answers",           null),
         new("list_my_artefacts",         ToolCategory.Artefact, "Listed pages",             null),
+        // sharing
+        new("list_sharing_grants",       ToolCategory.Sharing,  "Listed sharing grants",    null),
+        new("search_sharing_candidates", ToolCategory.Sharing,  "Searched sharing candidates", "query"),
+        new("set_sharing_grant",         ToolCategory.Sharing,  "Set a sharing grant",      "relation"),
+        new("remove_sharing_grant",      ToolCategory.Sharing,  "Removed a sharing grant",  null),
         // plans
         new("declare_plan_document",     ToolCategory.Plan,     "Declared document",        "path",   ToolCardKind.Document),
         new("set_plan_tasks",            ToolCategory.Plan,     "Set plan tasks",           null),
@@ -104,6 +109,7 @@ public static class KcapToolCatalogue {
     static readonly FrozenDictionary<string, ToolCategory> ServerCategories = new Dictionary<string, ToolCategory>(StringComparer.Ordinal) {
         ["kcap-pages"]     = ToolCategory.Artefact,
         ["kcap-artefacts"] = ToolCategory.Artefact,
+        ["kcap-sharing"]   = ToolCategory.Sharing,
         ["kcap-plans"]     = ToolCategory.Plan,
         ["kcap-workitems"] = ToolCategory.Work,
         ["kcap-memory"]    = ToolCategory.Memory,

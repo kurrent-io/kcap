@@ -191,6 +191,10 @@ servers:
     transport: stdio
     command: /home/hatch/workspace/kcap/node_modules/.bin/kcap
     args: [mcp, pages]
+  kcap-sharing:
+    transport: stdio
+    command: /home/hatch/workspace/kcap/node_modules/.bin/kcap
+    args: [mcp, sharing]
   kcap-flows:
     transport: stdio
     command: /home/hatch/workspace/kcap/node_modules/.bin/kcap
@@ -216,7 +220,8 @@ List tools with
 | kcap-workitems | work items, breakdowns, loose ends, next work |
 | kcap-plans | declared plan documents and tasks |
 | kcap-knowledge | curated facts and skills |
-| kcap-pages | `publish_page`, `list_my_pages`, `search_pages`, `set_page_visibility`; for a page that collects answers, `get_page_results`, `await_page_responses`, `close_page_responses` |
+| kcap-sharing | who a page is shared with and changing it, by its `object_key`: `search_sharing_candidates`, `set_sharing_grant`, `list_sharing_grants`, `remove_sharing_grant` |
+| kcap-pages | `publish_page`, `list_my_pages`, `search_pages`; for a page that collects answers, `get_page_results`, `await_page_responses`, `close_page_responses` |
 | kcap-flows | a document review by a separate hosted reviewer: `get_flow_definition` (`doc-review`) first, then `start_flow`, `get_flow_status`, `send_to_participant`, `close_flow` |
 
 This VM is not a git checkout: pass `"repo": "all"` to `search_sessions` and
@@ -295,11 +300,10 @@ contents in a shell command. Read `CONNECTOR.md` there for the servers and tools
 6. **Pages:** write one self-contained HTML file under `~/workspace` and pass
    `publish_page` a `title` and the file's `path`. The page is served with no
    network access, so inline every style, script and image. It is private to
-   the user until `visibility` says otherwise; set `org` or `scoped` only when
-   the user names who should open it. Give the user the returned link. Publish
-   a revision with `update_id` so the link stays the same; a revision refuses
-   `visibility` and `grants`, so change who can open a page with
-   `set_page_visibility`.
+   the user; share it only when the user names who should open it, with
+   `search_sharing_candidates` and then `set_sharing_grant` for each, by the
+   `object_key` the publish returned. Give the user the returned link. Publish a revision
+   with `update_id` so the link stays the same.
 7. **Never paste `~/.config/kcap/` or any token** into the chat or a file.
 8. **Never start `kcap daemon`**, run `kcap import`, or install hooks. This VM
    records only the chats the user puts in scope through the

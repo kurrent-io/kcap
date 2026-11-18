@@ -4,7 +4,7 @@ using Capacitor.Models.Transcripts.Harness.Codex;
 
 namespace Capacitor.App.ViewModels;
 
-public enum ToolCategory { Read, Edit, Command, Search, WebSearch, Fetch, Skill, Agent, Plan, Question, Artefact, Work, Memory, Session, Flow, Other }
+public enum ToolCategory { Read, Edit, Command, Search, WebSearch, Fetch, Skill, Agent, Plan, Question, Artefact, Work, Memory, Session, Flow, Sharing, Other }
 
 /// What a group of settled tool calls says about itself. The name map keys on the name the
 /// transcript carries (Codex's rollout says `shell`, its hook says `Bash`); a name in no row is
@@ -45,6 +45,7 @@ public static class ToolSummary {
         ("Used team memory", "Used team memory"),
         ("Recalled sessions", "Recalled sessions"),
         ("Ran a flow", "Ran flows"),
+        ("Changed sharing", "Changed sharing"),
         ("Called a tool", "Called tools"),
     ];
 
@@ -106,6 +107,7 @@ public static class ToolSummary {
         ToolCategory.Memory    => "Memory",
         ToolCategory.Session   => "Recall",
         ToolCategory.Flow      => "Flow",
+        ToolCategory.Sharing   => "Sharing",
         _                      => "Tool",
     };
 

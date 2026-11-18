@@ -133,68 +133,28 @@ public class McpArtefactsServerTests {
 
     [Test]
     public async Task Publish_body_requires_a_title() {
-        await Assert.That(() => McpArtefactsServer.BuildPublishBody(Args("""{"visibility":"org"}"""), "<p>x</p>"))
+        await Assert.That(() => McpArtefactsServer.BuildPublishBody(Args("""{}"""), "<p>x</p>"))
                     .Throws<ArgumentException>();
     }
 
     // ── the audience ──────────────────────────────────────────────────────────────────
 
+    /// <summary>A publish never shares, on a new page or a revision, so an audience passed is refused rather than dropped.</summary>
     [Test]
-    public async Task An_absent_grants_key_is_not_an_empty_audience() {
-        // Absence means "leave the audience to the visibility tier"; an empty array means "granted
-        // to nobody". Collapsing them would silently widen or narrow who can open the page.
-        await Assert.That(McpArtefactsServer.ReadGrants(Args("""{"visibility":"org"}"""))).IsNull();
-
-        var empty = McpArtefactsServer.ReadGrants(Args("""{"grants":[]}"""));
-
-        await Assert.That(empty).IsNotNull();
-        await Assert.That(empty!.Count).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task A_grant_without_a_name_falls_back_to_its_id() {
-        var grants = McpArtefactsServer.ReadGrants(Args("""{"grants":[{"grant_type":"team","grantee_id":"platform"}]}"""))!;
-
-        await Assert.That(grants.Count).IsEqualTo(1);
-        await Assert.That(grants[0]!["grant_type"]!.GetValue<string>()).IsEqualTo("team");
-        await Assert.That(grants[0]!["grantee_id"]!.GetValue<string>()).IsEqualTo("platform");
-        await Assert.That(grants[0]!["grantee_name"]!.GetValue<string>()).IsEqualTo("platform");
-    }
-
-    [Test]
-    public async Task A_supplied_grant_name_is_kept() {
-        var grants = McpArtefactsServer.ReadGrants(
-            Args("""{"grants":[{"grant_type":"user","grantee_id":"github:7","grantee_name":"Ada"}]}"""))!;
-
-        await Assert.That(grants[0]!["grantee_name"]!.GetValue<string>()).IsEqualTo("Ada");
-    }
-
-    [Test]
-    public async Task A_malformed_grant_fails_rather_than_being_dropped() {
-        // Dropping it would narrow the audience without saying so.
-        await Assert.That(() => McpArtefactsServer.ReadGrants(Args("""{"grants":["team:platform"]}""")))
-                    .Throws<ArgumentException>();
-
-        await Assert.That(() => McpArtefactsServer.ReadGrants(Args("""{"grants":[{"grant_type":"team"}]}""")))
-                    .Throws<ArgumentException>();
-
-        await Assert.That(() => McpArtefactsServer.ReadGrants(Args("""{"grants":null}""")))
-                    .Throws<ArgumentException>();
-    }
-
-    [Test]
-    public async Task Visibility_body_requires_a_visibility() {
-        await Assert.That(() => McpArtefactsServer.BuildVisibilityBody(Args("""{"page_id":"a1"}""")))
-                    .Throws<ArgumentException>();
-    }
+    [Arguments("""{"title":"Plan","visibility":"org"}""")]
+    [Arguments("""{"title":"Plan","grants":[]}""")]
+    [Arguments("""{"title":"Plan","update_id":"a1","visibility":"none"}""")]
+    public async Task A_publish_naming_an_audience_is_refused_and_points_at_share_page(string args) =>
+        await Assert.That(() => McpArtefactsServer.BuildPublishRequest("https://kcap.test", Args(args), "<p>x</p>"))
+                    .Throws<ArgumentException>().WithMessageContaining(McpArtefactsServer.PublishSharesNothingMessage);
 
     // ── routing ───────────────────────────────────────────────────────────────────────
 
     [Test]
     public async Task Artefact_url_escapes_the_id() {
-        var url = McpArtefactsServer.ArtefactUrl("https://kcap.test", Args("""{"page_id":"a b"}"""), "visibility");
+        var url = McpArtefactsServer.ArtefactUrl("https://kcap.test", Args("""{"page_id":"a b"}"""), "versions");
 
-        await Assert.That(url).IsEqualTo("https://kcap.test/api/artefacts/a%20b/visibility");
+        await Assert.That(url).IsEqualTo("https://kcap.test/api/artefacts/a%20b/versions");
     }
 
     [Test]
@@ -202,28 +162,28 @@ public class McpArtefactsServerTests {
         foreach (var id in new[] { ".", "..", "a/b", "a\\b" }) {
             var args = new JsonObject { ["page_id"] = id };
 
-            await Assert.That(() => McpArtefactsServer.ArtefactUrl("https://kcap.test", args, "visibility"))
+            await Assert.That(() => McpArtefactsServer.ArtefactUrl("https://kcap.test", args, "versions"))
                         .Throws<ArgumentException>();
         }
     }
 
     [Test]
     public async Task Artefact_url_requires_an_id() {
-        await Assert.That(() => McpArtefactsServer.ArtefactUrl("https://kcap.test", new JsonObject(), "visibility"))
+        await Assert.That(() => McpArtefactsServer.ArtefactUrl("https://kcap.test", new JsonObject(), "versions"))
                     .Throws<ArgumentException>();
     }
 
     // ── the advertised surface ────────────────────────────────────────────────────────
 
     [Test]
-    public async Task The_tool_list_is_exactly_these_nine() {
+    public async Task The_tool_list_is_exactly_these_eight() {
         // Deliberate and worth keeping deliberate: an agent's context pays for every schema it
         // carries whether or not it ever publishes. Widening this is a decision, not a drive-by.
         var names = McpArtefactsServer.BuildToolsList().Select(t => t.Name).ToArray();
 
         await Assert.That(names).IsEquivalentTo(new[] {
             "publish_page", "get_page_guide", "await_page_responses", "get_page_results",
-            "close_page_responses", "list_my_pages", "search_pages", "get_page", "set_page_visibility"
+            "close_page_responses", "list_my_pages", "search_pages", "get_page"
         });
     }
 
@@ -434,14 +394,6 @@ public class McpArtefactsServerTests {
         await Assert.That(body["response_schema"]!["fields"]!.AsArray().Count).IsEqualTo(1);
     }
 
-    [Test]
-    [Arguments("visibility", "\"org\"")]
-    [Arguments("grants", "[]")]
-    public async Task A_revision_refuses_an_audience_it_would_not_apply(string key, string value) =>
-        await Assert.That(() => McpArtefactsServer.BuildPublishRequest(
-                              "https://kcap.test", Args($$"""{"title":"Plan","update_id":"a1","{{key}}":{{value}}}"""), "<p>x</p>"))
-                    .Throws<ArgumentException>();
-
     // ── the long poll ─────────────────────────────────────────────────────────────────
 
     [Test]
@@ -600,7 +552,7 @@ public class McpArtefactsServerTests {
             {"sessions":null,"transcripts":null,"took_ms":4,"work_items":null,
              "pages":[{"artefact_id":"p1","title":"Ferry timetable","owner_user_id":"github:42","owner_display_name":"Ada",
                        "visibility":"org","latest_version":2,"updated_at":"2026-09-16T10:00:00+00:00","is_owner":false,
-                       "url":"https://kcap.test/pages/p1","excerpt":"harbour departures","matched_in":"body"}]}
+                       "url":"https://kcap.test/pages/p1","excerpt":"harbour departures","matched_in":"body","object_key":"page:p1"}]}
             """);
 
         var (isError, text) = await CallAsync(Server(), stub.Url!, Args("""{"query":"ferry & timetable#"}"""), "search_pages");
@@ -612,6 +564,7 @@ public class McpArtefactsServerTests {
         await Assert.That(result["notice"]!.GetValue<string>()).IsEqualTo(McpArtefactsServer.UntrustedNotice);
         await Assert.That(result["pages"]![0]!["page_id"]!.GetValue<string>()).IsEqualTo("p1");
         await Assert.That(result["pages"]![0]!.AsObject().ContainsKey("artefact_id")).IsFalse();
+        await Assert.That(result["pages"]![0]!["object_key"]!.GetValue<string>()).IsEqualTo("page:p1");
 
         var query = stub.LogEntries.Single().RequestMessage.Query!;
         await Assert.That(query["q"].Single()).IsEqualTo("ferry & timetable#");
