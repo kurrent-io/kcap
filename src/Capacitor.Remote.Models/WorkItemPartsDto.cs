@@ -12,8 +12,8 @@ public sealed record WorkItemPartsDto {
     [JsonPropertyName("status")]      public string Status { get; init; } = "";
     [JsonPropertyName("session_ids")] public List<string> SessionIds { get; init; } = [];
     [JsonPropertyName("loose_ends")]  public List<WorkItemLooseEndDto> LooseEnds { get; init; } = [];
-    /// Titles for <see cref="SessionIds"/>; an older server sends none.
-    [JsonPropertyName("sessions")]    public List<WorkItemPartSessionDto> Sessions { get; init; } = [];
-    /// Newest first; an older server sends none.
-    [JsonPropertyName("pages")]       public List<WorkItemPageDto> Pages { get; init; } = [];
+    /// Titles for <see cref="SessionIds"/>; an older server sends none, which reads as empty.
+    [JsonPropertyName("sessions")]    public List<WorkItemPartSessionDto> Sessions { get; init => field = value ?? []; } = [];
+    /// Newest first; an older server sends none, which reads as empty.
+    [JsonPropertyName("pages")]       public List<WorkItemPageDto> Pages { get; init => field = value ?? []; } = [];
 }
