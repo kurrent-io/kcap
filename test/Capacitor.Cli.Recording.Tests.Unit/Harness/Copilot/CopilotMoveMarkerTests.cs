@@ -13,19 +13,22 @@ namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 /// </summary>
 public class CopilotMoveMarkerTests {
     [TempDir] public required TempDir Tmp { get; init; }
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     // Each test's own VS Code storage, so no workspace one test writes is searched by another.
     readonly string _storage = "storage-" + Guid.NewGuid().ToString("N");
 
     const string MovedId = "e66918ea-28db-4c85-879a-f4538ce0725e";
     const string LocalId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
-    const string Cwd     = "/work/vsc-a";
     const string Prompt  = "Add a multiply(a, b) function to calc.py.";
     const long   SentAt  = 1795024287408;   // 2026-11-18T17:51:27.408Z
 
-    static string[] Transcript(string producer = CopilotMovedChat.Producer) => [
-        $$$"""{"type":"session.start","data":{"sessionId":"{{{MovedId}}}","producer":"{{{producer}}}","startTime":"2026-11-18T17:51:27.399Z","context":{"cwd":"{{{Cwd}}}"}},"id":"00000000-0000-4000-8000-000000000001","timestamp":"2026-11-18T17:51:27.398Z"}""",
-        $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}","source":"user"},"id":"00000000-0000-4000-8000-000000000002","timestamp":"2026-11-18T17:51:27.408Z"}""",
+    // A real folder, so its file URI is valid on Windows too.
+    string Cwd => Tmp.PathTo("work", "vsc-a");
+
+    string[] Transcript(string producer = CopilotMovedChat.Producer, string promptAt = "2026-11-18T17:51:27.408Z") => [
+        $$$"""{"type":"session.start","data":{"sessionId":"{{{MovedId}}}","producer":"{{{producer}}}","startTime":"2026-11-18T17:51:27.399Z","context":{"cwd":{{{System.Text.Json.JsonSerializer.Serialize(Cwd)}}}}},"id":"00000000-0000-4000-8000-000000000001","timestamp":"2026-11-18T17:51:27.398Z"}""",
+        $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}","source":"user"},"id":"00000000-0000-4000-8000-000000000002","timestamp":"{{{promptAt}}}"}""",
         """{"type":"assistant.message","data":{"content":"Added multiply."},"id":"00000000-0000-4000-8000-000000000003","timestamp":"2026-11-18T17:51:27.409Z"}""",
         """{"type":"session.resume","data":{"resumeTime":"2026-11-18T17:53:40.845Z","context":{}},"id":"00000000-0000-4000-8000-000000000004","timestamp":"2026-11-18T17:53:40.853Z"}""",
         """{"type":"user.message","data":{"content":"Add divide."},"id":"00000000-0000-4000-8000-000000000005","timestamp":"2026-11-18T17:53:46.468Z","parentId":"00000000-0000-4000-8000-000000000004"}""",
@@ -73,7 +76,7 @@ public class CopilotMoveMarkerTests {
         var storage = change switch {
             "time"   => Workspace("a", Cwd, LocalId, sentAt: SentAt + 1),
             "text"   => Workspace("a", Cwd, LocalId, prompt: Prompt + "!"),
-            "folder" => Workspace("a", "/work/other", LocalId),
+            "folder" => Workspace("a", Tmp.PathTo("work", "other"), LocalId),
             _        => TwoMatching(),
         };
 
@@ -117,7 +120,7 @@ public class CopilotMoveMarkerTests {
     public async Task A_marker_found_after_the_resume_went_out_leads_a_later_drain() {
         var storage = Workspace("a", Cwd, LocalId);
         var path    = Tmp.CreateFile("events.jsonl", Transcript());
-        var state   = new WatchState();
+        var state   = new WatchState { LinesProcessed = 4 };
 
         var (lines, numbers) = Append(state, path, storage, [Transcript()[4]], [4]);
 
@@ -143,14 +146,14 @@ public class CopilotMoveMarkerTests {
     public async Task A_local_chat_not_found_is_looked_for_again_and_given_up_on_after_the_limit() {
         var path    = Tmp.CreateFile("events.jsonl", Transcript());
         var storage = Tmp.PathTo(_storage);
-        var state   = new WatchState();
+        var state   = new WatchState { LinesProcessed = 5 };
 
         await Assert.That(Append(state, path, storage, [], []).Numbers).IsEmpty();
         Workspace("a", Cwd, LocalId);
         await Assert.That(Append(state, path, storage, [], [], Now.AddSeconds(30)).Numbers).IsEmpty();
         await Assert.That(Append(state, path, storage, [], [], Now + CopilotMoveMarker.RetryEvery).Numbers).IsEquivalentTo(new[] { CopilotMovedChat.MarkerLineNumber });
 
-        var hopeless = new WatchState();
+        var hopeless = new WatchState { LinesProcessed = 5 };
         var empty    = Tmp.CreateDir("empty").Path;
         for (var i = 0; i < CopilotMoveMarker.MaxLookups; i++) Append(hopeless, path, empty, [], [], Now + CopilotMoveMarker.RetryEvery * i);
 
@@ -165,5 +168,46 @@ public class CopilotMoveMarkerTests {
 
         await Assert.That(Append(state, path, storage, Transcript()[2..], [2, 3, 4]).Numbers).IsEquivalentTo(new[] { 2, 3, 4 });
         await Assert.That(state.CopilotMoveMarkerStaged).IsFalse();
+    }
+
+    // Only the first copied prompt carries the Local request's time: a later one must never stand in for it.
+    [Test]
+    public async Task A_history_whose_first_prompt_has_no_time_is_never_matched_and_given_up_on() {
+        var storage = Workspace("a", Cwd, LocalId);
+        var lines   = Transcript(promptAt: "not a time").ToList();
+        lines.Insert(2, $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}"},"id":"00000000-0000-4000-8000-000000000009","timestamp":"2026-11-18T17:51:27.408Z"}""");
+        var path    = Tmp.CreateFile("events.jsonl", [.. lines]);
+        var state   = new WatchState();
+
+        await Assert.That(CopilotMovedChat.Read(lines)!.Matchable).IsFalse();
+        await Assert.That(Find(storage, [.. lines])).IsNull();
+        await Assert.That(Append(state, path, storage, [], []).Numbers).IsEmpty();
+        await Assert.That(state.CopilotMoveMarkerSent).IsTrue();
+    }
+
+    // A resume the file holds but no drain has sent yet goes out with a later drain, which carries the marker after it.
+    [Test]
+    public async Task A_resume_not_yet_sent_holds_the_marker_back() {
+        var storage = Workspace("a", Cwd, LocalId);
+        var path    = Tmp.CreateFile("events.jsonl", Transcript());
+        var state   = new WatchState { LinesProcessed = 2 };
+
+        await Assert.That(Append(state, path, storage, [Transcript()[2]], [2]).Numbers).IsEquivalentTo(new[] { 2 });
+        await Assert.That(state.CopilotMoveMarkerStaged).IsFalse();
+        await Assert.That(state.CopilotMoveLookups).IsEqualTo(0);
+    }
+
+    // The marker sits above the server's frontier, so a rewind cannot tell whether the gap took it: it is sent again.
+    [Test]
+    public async Task A_rewind_sends_the_marker_again() {
+        var path  = Tmp.CreateFile("events.jsonl", Transcript());
+        var state = new WatchState { LinesProcessed = 5, ThresholdReached = true, CopilotMoveMarkerSent = true, CopilotMoveLookups = 3 };
+
+        var rewound = await new TestRecorders(Config.Root).For(MovedId.Replace("-", ""), path, null, vendor: "copilot")
+            .GatedReregisterAsync(new SemaphoreSlim(1, 1), state, _ => Task.FromResult(2), null, CancellationToken.None);
+
+        await Assert.That(rewound).IsTrue();
+        await Assert.That(state.LinesProcessed).IsEqualTo(2);
+        await Assert.That((state.CopilotMoveMarkerSent, state.CopilotMoveLookups)).IsEqualTo((false, 0));
     }
 }

@@ -133,20 +133,21 @@ public class CopilotImportSourceImportTests : IDisposable {
     [Test]
     public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat() {
         const string localId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
+        var cwd = Path.Combine(_tempDir, "work", "a");
         var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
         Directory.CreateDirectory(dir);
         await File.WriteAllLinesAsync(Path.Combine(dir, "events.jsonl"), new[] {
-            $$$"""{"type":"session.start","data":{"sessionId":"{{{DashedSid}}}","producer":"vscode-copilot-migration","context":{"cwd":"/work/a"}},"id":"e1","timestamp":"2026-11-18T17:51:27.398Z","parentId":null}""",
+            $$$"""{"type":"session.start","data":{"sessionId":"{{{DashedSid}}}","producer":"vscode-copilot-migration","context":{"cwd":{{{System.Text.Json.JsonSerializer.Serialize(cwd)}}}}},"id":"e1","timestamp":"2026-11-18T17:51:27.398Z","parentId":null}""",
             """{"type":"user.message","data":{"content":"Add multiply."},"id":"e2","timestamp":"2026-11-18T17:51:27.408Z","parentId":"e1"}""",
             """{"type":"session.resume","data":{"context":{}},"id":"e3","timestamp":"2026-11-18T17:53:40.853Z","parentId":"e2"}""",
             """{"type":"user.message","data":{"content":"Add divide."},"id":"e4","timestamp":"2026-11-18T17:53:46.468Z","parentId":"e3"}""",
         });
-        await File.WriteAllTextAsync(Path.Combine(dir, "workspace.yaml"), "cwd: /work/a\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "workspace.yaml"), $"cwd: {cwd}\n");
 
         var storage   = Path.Combine(_tempDir, "workspaceStorage");
         var workspace = Path.Combine(storage, "ws1");
         Directory.CreateDirectory(Path.Combine(workspace, "chatSessions"));
-        await File.WriteAllTextAsync(Path.Combine(workspace, "workspace.json"), $$$"""{"folder":"{{{new Uri("/work/a").AbsoluteUri}}}"}""");
+        await File.WriteAllTextAsync(Path.Combine(workspace, "workspace.json"), $$$"""{"folder":"{{{new Uri(cwd).AbsoluteUri}}}"}""");
         await File.WriteAllTextAsync(Path.Combine(workspace, "chatSessions", localId + ".jsonl"),
             $$$"""{"kind":0,"v":{"version":3,"sessionId":"{{{localId}}}","requests":[{"requestId":"request_1","timestamp":1795024287408,"message":{"text":"Add multiply."}}]}}""" + "\n");
 

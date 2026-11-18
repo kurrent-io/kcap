@@ -35,7 +35,7 @@ public static class CopilotMoveMarker {
             }
 
             if (CopilotMovedChat.FindLocalChat(workspaceStorageDirs, history) is not { } local) {
-                if (++state.CopilotMoveLookups >= MaxLookups) {
+                if (!history.Matchable || ++state.CopilotMoveLookups >= MaxLookups) {
                     state.CopilotMoveMarkerSent = true;
                     log("Moved VS Code chat: no single Local chat matches its first prompt; storing it unlinked");
                 }
@@ -45,6 +45,9 @@ public static class CopilotMoveMarker {
             }
 
             var resume = history.ResumeId is { } id ? newLines.FindIndex(l => CopilotMovedChat.IsResume(l, id)) : -1;
+
+            // A resume written after this drain's read is sent by a later drain, which carries the marker after it.
+            if (resume < 0 && (state.LineMap?.ToSent(history.ResumeLine) ?? history.ResumeLine) >= state.LinesProcessed) return;
 
             newLines.Insert(resume + 1, CopilotMovedChat.Marker(sessionId, local, history.ResumedAt));
             newLineNumbers.Insert(resume + 1, CopilotMovedChat.MarkerLineNumber);

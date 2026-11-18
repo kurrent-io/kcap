@@ -1803,8 +1803,10 @@ public sealed class TranscriptRecorder(
 
             if (!await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct)) return false;
 
-            // Usage lines sit above the server's frontier, so it cannot say whether it lost them with the gap.
+            // Usage lines and the move marker sit above the server's frontier, so it cannot say whether it lost them
+            // with the gap.
             state.CopilotLocalUsage?.ForgetSent();
+            (state.CopilotMoveMarkerSent, state.CopilotMoveLookups, state.CopilotMoveNextLookupAt) = (false, 0, default);
             return true;
         } finally {
             gate.Release();

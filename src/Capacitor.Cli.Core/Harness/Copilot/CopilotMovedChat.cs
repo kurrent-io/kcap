@@ -20,8 +20,10 @@ public static class CopilotMovedChat {
     public const int MarkerLineNumber = 1_500_000_000;
 
     /// <summary>The first copied prompt of a moved chat's transcript, and the line, envelope id and time of the resume
-    /// that ends its history.</summary>
-    public sealed record History(string Cwd, long FirstPromptAtMs, string FirstPrompt, int ResumeLine, string? ResumeId, DateTimeOffset ResumedAt);
+    /// that ends its history. A history whose first prompt or folder could not be read cannot be matched.</summary>
+    public sealed record History(string? Cwd, long? FirstPromptAtMs, string? FirstPrompt, int ResumeLine, string? ResumeId, DateTimeOffset ResumedAt) {
+        public bool Matchable => Cwd is { Length: > 0 } && FirstPromptAtMs is not null && FirstPrompt is not null;
+    }
 
     /// <summary>Whether a line is the <c>session.resume</c> with envelope id <paramref name="id"/>; a later line naming it as
     /// its parent is not.</summary>
@@ -52,6 +54,7 @@ public static class CopilotMovedChat {
         long?   at     = null;
         string? prompt = null;
         var     number = -1;
+        var     seenPrompt = false;
 
         foreach (var line in lines) {
             number++;
@@ -70,16 +73,17 @@ public static class CopilotMovedChat {
             }
 
             if (type == "session.resume") {
-                return cwd is { Length: > 0 } && at is { } sent && prompt is not null
-                    ? new History(cwd, sent, prompt, number, Str(record?["id"]),
-                        DateTimeOffset.TryParse(Str(record?["timestamp"]), out var resumed) ? resumed : DateTimeOffset.UnixEpoch)
-                    : null;
+                return new History(cwd, at, prompt, number, Str(record?["id"]),
+                    DateTimeOffset.TryParse(Str(record?["timestamp"]), out var resumed) ? resumed : DateTimeOffset.UnixEpoch);
             }
 
-            if (type == "user.message" && prompt is null && Str(data?["content"]) is { } content
-             && DateTimeOffset.TryParse(Str(record?["timestamp"]), out var time)) {
-                prompt = content;
-                at     = time.ToUnixTimeMilliseconds();
+            // Only the first prompt carries the Local request's time, so one that cannot be read leaves nothing to match.
+            if (type == "user.message" && !seenPrompt) {
+                seenPrompt = true;
+                if (Str(data?["content"]) is { } content && DateTimeOffset.TryParse(Str(record?["timestamp"]), out var time)) {
+                    prompt = content;
+                    at     = time.ToUnixTimeMilliseconds();
+                }
             }
         }
 
@@ -89,9 +93,11 @@ public static class CopilotMovedChat {
     /// <summary>The Local chat whose request matches the history's first prompt, searched in the VS Code workspaces
     /// open on the chat's folder; null when none matches, or when more than one does.</summary>
     public static string? FindLocalChat(IReadOnlyList<string> workspaceStorageDirs, History history) {
+        if (!history.Matchable) return null;
+
         string? found = null;
 
-        foreach (var chatLog in ChatLogsFor(workspaceStorageDirs, history.Cwd)) {
+        foreach (var chatLog in ChatLogsFor(workspaceStorageDirs, history.Cwd!)) {
             var id = Path.GetFileNameWithoutExtension(chatLog);
 
             if (VsCodeChatSessionLog.Read(chatLog, id) is not { } session
