@@ -28,7 +28,7 @@ public class CopilotMoveMarkerTests {
         $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}","source":"user"},"id":"00000000-0000-4000-8000-000000000002","timestamp":"2026-11-18T17:51:27.408Z"}""",
         """{"type":"assistant.message","data":{"content":"Added multiply."},"id":"00000000-0000-4000-8000-000000000003","timestamp":"2026-11-18T17:51:27.409Z"}""",
         """{"type":"session.resume","data":{"resumeTime":"2026-11-18T17:53:40.845Z","context":{}},"id":"00000000-0000-4000-8000-000000000004","timestamp":"2026-11-18T17:53:40.853Z"}""",
-        """{"type":"user.message","data":{"content":"Add divide."},"id":"00000000-0000-4000-8000-000000000005","timestamp":"2026-11-18T17:53:46.468Z"}""",
+        """{"type":"user.message","data":{"content":"Add divide."},"id":"00000000-0000-4000-8000-000000000005","timestamp":"2026-11-18T17:53:46.468Z","parentId":"00000000-0000-4000-8000-000000000004"}""",
     ];
 
     /// <summary>A workspace in VS Code's storage open on <paramref name="folder"/>, holding a Local chat log whose one
@@ -111,7 +111,8 @@ public class CopilotMoveMarkerTests {
         await Assert.That(state.CopilotMoveMarkerStaged).IsTrue();
     }
 
-    // A watcher restarted past the resume, or one that found the Local chat only later, sends the marker first.
+    // A watcher restarted past the resume, or one that found the Local chat only later, sends the marker first, even
+    // ahead of a line naming the resume as its parent.
     [Test]
     public async Task A_marker_found_after_the_resume_went_out_leads_a_later_drain() {
         var storage = Workspace("a", Cwd, LocalId);

@@ -23,6 +23,18 @@ public static class CopilotMovedChat {
     /// that ends its history.</summary>
     public sealed record History(string Cwd, long FirstPromptAtMs, string FirstPrompt, int ResumeLine, string? ResumeId, DateTimeOffset ResumedAt);
 
+    /// <summary>Whether a line is the <c>session.resume</c> with envelope id <paramref name="id"/>; a later line naming it as
+    /// its parent is not.</summary>
+    public static bool IsResume(string line, string id) {
+        if (!line.Contains(id, StringComparison.Ordinal)) return false;
+
+        try {
+            return JsonNode.Parse(line) is JsonObject record && Str(record["type"]) == "session.resume" && Str(record["id"]) == id;
+        } catch (JsonException) {
+            return false;
+        }
+    }
+
     /// <summary>Whether a transcript's first line is VS Code's migration start.</summary>
     public static bool IsMoved(string firstLine) {
         try {

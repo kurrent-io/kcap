@@ -44,7 +44,7 @@ public static class CopilotMoveMarker {
                 return;
             }
 
-            var resume = history.ResumeId is { } id ? newLines.FindIndex(l => l.Contains($"\"{id}\"", StringComparison.Ordinal)) : -1;
+            var resume = history.ResumeId is { } id ? newLines.FindIndex(l => CopilotMovedChat.IsResume(l, id)) : -1;
 
             newLines.Insert(resume + 1, CopilotMovedChat.Marker(sessionId, local, history.ResumedAt));
             newLineNumbers.Insert(resume + 1, CopilotMovedChat.MarkerLineNumber);
