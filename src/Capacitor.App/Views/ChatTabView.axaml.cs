@@ -229,6 +229,8 @@ public partial class ChatTabView : UserControl {
             return;
         }
         if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent) DropToggleAnchor();
+        if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent || e is KeyEventArgs)
+            (DataContext as ChatTabViewModel)?.Topics.ReleaseCurrent();
         if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent || e is KeyEventArgs) _thumbFraction = null;
         if (e.RoutedEvent == ScrollGestureEvent || e.RoutedEvent == PointerPressedEvent || e is KeyEventArgs) CancelSmoothScroll();
         // A press, or Enter or Space, inside a pending card is answering it — an option, Next, a step

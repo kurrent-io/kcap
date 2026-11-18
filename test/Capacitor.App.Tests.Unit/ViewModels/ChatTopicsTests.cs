@@ -292,7 +292,7 @@ public class ChatTopicsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_topic_holding_the_top_row_is_current() {
+    public async Task The_topic_gone_to_is_current_until_a_scroll_then_the_one_at_the_top() {
         await RunOnUiAsync(async () => {
             var intro = new AssistantTextItem("Intro");
             var one   = new UserTurnItem("Point 1");
@@ -309,6 +309,13 @@ public class ChatTopicsTests {
             await Assert.That(topic.IsCurrent).IsFalse();
             topics.ShowingAtTop(topic);
             await Assert.That(topic.IsCurrent).IsTrue();
+
+            topics.RevealCommand.Execute(topic).Subscribe();
+            topics.ShowingAtTop(intro);
+            await Assert.That(topic.IsCurrent).IsTrue();
+            topics.ReleaseCurrent();
+            topics.ShowingAtTop(intro);
+            await Assert.That(topic.IsCurrent).IsFalse();
         });
     }
 }

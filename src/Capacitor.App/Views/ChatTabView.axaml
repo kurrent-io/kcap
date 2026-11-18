@@ -619,14 +619,15 @@
                             ToolTip.Tip="{Binding ToggleTip}"
                             AutomationProperties.Name="{Binding ToggleAccessibleName}">
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <!-- The gap keeps a click just past the chevron from landing on the remove button. -->
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                 <Panel Width="12" Height="12">
                                     <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
                                                    Foreground="{StaticResource KcapInfoBrush}" />
                                     <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
                                                    Foreground="{StaticResource KcapInfoBrush}" />
                                 </Panel>
-                                <Button Classes="kcapGhost topicUnmark" Click="OnTopicUnmarkClick" Padding="2" Margin="-2"
+                                <Button Classes="kcapGhost topicUnmark" Click="OnTopicUnmarkClick" Padding="2" Margin="0,-2"
                                         ToolTip.Tip="Remove this topic" AutomationProperties.Name="Remove topic">
                                     <views:AppIcon Kind="Signpost" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
                                 </Button>

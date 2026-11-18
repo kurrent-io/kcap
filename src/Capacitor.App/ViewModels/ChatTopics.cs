@@ -160,8 +160,20 @@ public sealed class ChatTopics : ReactiveObject {
     }
 
     ChatTopicItem? _current;
-    /// The chat now shows <paramref name="row"/> at its top: the topic holding it becomes the current one.
+    // A topic the user went to stays current until they scroll: the chat may not be able to bring
+    // its header to the top, near the end of the transcript.
+    bool _held;
+
+    /// The chat now shows <paramref name="row"/> at its top: the topic holding it becomes the current
+    /// one, unless the user went to a topic and has not scrolled since.
     public void ShowingAtTop(ChatItemViewModel? row) {
+        if (!_held) SetCurrent(row);
+    }
+
+    /// The user scrolled: the topic at the top of the chat is current again.
+    public void ReleaseCurrent() => _held = false;
+
+    void SetCurrent(ChatItemViewModel? row) {
         var topic = row as ChatTopicItem ?? row?.Topic;
         if (ReferenceEquals(topic, _current)) return;
         _current?.IsCurrent = false;
@@ -193,6 +205,8 @@ public sealed class ChatTopics : ReactiveObject {
             Toggle(folded);
         }
         _reveal = new ChatReveal(row, quote, whole);
+        SetCurrent(row);
+        _held = true;
         Revealing?.Invoke();
     }
 

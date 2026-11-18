@@ -31,6 +31,9 @@
         <Style Selector="Button.groupBookmarks.on">
             <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
         </Style>
+        <Style Selector="Button.groupBookmarks.on /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
         <Style Selector="Grid.markRow:pointerover Button.markRemove, Button.markRemove:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
@@ -345,7 +348,7 @@
                         CommandParameter="{Binding}"
                         ToolTip.Tip="{Binding Text}"
                         AutomationProperties.Name="{Binding Text, StringFormat='Go to bookmark {0}'}">
-                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                    <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis"
                                Foreground="{StaticResource KcapTextBrush}" />
                 </Button>
                 <Button Grid.Column="3" Classes="kcapGhost markRemove"
@@ -1141,7 +1144,7 @@
                                                     <TextBlock Text="{Binding Title}" FontSize="12" TextTrimming="CharacterEllipsis"
                                                                Foreground="{StaticResource KcapMutedBrush}" />
                                                 </StackPanel>
-                                                <ItemsControl ItemsSource="{Binding Bookmarks}" ItemTemplate="{StaticResource BookmarkRow}" />
+                                                <ItemsControl ItemsSource="{Binding Bookmarks}" ItemTemplate="{StaticResource BookmarkRow}" Margin="12,0,0,0" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
