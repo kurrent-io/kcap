@@ -68,6 +68,9 @@
         <Style Selector="Button:pressed, ToggleButton:pressed, RepeatButton:pressed">
             <Setter Property="RenderTransform" Value="none" />
         </Style>
+        <Style Selector=":is(Button):not(:disabled), SplitButton:not(:disabled)">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
         <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/MarkdownStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/PullRequestStyles.axaml" />

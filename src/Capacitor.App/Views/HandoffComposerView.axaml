@@ -45,7 +45,7 @@
                 <Button x:Name="HandoffAttachButton" Classes="kcapGhost"
                         IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
                         ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
-                        Width="24" Height="24" Padding="0" Cursor="Hand" Margin="0,0,16,0"
+                        Width="24" Height="24" Padding="0" Margin="0,0,16,0"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                     <views:AppIcon Kind="Paperclip" Size="16" />
                 </Button>

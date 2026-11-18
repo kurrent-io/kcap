@@ -1,6 +1,5 @@
 using System.Windows.Input;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -98,7 +97,7 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
     }
 
     static Button ActionButton(string label, string kind) {
-        var button = new Button { Content = label, Cursor = new Cursor(StandardCursorType.Hand) };
+        var button = new Button { Content = label };
         button.Classes.Add("markdown-code-action");
         button.Classes.Add(kind);
         return button;

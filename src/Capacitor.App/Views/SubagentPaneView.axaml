@@ -9,7 +9,7 @@
         <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="14,8">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
                 <Button x:Name="BackToSessionButton" Classes="kcapGhost" Command="{Binding BackCommand}" Padding="6,4"
-                        Cursor="Hand" AutomationProperties.Name="Back to the session" ToolTip.Tip="Back to the session">
+                        AutomationProperties.Name="Back to the session" ToolTip.Tip="Back to the session">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                         <views:AppIcon Kind="ChevronLeft" Size="14" VerticalAlignment="Center" />
                         <TextBlock x:Name="ParentTitleText" Text="{Binding ParentTitle}" MaxWidth="260" FontSize="13"

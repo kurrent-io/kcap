@@ -776,7 +776,7 @@
                                                         CommandParameter="{Binding}" IsVisible="{Binding CanDiscard}"
                                                         ToolTip.Tip="{Binding DiscardTip}"
                                                         BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
-                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
                                                         AutomationProperties.Name="Discard unresolved message" />
                                                 <Button x:Name="SendQueuedButton" Classes="kcapPrimary" Content="Send again"
                                                         ToolTip.Tip="Send this message again. The original message may still arrive."
@@ -826,12 +826,12 @@
                                                 <Button x:Name="WithdrawHeldButton" Classes="kcapChip" Content="Withdraw"
                                                         Command="{Binding WithdrawCommand}" IsVisible="{Binding CanWithdraw}"
                                                         BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
-                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
                                                         AutomationProperties.Name="Withdraw held message" />
                                                 <Button x:Name="RejectHeldButton" Classes="kcapChip" Content="Reject"
                                                         Command="{Binding RejectCommand}" IsVisible="{Binding CanDecide}"
                                                         BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
-                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
                                                         AutomationProperties.Name="Reject held message" />
                                                 <Button x:Name="ApproveHeldButton" Classes="kcapPrimary" Content="Approve"
                                                         Command="{Binding ApproveCommand}" IsVisible="{Binding CanDecide}"
@@ -922,7 +922,7 @@
                                         <DataTemplate x:DataType="vm:TerminalMenuChoiceViewModel">
                                             <Button Classes="kcapGhost" Command="{Binding Choose}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                     Padding="12,8" CornerRadius="8" Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" Cursor="Hand">
+                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
                                                 <TextBlock Text="{Binding Label}" FontSize="13.5" TextWrapping="Wrap"
                                                            Foreground="{StaticResource KcapTextBrush}" />
                                             </Button>
@@ -948,7 +948,7 @@
                             <Button x:Name="AttachButton" Classes="kcapGhost" IsVisible="{Binding ShowsComposer}"
                                     IsEnabled="{Binding Attachments.CanAttach}" ToolTip.Tip="{Binding Attachments.AttachHint}"
                                     ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
-                                    Width="24" Height="24" Padding="0" FontSize="15" Cursor="Hand"
+                                    Width="24" Height="24" Padding="0" FontSize="15"
                                     Margin="0,0,10,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                 <views:AppIcon Kind="Paperclip" Size="16" />
                             </Button>
@@ -958,7 +958,7 @@
                                     Command="{Binding InterruptCommand}" IsVisible="{Binding ShowsInterrupt}"
                                     ToolTip.Tip="{Binding InterruptTip}" ToolTip.ShowOnDisabled="True" Margin="12,0,0,0"
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
-                                    FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
+                                    FontSize="13" FontWeight="SemiBold" CornerRadius="7" />
                             <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
                                     Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7"
                                     Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"

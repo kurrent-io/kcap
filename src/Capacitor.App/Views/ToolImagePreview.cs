@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Capacitor.App.Services;
@@ -48,7 +47,6 @@ public sealed class ToolImagePreview : Button {
         Padding = new Thickness(0);
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
         HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Left;
-        Cursor = new Cursor(StandardCursorType.Hand);
         Content = _image;
         Click += (_, _) => {
             if (!ExpandsOnClick) return;

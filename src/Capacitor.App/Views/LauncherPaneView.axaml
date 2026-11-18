@@ -412,7 +412,7 @@
                                             <Button x:Name="AttachButton" Classes="kcapGhost"
                                                     IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
                                                     ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
-                                                    Width="26" Height="26" Padding="0" FontSize="15" Cursor="Hand"
+                                                    Width="26" Height="26" Padding="0" FontSize="15"
                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                                 <views:AppIcon Kind="Paperclip" Size="16" />
                                             </Button>
