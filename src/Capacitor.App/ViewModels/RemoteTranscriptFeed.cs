@@ -64,6 +64,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Older lines not yet drained, oldest first.
     readonly List<ProjectedLine> _older = new();
     Task? _olderRun;
+    /// The event number `from` counts from; null until a seed learns it.
+    long? _base;
+    readonly RemoteTranscriptCache? _cache;
+    /// Every line loaded, in stream order, kept only for the cache.
+    readonly List<ProjectedLine>? _loaded;
+    /// The session refused this reader, so what it loaded is not kept.
+    bool _lost;
     /// How many pending lines the seed committed, and the position it ended at. A live event that
     /// lands before the pane drains the seed follows it in the next read: folding it into the Reset
     /// would place it inside the replayed history, where it can no longer acknowledge a send.
@@ -89,10 +96,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     public RemoteTranscriptFeed(
             string sessionId, string vendor, IObservable<SessionAccessState> access, SessionEventsReader readEvents,
-            IServerLane lane, TimeProvider time, Action<string> log, int? window = Window, int prefetch = Prefetch) {
+            IServerLane lane, TimeProvider time, Action<string> log, int? window = Window, RemoteTranscriptCache? cache = null,
+            int prefetch = Prefetch) {
         _sessionId = sessionId;
         _window = window;
         _prefetch = prefetch;
+        _cache = cache;
+        _loaded = cache is null ? null : [];
         _rules = TranscriptChat.RulesFor(vendor);
         _readEvents = readEvents;
         _lane = lane;
@@ -101,6 +111,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         _access = access.Subscribe(state => {
             if (state == SessionAccessState.Established) Restart();
             else StopTail();
+            if (state == SessionAccessState.Denied) Forget();
         });
     }
 
@@ -201,6 +212,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// oldest event the stream still holds, and no other route reports where it ends.
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
+        if (_cache?.Take(_sessionId) is { } snapshot) return await ResumeAsync(attempt, snapshot, ct).ConfigureAwait(false);
         var lines = new List<ProjectedLine>();
         var scheduled = NewScheduled();
         long from = 0;
@@ -209,8 +221,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         if (_window is { } window) {
             fetch = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
             if (!Admit(attempt, fetch, out var probe)) return false;
-            if (probe.NextFrom is not null && probe.Events is [var first, ..])
-                from = Math.Max(0, probe.LastEventNumber - first.EventNumber + 1 - window);
+            if (probe.Events is [var first, ..]) {
+                lock (_lock) _base = first.EventNumber;
+                if (probe.NextFrom is not null) from = Math.Max(0, probe.LastEventNumber - first.EventNumber + 1 - window);
+            }
             if (from == 0 && probe.NextFrom is null) oldest = ProjectInto(probe, lines, scheduled);
             else (fetch, oldest) = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
         } else {
@@ -225,11 +239,50 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _earliest = from;
             _oldest = oldest;
             _older.Clear();
+            _loaded?.Clear();
+            _loaded?.AddRange(lines);
             _pending.Clear();
             _pending.AddRange(lines);
             _pendingStatus = FeedStatus.Reset;
             _resetCount = lines.Count;
             _seedBoundary = CurrentOffsetLocked();
+        }
+        Changed?.Invoke();
+        return true;
+    }
+
+    /// The cached lines go out at once as the seed; then only the events after them are read.
+    async Task<bool> ResumeAsync(int attempt, RemoteTranscriptSnapshot snapshot, CancellationToken ct) {
+        lock (_lock) {
+            if (_attempt != attempt) {
+                _cache!.Put(_sessionId, snapshot);
+                return false;
+            }
+            _verdict = null;
+            _scheduled = snapshot.Scheduled;
+            _position = snapshot.Position;
+            _earliest = snapshot.Earliest;
+            _base = snapshot.Base;
+            _loaded!.Clear();
+            _loaded.AddRange(snapshot.Lines);
+            _pending.Clear();
+            _pending.AddRange(snapshot.Lines);
+            _pendingStatus = FeedStatus.Reset;
+            _resetCount = snapshot.Lines.Count;
+            _seedBoundary = CurrentOffsetLocked();
+        }
+        Changed?.Invoke();
+        var lines = new List<ProjectedLine>();
+        var (fetch, _) = await ReadForwardAsync(snapshot.Position + 1 - snapshot.Base, lines, snapshot.Scheduled, ct).ConfigureAwait(false);
+        if (!Admit(attempt, fetch, out var page)) return false;
+        lock (_lock) {
+            if (_attempt != attempt) return false;
+            foreach (var line in lines) {
+                if (line.Offset <= _position) continue;
+                _pending.Add(line);
+                _loaded!.Add(line);
+            }
+            _position = Math.Max(_position ?? -1, page.LastEventNumber);
         }
         Changed?.Invoke();
         return true;
@@ -365,6 +418,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _oldest = oldest;
             _older.InsertRange(0, lines);
             if (ends) _olderRun = null;
+            _loaded?.InsertRange(0, lines);
         }
         if (ends) Changed?.Invoke();
         return true;
@@ -425,6 +479,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _seedBoundary = boundary + 1;
             _pending.AddRange(lines.Where(line => line.Offset > boundary));
             _pending.AddRange(later);
+            if (_loaded is not null) {
+                var kept = _loaded.Where(line => line.Offset > reached).ToList();
+                _loaded.Clear();
+                _loaded.AddRange(lines);
+                _loaded.AddRange(kept);
+            }
             _pendingStatus = FeedStatus.Reset;
         }
         Changed?.Invoke();
@@ -458,6 +518,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                     if (line is { } l) {
                         _pending.Add(l);
                         _liveDuringReread?.Add(l);
+                        _loaded?.Add(l);
                     }
                 }
                 Changed?.Invoke();
@@ -486,7 +547,22 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _verdict = (status, failure);
             _verdictRead = false;
         }
+        if (status is FeedStatus.Missing or FeedStatus.Failed) Forget();
         Changed?.Invoke();
+    }
+
+    void Forget() {
+        lock (_lock) _lost = true;
+        _cache?.Drop(_sessionId);
+    }
+
+    /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.
+    RemoteTranscriptSnapshot? SnapshotLocked() {
+        if (_lost || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
+        var skip = Math.Max(0, _loaded.Count - RemoteTranscriptCache.MaxLines);
+        var lines = _loaded.GetRange(skip, _loaded.Count - skip);
+        if (skip > 0) earliest = Math.Max(earliest, lines[0].Offset - origin);
+        return new(lines, position, earliest, origin, _scheduled);
     }
 
     /// A superseded attempt's failure would mark a reason the current attempt has not hit.
@@ -497,13 +573,16 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     public void Dispose() {
+        RemoteTranscriptSnapshot? snapshot;
         lock (_lock) {
             if (_disposed) return;
             _disposed = true;
             _tailCts?.Cancel();
             _tailCts = null;
             _attempt++;
+            snapshot = SnapshotLocked();
         }
+        if (snapshot is not null) _cache!.Put(_sessionId, snapshot);
         _access.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
