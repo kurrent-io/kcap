@@ -56,7 +56,51 @@ static class MarkViewSelection {
     /// offset lands that many characters early and the item's tail is never copied.
     public static string SelectedText(MarkdownViewer viewer) {
         if (LayerOf(viewer) is not { } layer || Anchor(layer) is not { } anchor || Focus(layer) is not { } focus) return "";
-        var (from, to) = (Math.Min(anchor, focus), Math.Max(anchor, focus));
+        return TextBetween(layer, Math.Min(anchor, focus), Math.Max(anchor, focus));
+    }
+
+    /// Everything the viewer shows, as a copy of all of it would read.
+    public static string AllText(MarkdownViewer viewer) =>
+        LayerOf(viewer) is { } layer ? TextBetween(layer, 0, int.MaxValue) : "";
+
+    /// Selects the first run of text that reads as <paramref name="quote"/>, whitespace aside, and
+    /// returns where it starts in the viewer's coordinates; null when the viewer shows no such text.
+    public static Rect? Select(MarkdownViewer viewer, string quote) {
+        if (LayerOf(viewer) is not Visual layer) return null;
+        var needle = string.Join(' ', quote.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (needle.Length == 0) return null;
+        // Each character kept, with the offset it starts at and the entry it is laid out in. A
+        // list marker is not laid out, so it stands at its item's start.
+        var text = new StringBuilder();
+        var at = new List<(int Offset, object Entry, int Index)>();
+        void Keep(char c, int offset, object entry, int index) {
+            if (char.IsWhiteSpace(c)) {
+                if (text.Length == 0 || text[^1] == ' ') return;
+                c = ' ';
+            }
+            text.Append(c);
+            at.Add((offset, entry, index));
+        }
+        foreach (var entry in Entries(layer)) {
+            var start = AbsStart(entry);
+            var plain = PlainText(entry);
+            var marker = MarkerLength(entry, plain);
+            for (var i = 0; i < plain.Length; i++)
+                Keep(plain[i], i < marker ? start : start + i - marker, entry, Math.Max(0, i - marker));
+            foreach (var c in Separator(entry)) Keep(c, start + plain.Length - marker, entry, plain.Length - marker);
+        }
+        var found = text.ToString().IndexOf(needle, StringComparison.Ordinal);
+        if (found < 0) return null;
+        var (first, last) = (at[found], at[found + needle.Length - 1]);
+        Anchor(layer) = first.Offset;
+        Focus(layer) = last.Offset + 1;
+        layer.InvalidateVisual();
+        var block = TextBlockOf(first.Entry);
+        if (block.TranslatePoint(new Point(block.Padding.Left, block.Padding.Top), viewer) is not { } origin) return null;
+        return block.TextLayout.HitTestTextPosition(first.Index).Translate(origin);
+    }
+
+    static string TextBetween(object layer, int from, int to) {
         if (from == to) return "";
         var text = new StringBuilder();
         foreach (var entry in Entries(layer)) {

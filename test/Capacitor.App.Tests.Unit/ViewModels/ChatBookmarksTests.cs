@@ -21,6 +21,7 @@ public class ChatBookmarksTests {
             first.Add(["Lock   order", " ", "Retry\njitter", "Logging"], reply);
             await Assert.That(first.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Retry jitter", "Logging"]);
             await Assert.That(first.All.Select(b => b.Message)).IsEquivalentTo(new int?[] { 1, 1, 1 });
+            await Assert.That(first.All.Select(b => b.Quote)).IsEquivalentTo(new string?[] { "Lock   order", "Retry\njitter", "Logging" });
             first.Move(2, 0);
             first.All[1].Color = ChatBookmarkColor.Pink;
             first.RemoveCommand.Execute(first.All[2]).Subscribe();
@@ -49,6 +50,7 @@ public class ChatBookmarksTests {
             var topics = new ChatTopics(items);
             var bookmarks = new ChatBookmarks(topics);
             bookmarks.Add(["Done"], reply);
+            bookmarks.AddMessage("Done", reply);
             topics.ToggleChange(ask);
             topics.ToggleChange(next);
             var folded = (ChatTopicItem)items[0];
@@ -57,10 +59,13 @@ public class ChatBookmarksTests {
             var raised = 0;
             topics.Revealing += () => raised++;
 
-            bookmarks.RevealCommand.Execute(bookmarks.All.Single()).Subscribe();
+            bookmarks.RevealCommand.Execute(bookmarks.All[0]).Subscribe();
             await Assert.That(folded.IsExpanded).IsTrue();
             await Assert.That(raised).IsEqualTo(1);
-            await Assert.That(topics.TakeReveal()).IsSameReferenceAs(reply);
+            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, "Done"));
+
+            bookmarks.RevealCommand.Execute(bookmarks.All[1]).Subscribe();
+            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null));
         });
     }
 }

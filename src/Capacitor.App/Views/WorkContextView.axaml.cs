@@ -25,6 +25,8 @@ public partial class WorkContextView : UserControl {
     void OnBookmarkGripPressed(object? sender, PointerPressedEventArgs e) {
         if (sender is not Control { DataContext: ChatBookmark bookmark } || !e.GetCurrentPoint(BookmarkList).Properties.IsLeftButtonPressed) return;
         _dragged = bookmark;
+        // The list holds the pointer for the drag, so it is what shows the cursor.
+        BookmarkList.Cursor = DragCursor;
         e.Pointer.Capture(BookmarkList);
         e.Handled = true;
     }
@@ -46,7 +48,12 @@ public partial class WorkContextView : UserControl {
         bookmarks.Move(from, to);
     }
 
-    void EndBookmarkDrag() => _dragged = null;
+    void EndBookmarkDrag() {
+        _dragged = null;
+        BookmarkList.Cursor = null;
+    }
+
+    static readonly Cursor DragCursor = new(StandardCursorType.Hand);
 
     void OnBookmarkColorsOpening(object? sender, EventArgs e) {
         _colours = sender as FlyoutBase;

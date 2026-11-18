@@ -23,7 +23,7 @@ public sealed class ChatBookmarks : ReactiveObject {
 
     public ReactiveCommand<ChatBookmark, Unit> RemoveCommand { get; }
 
-    /// Brings the message a bookmark came from into view.
+    /// Brings the message a bookmark came from into view, with the bookmarked text picked out in it.
     public ReactiveCommand<ChatBookmark, Unit> RevealCommand { get; }
 
     AvaloniaList<ChatBookmark> _all;
@@ -52,7 +52,13 @@ public sealed class ChatBookmarks : ReactiveObject {
     /// Bookmarks each piece of text, in order, as taken from <paramref name="source"/>. Blank text is skipped.
     public void Add(IEnumerable<string> texts, ChatItemViewModel source) {
         var message = _topics.OrdinalOf(source);
-        All.AddRange(texts.Select(Tidy).Where(static text => text.Length > 0).Select(text => new ChatBookmark(text, message)));
+        All.AddRange(texts.Select(quote => (Text: Tidy(quote), Quote: quote)).Where(static b => b.Text.Length > 0)
+            .Select(b => new ChatBookmark(b.Text, message, b.Quote)));
+    }
+
+    /// Bookmarks all of <paramref name="source"/>, shown as <paramref name="text"/>.
+    public void AddMessage(string text, ChatItemViewModel source) {
+        if (Tidy(text) is { Length: > 0 } tidy) All.Add(new ChatBookmark(tidy, _topics.OrdinalOf(source)));
     }
 
     public void Move(int from, int to) {
@@ -61,7 +67,7 @@ public sealed class ChatBookmarks : ReactiveObject {
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row);
+        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => Any = _all.Count > 0;

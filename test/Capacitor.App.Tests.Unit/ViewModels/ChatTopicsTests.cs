@@ -187,7 +187,7 @@ public class ChatTopicsTests {
 
             topics.RevealCommand.Execute(headers[1]).Subscribe();
             await Assert.That(raised).IsEqualTo(1);
-            await Assert.That(topics.TakeReveal()).IsSameReferenceAs(headers[1]);
+            await Assert.That(topics.TakeReveal()?.Row).IsSameReferenceAs(headers[1]);
             await Assert.That(topics.TakeReveal()).IsNull();
 
             topics.ToggleChange(two);

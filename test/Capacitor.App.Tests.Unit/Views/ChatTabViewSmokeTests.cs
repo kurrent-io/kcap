@@ -1336,6 +1336,46 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// A bookmark of a whole message leads back to it and selects nothing; one of text in it selects
+    /// that text again, whatever else was selected.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Revealing_a_bookmark_selects_its_text_in_the_message() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("bookmark-reveal.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter\n3. Logging"}]}}"""]);
+                await host.AttachAsync(path);
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var viewer = (MarkView.Avalonia.MarkdownViewer)reply.Content!;
+
+                Invoke(MenuRow(OpenContextMenu(host, reply, MarkdownViewHarness.Paragraphs(reply).First()), "Bookmark message"));
+                host.Settle();
+                var message = host.Chat.Bookmarks.All.Single();
+                await Assert.That(message.Text).IsEqualTo("To cover: 1. Lock order 2. Retry jitter 3. Logging");
+                await Assert.That(message.Quote).IsNull();
+
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+                Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark each list item"));
+                host.Settle();
+                var jitter = host.Chat.Bookmarks.All.Single(b => b.Text == "Retry jitter");
+
+                reply.SelectAll();
+                host.Chat.Bookmarks.RevealCommand.Execute(jitter).Subscribe();
+                host.Settle();
+                // A selection from an item's start reads with its marker, as a copy of it would.
+                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEqualTo("2. Retry jitter");
+
+                reply.ClearSelection();
+                host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();
+                host.Settle();
+                await Assert.That(reply.HasSelection).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
     static FlyoutPresenter OpenContextMenu(Host host, Control owner, Control target) {
         var point = PresentAndLocate(host, target);
         host.Window.MouseMove(point);

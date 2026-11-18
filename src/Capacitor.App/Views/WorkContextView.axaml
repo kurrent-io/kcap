@@ -1055,7 +1055,7 @@
                                         <Grid Classes="markRow" ColumnDefinitions="Auto,Auto,*,Auto" Margin="-6,0,0,0">
                                             <!-- Dragging the grip reorders the list; the list takes the pointer, since a
                                                  moved row's container can be rebuilt under it. -->
-                                            <Border Classes="bookmarkGrip" Width="16" Background="Transparent" Cursor="SizeNorthSouth"
+                                            <Border Classes="bookmarkGrip" Width="16" Background="Transparent" Cursor="Hand"
                                                     PointerPressed="OnBookmarkGripPressed" ToolTip.Tip="Drag to reorder">
                                                 <views:AppIcon Kind="GripVertical" Size="12" VerticalAlignment="Center" HorizontalAlignment="Center"
                                                                Foreground="{StaticResource KcapFaintBrush}" />

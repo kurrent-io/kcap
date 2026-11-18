@@ -228,6 +228,28 @@ public sealed class MarkdownView : ContentControl {
             bookmarks.Add(items, source);
     }
 
+    public void BookmarkMessage() {
+        var text = Content is SelectableTextBlock plain ? plain.Text ?? "" : MarkViewSelection.AllText(_viewer);
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.AddMessage(text, source);
+    }
+
+    /// Selects the first run of text reading as <paramref name="quote"/> and returns where it starts,
+    /// in this view's coordinates; null when the view shows no such text.
+    internal Rect? Highlight(string quote) {
+        Rect? found;
+        if (Content is SelectableTextBlock plain) {
+            var index = plain.Text?.IndexOf(quote, StringComparison.Ordinal) ?? -1;
+            if (index < 0) return null;
+            plain.SelectionStart = index;
+            plain.SelectionEnd = index + quote.Length;
+            found = new Rect(default, new Size(plain.Bounds.Width, 0));
+        } else if (MarkViewSelection.Select(_viewer, quote) is { } rect && _viewer.TranslatePoint(rect.Position, this) is { } at) {
+            found = new Rect(at, rect.Size);
+        } else return null;
+        _selectionHost?.UpdateSelection(this);
+        return found;
+    }
+
     public async Task CopyLinkAsync() {
         if (ContextLinkUrl is not { } url || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
         await clipboard.SetTextAsync(url);

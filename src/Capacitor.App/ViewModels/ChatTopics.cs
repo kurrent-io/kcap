@@ -26,7 +26,7 @@ public sealed class ChatTopics : ReactiveObject {
         _items = items;
         _store = store;
         ToggleChangeCommand = ReactiveCommand.Create<ChatItemViewModel>(ToggleChange);
-        RevealCommand = ReactiveCommand.Create<ChatTopicItem>(Reveal);
+        RevealCommand = ReactiveCommand.Create<ChatTopicItem>(topic => Reveal(topic));
         RemoveCommand = ReactiveCommand.Create<ChatTopicItem>(Remove);
         _items.CollectionChanged += (_, _) => {
             if (_used && !_editing) Lay();
@@ -45,11 +45,11 @@ public sealed class ChatTopics : ReactiveObject {
     /// request also waits in <see cref="TakeReveal"/> until a view takes it.
     public event Action? Revealing;
 
-    ChatItemViewModel? _reveal;
-    public ChatItemViewModel? TakeReveal() {
-        var topic = _reveal;
+    ChatReveal? _reveal;
+    public ChatReveal? TakeReveal() {
+        var reveal = _reveal;
         _reveal = null;
-        return topic;
+        return reveal;
     }
 
     /// Every topic's header, in chat order.
@@ -143,13 +143,14 @@ public sealed class ChatTopics : ReactiveObject {
 
     void Rename(ChatTopicItem topic, string? name) => Edit(() => topic.CustomName = name);
 
-    /// Asks the chat to bring <paramref name="row"/> into view, unfolding the topic that holds it.
-    public void Reveal(ChatItemViewModel row) {
+    /// Asks the chat to bring <paramref name="row"/> into view, unfolding the topic that holds it, and
+    /// to pick out <paramref name="quote"/> in it.
+    public void Reveal(ChatItemViewModel row, string? quote = null) {
         if (!_items.Contains(row)) {
             if (_items.OfType<ChatTopicItem>().FirstOrDefault(topic => topic.Hidden.Contains(row)) is not { } folded) return;
             Toggle(folded);
         }
-        _reveal = row;
+        _reveal = new ChatReveal(row, quote);
         Revealing?.Invoke();
     }
 
