@@ -1,5 +1,5 @@
 namespace Capacitor.App.ViewModels;
 
-/// The colours a bookmark can take. None of them is a status colour, so a bookmark never reads as done
-/// or as needing attention.
-public enum ChatBookmarkColor { Blue, Cyan, Pink, Slate, Orchid, Sand, Clay, Pearl }
+/// The colours a bookmark can take. They are the user's own labels: yellow or green here means whatever
+/// the user decides, not the app's status colours.
+public enum ChatBookmarkColor { Red, Orange, Yellow, Green, Blue, Purple, Pink, Grey }

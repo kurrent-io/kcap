@@ -12,6 +12,6 @@ public sealed class ChatBookmark(string text, int? message, string? quote = null
     /// The text as it was picked, to find again in the message; null when the whole message is bookmarked.
     public string? Quote { get; } = quote;
 
-    ChatBookmarkColor _color;
+    ChatBookmarkColor _color = ChatBookmarkColor.Blue;
     public ChatBookmarkColor Color { get => _color; set => this.RaiseAndSetIfChanged(ref _color, value); }
 }

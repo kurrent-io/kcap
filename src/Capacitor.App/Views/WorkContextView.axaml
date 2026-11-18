@@ -312,42 +312,42 @@
                 </Grid.ContextFlyout>
                 <Button Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
                         ToolTip.Tip="Change colour" AutomationProperties.Name="Change bookmark colour">
-                    <views:AppIcon Kind="Bookmark" Size="14"
+                    <views:AppIcon Kind="Bookmark" Size="14" Filled="True"
                                    Foreground="{Binding Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}}" />
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkColorsOpening">
                             <UniformGrid Columns="4" Margin="4">
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Red}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Red" AutomationProperties.Name="Red">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkRedBrush}" />
+                                </Button>
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Orange}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Orange" AutomationProperties.Name="Orange">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkOrangeBrush}" />
+                                </Button>
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Yellow}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Yellow" AutomationProperties.Name="Yellow">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkYellowBrush}" />
+                                </Button>
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Green}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Green" AutomationProperties.Name="Green">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkGreenBrush}" />
+                                </Button>
                                 <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Blue}" Click="OnBookmarkColorClick"
                                         ToolTip.Tip="Blue" AutomationProperties.Name="Blue">
                                     <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkBlueBrush}" />
                                 </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Cyan}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Cyan" AutomationProperties.Name="Cyan">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkCyanBrush}" />
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Purple}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Purple" AutomationProperties.Name="Purple">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkPurpleBrush}" />
                                 </Button>
                                 <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Pink}" Click="OnBookmarkColorClick"
                                         ToolTip.Tip="Pink" AutomationProperties.Name="Pink">
                                     <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkPinkBrush}" />
                                 </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Slate}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Slate" AutomationProperties.Name="Slate">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkSlateBrush}" />
-                                </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Orchid}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Orchid" AutomationProperties.Name="Orchid">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkOrchidBrush}" />
-                                </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Sand}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Sand" AutomationProperties.Name="Sand">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkSandBrush}" />
-                                </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Clay}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Clay" AutomationProperties.Name="Clay">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkClayBrush}" />
-                                </Button>
-                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Pearl}" Click="OnBookmarkColorClick"
-                                        ToolTip.Tip="Pearl" AutomationProperties.Name="Pearl">
-                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkPearlBrush}" />
+                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Grey}" Click="OnBookmarkColorClick"
+                                        ToolTip.Tip="Grey" AutomationProperties.Name="Grey">
+                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkGreyBrush}" />
                                 </Button>
                             </UniformGrid>
                         </Flyout>
