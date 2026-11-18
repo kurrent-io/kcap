@@ -1,3 +1,3 @@
 namespace Capacitor.App.NeedToKnow;
 
-public enum NeedToKnowLevel { MustKnow, WorthKnowing, OnlyIfCurious }
+public enum NeedToKnowLevel { MustKnow, Detail, Footnote }

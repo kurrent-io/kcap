@@ -2,9 +2,9 @@ using System.Reactive.Subjects;
 
 namespace Capacitor.App.NeedToKnow;
 
-/// How each level below must-know is shown. Must-know is always shown normally, and only-if-curious is
-/// never more visible than worth-knowing.
-public sealed record NeedToKnowBasis(NeedToKnowDisplay WorthKnowing, NeedToKnowDisplay OnlyIfCurious) {
+/// How each level below must-know is shown. Must-know is always shown normally, and footnote is
+/// never more visible than detail.
+public sealed record NeedToKnowBasis(NeedToKnowDisplay Detail, NeedToKnowDisplay Footnote) {
     public static NeedToKnowBasis Default { get; } = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Faded);
 
     static readonly BehaviorSubject<NeedToKnowBasis> Subject = new(Default);
@@ -21,8 +21,8 @@ public sealed record NeedToKnowBasis(NeedToKnowDisplay WorthKnowing, NeedToKnowD
     }
 
     public NeedToKnowDisplay For(NeedToKnowLevel level) => level switch {
-        NeedToKnowLevel.WorthKnowing  => WorthKnowing,
-        NeedToKnowLevel.OnlyIfCurious => OnlyIfCurious < WorthKnowing ? WorthKnowing : OnlyIfCurious,
+        NeedToKnowLevel.Detail  => Detail,
+        NeedToKnowLevel.Footnote => Footnote < Detail ? Detail : Footnote,
         _                             => NeedToKnowDisplay.Normal,
     };
 }

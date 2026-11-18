@@ -17,7 +17,7 @@ sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
                 renderer.WriteInline(new InlineUIContainer(mark));
                 return;
             case NeedToKnowDisplay.Marked:
-                var glyphs = obj.Level == NeedToKnowLevel.OnlyIfCurious ? 2 : 1;
+                var glyphs = obj.Level == NeedToKnowLevel.Footnote ? 2 : 1;
                 renderer.WriteInline(Glyph(new string(NeedToKnowMarks.Open, glyphs)));
                 renderer.WriteChildren(obj);
                 renderer.WriteInline(Glyph(new string(NeedToKnowMarks.Close, glyphs)));
@@ -25,7 +25,7 @@ sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
             case NeedToKnowDisplay.Faded:
                 var span = new Span();
                 span.Classes.Add(NeedToKnowHover.FadedClass);
-                span.Classes.Add(obj.Level == NeedToKnowLevel.OnlyIfCurious ? "need-to-know-curious" : "need-to-know-worth");
+                span.Classes.Add(obj.Level == NeedToKnowLevel.Footnote ? "need-to-know-footnote" : "need-to-know-detail");
                 renderer.Push(span.Inlines);
                 renderer.WriteChildren(obj);
                 renderer.Pop();

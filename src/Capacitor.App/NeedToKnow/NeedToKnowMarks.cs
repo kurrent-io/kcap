@@ -6,7 +6,7 @@ using Markdig.Syntax.Inlines;
 
 namespace Capacitor.App.NeedToKnow;
 
-/// Reads the importance marks in an agent's answer — `⌞…⌟` worth knowing, `⌞⌞…⌟⌟` only if curious —
+/// Reads the importance marks in an agent's answer — `⌞…⌟` detail, `⌞⌞…⌟⌟` footnote —
 /// and wraps what they enclose for display under the reader's basis. Every block starts at must-know, so a span left open ends
 /// with its block and a stray close is ignored. Only literal text is scanned: a mark inside code is
 /// the code's own text.
@@ -104,18 +104,18 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
         return piece;
     }
 
-    /// A pair opens only-if-curious and a single corner worth-knowing.
+    /// A pair opens footnote and a single corner detail.
     static void OpenRun(List<NeedToKnowLevel> open, int run) {
-        for (; run >= 2; run -= 2) open.Add(NeedToKnowLevel.OnlyIfCurious);
-        if (run == 1) open.Add(NeedToKnowLevel.WorthKnowing);
+        for (; run >= 2; run -= 2) open.Add(NeedToKnowLevel.Footnote);
+        if (run == 1) open.Add(NeedToKnowLevel.Detail);
     }
 
-    /// Each close ends the innermost span; a curious span takes two corners when two are there.
+    /// Each close ends the innermost span; a footnote span takes two corners when two are there.
     static void CloseRun(List<NeedToKnowLevel> open, int run) {
         while (run > 0 && open.Count > 0) {
             var top = open[^1];
             open.RemoveAt(open.Count - 1);
-            run -= top == NeedToKnowLevel.OnlyIfCurious ? Math.Min(2, run) : 1;
+            run -= top == NeedToKnowLevel.Footnote ? Math.Min(2, run) : 1;
         }
     }
 

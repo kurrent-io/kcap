@@ -43,18 +43,18 @@ public class NeedToKnowMarksTests {
             NeedToKnowDisplay.Marked => ("[", "]"),
             _                        => ("<", ">"),
         };
-        return open + (graded.Level == NeedToKnowLevel.WorthKnowing ? "w:" : "c:") + Text(graded) + close;
+        return open + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + close;
     }
 
     static readonly NeedToKnowBasis AllMarked = new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Marked);
     static readonly NeedToKnowBasis AllCollapsed = new(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed);
 
     [Test]
-    public async Task A_single_corner_pair_marks_worth_knowing() =>
+    public async Task A_single_corner_pair_marks_detail() =>
         await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllFaded)).IsEqualTo("Tests pass. {w:7 ran.} CI is green.");
 
     [Test]
-    public async Task A_doubled_corner_pair_marks_only_if_curious() =>
+    public async Task A_doubled_corner_pair_marks_footnote() =>
         await Assert.That(Render("Tests pass. ⌞⌞7 ran.⌟⌟ CI is green.", AllFaded)).IsEqualTo("Tests pass. {c:7 ran.} CI is green.");
 
     [Test]
@@ -74,7 +74,7 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllHidden)).IsEqualTo("Tests pass. CI is green.");
 
     [Test]
-    public async Task Only_if_curious_is_never_shown_more_than_worth_knowing() =>
+    public async Task Footnote_is_never_shown_more_than_detail() =>
         await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
     [Test]
@@ -82,11 +82,11 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("A. ⌞Run `x` now.⌟ B.", AllMarked)).IsEqualTo("A. [w:Run `x` now.] B.");
 
     [Test]
-    public async Task A_curious_span_nests_inside_a_worth_span_and_returns_to_it() =>
+    public async Task A_footnote_span_nests_inside_a_detail_span_and_returns_to_it() =>
         await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟ D.⌟ E.", AllFaded)).IsEqualTo("A. {w:B. }{c:C.}{w: D.} E.");
 
     [Test]
-    public async Task One_run_of_closes_ends_a_curious_span_and_the_worth_span_around_it() =>
+    public async Task One_run_of_closes_ends_a_footnote_span_and_the_detail_span_around_it() =>
         await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟⌟ D.", AllFaded)).IsEqualTo("A. {w:B. }{c:C.} D.");
 
     [Test]

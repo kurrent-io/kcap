@@ -235,18 +235,18 @@
         <Setter Property="FontSize" Value="13.5" />
         <Setter Property="FontStyle" Value="Italic" />
     </Style>
-    <!-- An answer's worth-knowing and only-if-curious text, faded by each level's own opacity. The pointer
-         lifts faded text one level: curious to the worth-knowing fade, worth knowing to full text. -->
-    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-worth, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-worth Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowWorthFadeBrush}" />
+    <!-- An answer's detail and footnote text, faded by each level's own opacity. The pointer
+         lifts faded text one level: footnote to the detail fade, detail to full text. -->
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-detail, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-detail Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowDetailFadeBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-curious, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-curious Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowCuriousFadeBrush}" />
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowFootnoteFadeBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-curious.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-curious.need-to-know-lit Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowWorthFadeBrush}" />
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote.need-to-know-lit Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowDetailFadeBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-worth.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-worth.need-to-know-lit Run.markdown-code-inline">
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-detail.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-detail.need-to-know-lit Run.markdown-code-inline">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Run.need-to-know-glyph">

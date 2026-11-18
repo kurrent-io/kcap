@@ -10,35 +10,35 @@ public class NeedToKnowBasisViewModelTests {
 
     [Before(Test)]
     public void Reset() {
-        Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
-        Model.SetOnlyIfCuriousCommand.Execute(NeedToKnowDisplay.Faded).Subscribe();
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
+        Model.SetFootnoteCommand.Execute(NeedToKnowDisplay.Faded).Subscribe();
     }
 
     [After(Test)]
     public void Restore() => Reset();
 
     [Test]
-    public async Task Raising_worth_knowing_past_only_if_curious_carries_it_along() {
-        Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Collapsed).Subscribe();
+    public async Task Raising_detail_past_footnote_carries_it_along() {
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Collapsed).Subscribe();
 
         await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed));
-        await Assert.That(Model.OnlyIfCuriousCanBeFaded).IsFalse();
-        await Assert.That(Model.OnlyIfCuriousCanBeCollapsed).IsTrue();
+        await Assert.That(Model.FootnoteCanBeFaded).IsFalse();
+        await Assert.That(Model.FootnoteCanBeCollapsed).IsTrue();
     }
 
     [Test]
-    public async Task Only_if_curious_cannot_be_set_more_visible_than_worth_knowing() {
-        Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Marked).Subscribe();
-        Model.SetOnlyIfCuriousCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
+    public async Task Footnote_cannot_be_set_more_visible_than_detail() {
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Marked).Subscribe();
+        Model.SetFootnoteCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
 
-        await Assert.That(NeedToKnowBasis.Current.OnlyIfCurious).IsEqualTo(NeedToKnowDisplay.Marked);
-        await Assert.That(Model.OnlyIfCuriousCanBeNormal).IsFalse();
+        await Assert.That(NeedToKnowBasis.Current.Footnote).IsEqualTo(NeedToKnowDisplay.Marked);
+        await Assert.That(Model.FootnoteCanBeNormal).IsFalse();
     }
 
     [Test]
-    public async Task Lowering_worth_knowing_leaves_only_if_curious_where_it_was() {
-        Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Hidden).Subscribe();
-        Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
+    public async Task Lowering_detail_leaves_footnote_where_it_was() {
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Hidden).Subscribe();
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
 
         await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Hidden));
     }

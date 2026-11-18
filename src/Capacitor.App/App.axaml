@@ -22,8 +22,8 @@
             <SolidColorBrush x:Key="KcapMutedBrush" Color="#B0B7C6" />
             <SolidColorBrush x:Key="KcapFaintBrush" Color="#949BAA" />
             <!-- Faded need-to-know text: the text colour at 60% and 40% opacity, until the right bar's sliders replace them. -->
-            <SolidColorBrush x:Key="NeedToKnowWorthFadeBrush" Color="#99F1F3F7" />
-            <SolidColorBrush x:Key="NeedToKnowCuriousFadeBrush" Color="#66F1F3F7" />
+            <SolidColorBrush x:Key="NeedToKnowDetailFadeBrush" Color="#99F1F3F7" />
+            <SolidColorBrush x:Key="NeedToKnowFootnoteFadeBrush" Color="#66F1F3F7" />
             <!-- Primary CTAs stay on the light ramp. Hover lifts toward white and press steps
                  to a light off-white; a text grey as the fill drops the near-black label's contrast.
                  Green is status only; a selection uses info blue. -->

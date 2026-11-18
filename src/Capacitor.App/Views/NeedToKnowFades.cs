@@ -5,8 +5,8 @@ namespace Capacitor.App.Views;
 
 /// Replaces a need-to-know fade with the text colour at the given opacity.
 static class NeedToKnowFades {
-    public const string WorthKey = "NeedToKnowWorthFadeBrush";
-    public const string CuriousKey = "NeedToKnowCuriousFadeBrush";
+    public const string DetailKey = "NeedToKnowDetailFadeBrush";
+    public const string FootnoteKey = "NeedToKnowFootnoteFadeBrush";
 
     static readonly Color Text = Color.Parse("#F1F3F7");
 

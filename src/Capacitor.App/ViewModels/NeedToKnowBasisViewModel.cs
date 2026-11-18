@@ -6,69 +6,69 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 /// The right bar's need-to-know basis controls. One instance, because the basis is process-wide.
-/// Only-if-curious can never be set more visible than worth-knowing: raising worth-knowing past it
-/// carries it along, and the options above worth-knowing's are disabled.
+/// Footnote can never be set more visible than detail: raising detail past it
+/// carries it along, and the options above detail's are disabled.
 public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public static NeedToKnowBasisViewModel Shared { get; } = new();
 
     NeedToKnowBasis _basis = NeedToKnowBasis.Current;
 
     NeedToKnowBasisViewModel() {
-        SetWorthKnowingCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
-            Apply(new(display, _basis.OnlyIfCurious < display ? display : _basis.OnlyIfCurious)));
-        SetOnlyIfCuriousCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
-            Apply(_basis with { OnlyIfCurious = display < _basis.WorthKnowing ? _basis.WorthKnowing : display }));
+        SetDetailCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
+            Apply(new(display, _basis.Footnote < display ? display : _basis.Footnote)));
+        SetFootnoteCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
+            Apply(_basis with { Footnote = display < _basis.Detail ? _basis.Detail : display }));
     }
 
-    public ReactiveCommand<NeedToKnowDisplay, Unit> SetWorthKnowingCommand { get; }
+    public ReactiveCommand<NeedToKnowDisplay, Unit> SetDetailCommand { get; }
 
     // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
-    double _worthFade = 60;
-    double _curiousFade = 40;
+    double _detailFade = 60;
+    double _footnoteFade = 40;
 
-    public double WorthFade {
-        get => _worthFade;
+    public double DetailFade {
+        get => _detailFade;
         set {
-            this.RaiseAndSetIfChanged(ref _worthFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowFades.WorthKey, _worthFade);
+            this.RaiseAndSetIfChanged(ref _detailFade, Math.Round(value));
+            NeedToKnowFades.Set(NeedToKnowFades.DetailKey, _detailFade);
         }
     }
 
-    public double CuriousFade {
-        get => _curiousFade;
+    public double FootnoteFade {
+        get => _footnoteFade;
         set {
-            this.RaiseAndSetIfChanged(ref _curiousFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowFades.CuriousKey, _curiousFade);
+            this.RaiseAndSetIfChanged(ref _footnoteFade, Math.Round(value));
+            NeedToKnowFades.Set(NeedToKnowFades.FootnoteKey, _footnoteFade);
         }
     }
 
-    public ReactiveCommand<NeedToKnowDisplay, Unit> SetOnlyIfCuriousCommand { get; }
+    public ReactiveCommand<NeedToKnowDisplay, Unit> SetFootnoteCommand { get; }
 
-    public bool WorthKnowingNormal => _basis.WorthKnowing == NeedToKnowDisplay.Normal;
-    public bool WorthKnowingMarked => _basis.WorthKnowing == NeedToKnowDisplay.Marked;
-    public bool WorthKnowingFaded => _basis.WorthKnowing == NeedToKnowDisplay.Faded;
-    public bool WorthKnowingCollapsed => _basis.WorthKnowing == NeedToKnowDisplay.Collapsed;
-    public bool WorthKnowingHidden => _basis.WorthKnowing == NeedToKnowDisplay.Hidden;
-    public bool OnlyIfCuriousNormal => _basis.OnlyIfCurious == NeedToKnowDisplay.Normal;
-    public bool OnlyIfCuriousMarked => _basis.OnlyIfCurious == NeedToKnowDisplay.Marked;
-    public bool OnlyIfCuriousFaded => _basis.OnlyIfCurious == NeedToKnowDisplay.Faded;
-    public bool OnlyIfCuriousCollapsed => _basis.OnlyIfCurious == NeedToKnowDisplay.Collapsed;
-    public bool OnlyIfCuriousHidden => _basis.OnlyIfCurious == NeedToKnowDisplay.Hidden;
-    public bool OnlyIfCuriousCanBeNormal => _basis.WorthKnowing <= NeedToKnowDisplay.Normal;
-    public bool OnlyIfCuriousCanBeMarked => _basis.WorthKnowing <= NeedToKnowDisplay.Marked;
-    public bool OnlyIfCuriousCanBeFaded => _basis.WorthKnowing <= NeedToKnowDisplay.Faded;
-    public bool OnlyIfCuriousCanBeCollapsed => _basis.WorthKnowing <= NeedToKnowDisplay.Collapsed;
+    public bool DetailNormal => _basis.Detail == NeedToKnowDisplay.Normal;
+    public bool DetailMarked => _basis.Detail == NeedToKnowDisplay.Marked;
+    public bool DetailFaded => _basis.Detail == NeedToKnowDisplay.Faded;
+    public bool DetailCollapsed => _basis.Detail == NeedToKnowDisplay.Collapsed;
+    public bool DetailHidden => _basis.Detail == NeedToKnowDisplay.Hidden;
+    public bool FootnoteNormal => _basis.Footnote == NeedToKnowDisplay.Normal;
+    public bool FootnoteMarked => _basis.Footnote == NeedToKnowDisplay.Marked;
+    public bool FootnoteFaded => _basis.Footnote == NeedToKnowDisplay.Faded;
+    public bool FootnoteCollapsed => _basis.Footnote == NeedToKnowDisplay.Collapsed;
+    public bool FootnoteHidden => _basis.Footnote == NeedToKnowDisplay.Hidden;
+    public bool FootnoteCanBeNormal => _basis.Detail <= NeedToKnowDisplay.Normal;
+    public bool FootnoteCanBeMarked => _basis.Detail <= NeedToKnowDisplay.Marked;
+    public bool FootnoteCanBeFaded => _basis.Detail <= NeedToKnowDisplay.Faded;
+    public bool FootnoteCanBeCollapsed => _basis.Detail <= NeedToKnowDisplay.Collapsed;
 
     void Apply(NeedToKnowBasis basis) {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
-                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingFaded),
-                     nameof(WorthKnowingCollapsed), nameof(WorthKnowingHidden),
-                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousFaded),
-                     nameof(OnlyIfCuriousCollapsed), nameof(OnlyIfCuriousHidden),
-                     nameof(OnlyIfCuriousCanBeNormal), nameof(OnlyIfCuriousCanBeMarked),
-                     nameof(OnlyIfCuriousCanBeFaded), nameof(OnlyIfCuriousCanBeCollapsed),
+                     nameof(DetailNormal), nameof(DetailMarked), nameof(DetailFaded),
+                     nameof(DetailCollapsed), nameof(DetailHidden),
+                     nameof(FootnoteNormal), nameof(FootnoteMarked), nameof(FootnoteFaded),
+                     nameof(FootnoteCollapsed), nameof(FootnoteHidden),
+                     nameof(FootnoteCanBeNormal), nameof(FootnoteCanBeMarked),
+                     nameof(FootnoteCanBeFaded), nameof(FootnoteCanBeCollapsed),
                  })
             this.RaisePropertyChanged(name);
     }
